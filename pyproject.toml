@@ -1,0 +1,64 @@
+# ============================================================
+#  小6智能体 · 工程工具配置
+#  这里只放"工具怎么跑"，不放打包元数据（打包用 xiao6.spec / PyInstaller）。
+#  用法：
+#      py -3 -m pytest                     跑测试
+#      py -3 -m black --check core gui     检查格式
+#      py -3 -m ruff check core gui        静态检查
+#  未安装这些工具时不影响程序运行，按需 pip install black ruff mypy 即可。
+# ============================================================
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-ra"
+# data/ 与 libs/ 里都是运行时数据与第三方库，不收集
+norecursedirs = ["libs", "data", "backups", "staging", "updates", "modules_repo", "__pycache__"]
+
+[tool.black]
+line-length = 110
+target-version = ["py310"]
+extend-exclude = '''
+/(
+    libs
+  | data
+  | backups
+  | staging
+  | updates
+  | modules_repo
+  | optional_libs
+)/
+'''
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+extend-exclude = ["libs", "data", "backups", "staging", "updates", "modules_repo", "optional_libs"]
+
+[tool.ruff.lint]
+# 起步阶段只查真正会导致 bug 的类别，不追求风格洁癖：
+#   E9  语法/运行时错误   F 未使用变量与未定义名字   B 常见陷阱
+select = ["E9", "F", "B"]
+ignore = [
+    "E501",  # 行长（中文注释多，交给 black）
+    "F401",  # 未使用的 import：大量模块是"留着备用"的可选依赖
+    "F841",  # 赋值未使用：同上
+    "B008",  # 函数默认值里调用函数
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试里允许 assert 与通配导入
+"tests/*" = ["B011"]
+# 这些模块刻意用宽泛 except 兜底（插件/沙箱/自愈），不报 B902 类
+"modules_repo/*" = ["B"]
+
+[tool.mypy]
+python_version = "3.10"
+# 渐进式：先只对 core 做类型检查，不追求全量通过
+files = ["core"]
+ignore_missing_imports = true
+warn_unused_ignores = false
+warn_return_any = false
+check_untyped_defs = true
+exclude = '^(libs|data|backups|staging|updates|modules_repo|optional_libs)/'

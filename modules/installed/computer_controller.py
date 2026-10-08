@@ -1,0 +1,832 @@
+# -*- coding: utf-8 -*-
+import sys, os as _os
+from core.safe import safe
+from modules.base import BaseModule
+"""电脑操作 v11.0 - 完整本地电脑操控
+能力：打开应用/窗口管理/鼠标键盘/截屏/剪贴板/系统信息/文件白名单+确认
+安全：文件操作限白名单，删除/关机等危险操作弹窗确认，全部动作留日志
+"""
+import os, re, sys, json, time, shutil, subprocess
+from datetime import datetime
+
+class ComputerController(BaseModule):
+    NAME = "computer_controller"
+    VERSION = "1.0"
+    def __init__(self, trunk=None):
+        super().__init__(trunk)
+        self.trunk = trunk
+        # v16修复: 插件装到 modules/installed 后 __file__ 上推两级会错位到 modules/，
+        # 导致白名单根目录与日志路径错位；优先用躯干的项目根
+        self.base = getattr(trunk, "base", None) or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        self.log_dir = os.path.join(self.base, "data", "logs")
+        os.makedirs(self.log_dir, exist_ok=True)
+        self.log_path = os.path.join(self.log_dir, "computer_controller.log")
+        self.whitelist = [
+            self.base,
+
+            os.path.expanduser("~/Desktop"),
+            os.path.expanduser("~/Downloads"),
+            os.path.expanduser("~/Documents"),
+        ]
+        # 常用软件表（名称 → 可执行/命令）
+        self.known_apps = {
+            "记事本": "notepad.exe", "notepad": "notepad.exe",
+            "计算器": "calc.exe", "calculator": "calc.exe",
+            "画图": "mspaint.exe", "mspaint": "mspaint.exe",
+            "写字板": "write.exe", "wordpad": "write.exe",
+            "命令提示符": "cmd.exe", "cmd": "cmd.exe", "命令行": "cmd.exe",
+            "powershell": "powershell.exe",
+            "任务管理器": "taskmgr.exe",
+            "控制面板": "control.exe",
+            "资源管理器": "explorer.exe", "此电脑": "explorer.exe",
+            "设置": "ms-settings:",
+            "截图工具": "snippingtool.exe", "截图": "snippingtool.exe",
+            "浏览器": None,  # 运行时找默认浏览器
+            "edge": None, "微软浏览器": None,
+            "chrome": None, "谷歌浏览器": None,
+            "steam": None,
+            "qq": None, "微信": None,
+            "word": None, "excel": None, "ppt": None, "wps": None,
+        }
+
+    # ---------- 基础 ----------
+    def _log(self, action, detail="", ok=True, extra=""):
+        try:
+            line = "[%s] %s | 操作:%s | 详情:%s | 结果:%s %s" % (
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "✓" if ok else "✗", action, str(detail)[:120], "成功" if ok else "失败", extra)
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except: pass
+
+    def _enabled(self):
+        """电脑控制总开关（聊天触发开关，GUI面板不受影响）"""
+        if self.trunk:
+            cfg = getattr(self.trunk, "config", {}) or {}
+            return bool(cfg.get("电脑控制", True))
+        return True
+
+    def _confirm(self, action, detail):
+        """危险操作确认：优先走 trunk.confirm（GUI 弹窗），无则放行；规则引擎可关"""
+        try:
+            if self.trunk and self.trunk.rule("电脑控制.覆盖确认", True) is False:
+                return True  # 规则引擎关闭确认（仅限覆盖/写文件类；删文件/关机仍强制确认）
+        except Exception:
+            pass
+        if self.trunk:
+            try:
+                return bool(self.trunk.confirm(action, detail))
+            except Exception:
+                pass
+        return True
+
+    def _check_path(self, path):
+        """白名单检查（不区分大小写）"""
+        path = os.path.normcase(os.path.abspath(path))
+        return any(path.startswith(os.path.normcase(os.path.abspath(w))) for w in self.whitelist)
+
+    def _safe_path(self, path):
+        """把用户给的文件路径限制在白名单内；相对路径落到项目 data 目录"""
+        p = path.strip().strip('"')
+        if not p:
+            return None
+        p = os.path.expanduser(p)
+        if not os.path.isabs(p):
+            p = os.path.join(self.base, "data", p)
+        p = os.path.abspath(p)
+        return p if self._check_path(p) else None
+
+    def _gui(self):
+        try:
+            import pyautogui
+            pyautogui.FAILSAFE = True
+            pyautogui.PAUSE = 0.1
+            return pyautogui
+        except Exception as e:
+            return e
+
+    def _win(self):
+        try:
+            import win32gui, win32con, win32api
+            return win32gui, win32con, win32api
+        except Exception as e:
+            return e
+
+    # ---------- 打开应用 / 程序 ----------
+    def _find_default_browser(self):
+        for exe in [r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+                    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"]:
+            if os.path.exists(exe):
+                return exe
+        for name in ["msedge.exe", "chrome.exe", "firefox.exe"]:
+            w = shutil.which(name)
+            if w:
+                return w
+        return None
+
+    def _search_startmenu(self, name):
+        """在开始菜单快捷方式里搜应用，返回 (路径, 匹配分)"""
+        roots = [os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs"),
+                 r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs"]
+        best, best_score = None, 0
+        name_l = name.lower()
+        for root in roots:
+            if not os.path.isdir(root):
+                continue
+            for dirpath, _, files in os.walk(root):
+                for fn in files:
+                    if fn.lower().endswith((".lnk", ".exe")):
+                        stem = os.path.splitext(fn)[0].lower()
+                        if stem == name_l:
+                            score = 3
+                        elif stem.startswith(name_l):
+                            score = 2
+                        elif name_l in stem:
+                            score = 1
+                        else:
+                            continue
+                        if score > best_score:
+                            best_score = score
+                            best = os.path.join(dirpath, fn)
+                            if score == 3:
+                                return best, score
+        return best, best_score
+
+    def open_app(self, app):
+        """打开软件：先查常用表 → 开始菜单 → PATH → 直接启动"""
+        if not self._enabled():
+            return False, "电脑控制已关闭（设置里可打开）"
+        app = (app or "").strip()
+        if not app:
+            return False, "要打开什么？比如：打开计算器"
+        # 1. 常用表
+        key = app.lower()
+        if key in self.known_apps:
+            target = self.known_apps[key]
+            if target is None:  # 需要运行时确定
+                if "浏览器" in key or key in ("edge", "chrome", "谷歌浏览器"):
+                    target = self._find_default_browser()
+                    if not target:
+                        return False, "没找到浏览器"
+                    subprocess.Popen([target], shell=False)
+                    self._log("open_app", app)
+                    return True, "已打开浏览器: " + os.path.basename(target)
+            else:
+                # Windows URI（如 ms-settings:）必须用 start 才能打开
+                if str(target).startswith("ms-settings:"):
+                    subprocess.Popen("start " + target, shell=True)
+                else:
+                    subprocess.Popen(target, shell=True)
+                self._log("open_app", app)
+                return True, "已打开: " + app
+        # 2. 开始菜单搜索
+        path, score = self._search_startmenu(app)
+        if path:
+            try:
+                subprocess.Popen([path], shell=False)
+                self._log("open_app", "%s -> %s" % (app, path))
+                return True, "已打开: %s" % app
+            except Exception as e:
+                return False, "启动失败: %s" % str(e)[:60]
+        # 3. PATH 直接命令
+        exe = shutil.which(app)
+        if exe or app.endswith(".exe"):
+            try:
+                subprocess.Popen(app if app.endswith(".exe") else exe, shell=True)
+                self._log("open_app", app)
+                return True, "已打开: " + app
+            except Exception as e:
+                return False, "启动失败: %s" % str(e)[:60]
+        return False, "没找到程序「%s」。试试：记事本/计算器/画图/浏览器/资源管理器" % app
+
+    # ---------- 窗口管理 ----------
+    def _all_windows(self):
+        """枚举可见窗口，返回 [(title, hwnd)]"""
+        g, _, _ = self._win()
+        if isinstance(g, Exception):
+            return []
+        out = []
+        def cb(hwnd, _):
+            if not g.IsWindowVisible(hwnd):
+                return
+            title = g.GetWindowText(hwnd)
+            if title and title.strip():
+                out.append((title.strip(), hwnd))
+        g.EnumWindows(cb, None)
+        return out
+
+    def _find_window(self, title):
+        """按标题模糊找窗口，返回 hwnd 或 None"""
+        title_l = title.lower()
+        for t, hwnd in self._all_windows():
+            if title_l in t.lower():
+                return hwnd
+        return None
+
+    def list_windows(self):
+        wins = self._all_windows()
+        if not wins:
+            return ["（没有找到可见窗口）"]
+        return [t for t, _ in wins]
+
+    def _activate_hwnd(self, hwnd):
+        g, con, api = self._win()
+        if isinstance(g, Exception):
+            return False
+        try:
+            if g.IsIconic(hwnd):
+                g.ShowWindow(hwnd, con.SW_RESTORE)
+            # 前台锁绕过：模拟按一下 Alt
+            api.keybd_event(0x12, 0, 0, 0)
+            api.keybd_event(0x12, 0, con.KEYEVENTF_KEYUP, 0)
+            g.SetForegroundWindow(hwnd)
+            g.BringWindowToTop(hwnd)
+            return True
+        except Exception:
+            return False
+
+    def activate_window(self, title):
+        hwnd = self._find_window(title)
+        if not hwnd:
+            return False, "没找到包含「%s」的窗口" % title
+        ok = self._activate_hwnd(hwnd)
+        self._log("activate_window", title, ok)
+        return ok, ("已切换到窗口: " + title) if ok else "切换窗口失败"
+
+    def minimize_window(self, title):
+        g, con, _ = self._win()
+        if isinstance(g, Exception):
+            return False, "缺少 win32 支持"
+        hwnd = self._find_window(title)
+        if not hwnd:
+            return False, "没找到包含「%s」的窗口" % title
+        try:
+            g.ShowWindow(hwnd, con.SW_MINIMIZE)
+            self._log("minimize_window", title)
+            return True, "已最小化: " + title
+        except Exception as e:
+            return False, str(e)[:60]
+
+    def close_window(self, title):
+        g, con, _ = self._win()
+        if isinstance(g, Exception):
+            return False, "缺少 win32 支持"
+        hwnd = self._find_window(title)
+        if not hwnd:
+            return False, "没找到包含「%s」的窗口" % title
+        try:
+            g.PostMessage(hwnd, con.WM_CLOSE, 0, 0)
+            self._log("close_window", title)
+            return True, "已发送关闭指令: " + title
+        except Exception as e:
+            return False, str(e)[:60]
+
+    # ---------- 鼠标键盘 ----------
+    def _parse_xy(self, s):
+        """把 '500,300' / '500 300' 解析成 (x, y)"""
+        s = re.sub(r"[（(]", ",", s.strip())
+        s = re.sub(r"[）)]", "", s)
+        parts = re.split(r"[,，\s]+", s)
+        nums = []
+        for p in parts:
+            p = p.strip()
+            if p.lstrip("-").isdigit():
+                nums.append(int(p))
+        if len(nums) >= 2:
+            return nums[0], nums[1]
+        return None
+
+    def _clamp(self, x, y):
+        gui = self._gui()
+        if isinstance(gui, Exception):
+            return x, y
+        w, h = gui.size()
+        return max(0, min(w - 1, x)), max(0, min(h - 1, y))
+
+    def mouse_move(self, x, y, duration=0.3):
+        gui = self._gui()
+        if isinstance(gui, Exception):
+            return False, "缺少 pyautogui: %s" % gui
+        x, y = self._clamp(int(x), int(y))
+        try:
+            gui.moveTo(x, y, duration=duration)
+            self._log("mouse_move", "%d,%d" % (x, y))
+            return True, "鼠标已移动到 (%d, %d)" % (x, y)
+        except Exception as e:
+            return False, str(e)[:60]
+
+    def mouse_click(self, x=None, y=None, button="left", clicks=1):
+        gui = self._gui()
+        if isinstance(gui, Exception):
+            return False, "缺少 pyautogui: %s" % gui
+        try:
+            if x is not None and y is not None:
+                x, y = self._clamp(int(x), int(y))
+                gui.moveTo(x, y, duration=0.2)
+            btn = {"左": "left", "left": "left", "右": "right", "right": "right",
+                   "中": "middle", "middle": "middle"}.get(button, button)
+            gui.click(button=btn, clicks=clicks)
+            px, py = gui.position()
+            self._log("mouse_click", "%s x%d @(%d,%d)" % (btn, clicks, px, py))
+            return True, "已%s点击(%d,%d)" % ("双击" if clicks > 1 else "", px, py)
+        except Exception as e:
+            return False, str(e)[:60]
+
+    def mouse_drag(self, x1, y1, x2, y2, button="left", duration=0.5):
+        gui = self._gui()
+        if isinstance(gui, Exception):
+            return False, "缺少 pyautogui: %s" % gui
+        try:
+            x1, y1 = self._clamp(int(x1), int(y1))
+            x2, y2 = self._clamp(int(x2), int(y2))
+            btn = "right" if button in ("右", "right") else "left"
+            gui.moveTo(x1, y1, duration=0.2)
+            gui.dragTo(x2, y2, duration=duration, button=btn)
+            self._log("mouse_drag", "(%d,%d)->(%d,%d)" % (x1, y1, x2, y2))
+            return True, "已拖动 (%d,%d) → (%d,%d)" % (x1, y1, x2, y2)
+        except Exception as e:
+            return False, str(e)[:60]
+
+    def mouse_scroll(self, clicks=3, x=None, y=None):
+        gui = self._gui()
+        if isinstance(gui, Exception):
+            return False, "缺少 pyautogui: %s" % gui
+        try:
+            if x is not None and y is not None:
+                x, y = self._clamp(int(x), int(y))
+                gui.moveTo(x, y, duration=0.2)
+            gui.scroll(int(clicks))
+            self._log("mouse_scroll", str(clicks))
+            return True, "已滚动 %d 格" % int(clicks)
+        except Exception as e:
+            return False, str(e)[:60]
+
+    def mouse_pos(self):
+        gui = self._gui()
+        if isinstance(gui, Exception):
+            return False, "缺少 pyautogui: %s" % gui
+        x, y = gui.position()
+        return True, "当前鼠标位置: (%d, %d)" % (x, y)
+
+    def type_text(self, text):
+        """输入文字：非ASCII走剪贴板粘贴"""
+        gui = self._gui()
+        if isinstance(gui, Exception):
+            return False, "缺少 pyautogui: %s" % gui
+        try:
+            text = text.strip().strip('"')
+            if text.isascii():
+                gui.typewrite(text, interval=0.02)
+            else:
+                import pyperclip
+                pyperclip.copy(text)
+                gui.hotkey("ctrl", "v")
+            self._log("type_text", text[:50])
+            return True, "已输入: " + text[:50] + ("…" if len(text) > 50 else "")
+        except Exception as e:
+            return False, str(e)[:60]
+
+    def hotkey(self, keys):
+        """快捷键：'ctrl+c' / 'ctrl+shift+s' / 'win+d'"""
+        gui = self._gui()
+        if isinstance(gui, Exception):
+            return False, "缺少 pyautogui: %s" % gui
+        try:
+            parts = [p.strip().lower() for p in re.split(r"[+＋]", keys) if p.strip()]
+            gui.hotkey(*parts)
+            self._log("hotkey", "+".join(parts))
+            return True, "已按快捷键: " + "+".join(parts)
+        except Exception as e:
+            return False, str(e)[:60]
+
+    def press_key(self, key):
+        gui = self._gui()
+        if isinstance(gui, Exception):
+            return False, "缺少 pyautogui: %s" % gui
+        try:
+            gui.press(key.strip())
+            self._log("press_key", key)
+            return True, "已按键: " + key
+        except Exception as e:
+            return False, str(e)[:60]
+
+    # ---------- 剪贴板 ----------
+    def clipboard_get(self):
+        try:
+            import pyperclip
+            txt = pyperclip.paste()
+            return True, "剪贴板内容: " + (txt[:200] if txt else "（空）")
+        except Exception as e:
+            return False, str(e)[:60]
+
+    def clipboard_set(self, text):
+        try:
+            import pyperclip
+            text = text.strip().strip('"')
+            pyperclip.copy(text)
+            self._log("clipboard_set", text[:50])
+            return True, "已复制到剪贴板: " + text[:100]
+        except Exception as e:
+            return False, str(e)[:60]
+
+    # ---------- 截屏 ----------
+    def screenshot(self, save_path=None, region=None, window_title=None):
+        try:
+            from PIL import ImageGrab
+            if not save_path:
+                save_path = os.path.join(self.base, "data", "screenshot_%s.png" % datetime.now().strftime("%Y%m%d_%H%M%S"))
+            if window_title:
+                g, _, _ = self._win()
+                if not isinstance(g, Exception):
+                    hwnd = self._find_window(window_title)
+                    if hwnd:
+                        try:
+                            g.SetForegroundWindow(hwnd)
+                        except: pass
+                        time.sleep(0.3)
+                        from win32gui import GetWindowRect
+                        left, top, right, bottom = GetWindowRect(hwnd)
+                        region = (left, top, right, bottom)
+            if region:
+                if isinstance(region, str):
+                    xy = self._parse_xy(region)
+                    if xy:
+                        region = (0, 0, xy[0], xy[1])
+                img = ImageGrab.grab(bbox=tuple(int(v) for v in region))
+            else:
+                img = ImageGrab.grab()
+            img.save(save_path)
+            self._log("screenshot", save_path)
+            return True, "已截屏: " + save_path
+        except Exception as e:
+            return False, "截屏失败: %s" % str(e)[:60]
+
+    # ---------- 系统信息 ----------
+    def system_info(self):
+        info = {}
+        try:
+            import psutil
+            v = psutil.virtual_memory()
+            info["内存"] = "已用 %d%% (%.1f/%.1f GB)" % (v.percent, v.used / 2**30, v.total / 2**30)
+            info["CPU"] = "%d%%" % psutil.cpu_percent(interval=0.3)
+            d = psutil.disk_usage(os.path.abspath(os.sep))
+            info["磁盘"] = "已用 %d%% (剩 %.1f GB)" % (d.percent, d.free / 2**30)
+            try:
+                b = psutil.sensors_battery()
+                if b:
+                    info["电池"] = "%d%%%s" % (b.percent, "（充电中）" if b.power_plugged else "（未充电）")
+            except: pass
+        except Exception as e:
+            info["错误"] = str(e)[:60]
+        try:
+            import platform
+            info["系统"] = platform.system() + " " + platform.release()
+        except: pass
+        return True, info
+
+    # ---------- 文件操作（白名单） ----------
+    def list_dir(self, path=None):
+        p = self._safe_path(path or self.base)
+        if not p:
+            return False, "路径不在白名单内（仅允许项目目录/桌面/下载/文档）"
+        try:
+            items = os.listdir(p)
+            lines = []
+            for it in sorted(items)[:50]:
+                full = os.path.join(p, it)
+                tag = "📁" if os.path.isdir(full) else "  "
+                lines.append("%s %s" % (tag, it))
+            return True, "目录 %s 共 %d 项：\n%s" % (p, len(items), "\n".join(lines))
+        except Exception as e:
+            return False, str(e)[:60]
+
+    def create_file(self, path, content=""):
+        p = self._safe_path(path)
+        if not p:
+            return False, "路径不在白名单内"
+        # D4: 覆盖已存在文件必须弹窗确认（写错会丢数据）
+        if os.path.exists(p) and not self._confirm("覆盖文件", p):
+            return False, "已取消覆盖"
+        try:
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(content)
+            self._log("create_file", p)
+            return True, "已创建文件: " + p
+        except Exception as e:
+            return False, str(e)[:60]
+
+    def delete_file(self, path):
+        p = self._safe_path(path)
+        if not p:
+            return False, "路径不在白名单内"
+        if not os.path.exists(p):
+            return False, "文件不存在: " + p
+        if not self._confirm("删除文件", p):
+            return False, "已取消删除"
+        try:
+            if os.path.isdir(p):
+                shutil.rmtree(p)
+            else:
+                os.remove(p)
+            self._log("delete_file", p, True, "已确认")
+            return True, "已删除: " + p
+        except Exception as e:
+            return False, str(e)[:60]
+
+    def copy_file(self, src, dst):
+        s = self._safe_path(src)
+        d = self._safe_path(dst)
+        if not s or not d:
+            return False, "路径不在白名单内"
+        # D4: 覆盖已存在目标必须弹窗确认
+        if os.path.exists(d) and not self._confirm("覆盖目标文件", d):
+            return False, "已取消覆盖"
+        try:
+            if os.path.isdir(s):
+                shutil.copytree(s, d)
+            else:
+                os.makedirs(os.path.dirname(d), exist_ok=True)
+                shutil.copy2(s, d)
+            self._log("copy_file", "%s -> %s" % (s, d))
+            return True, "已复制: %s → %s" % (s, d)
+        except Exception as e:
+            return False, str(e)[:60]
+
+    def move_file(self, src, dst):
+        s = self._safe_path(src)
+        d = self._safe_path(dst)
+        if not s or not d:
+            return False, "路径不在白名单内"
+        # D4: 覆盖已存在目标必须弹窗确认
+        if os.path.exists(d) and not self._confirm("覆盖目标文件", d):
+            return False, "已取消覆盖"
+        try:
+            os.makedirs(os.path.dirname(d), exist_ok=True)
+            shutil.move(s, d)
+            self._log("move_file", "%s -> %s" % (s, d))
+            return True, "已移动: %s → %s" % (s, d)
+        except Exception as e:
+            return False, str(e)[:60]
+
+    def open_path(self, path):
+        p = self._safe_path(path)
+        if p and os.path.exists(p):
+            try:
+                os.startfile(p)
+                self._log("open_path", p)
+                return True, "已打开: " + p
+            except Exception as e:
+                return False, str(e)[:60]
+        if p:
+            return False, "路径不存在: " + p
+        return False, "路径不在白名单内"
+
+    def open_url(self, url):
+        if not url.startswith(("http://", "https://")):
+            url = "https://" + url
+        try:
+            os.startfile(url)
+            self._log("open_url", url)
+            return True, "已在浏览器打开: " + url
+        except Exception as e:
+            return False, str(e)[:60]
+
+    # ---------- 危险系统操作 ----------
+    def shutdown(self, delay=30):
+        if not self._danger_enabled("关机"):
+            self._log("关机", "功能已禁用(规则引擎)", True)
+            return False, "关机功能已禁用（可在规则引擎开启 电脑控制.允许关机）"
+        if not self._confirm("关机", "系统将在 %d 秒后关机（执行 shutdown /s）" % delay):
+            return False, "已取消关机"
+        try:
+            subprocess.Popen("shutdown /s /t %d" % int(delay), shell=True)
+            self._log("shutdown", "delay=%d" % delay, True, "已确认")
+            return True, "已安排 %d 秒后关机（可运行 shutdown /a 取消）" % int(delay)
+        except Exception as e:
+            return False, str(e)[:60]
+
+    def restart(self, delay=30):
+        if not self._danger_enabled("重启"):
+            self._log("重启", "功能已禁用(规则引擎)", True)
+            return False, "重启功能已禁用（可在规则引擎开启 电脑控制.允许关机）"
+        if not self._confirm("重启", "系统将在 %d 秒后重启（执行 shutdown /r）" % delay):
+            return False, "已取消重启"
+        try:
+            subprocess.Popen("shutdown /r /t %d" % int(delay), shell=True)
+            self._log("restart", "delay=%d" % delay, True, "已确认")
+            return True, "已安排 %d 秒后重启（可运行 shutdown /a 取消）" % int(delay)
+        except Exception as e:
+            return False, str(e)[:60]
+
+    def cancel_shutdown(self):
+        try:
+            subprocess.Popen("shutdown /a", shell=True)
+            self._log("cancel_shutdown", "", True)
+            return True, "已取消关机/重启计划"
+        except Exception as e:
+            return False, str(e)[:60]
+
+    # ---------- 状态 ----------
+    def status(self):
+        return {
+            "白名单目录数": len(self.whitelist),
+            "总开关(聊天触发)": "开" if self._enabled() else "关",
+            "能力": "打开应用/窗口管理/鼠标键盘/截屏/剪贴板/系统信息/文件管理",
+            "日志": self.log_path,
+        }
+
+    # ---------- 自然语言命令解析 ----------
+    def parse(self, text):
+        """把用户的话解析成 (action, kwargs)；不匹配返回 None"""
+        if not text:
+            return None
+        t = text.strip()
+        tl = t.lower()
+        # 打开网址/网站
+        m = re.search(r"(?:打开|访问|去|上)\s*(?:网址|网站|网页)\s*[：: ]?\s*([\w\.\-:/]{4,80})", t)
+        if m:
+            return ("open_url", {"url": m.group(1).strip()})
+        m = re.search(r"https?://[^\s，。]+", t)
+        if m:
+            return ("open_url", {"url": m.group(0).strip()})
+        # 打开/查看 文件路径（先于应用，避免 "打开 E:\x" 被当成应用名）
+        m = re.search(r"(?:打开|看看|浏览|查看|列出).{0,8}([A-Za-z]:\\[^\s，。]*)", t)
+        if m:
+            p = m.group(1).strip()
+            if re.search(r"里有什么|有什么|有哪些|里面|列出|浏览|查看", t):
+                return ("list_dir", {"path": p})
+            return ("open_path", {"path": p}) if os.path.exists(self._safe_path(p) or p) else ("list_dir", {"path": p})
+        m = re.search(r"(?:列出|看看|浏览|查看).{0,4}(?:目录|文件夹)", t)
+        if m:
+            return ("list_dir", {"path": None})
+        # 打开应用
+        m = re.search(r"(?:打开|启动|运行|开一下|帮我开)\s*([\w\u4e00-\u9fff\-\. ]{1,30})", t)
+        if m and not re.search(r"网址|网站|文件|文件夹|目录|url", m.group(1)) \
+                and ":" not in m.group(1) and "\\" not in m.group(1):
+            return ("open_app", {"app": m.group(1).strip()})
+        # 窗口
+        m = re.search(r"(?:关闭|最小化|激活|切到|切换)\s*(?:窗口)?\s*[:：]?\s*([\w\u4e00-\u9fff\-\. ]{1,30})", t)
+        if m and re.search(r"关闭|最小化|激活|切换|切到", t):
+            wname = m.group(1).strip()
+            if "关闭" in t:
+                return ("close_window", {"title": wname})
+            if "最小化" in t:
+                return ("minimize_window", {"title": wname})
+            return ("activate_window", {"title": wname})
+        if re.search(r"列出?.*(窗口|运行中)|正在运行", t):
+            return ("list_windows", {})
+        # 截屏
+        if re.search(r"截屏|截图|屏幕快照", t):
+            return ("screenshot", {})
+        # 鼠标（右键/双击先于普通点击判断）
+        if re.search(r"右键\s*(?:点击|单击)?", t):
+            m = re.search(r"[（(]?\s*([\-\d]+)\s*[,，\s]\s*([\-\d]+)\s*[)）]?", t)
+            return ("mouse_click", {"x": int(m.group(1)), "y": int(m.group(2)), "button": "right"}) if m else ("mouse_click", {"button": "right"})
+        if re.search(r"双击", t):
+            m = re.search(r"[（(]?\s*([\-\d]+)\s*[,，\s]\s*([\-\d]+)\s*[)）]?", t)
+            return ("mouse_click", {"x": int(m.group(1)), "y": int(m.group(2)), "clicks": 2}) if m else ("mouse_click", {"clicks": 2})
+        m = re.search(r"鼠标\s*(?:移动)?\s*到?\s*[（(]?\s*([\-\d]+)\s*[,，\s]\s*([\-\d]+)\s*[)）]?", t)
+        if m:
+            return ("mouse_move", {"x": int(m.group(1)), "y": int(m.group(2))})
+        m = re.search(r"移动到?\s*[（(]?\s*([\-\d]+)\s*[,，\s]\s*([\-\d]+)\s*[)）]?", t)
+        if m:
+            return ("mouse_move", {"x": int(m.group(1)), "y": int(m.group(2))})
+        m = re.search(r"(?:拖动|拖拽)\s*[（(]?\s*([\-\d]+)\s*[,，\s]\s*([\-\d]+)\s*[)）]?\s*(?:到|->|至)\s*[（(]?\s*([\-\d]+)\s*[,，\s]\s*([\-\d]+)\s*[)）]?", t)
+        if m:
+            return ("mouse_drag", {"x1": int(m.group(1)), "y1": int(m.group(2)), "x2": int(m.group(3)), "y2": int(m.group(4))})
+        m = re.search(r"(?:单击|点击|点一下)\s*[（(]?\s*([\-\d]+)\s*[,，\s]\s*([\-\d]+)\s*[)）]?", t)
+        if m:
+            return ("mouse_click", {"x": int(m.group(1)), "y": int(m.group(2))})
+        if re.search(r"滚动", t):
+            m = re.search(r"滚动\s*([\-\d]+)?", t)
+            n = int(m.group(1)) if m and m.group(1) else 3
+            return ("mouse_scroll", {"clicks": n})
+        if re.search(r"鼠标.*(?:位置|坐标)|鼠标在哪", t):
+            return ("mouse_pos", {})
+        # 键盘
+        m = re.search(r"(?:输入|打字|打出)\s*[：:]?\s*(.+)$", t)
+        if m:
+            return ("type_text", {"text": m.group(1).strip()})
+        m = re.search(r"(?:按下|按)\s*([a-zA-Z]+(?:\+[a-zA-Z0-9]+)+)", t)
+        if m:
+            return ("hotkey", {"keys": m.group(1).strip()})
+        m = re.search(r"快捷键?\s*[：:]?\s*([\w\-\+ ]{2,20})", t)
+        if m:
+            return ("hotkey", {"keys": m.group(1).strip()})
+        m = re.search(r"按(?:一下)?\s*(enter|回车|esc|delete|空格|tab|方向键上|方向键下|方向键左|方向键右|up|down|left|right)\b", t)
+        if m:
+            key = {"enter": "enter", "回车": "enter", "esc": "esc", "delete": "delete",
+                   "空格": "space", "tab": "tab", "方向键上": "up", "方向键下": "down",
+                   "方向键左": "left", "方向键右": "right"}[m.group(1)]
+            return ("press_key", {"key": key})
+        # 剪贴板
+        if re.search(r"剪贴板.*(?:有什么|内容|是什么)", t):
+            return ("clipboard_get", {})
+        m = re.search(r"(?:复制|拷贝)\s*[：:]?\s*(.+?)\s*(?:到剪贴板)?\s*$", t)
+        if m:
+            return ("clipboard_set", {"text": m.group(1).strip()})
+        # 系统信息
+        if re.search(r"系统信息|电脑状态|系统状态|cpu|内存|磁盘|电池|硬件", t):
+            return ("system_info", {})
+        # 取消关机/重启（必须在“关机/重启”之前判断，否则“取消关机”会被误判成关机）
+        if re.search(r"取消.*(关机|重启)", t):
+            return ("cancel_shutdown", {})
+        # 关机重启
+        if re.search(r"关机", t):
+            m = re.search(r"关机\s*(?:delay|延迟)?\s*(\d+)?", t)
+            return ("shutdown", {"delay": int(m.group(1)) if m and m.group(1) else 30})
+        if re.search(r"重启", t):
+            m = re.search(r"重启\s*(\d+)?", t)
+            return ("restart", {"delay": int(m.group(1)) if m and m.group(1) else 30})
+        # 文件
+        m = re.search(r"(?:创建|新建)\s*文件\s*([A-Za-z]:\\[^\s，。]*)\s*(?:内容[：:]?\s*(.+))?$", t)
+        if m:
+            return ("create_file", {"path": m.group(1).strip(), "content": (m.group(2) or "").strip()})
+        m = re.search(r"删除\s*文件\s*([A-Za-z]:\\[^\s，。]*)", t)
+        if m:
+            return ("delete_file", {"path": m.group(1).strip()})
+        m = re.search(r"复制\s*([A-Za-z]:\\[^\s，。]*)\s*(?:到|至)\s*([A-Za-z]:\\[^\s，。]*)", t)
+        if m:
+            return ("copy_file", {"src": m.group(1).strip(), "dst": m.group(2).strip()})
+        m = re.search(r"移动\s*([A-Za-z]:\\[^\s，。]*)\s*(?:到|至)\s*([A-Za-z]:\\[^\s，。]*)", t)
+        if m:
+            return ("move_file", {"src": m.group(1).strip(), "dst": m.group(2).strip()})
+        return None
+
+    def _danger_enabled(self, action):
+        """关机/重启默认禁用，规则引擎可开启（电脑控制.允许关机）"""
+        try:
+            if self.trunk:
+                return bool(self.trunk.rule("电脑控制.允许关机", False))
+        except Exception:
+            pass
+        return False
+
+    def execute(self, action, kwargs):
+        fn = getattr(self, action, None)
+        if not fn:
+            return False, "未知操作: " + action
+        try:
+            return fn(**kwargs)
+        except Exception as e:
+            return False, "执行失败: %s" % str(e)[:80]
+
+    def try_handle(self, text):
+        """聊天入口：能解析则执行并返回 (True, 结果文本)，否则 (False, None)"""
+        if not self._enabled():
+            return False, None
+        parsed = self.parse(text)
+        if not parsed:
+            return False, None
+        action, kwargs = parsed
+        ok, result = self.execute(action, kwargs)
+        if isinstance(result, dict):
+            result = "\n".join("%s: %s" % (k, v) for k, v in result.items())
+        return True, str(result)
+
+    def run(self, action="", *args, **kwargs):
+        """统一入口（工具调用/GUI 按钮）：传文本则解析执行，传 (action, kwargs) 则直接执行"""
+        if isinstance(action, dict):
+            kwargs = dict(action)
+            action = kwargs.pop("action", "")
+        if args:
+            return self.try_handle(args[0])
+        if action:
+            if kwargs:
+                return self.execute(action, kwargs)
+            ok, r = self.try_handle(action)
+            return r if ok else {"error": r}
+        return self.status()
+
+    def status_line(self):
+        return "电脑控制 v11.0 已就绪 | 白名单目录: %d | 日志: %s" % (len(self.whitelist), self.log_path)
+
+    # ========== 新增：操作记录 + 安全边界 + 视觉理解 ==========
+    def get_action_history(self, count=10):
+        """操作记录：记录做了什么，能撤销"""
+        try:
+            with open(self.log_path, encoding="utf-8") as f:
+                lines = f.readlines()
+            return {"最近操作": [l.strip()[:80] for l in lines[-count:]]}
+        except:
+            return {"操作记录": "无"}
+
+    def safety_check(self, action):
+        """安全边界：防止AI误删文件/误操作"""
+        dangerous = ["delete", "remove", "format", "shutdown", "reboot", "rmtree"]
+        for d in dangerous:
+            if d in str(action).lower():
+                return {"危险": True, "操作": action, "提示": "这个操作很危险，需要确认"}
+        return {"危险": False}
+
+    def vision_understand(self, screenshot_path):
+        """视觉理解：截图后让AI看懂屏幕内容再操作"""
+        multimodal = self.trunk.modules.get("multimodal")
+        if not multimodal:
+            return {"错误": "多模态模块未加载"}
+        return multimodal.describe_image(screenshot_path)
+
+

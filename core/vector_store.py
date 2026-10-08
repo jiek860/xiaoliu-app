@@ -1,0 +1,313 @@
+# -*- coding: utf-8 -*-
+"""向量存储 v6.0 - SQLite存储 + numpy内存检索
+P0-3大改：数据存SQLite，内存里保留numpy矩阵做快速检索
+优势：
+- add只插一行，不用全量写JSON
+- 启动快，数据大了也不卡
+- 原子写，不会损坏
+"""
+import os
+import time
+import math
+import re
+import sqlite3
+import threading
+import requests
+
+
+class VectorStore:
+    def __init__(self, trunk=None):
+        self.trunk = trunk
+        self.base = getattr(trunk, "base", None) or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.db_path = os.path.join(self.base, r"data\vectors.db")
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+
+        # 内存数据
+        self.data = []
+        self._emb_mat = None  # numpy矩阵
+        self._qemb_cache = {}
+        self.query_cache = {}
+        self._cache_timer = time.time()
+        self._lock = threading.Lock()
+        self._last_embed = 0.0
+
+        # 规则引擎参数
+        try:
+            self.half_life = self.trunk.rule("向量.半衰期天", 60)
+            self.max_items = self.trunk.rule("向量.容量上限", 2000)
+            self.keep_items = self.trunk.rule("向量.截断数", 1000)
+            self.cache_max = self.trunk.rule("缓存.上限", 200)
+            self.embed_gap = self.trunk.rule("嵌入.节流秒", 0.2)
+        except Exception:
+            self.half_life = 60
+            self.max_items = 2000
+            self.keep_items = 1000
+            self.cache_max = 200
+            self.embed_gap = 0.2
+
+        # P0-11: Chroma可选加速
+        self._use_chroma = False
+        try:
+            import chromadb
+            self._chroma_client = chromadb.PersistentClient(
+                path=os.path.join(self.base, "data", "chroma"))
+            self._collection = self._chroma_client.get_or_create_collection("memories")
+            self._use_chroma = True
+            if trunk:
+                trunk._log("向量库: Chroma 加速已启用")
+        except Exception:
+            self._use_chroma = False
+
+        # 初始化SQLite
+        self._init_db()
+        # 从SQLite加载所有数据到内存
+        self._load_from_db()
+
+    def _conn(self):
+        """SQLite连接"""
+        c = sqlite3.connect(self.db_path, timeout=10)
+        c.row_factory = sqlite3.Row
+        c.execute("PRAGMA journal_mode=WAL")
+        return c
+
+    def _init_db(self):
+        """初始化表"""
+        c = self._conn()
+        try:
+            c.execute("""CREATE TABLE IF NOT EXISTS vectors(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT,
+                tag TEXT,
+                time REAL,
+                hits INTEGER DEFAULT 0,
+                embedding BLOB
+            )""")
+            c.commit()
+        finally:
+            c.close()
+
+    def _load_from_db(self):
+        """从SQLite加载所有数据到内存"""
+        import numpy as np
+        c = self._conn()
+        try:
+            rows = c.execute("SELECT * FROM vectors ORDER BY id DESC LIMIT ?",
+                           (self.max_items,)).fetchall()
+            rows = list(reversed(rows))  # 按时间正序
+            emb_list = []
+            self.data = []
+            for r in rows:
+                self.data.append({
+                    "text": r["text"],
+                    "tag": r["tag"],
+                    "time": r["time"],
+                    "hits": r["hits"],
+                })
+                # 反序列化embedding
+                if r["embedding"]:
+                    emb = np.frombuffer(r["embedding"], dtype=np.float32).tolist()
+                    emb_list.append(emb)
+            if emb_list:
+                self._emb_mat = np.array(emb_list, dtype=np.float32)
+        finally:
+            c.close()
+        # ===== P1-06步骤1：向量库一致性检查（只加不改） =====
+        try:
+            if self._emb_mat is None:
+                if self.data:
+                    self.trunk._log("向量库异常：data有%d条但emb_mat为空，已清空data" % len(self.data))
+                    self.data = []
+            else:
+                n_mat = len(self._emb_mat)
+                n_data = len(self.data)
+                if n_mat != n_data:
+                    n = min(n_mat, n_data)
+                    self._emb_mat = self._emb_mat[:n]
+                    self.data = self.data[:n]
+                    self.trunk._log("向量库不一致：矩阵%d条，数据%d条，已截断到%d条" % (n_mat, n_data, n))
+                else:
+                    self.trunk._log("向量库一致：%d条" % n_data)
+        except Exception as e:
+            try:
+                self.trunk._log("向量库一致性检查失败：%s" % str(e)[:80])
+            except Exception:
+                pass
+
+    def _embed(self, text):
+        """真神经网络嵌入（nomic-embed-text）——节流防Ollama被打爆"""
+        now = time.time()
+        gap = self.embed_gap
+        wait = gap - (now - self._last_embed)
+        if wait > 0:
+            time.sleep(wait)
+        self._last_embed = time.time()
+        try:
+            import core.llm_client as _lc
+            with _lc.get_ollama_lock():
+                url = (self.trunk.config.get("ollama_url", "http://localhost:11434")
+                       if self.trunk else "http://localhost:11434")
+                r = requests.post(url + "/api/embeddings",
+                    json={"model": "nomic-embed-text", "prompt": text[:500]}, timeout=15)
+                return r.json().get("embedding", [])
+        except Exception as e:
+            try:
+                self.trunk._log("嵌入异常: %s" % str(e)[:60])
+            except Exception:
+                pass
+            return []
+
+    def add(self, text, tag=""):
+        """添加向量，嵌入移出锁"""
+        emb = self._embed(text)
+        if not emb:
+            return {"ok": False, "reason": "embed_failed"}
+        with self._lock:
+            return self._add_locked(text, tag, emb)
+
+    def _add_locked(self, text, tag, emb):
+        import numpy as np
+        # 1. 内存加
+        self.data.append({
+            "text": text, "tag": tag,
+            "time": time.time(), "hits": 0
+        })
+        # 2. 矩阵加
+        if self._emb_mat is not None:
+            try:
+                self._emb_mat = np.vstack([self._emb_mat, emb])
+            except Exception:
+                self._emb_mat = np.array([emb], dtype=np.float32)
+        else:
+            self._emb_mat = np.array([emb], dtype=np.float32)
+        # 3. SQLite插一行
+        c = self._conn()
+        try:
+            emb_blob = np.array(emb, dtype=np.float32).tobytes()
+            c.execute("INSERT INTO vectors(text, tag, time, hits, embedding) VALUES(?,?,?,?,?)",
+                     (text, tag, time.time(), 0, emb_blob))
+            c.commit()
+        finally:
+            c.close()
+
+        # P0-11: 同步到Chroma
+        if self._use_chroma:
+            try:
+                self._collection.add(
+                    embeddings=[emb],
+                    documents=[text],
+                    metadatas=[{"tag": tag, "time": time.time()}],
+                    ids=["v_" + str(int(time.time() * 1000))]
+                )
+            except Exception:
+                pass
+
+        # 4. 截断
+        if len(self.data) > self.max_items:
+            self._trim_old()
+        return {"ok": True}
+
+    def _trim_old(self):
+        """截断旧数据"""
+        import numpy as np
+        keep = self.keep_items
+        self.data = self.data[-keep:]
+        self._emb_mat = self._emb_mat[-keep:]
+        # SQLite删旧数据
+        c = self._conn()
+        try:
+            c.execute("DELETE FROM vectors WHERE id NOT IN (SELECT id FROM vectors ORDER BY id DESC LIMIT ?)",
+                     (keep,))
+            c.commit()
+        finally:
+            c.close()
+
+    def _cosine(self, a, b):
+        dot = sum(x*y for x, y in zip(a, b))
+        na = math.sqrt(sum(x*x for x in a)) or 1
+        nb = math.sqrt(sum(x*x for x in b)) or 1
+        return dot / (na * nb)
+
+    def search(self, query, top_k=None):
+        if top_k is None:
+            try:
+                top_k = self.trunk.rule("检索.top_k", 5)
+            except Exception:
+                top_k = 5
+        with self._lock:
+            return self._search_locked(query, top_k)
+
+    def _search_locked(self, query, top_k=5):
+        if not self.data:
+            return []
+        # 缓存清理
+        if time.time() - self._cache_timer > 300:
+            self._qemb_cache = dict(list(self._qemb_cache.items())[-50:])
+            self.query_cache = dict(list(self.query_cache.items())[-50:])
+            self._cache_timer = time.time()
+        # 查询缓存
+        if query in self.query_cache:
+            return self.query_cache[query]
+        q_emb = self._qemb_cache.get(query)
+        if not q_emb:
+            q_emb = self._embed(query)
+            if q_emb:
+                self._qemb_cache[query] = q_emb
+        if not q_emb:
+            # 嵌入失败：关键词降级
+            words = [w for w in re.split(r"[\s\W]+", query) if len(w) >= 2]
+            scored = []
+            for item in self.data:
+                s = sum(1 for w in words if w in item.get("text", ""))
+                if s:
+                    scored.append((s, item))
+            scored.sort(key=lambda x: -x[0])
+            if not scored:
+                return [{"text": x["text"], "score": 0} for x in self.data[:top_k]]
+            return [{"text": s["text"], "score": round(sc, 3)} for sc, s in scored[:top_k]]
+        # numpy矩阵检索
+        scored = []
+        now = time.time()
+        if self._emb_mat is not None and len(self._emb_mat) == len(self.data):
+            try:
+                import numpy as np
+                q = np.asarray(q_emb, dtype=np.float32)
+                qn = np.linalg.norm(q) or 1.0
+                qn_vec = q / qn
+                norms = np.linalg.norm(self._emb_mat, axis=1, keepdims=True)
+                norms[norms == 0] = 1.0
+                mat_norm = self._emb_mat / norms
+                sims = mat_norm @ qn_vec
+                ages = np.array([(now - it.get("time", now))/86400 for it in self.data], dtype=np.float32)
+                sims = sims * np.exp(-ages/60)
+                top_idx = np.argsort(-sims)[:top_k]
+                for i in top_idx:
+                    scored.append((float(sims[i]), self.data[int(i)]))
+            except Exception:
+                scored = []
+        if not scored:
+            for i, item in enumerate(self.data):
+                if self._emb_mat is not None and i < len(self._emb_mat):
+                    emb = self._emb_mat[i].tolist()
+                else:
+                    continue
+                score = self._cosine(q_emb, emb)
+                age = (now - item.get("time", now))/86400
+                score *= math.exp(-age/60)
+                scored.append((score, item))
+            scored.sort(key=lambda x: -x[0])
+        result = [{"text": s["text"], "score": round(sc, 3)} for sc, s in scored[:top_k]]
+        self.query_cache[query] = result
+        return result
+
+    def save(self):
+        """SQLite自动提交，不需要手动save"""
+        return True
+
+    def list_all(self):
+        return self.data[-100:]
+
+    def run(self, q=""):
+        if q:
+            return {"结果": self.search(q)}
+        return {"记忆数": len(self.data), "嵌入模型": "nomic-embed-text"}
+

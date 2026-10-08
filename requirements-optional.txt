@@ -1,0 +1,62 @@
+# 小6智能体 可选依赖
+# ============================================================
+#  按需安装，不装也能启动，只是对应功能用不了。
+#
+#  两种装法：
+#    A. 装进系统 Python（会全局生效）
+#         py -3 -m pip install -r requirements-optional.txt
+#    B. 装进项目的 optional_libs\（推荐，不污染系统环境；程序会自动加载）
+#         py -3 -m pip install --target optional_libs -r requirements-optional.txt
+#       或直接双击 scripts\install_optional.bat
+#       也可以打开程序里的「功能扩展组件」窗口逐个点安装。
+#
+#  程序启动时会把 optional_libs\ 和 libs\ 都加进 sys.path（见 run.py）。
+# ============================================================
+
+# ===== 电脑控制（截图/鼠标/键盘/剪贴板/窗口管理）=====
+Pillow>=10.0.0
+pyautogui>=0.9.54
+pyperclip>=1.8.2
+pywin32>=306; sys_platform == "win32"
+
+# ===== 语音合成 TTS（让小6说话）=====
+edge-tts>=6.1.0
+
+# ===== 语音识别 STT =====
+# faster-whisper 是首选后端（voice.py 优先探测它），基于 ctranslate2，不需要 torch。
+# 已经装进 optional_libs\ 了，下面的版本是实测可用组合。
+faster-whisper>=1.2.1
+pyaudio>=0.2.14
+
+# ⚠️ av 必须锁在 19 以下：
+#    faster-whisper 1.2.1 里 faster_whisper/audio.py 调用
+#        av.open(path, mode="r", metadata_errors="ignore")
+#    而 PyAV 19 把这个参数去掉了，装 av>=19 会直接报
+#        TypeError: open() got an unexpected keyword argument 'metadata_errors'
+#    它的依赖声明只写了 av>=11，所以 pip 不会拦，必须自己锁。
+av>=11,<19
+
+# ⚠️ huggingface-hub 必须锁在 2 以下：tokenizers 声明了 huggingface-hub<2.0
+huggingface-hub>=0.21,<2
+
+# 首次使用语音功能会从 HuggingFace 下载模型（tiny 约 75MB）。
+# 国内直连不通时设个镜像环境变量即可：
+#     set HF_ENDPOINT=https://hf-mirror.com
+# 模型缓存在 %USERPROFILE%\.cache\huggingface\hub\
+
+# openai-whisper 是备选后端（需要 torch）。注意它与 PyQt5 存在 DLL 加载顺序冲突
+# （先 import PyQt5 再 import torch 会报 WinError 1114 / c10.dll），GUI 进程里基本走不通。
+# 除非确实要用，否则不建议装。
+# openai-whisper>=20231117
+# torch>=2.0.0
+
+# ===== 多模态（看图/看视频）=====
+# 说明：optional_libs\ 里已经放了一份 cv2（原本误放在 libs\），无需重复安装
+opencv-python>=4.8.0
+
+# ===== 浏览器自动化 =====
+# 装完还要在命令行跑一次：py -3 -m playwright install chromium
+playwright>=1.40.0
+
+# ===== 代码编辑器自动补全 =====
+jedi>=0.19.0

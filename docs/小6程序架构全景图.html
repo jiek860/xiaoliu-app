@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小6智能助手 · 程序架构全景图</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3 28 11v10L16 29 4 21V11z' fill='%2322D3EE'/%3E%3Ctext x='16' y='21' font-size='13' text-anchor='middle' fill='%230D1420' font-weight='bold' font-family='sans-serif'%3E6%3C/text%3E%3C/svg%3E">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body {
+    font-family:'PingFang SC','Microsoft YaHei','Segoe UI',system-ui,sans-serif;
+    background:#0D1420; color:#E2E8F0; line-height:1.6;
+    background-image:
+      linear-gradient(rgba(148,163,184,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148,163,184,0.06) 1px, transparent 1px);
+    background-size:28px 28px;
+  }
+  .wrap { max-width:1060px; margin:0 auto; padding:0 20px 60px; }
+
+  /* 顶部导航 */
+  header {
+    position:sticky; top:0; z-index:20; backdrop-filter:blur(8px);
+    background:rgba(13,20,32,0.88); border-bottom:1px solid rgba(34,211,238,0.25);
+  }
+  .nav { max-width:1060px; margin:0 auto; padding:12px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:15px; color:#F1F5F9; }
+  .brand .dot { width:10px; height:10px; border-radius:50%; background:#22D3EE; box-shadow:0 0 12px rgba(34,211,238,0.8); }
+  nav.anchors { margin-left:auto; display:flex; gap:6px; flex-wrap:wrap; }
+  nav.anchors button {
+    background:transparent; border:1px solid rgba(148,163,184,0.35); color:#94A3B8;
+    padding:11px 16px; min-height:44px; border-radius:999px; font-size:13px; cursor:pointer; font-family:inherit;
+    transition:all .18s ease;
+  }
+  nav.anchors button:hover { border-color:#22D3EE; color:#22D3EE; }
+
+  /* 标题区 */
+  .hero { padding:44px 0 18px; }
+  .hero h1 { font-size:clamp(24px,4vw,34px); font-weight:800; letter-spacing:.5px; color:#F8FAFC; }
+  .hero h1 .accent { color:#22D3EE; }
+  .hero p { color:#94A3B8; font-size:14px; margin-top:8px; max-width:640px; }
+  .stats { display:flex; flex-wrap:wrap; gap:10px; margin-top:18px; }
+  .stat {
+    background:rgba(34,211,238,0.08); border:1px solid rgba(34,211,238,0.25);
+    border-radius:10px; padding:8px 14px; font-size:13px; color:#A5F3FC;
+  }
+  .stat b { font-size:18px; color:#22D3EE; margin-right:5px; }
+  .stat.warn { background:rgba(251,191,36,0.08); border-color:rgba(251,191,36,0.3); color:#FDE68A; }
+  .stat.warn b { color:#FBBF24; }
+
+  /* Section */
+  section { margin-top:34px; }
+  .sec-head { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+  .sec-no {
+    font-size:13px; font-weight:800; color:#0D1420; background:#22D3EE;
+    width:34px; height:34px; border-radius:9px; display:flex; align-items:center; justify-content:center; flex:none;
+  }
+  .sec-head h2 { font-size:20px; font-weight:700; color:#F8FAFC; }
+  .sec-head .sub { font-size:12px; color:#64748B; margin-left:auto; }
+
+  /* 架构分层 */
+  .layer {
+    border-radius:12px; padding:14px 16px; margin-bottom:0; position:relative;
+    border:1px solid rgba(148,163,184,0.2);
+  }
+  .layer .lname { font-size:12px; font-weight:700; letter-spacing:1px; margin-bottom:6px; }
+  .layer .ldesc { font-size:13.5px; color:#CBD5E1; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .chip {
+    font-size:12px; padding:3px 10px; border-radius:8px; background:rgba(255,255,255,0.07);
+    border:1px solid rgba(148,163,184,0.18); color:#CBD5E1;
+  }
+  .chip.hot { border-color:rgba(34,211,238,0.45); color:#A5F3FC; background:rgba(34,211,238,0.08); }
+  .arrow { text-align:center; color:#475569; font-size:16px; line-height:1; padding:7px 0; }
+  .arrow svg { vertical-align:middle; }
+
+  .l-gui   { background:linear-gradient(135deg,rgba(34,211,238,0.10),rgba(34,211,238,0.03)); border-color:rgba(34,211,238,0.35);}
+  .l-gui .lname { color:#67E8F9; }
+  .l-mod   { background:rgba(96,165,250,0.07); border-color:rgba(96,165,250,0.3);}
+  .l-mod .lname { color:#93C5FD; }
+  .l-core  { background:rgba(148,163,184,0.06); }
+  .l-core .lname { color:#CBD5E1; }
+  .l-trunk { background:linear-gradient(135deg,rgba(251,191,36,0.10),rgba(251,191,36,0.02)); border-color:rgba(251,191,36,0.35);}
+  .l-trunk .lname { color:#FCD34D; }
+  .l-ext   { background:rgba(52,211,153,0.07); border-color:rgba(52,211,153,0.3);}
+  .l-ext .lname { color:#6EE7B7; }
+
+  /* 模块分组 */
+  .grid { display:flex; flex-wrap:wrap; gap:12px; }
+  .mgroup {
+    flex:1 1 320px; min-width:280px; border-radius:12px; padding:14px 16px;
+    border:1px solid rgba(148,163,184,0.2); background:rgba(255,255,255,0.03);
+  }
+  .mgroup .mname { font-size:13px; font-weight:700; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+  .mgroup .mname .n { font-size:11px; padding:1px 8px; border-radius:999px; background:rgba(255,255,255,0.08); color:#94A3B8; }
+  .mg-1 .mname { color:#67E8F9; } .mg-2 .mname { color:#93C5FD; }
+  .mg-3 .mname { color:#C4B5FD; } .mg-4 .mname { color:#FCD34D; }
+  .mg-5 .mname { color:#6EE7B7; } .mg-6 .mname { color:#FCA5A5; }
+  .mg-core { flex:1 1 100%; }
+  .mg-core .mname { color:#F1F5F9; }
+  .note { font-size:12px; color:#64748B; margin-top:8px; }
+
+  /* 流程 */
+  .flow { position:relative; }
+  .fstep {
+    border-radius:12px; padding:12px 16px; border:1px solid rgba(148,163,184,0.2);
+    background:rgba(255,255,255,0.03); position:relative;
+  }
+  .fstep .ft { font-size:14px; font-weight:700; color:#F1F5F9; display:flex; align-items:center; gap:8px; }
+  .fstep .ft .sn {
+    width:24px; height:24px; border-radius:7px; background:#22D3EE; color:#0D1420;
+    font-size:12px; font-weight:800; display:flex; align-items:center; justify-content:center; flex:none;
+  }
+  .fstep .fd { font-size:12.5px; color:#94A3B8; margin-top:4px; }
+  .fstep.s1 { border-color:rgba(34,211,238,0.4); background:rgba(34,211,238,0.07); }
+  .fstep.s2 { border-color:rgba(251,191,36,0.4); background:rgba(251,191,36,0.06); }
+  .fstep.s3 { border-color:rgba(96,165,250,0.4); background:rgba(96,165,250,0.07); }
+  .fstep.s4 { border-color:rgba(196,181,253,0.4); background:rgba(196,181,253,0.06); }
+  .fstep.s5 { border-color:rgba(52,211,153,0.4); background:rgba(52,211,153,0.06); }
+  .fstep.s6 { border-color:rgba(148,163,184,0.35); }
+
+  footer { margin-top:44px; padding-top:18px; border-top:1px solid rgba(148,163,184,0.2); }
+  footer .meta { font-size:12px; color:#64748B; line-height:1.9; }
+  footer .meta b { color:#94A3B8; }
+
+  @media (max-width:640px){
+    .wrap { padding:0 14px 40px; }
+    nav.anchors { margin-left:0; width:100%; }
+    .stat { flex:1 1 auto; font-size:14px; }
+    .chip { font-size:13px; padding:5px 12px; }
+    .ldesc, .fd { font-size:14px; }
+    .note { font-size:13px; }
+    .lname, .sec-head .sub, .stat b { font-size:13px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="nav">
+    <div class="brand"><span class="dot"></span>小6 · Jarvis 全息智能系统</div>
+    <nav class="anchors">
+      <button onclick="document.getElementById('s1').scrollIntoView({behavior:'smooth'})">架构分层</button>
+      <button onclick="document.getElementById('s2').scrollIntoView({behavior:'smooth'})">模块分类</button>
+      <button onclick="document.getElementById('s3').scrollIntoView({behavior:'smooth'})">运行流程</button>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="hero">
+    <h1>小6智能助手 · <span class="accent">程序架构全景图</span></h1>
+    <p>当前程序实况：微内核 + 星型拓扑。36 个懒加载模块统一挂在躯干 Trunk 上，模块之间不互相引用，协作全部经由躯干的总线调度。</p>
+    <div class="stats">
+      <div class="stat"><b>9</b>核心常驻</div>
+      <div class="stat"><b>36</b>懒加载模块</div>
+      <div class="stat"><b>6</b>闭环引擎</div>
+      <div class="stat"><b>4</b>群聊角色</div>
+      <div class="stat"><b>1206</b>记忆向量(100%对齐)</div>
+      <div class="stat warn"><b>0</b>云端在线（已失效 404）</div>
+    </div>
+  </div>
+
+  <!-- ===== Section 01 架构分层 ===== -->
+  <section id="s1">
+    <div class="sec-head">
+      <div class="sec-no">01</div>
+      <h2>架构分层</h2>
+      <div class="sub">数据口径：2026-09-23 实况</div>
+    </div>
+
+    <div class="layer l-gui">
+      <div class="lname">GUI 界面层 · gui/app_pyqt.py</div>
+      <div class="ldesc">聊天主窗口（流式输出 / 群聊 / 文件 / 语音） · 功能中心（11 张卡片） · 电脑控制面板 · 插件市场 · 日志与深度自检</div>
+    </div>
+    <div class="arrow"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v9M4 8l4 4 4-4" stroke="#475569" stroke-width="1.6"/></svg></div>
+
+    <div class="layer l-mod">
+      <div class="lname">业务模块层 · modules/installed · 36 个懒加载</div>
+      <div class="chips">
+        <span class="chip hot">后台服务 4</span><span class="chip hot">闭环引擎 6</span>
+        <span class="chip hot">多智能体 5</span><span class="chip hot">记忆认知 8</span>
+        <span class="chip hot">工具能力 9</span><span class="chip hot">任务学习 4</span>
+      </div>
+    </div>
+    <div class="arrow"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v9M4 8l4 4 4-4" stroke="#475569" stroke-width="1.6"/></svg></div>
+
+    <div class="layer l-core">
+      <div class="lname">核心服务层 · core/</div>
+      <div class="chips">
+        <span class="chip">llm_client（本地/云端/串行锁/空闲卸载）</span>
+        <span class="chip">vector_store（nomic-embed 嵌入 + 余弦检索）</span>
+        <span class="chip">knowledge_graph（三元组 + RAG）</span>
+        <span class="chip">rules_engine / backup / auth / config</span>
+      </div>
+    </div>
+    <div class="arrow"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v9M4 8l4 4 4-4" stroke="#475569" stroke-width="1.6"/></svg></div>
+
+    <div class="layer l-trunk">
+      <div class="lname">躯干层 Trunk · core/trunk.py（微内核）</div>
+      <div class="ldesc">注册表 · 懒加载（36 条映射） · 事件总线 publish/subscribe · 模块注入 · 主链路 reply · 后台调度 _bg · 别名路由</div>
+    </div>
+    <div class="arrow"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v9M4 8l4 4 4-4" stroke="#475569" stroke-width="1.6"/></svg></div>
+
+    <div class="layer l-ext">
+      <div class="lname">外部资源层</div>
+      <div class="chips">
+        <span class="chip hot">Ollama 物理机 192.168.1.2:11434（xiao6-7b / qwen3-vl:8b / nomic-embed-text）</span>
+        <span class="chip">云端 API（已失效 404，本地路由兜底）</span>
+        <span class="chip">本地数据 data/（记忆/知识/日志）</span>
+        <span class="chip">手机浏览器 localhost:8765</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Section 02 模块分类 ===== -->
+  <section id="s2">
+    <div class="sec-head">
+      <div class="sec-no">02</div>
+      <h2>模块分类</h2>
+      <div class="sub">36 个懒加载 + 9 个核心常驻</div>
+    </div>
+
+    <div class="grid">
+      <div class="mgroup mg-1">
+        <div class="mname">后台服务 <span class="n">4</span></div>
+        <div class="chips">
+          <span class="chip">定时任务</span><span class="chip">热重载</span>
+          <span class="chip">手机远程</span><span class="chip">自动更新</span>
+        </div>
+      </div>
+      <div class="mgroup mg-2">
+        <div class="mname">闭环引擎 <span class="n">6</span></div>
+        <div class="chips">
+          <span class="chip">学习闭环</span><span class="chip">自愈闭环</span>
+          <span class="chip">记忆闭环</span><span class="chip">任务闭环</span>
+          <span class="chip">技能沉淀</span><span class="chip">群聊闭环</span>
+        </div>
+      </div>
+      <div class="mgroup mg-3">
+        <div class="mname">多智能体 <span class="n">5</span></div>
+        <div class="chips">
+          <span class="chip hot">群聊（主）</span><span class="chip hot">编程助手 小七</span>
+          <span class="chip hot">分析助手 小八</span><span class="chip hot">策划助手 小九</span>
+          <span class="chip">智能路由</span>
+        </div>
+        <div class="note">聊天按意图路由：编程→小七 / 分析→小八 / 策划→小九，并行 15s 超时</div>
+      </div>
+      <div class="mgroup mg-4">
+        <div class="mname">记忆认知 <span class="n">8</span></div>
+        <div class="chips">
+          <span class="chip">自我反思</span><span class="chip">遗忘曲线</span>
+          <span class="chip">记忆卡</span><span class="chip">人格引擎</span>
+          <span class="chip">共情模块</span><span class="chip">异常检测</span>
+          <span class="chip">知识问答 RAG</span><span class="chip">推理引擎</span>
+        </div>
+      </div>
+      <div class="mgroup mg-5">
+        <div class="mname">工具能力 <span class="n">9</span></div>
+        <div class="chips">
+          <span class="chip hot">工具调用（已接线）</span><span class="chip">电脑控制</span>
+          <span class="chip hot">代码执行（沙盒已修复）</span><span class="chip">文件上传</span>
+          <span class="chip">深度搜索</span><span class="chip">语音模块</span>
+          <span class="chip">多模态（挂起）</span><span class="chip">MCP 服务</span>
+          <span class="chip">技能捕获</span>
+        </div>
+      </div>
+      <div class="mgroup mg-6">
+        <div class="mname">任务学习 <span class="n">4</span></div>
+        <div class="chips">
+          <span class="chip">任务规划</span><span class="chip">主动学习</span>
+          <span class="chip">错误库</span><span class="chip">插件市场</span>
+        </div>
+      </div>
+      <div class="mgroup mg-core">
+        <div class="mname">核心常驻 <span class="n">9</span></div>
+        <div class="chips">
+          <span class="chip hot">trunk 躯干</span><span class="chip">llm_client</span>
+          <span class="chip">vector_store</span><span class="chip">knowledge_graph</span>
+          <span class="chip">rules_engine</span><span class="chip">backup</span>
+          <span class="chip">auth</span><span class="chip">config</span>
+          <span class="chip">lazy_config</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Section 03 运行流程 ===== -->
+  <section id="s3">
+    <div class="sec-head">
+      <div class="sec-no">03</div>
+      <h2>功能运行流程</h2>
+      <div class="sub">聊天主链路 + 后台闭环</div>
+    </div>
+
+    <div class="flow">
+      <div class="fstep s1"><div class="ft"><span class="sn">1</span>用户输入（发送 / 回车）</div></div>
+      <div class="arrow"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v9M4 8l4 4 4-4" stroke="#475569" stroke-width="1.6"/></svg></div>
+
+      <div class="fstep s2">
+        <div class="ft"><span class="sn">2</span>电脑控制快速通道</div>
+        <div class="fd">computer_controller.try_handle 命中则直接执行返回，不进入 LLM</div>
+      </div>
+      <div class="arrow"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v9M4 8l4 4 4-4" stroke="#475569" stroke-width="1.6"/></svg></div>
+
+      <div class="fstep s3">
+        <div class="ft"><span class="sn">3</span>上下文组装（5 路注入）</div>
+        <div class="chips">
+          <span class="chip">向量检索（记忆 top_k=3）</span>
+          <span class="chip">情景记忆（时间戳）</span>
+          <span class="chip">知识图谱（rag_query）</span>
+          <span class="chip">联网搜索（关键词命中→深度搜索）</span>
+          <span class="chip">工具调用（算/查/读→LLM 选工具）</span>
+        </div>
+      </div>
+      <div class="arrow"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v9M4 8l4 4 4-4" stroke="#475569" stroke-width="1.6"/></svg></div>
+
+      <div class="fstep s4">
+        <div class="ft"><span class="sn">4</span>LLM 生成（流式输出）</div>
+        <div class="fd">人格提示 + 反思建议 + 历史对话 → 本地 xiao6-7b（日常）；云端已失效走本地路由；聊天活跃 120s 内后台让路</div>
+      </div>
+      <div class="arrow"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v9M4 8l4 4 4-4" stroke="#475569" stroke-width="1.6"/></svg></div>
+
+      <div class="fstep s5">
+        <div class="ft"><span class="sn">5</span>群聊组合（并行 15s 超时）</div>
+        <div class="fd">小七 编程 · 小八 分析 · 小九 策划 —— 独立人设只补充自己领域，超时跳过不拖主回复</div>
+      </div>
+      <div class="arrow"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v9M4 8l4 4 4-4" stroke="#475569" stroke-width="1.6"/></svg></div>
+
+      <div class="fstep s6">
+        <div class="ft"><span class="sn">6</span>代码沙盒验证</div>
+        <div class="fd">写代码意图 + 回复含 python 代码块 → staging 隔离试跑（8s 超时），运行成功/失败 + 输出附在回复后</div>
+      </div>
+      <div class="arrow"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v9M4 8l4 4 4-4" stroke="#475569" stroke-width="1.6"/></svg></div>
+
+      <div class="fstep s6">
+        <div class="ft"><span class="sn">7</span>存记忆 → 回复用户</div>
+        <div class="fd">向量 + 知识图谱 + 历史，同步入库存档</div>
+      </div>
+      <div class="arrow"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v9M4 8l4 4 4-4" stroke="#475569" stroke-width="1.6"/></svg></div>
+
+      <div class="fstep s6">
+        <div class="ft"><span class="sn">8</span>后台闭环（_bg · 聊天 120s 内全让路）</div>
+        <div class="chips">
+          <span class="chip">自评估（规则，不占模型）</span>
+          <span class="chip">反思 每5轮（LLM 打分 → 注入下次）</span>
+          <span class="chip">记忆卡 / 记忆闭环（空闲才做）</span>
+          <span class="chip">技能沉淀（任务类成功→SKILL）</span>
+          <span class="chip">群聊评估</span>
+        </div>
+      </div>
+      <div class="arrow"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v9M4 8l4 4 4-4" stroke="#475569" stroke-width="1.6"/></svg></div>
+
+      <div class="fstep s6">
+        <div class="ft"><span class="sn">9</span>定时后台（不阻塞聊天）</div>
+        <div class="chips">
+          <span class="chip">连续学习 20 分钟/轮（聊天时暂停）</span>
+          <span class="chip">自愈闭环 4h（有错才动）</span>
+          <span class="chip">记忆复习 30min</span>
+          <span class="chip">模型巡检 10min</span>
+          <span class="chip">热更新 5min 自动检测</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="meta">
+      <b>数据口径：</b>本图为 E:\xiaoliu 程序 2026-09-23 实况（核心 9 + 懒加载 36 = 45 模块）。云端 API 密钥/地址已失效（HTTP 404），当前走本地路由；多模态因本地模型不支持视觉处于挂起；代码沙盒验证与工具调用为当日新接线，已实测通过。此图随程序迭代更新。
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

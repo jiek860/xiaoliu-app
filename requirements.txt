@@ -1,0 +1,9 @@
+# 小6智能体 核心依赖
+# Python 版本要求：>= 3.10
+# 安装：pip install -r requirements.txt
+# 换清华镜像加速：pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+PyQt5>=5.15.0
+requests>=2.28.0
+numpy>=1.24.0
+cryptography>=41.0.0
+psutil>=5.9.0

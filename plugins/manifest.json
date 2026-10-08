@@ -1,0 +1,12 @@
+{
+  "plugins": [
+    {"name": "语音识别", "file": "语音识别.py", "version": "1.0", "desc": "语音转文字"},
+    {"name": "浏览器自动化", "file": "浏览器自动化.py", "version": "1.0", "desc": "自动操作浏览器"},
+    {"name": "语音合成TTS", "file": "语音合成TTS.py", "version": "1.0", "desc": "文字转语音"},
+    {"name": "翻译", "file": "翻译.py", "version": "1.0", "desc": "多语言翻译"},
+    {"name": "图片识别", "file": "图片识别.py", "version": "1.0", "desc": "OCR文字识别"},
+    {"name": "多模态", "file": "多模态.py", "version": "3.0", "desc": "图片+音频+视频+摄像头"}
+  ],
+  "version": "1.0",
+  "updated": "2026-10-06"
+}

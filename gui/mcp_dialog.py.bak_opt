@@ -1,0 +1,145 @@
+# -*- coding: utf-8 -*-
+"""MCP市场对话框 v2.0 - 可视化管理 + 内置推荐列表"""
+from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
+                             QPushButton, QListWidget, QLineEdit, QMessageBox,
+                             QTabWidget, QWidget)
+from PyQt5.QtCore import Qt
+
+
+# 内置推荐MCP服务器
+RECOMMEND_MCPS = [
+    {"name": "文件系统", "desc": "读写本地文件", "url": "http://localhost:3000"},
+    {"name": "GitHub", "desc": "操作GitHub仓库", "url": "http://localhost:3001"},
+    {"name": "数据库", "desc": "查询数据库", "url": "http://localhost:3002"},
+    {"name": "浏览器", "desc": "操作浏览器", "url": "http://localhost:3003"},
+    {"name": "搜索", "desc": "网页搜索", "url": "http://localhost:3004"},
+]
+
+
+class MCPDialog(QDialog):
+    def __init__(self, trunk, parent=None):
+        super().__init__(parent)
+        self.trunk = trunk
+        self.setWindowTitle("MCP市场")
+        self.setFixedSize(550, 450)
+        self._build_ui()
+        self._refresh()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+
+        # 标签页
+        tabs = QTabWidget()
+
+        # ===== 标签1: 我的服务器 =====
+        tab1 = QWidget()
+        l1 = QVBoxLayout(tab1)
+
+        title = QLabel("MCP服务器管理")
+        title.setStyleSheet("font-size: 16px; font-weight: bold;")
+        l1.addWidget(title)
+
+        l1.addWidget(QLabel("已连接的MCP服务器:"))
+        self.list_widget = QListWidget()
+        l1.addWidget(self.list_widget)
+
+        self.tools_label = QLabel("工具数: 0")
+        l1.addWidget(self.tools_label)
+
+        l1.addWidget(QLabel("添加自定义MCP服务器:"))
+        row = QHBoxLayout()
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("名称")
+        self.url_edit = QLineEdit()
+        self.url_edit.setPlaceholderText("http://localhost:3742")
+        add_btn = QPushButton("连接")
+        add_btn.clicked.connect(self._add_server)
+        row.addWidget(self.name_edit)
+        row.addWidget(self.url_edit)
+        row.addWidget(add_btn)
+        l1.addLayout(row)
+
+        tabs.addTab(tab1, "🔌 我的服务器")
+
+        # ===== 标签2: 推荐列表 =====
+        tab2 = QWidget()
+        l2 = QVBoxLayout(tab2)
+        title2 = QLabel("推荐MCP服务器（点一下自动连接）")
+        title2.setStyleSheet("font-size: 14px; font-weight: bold;")
+        l2.addWidget(title2)
+
+        for mcp in RECOMMEND_MCPS:
+            row = QHBoxLayout()
+            row.addWidget(QLabel(f"📦 {mcp['name']}"))
+            row.addWidget(QLabel(mcp["desc"]))
+            btn = QPushButton("一键安装")
+            btn.clicked.connect(lambda checked, m=mcp: self._install_recommend(m))
+            row.addWidget(btn)
+            l2.addLayout(row)
+
+        tabs.addTab(tab2, "⭐ 推荐")
+
+        layout.addWidget(tabs)
+
+        # 底部按钮
+        btn_row = QHBoxLayout()
+        refresh_btn = QPushButton("刷新")
+        refresh_btn.clicked.connect(self._refresh)
+        close_btn = QPushButton("关闭")
+        close_btn.clicked.connect(self.close)
+        btn_row.addWidget(refresh_btn)
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+
+    def _refresh(self):
+        """刷新列表"""
+        self.list_widget.clear()
+        try:
+            mcp = self.trunk.modules.get("mcp_client")
+            if not mcp:
+                from core.lazy_config import LAZY_MAP
+                self.trunk._load_lazy("mcp_client")
+                mcp = self.trunk.modules.get("mcp_client")
+            if mcp:
+                # BUG-01: servers是dict，遍历items()
+                total_tools = 0
+                for name, srv in mcp.servers.items():
+                    self.list_widget.addItem(name + " (" + srv.get("url", "") + ")")
+                    # BUG-03: tools从servers里算
+                    total_tools += len(srv.get("tools", []))
+                self.tools_label.setText("工具数: %d" % total_tools)
+            else:
+                self.list_widget.addItem("MCP客户端未加载")
+        except Exception as e:
+            self.list_widget.addItem("加载失败: " + str(e)[:50])
+
+    def _add_server(self):
+        """添加新服务器"""
+        name = self.name_edit.text().strip()
+        url = self.url_edit.text().strip()
+        if not name or not url:
+            QMessageBox.warning(self, "提示", "请输入名称和URL")
+            return
+        try:
+            mcp = self.trunk.modules.get("mcp_client")
+            if mcp:
+                # BUG-02: servers是dict，用add_server方法
+                if hasattr(mcp, "add_server"):
+                    mcp.add_server(name, url)
+                else:
+                    mcp.servers[name] = {"url": url, "tools": []}
+                mcp._connect()
+                self._refresh()
+                QMessageBox.information(self, "成功", "已添加: " + name)
+        except Exception as e:
+            QMessageBox.critical(self, "错误", str(e)[:80])
+
+    def _install_recommend(self, mcp):
+        """一键安装推荐MCP"""
+        try:
+            self.name_edit.setText(mcp["name"])
+            self.url_edit.setText(mcp["url"])
+            self._add_server()
+        except Exception as e:
+            QMessageBox.critical(self, "错误", str(e)[:80])
+

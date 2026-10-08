@@ -1,0 +1,78 @@
+# -*- coding: utf-8 -*-
+"""功能中心窗口 - 网格卡片"""
+from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                             QPushButton, QScrollArea, QWidget, QFrame,
+                             QGridLayout)
+from PyQt5.QtCore import Qt
+
+
+def show_center_dialog(parent, dlg, items):
+    """功能中心：items = [(icon, name, desc, cmd), ...]"""
+    d, l = dlg("🗂 功能中心", w=860, h=560)
+
+    head = QHBoxLayout()
+    t = QLabel("🗂 功能中心 · 点击卡片打开对应功能")
+    t.setStyleSheet("font-weight:bold;color:#1e40af;font-size:14px;")
+    head.addWidget(t, stretch=1)
+    btn_help = QPushButton("使用教程")
+    btn_help.setStyleSheet("padding:6px 10px;")
+    btn_help.clicked.connect(parent.show_tutorial)
+    head.addWidget(btn_help)
+    btn_feedback = QPushButton("意见反馈")
+    btn_feedback.setStyleSheet("padding:6px 10px;")
+    btn_feedback.clicked.connect(parent.show_feedback)
+    head.addWidget(btn_feedback)
+    close_btn = QPushButton("✕ 关闭")
+    close_btn.setStyleSheet("padding:6px 14px;")
+    close_btn.clicked.connect(d.close)
+    head.addWidget(close_btn)
+    l.addLayout(head)
+
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.NoFrame)
+    card_host = QWidget()
+    grid = QGridLayout(card_host)
+    grid.setSpacing(14)
+    grid.setContentsMargins(10, 10, 10, 10)
+    scroll.setWidget(card_host)
+    l.addWidget(scroll, stretch=1)
+
+    def _make_card(icon, name, desc, cmd):
+        card = QFrame()
+        card.setObjectName("fccard")
+        card.setCursor(Qt.PointingHandCursor)
+        card.setStyleSheet("#fccard { background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; }"
+                           "#fccard:hover { border:1px solid #4a9eff; background:#f8fbff; }")
+        v = QVBoxLayout(card)
+        v.setContentsMargins(18, 16, 18, 16)
+        v.setSpacing(8)
+        icon_l = QLabel(icon)
+        icon_l.setStyleSheet("font-size:34px;")
+        v.addWidget(icon_l)
+        nm = QLabel(name)
+        nm.setStyleSheet("font-weight:bold;font-size:15px;color:#0f172a;")
+        v.addWidget(nm)
+        ds = QLabel(desc)
+        ds.setStyleSheet("color:#64748b;font-size:12px;")
+        ds.setWordWrap(True)
+        v.addWidget(ds)
+        go = QLabel("点击打开 →")
+        go.setStyleSheet("color:#4a9eff;font-size:12px;font-weight:bold;")
+        v.addWidget(go)
+        v.addStretch(1)
+        card.mousePressEvent = lambda e, c=cmd, dd=d: (dd.close(), c())
+        return card
+
+    cols = 3
+    for idx, (icon, name, desc, cmd) in enumerate(items):
+        card = _make_card(icon, name, desc, cmd)
+        grid.addWidget(card, idx // cols, idx % cols)
+    for c in range(cols):
+        grid.setColumnStretch(c, 1)
+
+    tip = QLabel("💡 功能中心已收纳全部功能页，左侧只保留对话入口")
+    tip.setStyleSheet("color:#475569;font-size:12px;")
+    l.addWidget(tip)
+    d.exec_()
+
