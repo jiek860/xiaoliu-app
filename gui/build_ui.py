@@ -95,6 +95,30 @@ def build_ui(win):
     win.session_list.addItem(_it)
     win.session_list.itemClicked.connect(win._on_session_clicked)
     sidebar.addWidget(win.session_list, 1)
+
+    # ---- 已安装模块自带的按钮（数据来自 modules_repo/manifest.json）----
+    # 部署文档一直写着"带按钮的模块安装后自动在侧边栏加按钮"，派发函数
+    # dialog_mixin._module_button_clicked 也早就写好了，只是没人接到界面上。
+    try:
+        from core.module_buttons import load_buttons
+        _mod_btns = load_buttons(getattr(win, "base", None))
+    except Exception:
+        _mod_btns = []
+    if _mod_btns:
+        sidebar.addWidget(QLabel("<span style='color:#888;font-size:11px;'>模块</span>"))
+        for _b in _mod_btns:
+            _mb = QPushButton(_b["label"])
+            _mb.setToolTip("打开模块：%s" % _b["title"])
+            _mb.setStyleSheet("""
+                QPushButton { background:transparent; color:#333; border:none; padding:10px;
+                              border-radius:12px; font-size:13px; text-align:left; }
+                QPushButton:hover { background:#f0f0f0; }
+            """)
+            _mb.clicked.connect(
+                lambda _checked=False, _n=_b["name"], _a=_b["action"]:
+                win._module_button_clicked(_n, _a))
+            sidebar.addWidget(_mb)
+
     fc_btn = QPushButton("功能中心")
     fc_btn.setToolTip("打开功能中心：电脑控制、MCP市场、插件市场等")
     fc_btn.setStyleSheet("""
