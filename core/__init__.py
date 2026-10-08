@@ -25,7 +25,6 @@ CORE_MODULES = [
     "graph_db",
     "rules_engine",
     "chat_store",
-    "memory_store",
     # 授权与发布
     "license_core",
     "auth",
@@ -34,7 +33,6 @@ CORE_MODULES = [
     # 服务
     "module_server",
     "backup",
-    "health_check",
     "perf",
     "cache",
 ]
