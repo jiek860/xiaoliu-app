@@ -88,8 +88,11 @@ class Trunk:
         threading.Thread(target=self._auto_backup, daemon=True).start()
         # 性能优化：Ollama 预热 + 向量库预加载
         threading.Thread(target=self._warmup, daemon=True).start()
-        # 尝试初始化 pipeline；失败则永久降级走 legacy
+        # 尝试初始化 pipeline；初始化就失败的话只能一直走 legacy
         self._use_pipeline = True
+        # pipeline 出错后的冷却重试状态（见 _reply_inner / _pipeline_failed）
+        self._pipeline_fail_count = 0     # 连续失败次数，成功一次就清零
+        self._pipeline_retry_at = 0.0     # 早于这个时间点不重试 pipeline
         try:
             from core.pipeline import ReplyPipeline
             self._pipeline = ReplyPipeline(self)
@@ -1446,19 +1449,57 @@ class Trunk:
         except Exception as e:
             print("shutdown error:", e)
 
+    # pipeline 降级策略：出错不是"永久放弃"，而是进入冷却，到点自动重试。
+    #
+    # 原来的写法是一抛异常就 self._use_pipeline = False 并且永不恢复，后果是
+    # 一次网络抖动 / 模型临时抽风，程序就静默地一直走旧流程直到重启 —— 功能还在，
+    # 但路径换了，而且日志里只有一行，很难发现。
+    # 现在改成指数退避：失败后冷却 60s 再试，连续失败翻倍，最长 30 分钟；
+    # 一旦重试成功就完全恢复并清零计数。
+    # 冷却时间做成类属性，测试里可以直接改小以便验证恢复路径。
+    _PIPELINE_COOLDOWN_BASE = 60      # 首次失败后的冷却秒数
+    _PIPELINE_COOLDOWN_MAX = 1800     # 冷却上限（30 分钟）
+
+    def _pipeline_ready(self):
+        """现在能不能走 pipeline：要么正常可用，要么冷却期已过可以再试一次"""
+        if self._pipeline is None:
+            return False
+        if self._use_pipeline:
+            return True
+        return time.time() >= getattr(self, "_pipeline_retry_at", 0.0)
+
+    def _pipeline_failed(self, err):
+        """pipeline 出错：累计计数、按指数退避设置冷却、记错误库"""
+        n = getattr(self, "_pipeline_fail_count", 0) + 1
+        self._pipeline_fail_count = n
+        cd = min(self._PIPELINE_COOLDOWN_BASE * (2 ** (n - 1)), self._PIPELINE_COOLDOWN_MAX)
+        self._use_pipeline = False
+        self._pipeline_retry_at = time.time() + cd
+        self._legacy_fallback_count = getattr(self, "_legacy_fallback_count", 0) + 1
+        self._log("Pipeline异常(连续第%d次，累计%d次)，降级走旧流程，%d 秒后重试: %s"
+                  % (n, self._legacy_fallback_count, cd, str(err)[:110]))
+        try:
+            self.call("error_lib", "log", "pipeline", "reply", str(err))
+        except Exception:
+            pass
+
     def _reply_inner(self, user_input, on_token=None):
-        """回复主流程 v2：优先 pipeline，崩溃自动回退 legacy"""
-        if self._use_pipeline and self._pipeline is not None:
+        """回复主流程 v2：优先 pipeline，出错先降级、冷却后自动重试"""
+        if self._pipeline_ready():
+            was_degraded = not self._use_pipeline
             try:
-                return self._pipeline.run(user_input, on_token=on_token)
+                answer = self._pipeline.run(user_input, on_token=on_token)
             except Exception as e:
-                self._legacy_fallback_count = getattr(self, "_legacy_fallback_count", 0) + 1
-                self._log("Pipeline异常(累计%d次)，降级到旧流程: %s" % (self._legacy_fallback_count, str(e)[:120]))
-                try:
-                    self.call("error_lib", "log", "pipeline", "reply", str(e))
-                except Exception:
-                    pass
-                self._use_pipeline = False
+                self._pipeline_failed(e)
+            else:
+                if was_degraded:
+                    self._log("Pipeline 已恢复（此前连续失败 %d 次）"
+                              % getattr(self, "_pipeline_fail_count", 0))
+                # 成功即完全恢复，退避计数清零
+                self._use_pipeline = True
+                self._pipeline_fail_count = 0
+                self._pipeline_retry_at = 0.0
+                return answer
         # 回退到旧流程
         return self._reply_legacy(user_input, on_token=on_token)
 

@@ -14,6 +14,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest.mock as mock
 
 import pytest
@@ -56,8 +57,7 @@ def trunk():
     """每个用例一个全新 Trunk（构建只要 0.26s），落盘全部改到临时目录。
 
     为什么必须每例一个：Trunk 里有跨调用累积的状态。最典型的是
-    _reply_inner 里的 _use_pipeline —— pipeline 抛过一次异常就会被永久置为
-    False 并降级到旧流程（见 test_pipeline_disabled_after_error 的说明），
+    _reply_inner 的 pipeline 降级计数（_use_pipeline / _pipeline_fail_count），
     用模块级共享实例会让后续用例悄悄跑到另一条代码路径上。
 
     另外要屏蔽 DiskCache：它按用户输入做持久化缓存，会把上一次测试的
@@ -208,35 +208,71 @@ def test_multiple_rounds_keep_working(trunk):
     assert len(fake.calls) >= 3
 
 
-# ---------------------------------------------------------------- 已知限制
+# ---------------------------------------------------------------- pipeline 降级与恢复
 
-def test_pipeline_disabled_after_error(trunk):
-    """把当前行为钉住：pipeline 抛一次异常就永久降级到旧流程
+def test_pipeline_enters_cooldown_after_error(trunk):
+    """出错后进入冷却降级（不是永久放弃），且降级期间仍能回话
 
-    这是**实际行为**而非期望行为。core/trunk.py 的 _reply_inner 里：
-        except Exception:
-            self._use_pipeline = False     # 没有恢复机制
-    后果是一次网络抖动 / 模型临时抽风，程序就永久走旧流程，直到重启。
-    这里显式记录，改动时能立刻察觉。
+    core/trunk.py 的 _reply_inner 原来是 self._use_pipeline = False 且永不恢复，
+    一次网络抖动就会让它静默走旧流程直到重启。现在改成指数退避冷却。
     """
     assert trunk._use_pipeline is True
     _install_fake(trunk, FakeLLM(boom=True))
     trunk.reply("让它炸一次")
-    assert trunk._use_pipeline is False, "当前实现应当已降级"
 
-    # 降级之后仍然能正常回话（走旧流程），只是不再用 pipeline
+    assert trunk._use_pipeline is False, "出错后应当降级"
+    assert trunk._pipeline_fail_count == 1, "连续失败计数应当为 1"
+    assert trunk._pipeline_retry_at > time.time(), \
+        "应当设置冷却时间（到点会重试），而不是永久关闭"
+
+    # 降级期间照样能回话（走旧流程）
     fake = _install_fake(trunk, FakeLLM("我恢复了"))
     r = trunk.reply("再试一次")
     assert isinstance(r, str) and r.strip()
     assert fake.calls, "旧流程也应当调用模型"
 
 
-@pytest.mark.xfail(strict=False,
-                   reason="期望 pipeline 能自动恢复；当前是永久降级（已知限制，见上一条）")
-def test_pipeline_should_recover_after_error(trunk):
-    """期望行为：模型恢复正常后，pipeline 应当重新启用而不是永久降级"""
+def test_pipeline_recovers_after_cooldown(trunk, monkeypatch):
+    """冷却结束后必须自动恢复 —— 这是本次修复的核心"""
+    monkeypatch.setattr(type(trunk), "_PIPELINE_COOLDOWN_BASE", 0)   # 冷却立即到期
+
     _install_fake(trunk, FakeLLM(boom=True))
     trunk.reply("炸一次")
+    assert trunk._use_pipeline is False
+
+    # 模型恢复 + 冷却已过 → 下一次应当重新走 pipeline 并完全恢复
     _install_fake(trunk, FakeLLM("好了"))
     trunk.reply("再试一次")
-    assert trunk._use_pipeline is True
+    assert trunk._use_pipeline is True, "冷却结束后应当自动恢复，而不是永久降级"
+    assert trunk._pipeline_fail_count == 0, "恢复后退避计数应当清零"
+    assert trunk._pipeline_retry_at == 0.0
+
+
+def test_pipeline_backoff_grows_and_caps(trunk):
+    """连续失败时冷却时间递增，并且有上限（避免对确定性 bug 空转）"""
+    _install_fake(trunk, FakeLLM(boom=True))
+    seen = []
+    for i in range(5):
+        # 假装冷却已过，强制让下一次再去试 pipeline
+        trunk._use_pipeline = False
+        trunk._pipeline_retry_at = 0.0
+        before = time.time()
+        trunk.reply("炸第 %d 次" % (i + 1))
+        seen.append(round(trunk._pipeline_retry_at - before))
+
+    assert trunk._pipeline_fail_count == 5, "连续失败应当累计"
+    assert all(b >= a for a, b in zip(seen, seen[1:])), "冷却时间应当单调不减: %s" % seen
+    assert seen[0] == 60, "首次失败后冷却 60s: %s" % seen
+    assert max(seen) <= 1800, "冷却不应超过上限 30 分钟: %s" % seen
+
+
+def test_pipeline_success_resets_backoff(trunk, monkeypatch):
+    """中间成功一次，退避计数应当清零（重新从头开始）"""
+    monkeypatch.setattr(type(trunk), "_PIPELINE_COOLDOWN_BASE", 0)
+    _install_fake(trunk, FakeLLM(boom=True))
+    trunk.reply("炸一次")
+    assert trunk._pipeline_fail_count == 1
+
+    _install_fake(trunk, FakeLLM("成功"))
+    trunk.reply("成功了")
+    assert trunk._pipeline_fail_count == 0
