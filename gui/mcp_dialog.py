@@ -33,7 +33,7 @@ import json
 from PyQt5.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout,
                              QLabel, QPushButton, QListWidget, QListWidgetItem,
                              QMessageBox, QTabWidget, QWidget, QFormLayout,
-                             QLineEdit)
+                             QLineEdit, QComboBox)
 from PyQt5.QtCore import Qt
 
 
@@ -112,13 +112,20 @@ class MCPDialog(QDialog):
         v.addLayout(row)
 
         form = QFormLayout()
+        self.transport_combo = QComboBox()
+        self.transport_combo.addItems(["HTTP 端点", "stdio 命令行"])
+        self.transport_combo.currentIndexChanged.connect(self._on_transport_changed)
+        form.addRow("传输方式:", self.transport_combo)
+
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("例如：我的工具")
+        form.addRow("名称:", self.name_edit)
+
         self.url_edit = QLineEdit()
         self.url_edit.setPlaceholderText("HTTP 端点，例如 http://localhost:3742")
-        form.addRow("名称:", self.name_edit)
         form.addRow("地址:", self.url_edit)
-        form.addRow("", QPushButton("添加并连接", clicked=self._add_server))
+        self.add_btn = QPushButton("添加并连接", clicked=self._add_server)
+        form.addRow("", self.add_btn)
         v.addLayout(form)
 
         v.addWidget(QLabel("已连接工具:"))
@@ -130,7 +137,7 @@ class MCPDialog(QDialog):
     def _build_presets_tab(self):
         w = QWidget()
         v = QVBoxLayout(w)
-        v.addWidget(QLabel("常用 MCP 服务器及其启动命令（可复制到命令行手动运行）："))
+        v.addWidget(QLabel("常用 MCP 服务器（都是 stdio 型，点「一键安装」会起子进程连上）："))
         self.preset_list = QListWidget()
         for p in PRESETS:
             it = QListWidgetItem("📡 %s — %s\n      %s"
@@ -140,19 +147,26 @@ class MCPDialog(QDialog):
         self.preset_list.setCurrentRow(0)
         v.addWidget(self.preset_list, stretch=1)
 
+        row = QHBoxLayout()
+        row.addWidget(QPushButton("复制选中命令", clicked=self._copy_preset_cmd))
+        install = QPushButton("⬇ 一键安装选中")
+        install.setStyleSheet("background:#4a9eff;color:white;padding:8px 20px;"
+                              "border:none;border-radius:6px;")
+        install.clicked.connect(self._install_preset)
+        row.addWidget(install)
+        row.addStretch(1)
+        v.addLayout(row)
+
         note = QLabel(
-            "⚠️ 这些是 stdio 型服务器（靠命令行启动、走标准输入输出通信），\n"
-            "     而当前客户端连的是 HTTP 端点（会去请求 <地址>/tools）。\n"
-            "     两者传输方式不同，所以这里不提供「一键安装」—— 那种按钮装了也连不上。\n"
-            "     要用它们：先在命令行跑起来，再用一个 HTTP 包装暴露 /tools，\n"
-            "     然后到「🔌 服务器」页把那个地址加进来。"
+            "说明：这些服务器需要本机有 Node.js（npx）或 uv（uvx）。\n"
+            "     首次运行时它们会去下载对应的包，可能需要等一会儿；\n"
+            "     装好后就能在「🔌 服务器」页看到，并出现在已连接工具里。\n"
+            "     装不上时那一页会显示失败原因（比如命令不存在、包下载失败）。"
         )
-        note.setStyleSheet("color:#92400e;background:#fffbeb;border:1px solid #fde68a;"
+        note.setStyleSheet("color:#1e40af;background:#eff6ff;border:1px solid #bfdbfe;"
                            "border-radius:6px;padding:8px;font-size:12px;")
         note.setWordWrap(True)
         v.addWidget(note)
-
-        v.addWidget(QPushButton("复制选中命令", clicked=self._copy_preset_cmd))
         return w
 
     def _build_reference_tab(self):
@@ -235,6 +249,16 @@ class MCPDialog(QDialog):
 
     # ------------------------------------------------------------ 动作
 
+    def _on_transport_changed(self, idx):
+        """切换传输方式时把输入框的提示和标签改对"""
+        if idx == 1:
+            self.url_edit.setPlaceholderText(
+                "命令行，例如 npx -y @modelcontextprotocol/server-filesystem .")
+            self.add_btn.setText("添加并启动")
+        else:
+            self.url_edit.setPlaceholderText("HTTP 端点，例如 http://localhost:3742")
+            self.add_btn.setText("添加并连接")
+
     def _on_item_changed(self, item):
         """勾选/取消勾选 -> 写回 enabled 并让客户端重连"""
         if self._loading:
@@ -250,27 +274,73 @@ class MCPDialog(QDialog):
 
     def _add_server(self):
         name = self.name_edit.text().strip()
-        url = self.url_edit.text().strip()
-        if not name or not url:
-            QMessageBox.warning(self, "提示", "名称和地址都要填")
+        value = self.url_edit.text().strip()
+        is_stdio = self.transport_combo.currentIndex() == 1
+        if not name or not value:
+            QMessageBox.warning(self, "提示", "名称和%s都要填"
+                                % ("命令" if is_stdio else "地址"))
             return
-        if not url.startswith(("http://", "https://")):
-            QMessageBox.warning(
-                self, "地址不对",
-                "地址要写成 HTTP 端点，例如 http://localhost:3742\n"
-                "（stdio 型服务器需要先自己起一个 HTTP 包装，见「⚡ 预置服务器」页）")
+        if not is_stdio and not value.startswith(("http://", "https://")):
+            QMessageBox.warning(self, "地址不对",
+                                "HTTP 端点要写成 http:// 或 https:// 开头，\n"
+                                "例如 http://localhost:3742")
             return
         servers = self._load_servers()
-        servers.append({"name": name, "url": url, "enabled": True})
+        if is_stdio:
+            servers.append({"name": name, "command": value, "enabled": True})
+        else:
+            servers.append({"name": name, "url": value, "enabled": True})
         self._save_servers(servers)
         r = self._sync_client()
         self.name_edit.clear()
         self.url_edit.clear()
         self._refresh()
-        QMessageBox.information(
-            self, "成功",
-            "已添加 %s\n重连结果: %s"
-            % (name, json.dumps(r, ensure_ascii=False) if r else "客户端未加载"))
+        self._report("添加 %s" % name, r)
+
+    def _install_preset(self):
+        """一键安装预置的 stdio 服务器。
+
+        原来是坏的：调 add_server(name, cmd, args) 传 3 个参数，
+        而签名只有 2 个，直接 TypeError 被 except 吞掉，界面只显示"错误"；
+        更根本的是当时客户端只会 HTTP，stdio 命令传进去也连不上。
+        现在 mcp_client 支持 stdio 了，走 add_stdio_server(name, command)。
+        """
+        it = self.preset_list.currentItem()
+        if not it:
+            QMessageBox.information(self, "提示", "请先选一个预置服务器")
+            return
+        preset = it.data(Qt.UserRole)
+        c = self._mcp_client()
+        if not c or not hasattr(c, "add_stdio_server"):
+            QMessageBox.warning(self, "失败", "MCP 客户端未加载或不支持 stdio")
+            return
+        self.preset_list.setEnabled(False)
+        try:
+            r = c.add_stdio_server(preset["name"], preset["cmd"])
+        except Exception as e:
+            r = {"ok": False, "错误": str(e)[:120]}
+        finally:
+            self.preset_list.setEnabled(True)
+        self._refresh()
+        self._report("安装 %s" % preset["name"], r, preset)
+
+    def _report(self, what, r, preset=None):
+        """统一的结果提示：把失败原因如实说出来，别只显示"错误" """
+        ok = bool(r and r.get("ok"))
+        lines = ["%s %s" % ("✅" if ok else "❌", what)]
+        if r:
+            if r.get("失败"):
+                lines.append("连接失败:")
+                lines.extend("  · " + str(x) for x in r["失败"][:4])
+            lines.append("服务器 %s 个 · 工具 %s 个"
+                         % (r.get("服务器数", "?"), r.get("工具数", "?")))
+            if r.get("错误"):
+                lines.append("错误: " + str(r["错误"]))
+        if preset and not ok:
+            lines.append("")
+            lines.append("提示：这条命令需要本机装好 Node.js（npx）或 uv（uvx）。")
+            lines.append("命令: " + preset.get("cmd", ""))
+        QMessageBox.information(self, "结果", "\n".join(lines))
 
     def _del_selected(self):
         i = self.list.currentRow()
@@ -290,9 +360,7 @@ class MCPDialog(QDialog):
     def _reload_all(self):
         r = self._sync_client()
         self._refresh()
-        QMessageBox.information(
-            self, "完成",
-            "已重新连接\n" + (json.dumps(r, ensure_ascii=False) if r else "客户端未加载"))
+        self._report("全部重连", r)
 
     def _test_selected(self):
         """测试**选中的那一个**服务器（以前只报了个总数，没看选的是谁）"""

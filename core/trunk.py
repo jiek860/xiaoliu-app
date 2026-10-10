@@ -1525,7 +1525,17 @@ class Trunk:
                 self._log("记忆已保存")
             except Exception as e:
                 self._log("保存记忆失败: %s" % str(e)[:60])
-            
+
+            # 4. 收掉 MCP 的 stdio 子进程
+            #    npx / node 那些是用命令行起的，不收就会变成孤儿进程挂在后台。
+            try:
+                mc = self.modules.get("mcp_client")
+                if mc and hasattr(mc, "stop"):
+                    r = mc.stop()
+                    self._log("MCP 子进程已收: %s" % (r or ""))
+            except Exception as e:
+                self._log("收 MCP 子进程失败: %s" % str(e)[:60])
+
             self._log("退出完成")
         except Exception as e:
             print("shutdown error:", e)

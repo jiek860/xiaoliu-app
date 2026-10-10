@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """MCP客户端 v2.0 - 连接外部MCP服务器 + 调用工具 + 添加/删除/测试 + 历史 + 统计"""
-import json, urllib.request, sys, os
+import json, urllib.request, sys, os, time
 from core.safe import safe
 from modules.base import BaseModule
 
@@ -12,57 +12,167 @@ class MCPClient(BaseModule):
     # 没有配置任何服务器时的兜底（保持旧行为）
     DEFAULT_SERVER = {"name": "桌面工具", "url": "http://localhost:3742"}
 
+    def _log(self, msg):
+        """BaseModule 没有 _log，这里补一个（stdio 传输层要回调它记日志）"""
+        try:
+            if self.trunk:
+                self.trunk._log(msg)
+                return
+        except Exception:
+            pass
+        try:
+            print(msg)
+        except Exception:
+            pass
+
     def __init__(self, trunk=None):
         super().__init__(trunk)
         self.trunk = trunk
         self.servers = []
+        self.stdio = {}          # 服务器名 -> core.mcp_stdio.StdioMCPServer
         self.tools = []
         self.history = []
         self.call_count = 0
+        self.conn_errors = []    # 连接失败的诊断，给界面看
         self.reload_servers()
 
     def reload_servers(self):
-        """按 config["mcp_servers"] 重建服务器列表并重新拉取工具。
+        """按 config["mcp_servers"] 重建服务器列表并重新连接。
 
-        gui/mcp_dialog.py 的增 / 删 / 重新连接三个按钮都是先写
-        config["mcp_servers"]，再调本方法让客户端跟上。
+        支持两种传输：
+            {"name":..., "url": "http://localhost:3742"}                    HTTP
+            {"name":..., "command": "npx -y @modelcontextprotocol/..."}     stdio
 
-        原来这个方法**根本不存在** —— 而对话框那边的调用被
-        `try: mcp.reload_servers() except: pass` 静默吞掉，后果是：
-        对话框里加过的服务器客户端从来不知道，拉工具列表始终只用
-        __init__ 里写死的那个 localhost:3742（面板看着能用，实际没生效）。
+        gui/mcp_dialog.py 的增 / 删 / 勾选 / 重新连接都会调本方法。
+
+        原来这个方法**不存在** —— 对话框那边的调用被 try/except 静默吞掉，
+        后果是对话框里加过的服务器客户端从来不知道，拉工具列表始终只用
+        __init__ 里写死的那个 localhost:3742。
         """
+        # 先收掉旧的 stdio 子进程，不然每次重连都留一堆孤儿
+        for s in list(self.stdio.values()):
+            try:
+                s.stop()
+            except Exception:
+                pass
+        self.stdio = {}
+
         cfg = []
         try:
             cfg = list((getattr(self.trunk, "config", None) or {}).get("mcp_servers", []) or [])
         except Exception:
             cfg = []
         servers = []
+        seen_names = set()
         for s in cfg:
-            if not isinstance(s, dict):
+            if not isinstance(s, dict) or not s.get("enabled", True):
                 continue
+            cmd = str(s.get("command") or "").strip()
             url = str(s.get("url") or "").strip()
-            if not url or not s.get("enabled", True):
+            if cmd:
+                entry = {"name": str(s.get("name") or cmd[:30]),
+                         "command": cmd, "transport": "stdio"}
+            elif url:
+                entry = {"name": str(s.get("name") or url),
+                         "url": url, "transport": "http"}
+            else:
                 continue
-            servers.append({"name": str(s.get("name") or url), "url": url})
+            # 同名条目只留第一条：self.stdio 是按名字索引的，
+            # 两个同名的 stdio 服务器会让后一个覆盖前一个的槽位，
+            # 前一个子进程就再也没人管、变成孤儿了。
+            if entry["name"] in seen_names:
+                continue
+            seen_names.add(entry["name"])
+            servers.append(entry)
         if not servers:
-            servers = [dict(self.DEFAULT_SERVER)]
+            servers = [dict(self.DEFAULT_SERVER, transport="http")]
+
         self.servers = servers
         self.tools = []
-        self._connect()
-        return {"ok": True, "服务器数": len(self.servers), "工具数": len(self.tools)}
+        self.conn_errors = []
+        for srv in self.servers:
+            if srv.get("transport") == "stdio":
+                self._connect_stdio(srv)
+            else:
+                self._connect_http(srv)
+        return {"ok": True, "服务器数": len(self.servers), "工具数": len(self.tools),
+                "失败": self.conn_errors}
+
+    def _connect_http(self, srv):
+        try:
+            r = urllib.request.urlopen(srv["url"] + "/tools", timeout=3)
+            data = json.loads(r.read().decode())
+            if isinstance(data, list):
+                for t in data:
+                    if not isinstance(t, dict):
+                        continue
+                    t = dict(t)
+                    t["_server"] = srv["name"]
+                    t["_transport"] = "http"
+                    self.tools.append(t)
+        except Exception as e:
+            self.conn_errors.append("%s (HTTP): %s" % (srv["name"], str(e)[:90]))
+
+    def _connect_stdio(self, srv):
+        """启动 stdio 子进程并拉工具列表"""
+        try:
+            from core.mcp_stdio import StdioMCPServer
+        except Exception as e:
+            self.conn_errors.append("%s (stdio): 传输层不可用 %s" % (srv["name"], str(e)[:60]))
+            return
+        # 兜底：同名槽位已经有连接就先收掉，别把它覆盖成孤儿
+        old = self.stdio.pop(srv["name"], None)
+        if old is not None:
+            try:
+                old.stop()
+            except Exception:
+                pass
+        s = StdioMCPServer(srv["name"], srv["command"], log=self._log)
+        if s.start():
+            self.stdio[srv["name"]] = s
+            self.tools.extend(s.tools)
+            self._log("MCP stdio 已连接: %s（%d 个工具）" % (srv["name"], len(s.tools)))
+        else:
+            why = s.diagnostics()
+            self.conn_errors.append("%s (stdio): %s" % (srv["name"], why))
+            self._log("MCP stdio 连接失败: %s —— %s" % (srv["name"], why))
+            try:
+                s.stop()
+            except Exception:
+                pass
 
     def _connect(self):
-        """连接所有MCP服务器，拉取工具列表"""
-        for srv in self.servers:
+        """兼容旧调用：等价于重连一次"""
+        return self.reload_servers()
+
+    def stop(self):
+        """收掉所有 stdio 子进程（退出时调用，避免留下孤儿 npx/node）"""
+        n = 0
+        for s in list(self.stdio.values()):
             try:
-                r = urllib.request.urlopen(srv["url"] + "/tools", timeout=3)
-                data = json.loads(r.read().decode())
-                if isinstance(data, list):
-                    for t in data:
-                        t["_server"] = srv["name"]
-                        self.tools.append(t)
-            except: pass
+                s.stop()
+                n += 1
+            except Exception:
+                pass
+        self.stdio = {}
+        self.tools = []
+        return {"ok": True, "已收": n}
+
+    @safe
+    def add_stdio_server(self, name, command):
+        """添加一个 stdio 型服务器（命令行）"""
+        name = (name or "").strip()
+        command = (command or "").strip()
+        if not name or not command:
+            return {"ok": False, "错误": "名称和命令都要填"}
+        cfg = list((getattr(self.trunk, "config", None) or {}).get("mcp_servers", []) or [])
+        cfg.append({"name": name, "command": command, "enabled": True})
+        try:
+            self.trunk.config["mcp_servers"] = cfg
+            self.trunk.save_config()
+        except Exception:
+            pass
+        return self.reload_servers()
 
     @safe
     def add_server(self, name, url):
@@ -89,33 +199,52 @@ class MCPClient(BaseModule):
 
     @safe
     def call(self, tool_name, args=None):
-        """调用MCP工具"""
+        """调用 MCP 工具（按工具所属服务器自动选传输方式）"""
         for t in self.tools:
-            if t["name"] == tool_name:
-                try:
-                    url = None
-                    for srv in self.servers:
-                        if srv["name"] == t["_server"]:
-                            url = srv["url"]
-                            break
-                    if not url: return {"错误": "找不到服务器"}
-                    data = json.dumps({"tool": tool_name, "args": args or {}}).encode()
-                    req = urllib.request.Request(url + "/call", data=data, headers={"Content-Type": "application/json"})
-                    r = urllib.request.urlopen(req, timeout=10)
-                    result = json.loads(r.read().decode())
-                    # 记录历史
-                    self.call_count += 1
-                    self.history.append({"工具": tool_name, "时间": "now"})
-                    if len(self.history) > 20:
-                        self.history = self.history[-20:]
-                    return result
-                except Exception as e:
-                    return {"错误": str(e)[:80]}
+            if t.get("name") != tool_name:
+                continue
+            srv_name = t.get("_server")
+            # ---- stdio 型 ----
+            if t.get("_transport") == "stdio":
+                s = self.stdio.get(srv_name)
+                if not s:
+                    return {"错误": "stdio 服务器未连接: %s" % srv_name}
+                r = s.call_tool(tool_name, args)
+                self._record(tool_name)
+                if r.get("ok"):
+                    return {"ok": True, "结果": r.get("结果", "")}
+                return {"错误": r.get("错误") or r.get("结果") or "调用失败"}
+            # ---- HTTP 型 ----
+            try:
+                srv = next((x for x in self.servers if x["name"] == srv_name), None)
+                if not srv or not srv.get("url"):
+                    return {"错误": "找不到服务器: %s" % srv_name}
+                data = json.dumps({"tool": tool_name, "args": args or {}}).encode()
+                req = urllib.request.Request(
+                    srv["url"] + "/call", data=data,
+                    headers={"Content-Type": "application/json"})
+                r = urllib.request.urlopen(req, timeout=10)
+                result = json.loads(r.read().decode())
+                self._record(tool_name)
+                return result
+            except Exception as e:
+                return {"错误": str(e)[:80]}
         return {"错误": "工具不存在: " + tool_name}
 
+    def _record(self, tool_name):
+        self.call_count += 1
+        self.history.append({"工具": tool_name,
+                             "时间": time.strftime("%H:%M:%S")})
+        if len(self.history) > 20:
+            self.history = self.history[-20:]
+
     def list_tools(self):
-        return {"已连服务器": len(self.servers), "工具数": len(self.tools),
-                "工具": [t["name"] for t in self.tools]}
+        return {"已连服务器": len(self.servers),
+                "已连工具": len(self.tools),
+                "工具数": len(self.tools),
+                "工具": [t.get("name") for t in self.tools],
+                "明细": [{"名称": t.get("name"), "服务器": t.get("_server"),
+                          "传输": t.get("_transport")} for t in self.tools]}
 
     @safe
     def get_history(self, count=10):
@@ -125,10 +254,17 @@ class MCPClient(BaseModule):
     @safe
     def stats(self):
         """统计"""
+        by_transport = {}
+        for s in self.servers:
+            k = s.get("transport", "http")
+            by_transport[k] = by_transport.get(k, 0) + 1
         return {
             "服务器数": len(self.servers),
             "工具数": len(self.tools),
-            "总调用次数": self.call_count
+            "总调用次数": self.call_count,
+            "按传输": by_transport,
+            "stdio 进程数": len(self.stdio),
+            "连接失败": self.conn_errors,
         }
 
     @safe
