@@ -27,6 +27,11 @@ from core.trunk import Trunk
 def main():
     print("=== 后台服务启动 ===")
     t = Trunk()
+    # 自己装崩溃钩子（Trunk 不再自动装，见 core/trunk.py 里的说明）
+    try:
+        t.install_crash_hook()
+    except Exception:
+        pass
     print(f"模块: {len(t.modules)}核心 + {len(t._lazy)}懒加载")
     # 启动移动端 Web 服务（8765）
     try:

@@ -30,7 +30,15 @@ class Trunk:
         self.log_path = os.path.join(self.log_dir, 'trunk.log')
         self.crash_path = os.path.join(self.log_dir, 'crashes.log')
         self.config_path = os.path.join(self.data_dir, 'config.json')
-        sys.excepthook = self._global_excepthook
+        # 注意：这里**不**自动装 sys.excepthook。
+        # 原来在 __init__ 里直接 sys.excepthook = self._global_excepthook，
+        # 后果是任何创建了 Trunk 的东西 —— 测试、脚本、tools/ 下的工具 ——
+        # 一崩就往用户真实的 data/logs/crashes.log 里写，
+        # 还会把深度自检的"今天N条崩溃"顶上去、白扣健康分（实际发生过：
+        # 我自己的几个临时验证脚本写进去 3 条，健康分从 100 掉到 80）。
+        # 需要的话由程序入口显式调 install_crash_hook()：
+        # run.py / gui/app_pyqt.py 本来就各自装了钩子，run_server.py 调下面这个方法。
+        self._owns_excepthook = False
 
         self.modules = {}
         self.handlers = {}
@@ -133,6 +141,16 @@ class Trunk:
                 self._log("Vector warmup skip: %s" % str(e)[:40])
         except Exception:
             pass
+
+    def install_crash_hook(self):
+        """把未捕获异常写进 data/logs/crashes.log（由程序入口显式调用）
+
+        只在真跑程序时装 —— 见 __init__ 里的说明，
+        别让测试/工具把自己的崩溃写进用户的日志。
+        """
+        sys.excepthook = self._global_excepthook
+        self._owns_excepthook = True
+        return True
 
     def _global_excepthook(self, exc_type, exc_value, exc_tb):
         try:
@@ -636,8 +654,17 @@ class Trunk:
         try:
             mc=self.modules.get("mcp_client")
             if mc:
-                r=mc.run(); log("🔌 MCP: 已连%d/%d"%(r.get("已连接服务器",0),r.get("总服务器",0)))
-            else: log("🔌 MCP: 未加载")
+                r = mc.run() or {}
+                # stats() 返回的键是 服务器数 / 工具数，
+                # 原来读的是"已连接服务器"/"总服务器" —— 两个都不存在，
+                # 于是永远显示 0/0（实际 5 个服务器 37 个工具），
+                # 又是那种"键名对不上、又不报错"的静默 bug。
+                log("🔌 MCP: %d 个服务器 · %d 个工具" % (
+                    r.get("服务器数", 0), r.get("工具数", 0)))
+                if r.get("连接失败"):
+                    log("   （%d 个服务器连不上）" % len(r["连接失败"]))
+            else:
+                log("🔌 MCP: 未加载")
         except Exception: pass
         try:
             t0=time.time(); llm=self.modules.get("llm")
