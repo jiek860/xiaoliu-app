@@ -34,6 +34,7 @@ class MCPClient(BaseModule):
         self.history = []
         self.call_count = 0
         self.conn_errors = []    # 连接失败的诊断，给界面看
+        self._stopped = False    # 退出时置位，防止"正在连接的"在 stop 之后才落地
         self.reload_servers()
 
     def reload_servers(self):
@@ -49,6 +50,7 @@ class MCPClient(BaseModule):
         后果是对话框里加过的服务器客户端从来不知道，拉工具列表始终只用
         __init__ 里写死的那个 localhost:3742。
         """
+        self._stopped = False          # 显式重连视为"又开始工作了"
         # 先收掉旧的 stdio 子进程，不然每次重连都留一堆孤儿
         for s in list(self.stdio.values()):
             try:
@@ -84,7 +86,11 @@ class MCPClient(BaseModule):
                 continue
             seen_names.add(entry["name"])
             servers.append(entry)
-        if not servers:
+        # 兜底只在"从来没配过任何服务器"时生效。
+        # 配置里明明有服务器、只是全被停用了，那就一个都不连 ——
+        # 否则"全部取消勾选"会静默变回连默认那个，跟用户的意图相反
+        # （测试里就撞到过：停用后回退去连内置的 3742，又冒出 4 个工具）。
+        if not cfg:
             servers = [dict(self.DEFAULT_SERVER, transport="http")]
 
         self.servers = servers
@@ -129,6 +135,15 @@ class MCPClient(BaseModule):
                 pass
         s = StdioMCPServer(srv["name"], srv["command"], log=self._log)
         if s.start():
+            # 竞态保护：如果这期间程序已经在退出了（stop() 已经跑过），
+            # 这个刚起来的进程没人会再收，直接就地收掉，
+            # 否则会留下一个孤儿 npx/node（实测能复现）。
+            if self._stopped:
+                try:
+                    s.stop()
+                except Exception:
+                    pass
+                return
             self.stdio[srv["name"]] = s
             self.tools.extend(s.tools)
             self._log("MCP stdio 已连接: %s（%d 个工具）" % (srv["name"], len(s.tools)))
@@ -146,7 +161,12 @@ class MCPClient(BaseModule):
         return self.reload_servers()
 
     def stop(self):
-        """收掉所有 stdio 子进程（退出时调用，避免留下孤儿 npx/node）"""
+        """收掉所有 stdio 子进程（退出时调用，避免留下孤儿 npx/node）
+
+        先置 _stopped，再收 —— 这样即使在收的过程中还有一条连接正在建立，
+        它落地时也会自己发现并退出，不会变成没人管的孤儿进程。
+        """
+        self._stopped = True
         n = 0
         for s in list(self.stdio.values()):
             try:

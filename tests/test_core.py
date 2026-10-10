@@ -105,9 +105,8 @@ def test_rules_engine():
     print("✅ rules engine")
 
 
-def test_trunk_init():
-    from core.trunk import Trunk
-    t = Trunk()
+def test_trunk_init(quiet_trunk):
+    t = quiet_trunk()
     assert len(t.modules) >= 5
     print("✅ trunk init: %d 个模块" % len(t.modules))
 

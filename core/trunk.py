@@ -259,11 +259,16 @@ class Trunk:
         except Exception as e:
             self._log("移动端启动失败: %s" % str(e)[:60])
         # MCP 服务端 + 客户端
+        # 服务端是内嵌的本地工具服务：把 chat / search / run_code / backup
+        # 包成 HTTP 接口（127.0.0.1:3742），供客户端那条「本地工具」配置连。
+        # 原来这里只调了 ms.run()（返回工具清单，什么也不启动），
+        # start_http() 全项目没有调用点，所以那个服务从来没起来过。
         try:
             ms = self._load_lazy("mcp_server")
-            if ms: ms.run()
+            if ms and hasattr(ms, "start_http"):
+                self._log("本地工具服务: %s" % str(ms.start_http())[:80])
         except Exception as e:
-            self._log("MCP服务端: %s" % str(e)[:40])
+            self._log("本地工具服务启动失败: %s" % str(e)[:60])
         try:
             mc = self._load_lazy("mcp_client")
             if mc:
@@ -1526,7 +1531,7 @@ class Trunk:
             except Exception as e:
                 self._log("保存记忆失败: %s" % str(e)[:60])
 
-            # 4. 收掉 MCP 的 stdio 子进程
+            # 4. 收掉 MCP 的 stdio 子进程 和 内嵌的本地工具服务
             #    npx / node 那些是用命令行起的，不收就会变成孤儿进程挂在后台。
             try:
                 mc = self.modules.get("mcp_client")
@@ -1535,6 +1540,13 @@ class Trunk:
                     self._log("MCP 子进程已收: %s" % (r or ""))
             except Exception as e:
                 self._log("收 MCP 子进程失败: %s" % str(e)[:60])
+            try:
+                ms = self.modules.get("mcp_server")
+                if ms and hasattr(ms, "stop_http"):
+                    ms.stop_http()
+                    self._log("本地工具服务已停")
+            except Exception as e:
+                self._log("停本地工具服务失败: %s" % str(e)[:60])
 
             self._log("退出完成")
         except Exception as e:

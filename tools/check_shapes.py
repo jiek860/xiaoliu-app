@@ -165,7 +165,7 @@ def scan_call_sites(roots=None):
 
 
 def is_probe(method):
-    """下划线开头的"方法名"是故意的探针，不算 bug。
+    """双下划线包起来的"方法名"是故意的探针，不算 bug。
 
     代码里有一批这种写法：
         self.trunk.call("task_loop", "__no__")
@@ -173,8 +173,12 @@ def is_probe(method):
     利用的是 trunk.call() 会先懒加载模块、再派发调用这一点 ——
     方法名故意写错，调用必然失败（返回值也没人看），目的只是把模块加载起来。
     惯用法有点绕，但它是有意为之，不是"调用了不存在的方法"。
+
+    判据只认 `__xxx__` 这种双下划线形式，不用"下划线开头" ——
+    那样会把 `_log`、`_connect` 这些真实私有方法一起放过，
+    它们的拼写错误反而查不出来了。
     """
-    return method.startswith("_")
+    return method.startswith("__") and method.endswith("__")
 
 
 def load_module_api(skip=SKIP_LOAD):

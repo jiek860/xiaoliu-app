@@ -83,9 +83,23 @@ def test_disable_stops_process():
     assert c.stdio
     c.trunk.config["mcp_servers"] = [{"name": "假MCP", "command": CMD,
                                       "enabled": False}]
-    c.reload_servers()
+    r = c.reload_servers()
     assert c.stdio == {}, "停用后 stdio 连接应当被收掉"
+    # 配置里还有条目、只是被停用了 —— 就该一个都不连，
+    # 不能悄悄回退到那个内置的默认服务器
+    assert c.servers == [], "全部停用后不该回退去连默认服务器"
     assert c.tools == []
+    assert r["服务器数"] == 0
+
+
+def test_empty_config_falls_back_to_default():
+    """从来没配过服务器时，才用内置的默认地址兜底"""
+    c = _client([])
+    try:
+        assert len(c.servers) == 1
+        assert "3742" in c.servers[0].get("url", "")
+    finally:
+        c.stop()
 
 
 def test_duplicate_names_do_not_orphan_processes():
@@ -151,5 +165,38 @@ def test_add_stdio_server_persists_and_connects():
         cfg = c.trunk.config["mcp_servers"]
         assert cfg and cfg[-1]["command"] == CMD
         assert "新加的" in c.stdio
+    finally:
+        c.stop()
+
+
+def test_connect_landing_after_stop_is_cleaned_up():
+    """stop() 之后才落地的连接要自己收掉（退出时的真实竞态）
+
+    不能靠 sleep 去碰运气 —— 直接构造"已经 stop 过、又有一条连接落地"
+    的状态，确定性地验那个守卫。
+    """
+    from core.mcp_stdio import live_count
+
+    before = live_count()
+    c = _client([])                      # 空配置，不连任何 stdio
+    c.stop()                             # 置位 _stopped，模拟程序正在退出
+    assert c._stopped is True
+    c._connect_stdio({"name": "假X", "command": CMD, "transport": "stdio"})
+    time.sleep(0.5)
+    assert c.stdio == {}, "stop 之后落地的连接不该被登记"
+    assert live_count() == before, "stop 之后落地的连接没被收掉，成了孤儿进程"
+
+
+def test_reload_after_stop_works_again():
+    """显式重连视为"又开始工作了"，守卫要复位"""
+    c = _client([])
+    c.stop()
+    assert c._stopped is True
+    c.trunk.config["mcp_servers"] = [{"name": "假MCP", "command": CMD,
+                                      "enabled": True}]
+    try:
+        c.reload_servers()
+        assert c._stopped is False
+        assert "假MCP" in c.stdio, "重连之后应当能正常工作"
     finally:
         c.stop()
