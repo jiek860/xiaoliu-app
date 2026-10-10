@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt5.QtCore import QObject, pyqtSignal
 
 
-def show_settings_dialog(parent, dlg, trunk, base, ai_name, title,
+def show_settings_dialog(parent, dlg, trunk, base, ai_name,
                          model_btn, local_light, cloud_light, chat, input_box,
                          commands=None):
     """设置窗口
@@ -19,6 +19,10 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name, title,
     commands: {名称: 可调用}，由主窗口传入 —— 就是原来"功能中心"里的那批入口
               （电脑控制 / 系统 / 插件 / 日志 / MCP市场 / 机器人 / 历史记录 /
               首次设置向导）。某个回调没传或不可调用时，对应按钮置灰而不是报错。
+
+    注意：这里原来还有个 title 参数，调用方传的是 getattr(self,"title","小6智能体")
+    —— 主窗口根本没有 title 属性，所以永远是那个字符串；而「改名」按钮却对它调
+    .setText()，一点就抛 AttributeError。参数已删除，改名改用 parent.setWindowTitle()。
     """
     d, l = dlg("设置", 620, 640)
     CMD = commands or {}
@@ -173,7 +177,39 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name, title,
     l2.addWidget(QLabel("AI名字:"))
     ne = QLineEdit(ai_name)
     l2.addWidget(ne)
-    l2.addWidget(QPushButton("改名", clicked=lambda: (title.setText("✨ " + ne.text()))))
+
+    def _rename():
+        """改名：写配置 + 改窗口标题 + 改聊天里显示的名字
+
+        原来这一行是：
+            QPushButton("改名", clicked=lambda: (title.setText("✨ " + ne.text())))
+        而 title 是调用方传进来的**字符串**（getattr(self,"title","小6智能体")），
+        字符串没有 setText —— 点一下必然抛 AttributeError。
+        run.py 装了 excepthook，所以程序不会崩，但改名完全不生效，
+        而且每次点都往 crashes.log 里写一条，把自检健康分扣掉 20。
+        """
+        new = (ne.text() or "").strip()
+        if not new:
+            QMessageBox.information(d, "改名", "名字不能是空的")
+            return
+        try:
+            trunk.config["ai_name"] = new
+            trunk.save_config()
+        except Exception as e:
+            QMessageBox.warning(d, "改名", "保存失败: " + str(e)[:80])
+            return
+        # 主窗口的标题和聊天里显示的名字一起改掉
+        try:
+            parent.setWindowTitle("✨ " + new)
+        except Exception:
+            pass
+        try:
+            parent.ai_name = new
+        except Exception:
+            pass
+        QMessageBox.information(d, "改名", "现在叫「%s」了" % new)
+
+    l2.addWidget(QPushButton("改名", clicked=_rename))
 
     l2.addWidget(QLabel("\n🎨 外观"))
     l2.addWidget(QLabel("字体大小:"))

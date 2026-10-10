@@ -83,7 +83,7 @@ class DialogMixin:
         # 某个回调缺失时，设置里对应按钮会自动置灰。
         show_settings_dialog(
             self, self._dlg, self.trunk, self.base,
-            getattr(self, "ai_name", "小6"), getattr(self, "title", "小6智能体"),
+            getattr(self, "ai_name", "小6"),
             getattr(self, "model_btn", None), getattr(self, "_status_local", None), getattr(self, "_status_cloud", None),
             getattr(self, "chat", None), getattr(self, "input", None),
             {

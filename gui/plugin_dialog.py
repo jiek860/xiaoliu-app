@@ -4,7 +4,7 @@ import os, sys, importlib, threading
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QScrollArea, QWidget, QFrame,
                              QGridLayout, QMessageBox, QFileDialog,
-                             QProgressDialog)
+                             QProgressDialog, QApplication)
 from PyQt5.QtCore import QObject, pyqtSignal
 
 
@@ -120,7 +120,13 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp, show_components):
                     pg.setMinimumDuration(0)
                     pg.setModal(True)
                     pg.show()
-                    d.processEvents()
+                    # 必须是 QApplication.processEvents()。
+                    # 原来写的是 d.processEvents()（d 是 QDialog）—— processEvents
+                    # 是 QApplication 的静态方法，QDialog/QWidget/QObject 都没有，
+                    # 这一行必然抛 AttributeError；而它在 try 之外，
+                    # 于是整个点击处理中断，下面的 uninstall() 根本不会执行 ——
+                    # 「卸载」按钮点了没反应就是这个原因。
+                    QApplication.processEvents()
                     try:
                         r = pm.uninstall(mm["name"])
                         msg.setText(("✅ " if r.get("ok") else "❌ ") + str(r.get("msg") or r.get("原因") or r))
@@ -141,7 +147,7 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp, show_components):
                     pg.setMinimumDuration(0)
                     pg.setModal(True)
                     pg.show()
-                    d.processEvents()
+                    QApplication.processEvents()   # 同上：不是 d.processEvents()
                     try:
                         r = pm.download(mm["file"], mm)
                         if r.get("ok"):
