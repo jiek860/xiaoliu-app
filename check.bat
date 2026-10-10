@@ -40,7 +40,9 @@ if errorlevel 1 (
 echo [OK] 语法全部通过
 echo.
 
-echo [2/3] 提交前测试（含硬编码路径 / 私钥外泄 / 懒加载登记 / 更新验签）...
+echo [2/3] 提交前测试（硬编码路径 / 私钥外泄 / 懒加载登记 / 更新验签 / 结构假设）...
+echo       结构假设那组守的是「共享数据结构变了、调用方没跟上」，
+echo       要单独看详细报告可以跑：%PYCMD% tools\check_shapes.py -v
 %PYCMD% -m pytest tests/ -q
 if errorlevel 1 (
     echo.

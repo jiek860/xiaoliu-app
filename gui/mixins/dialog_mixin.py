@@ -159,9 +159,23 @@ class DialogMixin:
                                  QMessageBox.Yes | QMessageBox.No)
         if r != QMessageBox.Yes:
             return
-        res = self.trunk.call("file_upload", "read", path)
+        # 原来这一句是 trunk.call("file_upload", "read", path)，里面藏着三个问题：
+        #   ① file_upload 没有 read 方法（只有 read_file），调用只会返回
+        #      「这个功能还没做好」，文件内容永远是空的
+        #   ② read_file(fname) 会把 fname 拼到 data/uploads 下面去找，
+        #      传绝对路径必然"文件不存在"
+        #   ③ 就算前两条都对了，它返回的键是"内容"不是这里读的"text"
+        # 直接读用户刚选中并确认过的这个文件即可，顺带兼容 GBK 编码。
+        try:
+            try:
+                text = open(path, encoding="utf-8").read()
+            except UnicodeDecodeError:
+                text = open(path, encoding="gbk", errors="ignore").read()
+        except Exception as e:
+            QMessageBox.warning(self, "读取失败", str(e)[:120])
+            return
         self.chat.append("📄 文件: " + os.path.basename(path))
-        self.chat.append("内容: " + str(res.get("text", ""))[:200])
+        self.chat.append("内容: " + text[:2000])
 
     def switch_model(self):
         items = ["本地路由", "云端模型"]

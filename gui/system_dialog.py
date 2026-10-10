@@ -124,7 +124,12 @@ def show_system_dialog(self):
     btn1.clicked.connect(lambda: self._bg_call(result, self.trunk._deep_check, "深度自检"))
     l2.addWidget(btn1)
     btn2 = QPushButton("自修复")
-    btn2.clicked.connect(lambda: self._bg_call(result, lambda: self.trunk.call("error_lib", "auto_fix"), "自修复"))
+    # 原来是 trunk.call("error_lib", "auto_fix") —— error_lib 根本没有 auto_fix
+    # 这个方法，点了只会弹「这个功能还没做好」，按钮一直是坏的。
+    # 真正的自修复流程在 self_heal 模块里（扫描错误 → LLM 分析 → 沙盒验证 →
+    # 确认后把错误标记为已处理）。
+    btn2.setToolTip("扫描错误库 → LLM 分析 → 沙盒验证 → 确认后标记为已处理")
+    btn2.clicked.connect(lambda: self._bg_call(result, lambda: self.trunk.call("self_heal", "run"), "自修复"))
     l2.addWidget(btn2)
     l1.addWidget(box2)
 
@@ -153,6 +158,32 @@ def show_system_dialog(self):
     tab3 = QWidget()
     l4 = QVBoxLayout(tab3)
 
+    def _learn_topic(topic):
+        """让学习闭环去学一个网址/主题：先搜资料，再提炼入库。
+
+        原来是 trunk.call("proactive_learner", "learn", ...) ——
+        proactive_learner 这个模块早已改名成 active_learning，而 active_learning
+        也没有 learn 方法，所以「开始学习」「采纳建议」两个按钮一直是坏的。
+        现在直接走 learning_loop 的 fetch + store（本来就是这套流程的两步）。
+        """
+        topic = (topic or "").strip()
+        if not topic:
+            return "请先输入网址或主题"
+        ll = self.trunk.modules.get("learning_loop") or self.trunk._load_lazy("learning_loop")
+        if not ll:
+            return "学习闭环模块没加载起来"
+        try:
+            items = ll.fetch(topic)
+        except Exception as e:
+            return "搜索失败: %s" % str(e)[:80]
+        if not items:
+            return "没搜到关于「%s」的资料（检查联网开关 / deep_search）" % topic[:40]
+        try:
+            ll.store("手动指定", topic, items)
+        except Exception as e:
+            return "已搜到 %d 条，但入库失败: %s" % (len(items), str(e)[:60])
+        return "已学习「%s」：搜到 %d 条，已提炼入库" % (topic[:40], len(items))
+
     box4 = QGroupBox("🎯 学习建议")
     l4a = QVBoxLayout(box4)
     l4a.addWidget(QLabel("💡 根据聊天生成的学习建议:"))
@@ -161,8 +192,11 @@ def show_system_dialog(self):
     sug.setPlainText("🤔 正在生成建议...")
     l4a.addWidget(sug)
     btn6 = QPushButton("✅ 采纳建议（学第一条）")
-    btn6.clicked.connect(lambda: (result.setPlainText("开始学习: "+sug.toPlainText().split("\n")[0][:50]),
-                         self.trunk.call("proactive_learner", "learn", sug.toPlainText().split("\n")[0])))
+    def _adopt_suggestion():
+        first = sug.toPlainText().split("\n")[0].strip()
+        result.setPlainText("开始学习: " + first[:50])
+        result.setPlainText(_learn_topic(first))
+    btn6.clicked.connect(_adopt_suggestion)
     l4a.addWidget(btn6)
     l4.addWidget(box4)
 
@@ -172,11 +206,7 @@ def show_system_dialog(self):
     url.setPlaceholderText("输入网址或学习主题，点开始学习")
     l5a.addWidget(url)
     def _sys_start_learn():
-        u = url.text().strip()
-        if not u:
-            result.setPlainText("请先输入网址或主题再点开始学习")
-            return
-        result.setPlainText(str(self.trunk.call("proactive_learner", "learn", u)))
+        result.setPlainText(_learn_topic(url.text()))
     btn7 = QPushButton("🚀 开始学习")
     btn7.setObjectName("primary")
     btn7.clicked.connect(_sys_start_learn)

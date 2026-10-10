@@ -1,0 +1,22 @@
+{
+  "LAZY_MAP.size": 90,
+  "LAZY_MAP.value_arity": [
+    3
+  ],
+  "manifest.count": 51,
+  "manifest.keys": [
+    "button",
+    "cls",
+    "depends",
+    "desc",
+    "file",
+    "group",
+    "name",
+    "needs_model",
+    "sha256",
+    "signature",
+    "size",
+    "title",
+    "version"
+  ]
+}
