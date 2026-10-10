@@ -86,11 +86,14 @@ class DialogMixin:
 
     def center_dialog(self):
         from gui.center_dialog import show_center_dialog
+        # 知识库 / 知识图谱 不再在这里露出。
+        # 它俩只是"查看器"窗口，后台的 knowledge_graph / knowledge_qa /
+        # vector_store 等模块照常运行、照常被对话链路调用（自动入图、检索、
+        # RAG），摘掉入口不影响任何后台能力。
+        # kb_dialog / graph_dialog 两个方法保留，要恢复入口加回一行即可。
         items = [
             ("🖥️", "电脑控制", "操作软件 / 文件 / 窗口 / 系统", self.computer_dialog),
-            ("📚", "知识库", "知识图谱 / 问答 / 学习资料", self.kb_dialog),
             ("⚙️", "系统", "深度自检 / 备份 / 闭环 / 训练", self.sys_dialog),
-            ("🧠", "知识图谱", "三元组浏览 / 搜索 / 统计", self.graph_dialog),
             ("🧩", "插件", "安装 / 卸载 / 热加载模块", self.plugin_dialog),
             ("📋", "日志", "运行日志 / 错误 / 操作记录", self.log_dialog),
             ("🔌", "MCP市场", "可视化安装 MCP 服务器", self.mcp_dialog),
