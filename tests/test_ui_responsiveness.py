@@ -68,7 +68,6 @@ def win():
 
     from core.trunk import Trunk
     with mock.patch.object(Trunk, "_start_background", lambda self: None), \
-         mock.patch.object(Trunk, "_auto_backup", lambda self: None), \
          mock.patch.object(Trunk, "_warmup", lambda self: None), \
          mock.patch.object(Trunk, "_auto_unload_loop", lambda self: None), \
          mock.patch.object(Trunk, "_warmup_ollama", lambda self: None):

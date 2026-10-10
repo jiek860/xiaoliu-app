@@ -12,6 +12,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
@@ -93,6 +94,89 @@ def test_incremental_backup_also_skips():
         got = _rels(dest)
         assert not any(p.startswith("datasets/") for p in got), got
         assert not any(p.startswith("backup_") for p in got), got
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_every_backup_is_a_complete_snapshot():
+    """每份备份都必须是**完整快照**，不是"只有变化的那些文件"
+
+    这条是数据安全的关键。原来的增量只复制比上次新的文件，于是第二份
+    备份里只有变化的那些 —— 配上 _cleanup(keep=2)，全量的第一份很快被删掉，
+    此后每份都残缺：拿它恢复到空目录会得到不完整的数据
+    （实测新备份里连 config.json 都没有）。
+
+    现在改为：变了的复制，没变的从上一份硬链接过来。
+    """
+    root = _make_fake_project()
+    try:
+        bk = Backup(FakeTrunk(root))
+        bk.backup_now()
+        set1 = _rels(os.path.join(bk.backup_dir, bk._last_backup_path()
+                                  and os.path.basename(bk._last_backup_path())))
+        # 只改动一个文件，其余保持原样
+        with open(os.path.join(root, "data", "memory.json"), "w",
+                  encoding="utf-8") as f:
+            f.write('{"changed": true}')
+        time.sleep(1.1)                      # 避开同秒撞名
+        r2 = bk.backup_now()
+        dest2 = os.path.join(bk.backup_dir, r2["备份到"])
+        got2 = _rels(dest2)
+
+        # 第二份里必须**所有**该备份的文件都在，不能只有 memory.json
+        assert len(set1) >= 3, "假项目的文件太少，测不出问题: %s" % sorted(set1)
+        assert got2 == set1, (
+            "第二份快照的文件集合和第一份不一致 —— 缺: %s，多: %s"
+            % (sorted(set1 - got2), sorted(got2 - set1)))
+        assert "config.json" in got2, "第二份快照缺 config.json"
+        # 改动过的那个文件内容应当是新的
+        assert "changed" in open(os.path.join(dest2, "memory.json"),
+                                 encoding="utf-8").read()
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_snapshot_reuses_unchanged_files_by_hardlink():
+    """未变的文件用硬链接复用，不额外占空间；且删掉旧份不影响新份"""
+    root = _make_fake_project()
+    try:
+        bk = Backup(FakeTrunk(root))
+        bk.backup_now()
+        time.sleep(1.1)
+        r2 = bk.backup_now()
+        d1 = os.path.join(bk.backup_dir, sorted(
+            [d for d in os.listdir(bk.backup_dir) if d.startswith("backup_")])[0])
+        d2 = os.path.join(bk.backup_dir, r2["备份到"])
+
+        # 找一个没变过的文件，两边的 inode 应当相同（硬链接）
+        same = 0
+        for rel in ("config.json", "graph.json"):
+            p1, p2 = os.path.join(d1, rel), os.path.join(d2, rel)
+            if os.path.exists(p1) and os.path.exists(p2):
+                if os.stat(p1).st_ino == os.stat(p2).st_ino:
+                    same += 1
+        assert same > 0, "未变的文件没有用硬链接复用"
+
+        # 关键：硬链接不会因为旧份被删而丢数据
+        content = open(os.path.join(d2, "config.json"), "rb").read()
+        shutil.rmtree(d1, ignore_errors=True)
+        assert os.path.exists(os.path.join(d2, "config.json")), \
+            "删掉旧备份后新备份的文件没了（硬链接语义不对）"
+        assert open(os.path.join(d2, "config.json"), "rb").read() == content
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_two_backups_in_same_second_do_not_collide():
+    """同一秒内连做两次不能撞名、更不能互相覆盖"""
+    root = _make_fake_project()
+    try:
+        bk = Backup(FakeTrunk(root))
+        r1 = bk.backup_now()
+        r2 = bk.backup_now()
+        assert r1["备份到"] != r2["备份到"], "两份备份用了同一个名字，会互相覆盖"
+        assert os.path.isdir(os.path.join(bk.backup_dir, r1["备份到"]))
+        assert os.path.isdir(os.path.join(bk.backup_dir, r2["备份到"]))
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

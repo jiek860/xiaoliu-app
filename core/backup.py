@@ -43,15 +43,22 @@ class Backup:
             return None
 
     def backup_now(self):
-        """P1-6: 增量备份，只备份比上次新的文件"""
+        """做一份完整快照：变了的复制，没变的从上一份硬链接过来"""
         name = "backup_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+        # 同一秒内连做两次会撞名（原来会直接往同一目录里写，
+        # 于是"上一份"就是自己、增量逻辑整个失效）。撞了就加序号。
+        if os.path.exists(os.path.join(self.backup_dir, name)):
+            for i in range(2, 1000):
+                cand = "%s_%d" % (name, i)
+                if not os.path.exists(os.path.join(self.backup_dir, cand)):
+                    name = cand
+                    break
         path = os.path.join(self.backup_dir, name)
         data_src = os.path.join(self.base, r"data")
         if not os.path.exists(data_src):
             return {"成功": False, "错误": "data目录不存在"}
         last_backup = self._last_backup_path()
         if last_backup:
-            # 增量：只复制比上次新的文件
             self._copy_incremental(last_backup, data_src, path)
         else:
             # 第一次：全量（排除 datasets / 旧备份 / 缓存等，见 EXCLUDE_DIRS）
@@ -60,7 +67,17 @@ class Backup:
         return {"成功": True, "备份到": name, "增量": last_backup is not None}
 
     def _copy_incremental(self, last_path, src, dst):
-        """增量复制：只复制比上次备份新的文件（同样跳过 EXCLUDE_DIRS）"""
+        """在新备份里做出**完整快照**：变了的复制，没变的从上一份硬链接过来。
+
+        原来只复制"比上次新"的文件，于是新备份里**只有变化的那些** ——
+        它根本不是一份完整快照。配上 _cleanup(keep=2)，第一次那份全量的
+        很快会被清掉，此后剩下的每一份都是残缺的：拿它恢复到空目录
+        会得到不完整的数据（实测新备份里连 config.json 都没有）。
+
+        改成补全：没变的文件从上一份 os.link 过来。
+        硬链接不额外占空间，而且旧备份被删掉也不影响新备份（inode 还活着）。
+        文件系统不支持硬链接时退回普通复制。
+        """
         for root, dirs, files in os.walk(src):
             dirs[:] = [d for d in dirs if not self._skip_dir(d)]
             rel = os.path.relpath(root, src)
@@ -69,10 +86,31 @@ class Backup:
             for f in files:
                 src_file = os.path.join(root, f)
                 dst_file = os.path.join(dst_dir, f)
-                last_file = os.path.join(last_path, rel, f) if rel != "." else os.path.join(last_path, f)
-                # 上次没有这个文件，或者文件比上次新 → 复制
-                if not os.path.exists(last_file) or os.path.getmtime(src_file) > os.path.getmtime(last_file):
+                last_file = (os.path.join(last_path, rel, f) if rel != "."
+                             else os.path.join(last_path, f))
+                # 上次没有这个文件，或者文件比上次新 → 复制一份新的
+                if (not os.path.exists(last_file)
+                        or os.path.getmtime(src_file) > os.path.getmtime(last_file)):
                     shutil.copy2(src_file, dst_file)
+                else:
+                    # 没变 → 从上一份链接过来，保证这一份也是完整快照
+                    if not self._link_or_copy(last_file, dst_file):
+                        shutil.copy2(src_file, dst_file)
+
+    @staticmethod
+    def _link_or_copy(src, dst):
+        """先试硬链接（省空间），不行就普通复制"""
+        try:
+            if os.path.exists(dst):
+                os.remove(dst)
+            os.link(src, dst)
+            return True
+        except Exception:
+            try:
+                shutil.copy2(src, dst)
+                return True
+            except Exception:
+                return False
 
     def backup_async(self, callback=None):
         """P1-6: 异步备份，不阻塞UI"""

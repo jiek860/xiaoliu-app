@@ -31,7 +31,6 @@ def trunk():
     """真 Trunk，但屏蔽后台服务（否则它 3 秒后会自己去连一遍 MCP，干扰观测）"""
     from core.trunk import Trunk
     with mock.patch.object(Trunk, "_start_background", lambda self: None), \
-         mock.patch.object(Trunk, "_auto_backup", lambda self: None), \
          mock.patch.object(Trunk, "_warmup", lambda self: None), \
          mock.patch.object(Trunk, "_auto_unload_loop", lambda self: None), \
          mock.patch.object(Trunk, "_warmup_ollama", lambda self: None):

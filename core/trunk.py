@@ -93,6 +93,7 @@ class Trunk:
         threading.Thread(target=self._auto_unload_loop, daemon=True).start()
         # 后台服务丢线程，不阻塞 UI 启动
         threading.Thread(target=self._start_background, daemon=True).start()
+        # 启动时自动备份一次（走 core/backup.py，带节流，见 _auto_backup）
         threading.Thread(target=self._auto_backup, daemon=True).start()
         # 性能优化：Ollama 预热 + 向量库预加载
         threading.Thread(target=self._warmup, daemon=True).start()
@@ -297,50 +298,50 @@ class Trunk:
         # Ollama 后台预热
         threading.Thread(target=self._warmup_ollama, daemon=True).start()
 
+    # 启动备份的节流间隔（小时）：距上次备份不到这么久就跳过，
+    # 免得一天重启十次就备十份。
+    _AUTO_BACKUP_MIN_GAP_H = 6
+
     def _auto_backup(self):
-        """启动时自动备份 data，留最近2份"""
-        import shutil, glob, time
+        """启动时自动备份一次 —— 走真正的备份系统（core/backup.py）
+
+        和历史的关系
+        ------------
+        原来这里是自己拷几个关键文件到 data/backup_MMDD_HHMM、留最近 2 份。
+        但项目里本来就有 core/backup.py：增量、排除 datasets/cache/logs、
+        写 backups/、还支持加密导出和恢复。两套并存的问题不只是重复：
+          · 产物分散在两个地方（data/backup_* 和 backups/backup_*），
+            要恢复时不知道该看哪个
+          · 自检的"📦 备份"数的是旧的 data/backup_*，真正的 backups/ 反而没数
+          · 旧那套的排除规则是手写的文件清单，容易和实际存储漂移
+            （历史上就漏备过 memory.json / graph.json / chats.db）
+        现在融合成一条：启动时触发真正的备份，产物统一进 backups/。
+
+        另加节流：距上次备份不足 _AUTO_BACKUP_MIN_GAP_H 小时就跳过。
+        """
         try:
-            data_dir = os.path.join(self.base, "data")
-            ts = time.strftime("%m%d_%H%M")
-            bak = os.path.join(self.base, "data", "backup_" + ts)
-            if os.path.exists(bak): return
-            # 只备份关键文件。
-            # 原来这份名单是 v5 时代留下的：chat_history.jsonl / crashes.log 早就不存在，
-            # 结果是"自动备份"只备到 config.json 和 self_eval.json ——
-            # 真正的记忆 memory.json、知识图谱 graph.json、聊天记录 chats.db 反而一个都没备。
-            # vectors.db（约 700KB）是"文本→嵌入"的可重算派生数据，且体积最大，继续不备。
-            os.makedirs(bak, exist_ok=True)
-            for f in ["config.json", "memory.json", "graph.json",
-                      "self_eval.json", "rules.json"]:
-                src = os.path.join(data_dir, f)
-                if os.path.exists(src):
-                    try:
-                        shutil.copy2(src, bak)
-                    except Exception:
-                        pass
-            # SQLite 用 backup API 取一致性快照：直接 copy 一个正在 WAL 写入的库
-            # 可能拷到半截状态。
-            for f in ["chats.db"]:
-                src = os.path.join(data_dir, f)
-                if os.path.exists(src):
-                    try:
-                        import sqlite3
-                        _s = sqlite3.connect(src)
-                        _d = sqlite3.connect(os.path.join(bak, f))
-                        with _d:
-                            _s.backup(_d)
-                        _d.close()
-                        _s.close()
-                    except Exception:
-                        pass
-            # 只留最近2份
-            baks = sorted(glob.glob(os.path.join(self.base, "data", "backup_*")))
-            for old_b in baks[:-2]:
-                shutil.rmtree(old_b, ignore_errors=True)
-            self._log("自动备份完成")
+            from core.backup import Backup
+            bk = Backup(self)
+            last = bk._last_backup_path()
+            if last and self._backup_is_recent(last):
+                return
+            r = bk.backup_now() or {}
+            if r.get("成功"):
+                self._log("启动备份完成: %s（%s）"
+                          % (r.get("备份到"), "增量" if r.get("增量") else "全量"))
+            else:
+                self._log("启动备份未完成: %s" % str(r.get("错误"))[:60])
         except Exception as e:
-            self._log("备份失败: %s" % str(e)[:40])
+            self._log("启动备份失败: %s" % str(e)[:60])
+
+    def _backup_is_recent(self, path):
+        """最近的备份是否还在节流窗口内"""
+        import time as _t
+        try:
+            age_h = (_t.time() - os.path.getmtime(path)) / 3600.0
+            return age_h < self._AUTO_BACKUP_MIN_GAP_H
+        except Exception:
+            return False
 
     def _warmup_ollama(self):
         """后台预热Ollama"""
@@ -648,8 +649,16 @@ class Trunk:
         except Exception:
             pass
         try:
+            # 数真正的备份系统（core/backup.py 写 backups/，名字形如 backup_20261010_204104）。
+            # 原来数的是 data/backup_* —— 那是已删除的"简单文件拷贝"式备份留下的目录，
+            # 真正的 backups/ 反而没被数到。
             import glob
-            log("📦 备份: %d个"%len(glob.glob(os.path.join(self.base,"data","backup_*"))))
+            _b = [d for d in glob.glob(os.path.join(self.base, "backups", "backup_*"))
+                  if os.path.isdir(d)]
+            _latest = ""
+            if _b:
+                _latest = "（最近 %s）" % os.path.basename(sorted(_b)[-1])[7:15]
+            log("📦 备份: %d个%s" % (len(_b), _latest))
         except Exception: pass
         try:
             mc=self.modules.get("mcp_client")

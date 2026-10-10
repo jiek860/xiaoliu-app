@@ -27,7 +27,6 @@ if BASE not in sys.path:
 # 需要屏蔽掉的后台入口（Trunk.__init__ 里是用 Thread 起它们的）
 _BACKGROUND = (
     "_start_background",     # 定时任务 / 热更新 / 模块服务器 / 手机远程 / MCP / 预热
-    "_auto_backup",          # 启动时备份，会写盘
     "_warmup",               # 模型预热
     "_warmup_ollama",        # 会去请求 Ollama
     "_auto_unload_loop",     # 常驻卸载循环

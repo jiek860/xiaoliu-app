@@ -238,7 +238,6 @@ def module_api():
     """真实加载所有模块收集 API（屏蔽后台服务，避免占端口/联网）"""
     from core.trunk import Trunk
     with mock.patch.object(Trunk, "_start_background", lambda self: None), \
-         mock.patch.object(Trunk, "_auto_backup", lambda self: None), \
          mock.patch.object(Trunk, "_warmup", lambda self: None), \
          mock.patch.object(Trunk, "_auto_unload_loop", lambda self: None), \
          mock.patch.object(Trunk, "_warmup_ollama", lambda self: None):
