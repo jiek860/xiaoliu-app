@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """生命周期混入：关闭清理、事件过滤、确认弹窗"""
 import os
-import json
-import threading
 from PyQt5.QtCore import Qt, QEvent
 from PyQt5.QtWidgets import QMessageBox
 
@@ -30,42 +28,11 @@ class LifecycleMixin:
                     pass
 
     def closeEvent(self, e):
-        threading.Thread(target=self._flush_pending_embeddings, daemon=True).start()
         try:
             self._safe_stop_workers()
         except Exception:
             pass
         e.accept()
-
-    def _flush_pending_embeddings(self):
-        try:
-            import requests
-            dp = os.path.join(self.base, "data", "vectors.json")
-            ep = os.path.join(self.base, "data", "embeddings.json")
-            if not (os.path.exists(dp) and os.path.exists(ep)):
-                return
-            data = json.load(open(dp, encoding="utf-8"))
-            emb = json.load(open(ep, encoding="utf-8"))
-            need = len(data) - len(emb)
-            if need <= 0:
-                return
-            url = self.trunk.config.get("ollama_url", "http://localhost:11434")
-            for i in range(len(emb), len(data)):
-                text = data[i].get("text", "")[:500]
-                r = requests.post(
-                    url + "/api/embeddings",
-                    json={"model": "nomic-embed-text", "prompt": text},
-                    timeout=2,
-                )
-                v = r.json().get("embedding", [])
-                if v:
-                    emb[str(i)] = v
-            json.dump(emb, open(ep, "w", encoding="utf-8"))
-        except Exception as ex:
-            try:
-                self.trunk._log(f"关程序补嵌入失败: {ex}")
-            except Exception:
-                pass
 
     def eventFilter(self, obj, event):
         if obj is getattr(self, "input", None):

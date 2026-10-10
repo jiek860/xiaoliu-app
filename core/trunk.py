@@ -282,12 +282,35 @@ class Trunk:
             ts = time.strftime("%m%d_%H%M")
             bak = os.path.join(self.base, "data", "backup_" + ts)
             if os.path.exists(bak): return
-            # 只备份关键文件（不备份 vectors.json 太大）
+            # 只备份关键文件。
+            # 原来这份名单是 v5 时代留下的：chat_history.jsonl / crashes.log 早就不存在，
+            # 结果是"自动备份"只备到 config.json 和 self_eval.json ——
+            # 真正的记忆 memory.json、知识图谱 graph.json、聊天记录 chats.db 反而一个都没备。
+            # vectors.db（约 700KB）是"文本→嵌入"的可重算派生数据，且体积最大，继续不备。
             os.makedirs(bak, exist_ok=True)
-            for f in ["config.json", "chat_history.jsonl", "self_eval.json", "crashes.log"]:
+            for f in ["config.json", "memory.json", "graph.json",
+                      "self_eval.json", "rules.json"]:
                 src = os.path.join(data_dir, f)
                 if os.path.exists(src):
-                    shutil.copy2(src, bak)
+                    try:
+                        shutil.copy2(src, bak)
+                    except Exception:
+                        pass
+            # SQLite 用 backup API 取一致性快照：直接 copy 一个正在 WAL 写入的库
+            # 可能拷到半截状态。
+            for f in ["chats.db"]:
+                src = os.path.join(data_dir, f)
+                if os.path.exists(src):
+                    try:
+                        import sqlite3
+                        _s = sqlite3.connect(src)
+                        _d = sqlite3.connect(os.path.join(bak, f))
+                        with _d:
+                            _s.backup(_d)
+                        _d.close()
+                        _s.close()
+                    except Exception:
+                        pass
             # 只留最近2份
             baks = sorted(glob.glob(os.path.join(self.base, "data", "backup_*")))
             for old_b in baks[:-2]:
