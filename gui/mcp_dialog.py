@@ -40,13 +40,19 @@ from PyQt5.QtCore import Qt
 # 预置 MCP 服务器（原来在 mcp_wizard_dialog.PRESETS）
 PRESETS = [
     {"name": "文件系统", "cmd": "npx -y @modelcontextprotocol/server-filesystem .",
-     "desc": "读写本地文件", "transport": "stdio"},
+     "desc": "读写本地文件（14 个工具）", "transport": "stdio"},
     {"name": "网页抓取", "cmd": "uvx mcp-server-fetch",
-     "desc": "抓取网页内容", "transport": "stdio"},
+     "desc": "抓取网页内容（1 个工具）", "transport": "stdio"},
     {"name": "Git", "cmd": "uvx mcp-server-git --repository .",
-     "desc": "Git 仓库操作", "transport": "stdio"},
-    {"name": "SQLite", "cmd": "uvx mcp-server-sqlite --db-path data/chats.db",
-     "desc": "查询 SQLite 数据库", "transport": "stdio"},
+     "desc": "Git 仓库操作（12 个工具）", "transport": "stdio"},
+    # ⚠️ 这里必须钉住 mcp SDK 的版本：
+    #    mcp-server-sqlite 2025.4.25 还在用 1.x 的 @server.list_resources()，
+    #    而 uvx 默认会解析到 mcp 2.x，启动即崩：
+    #        AttributeError: 'Server' object has no attribute 'list_resources'
+    #    实测 --with "mcp<2" 可以正常起来（6 个工具）。
+    #    等上游适配了 2.x 就可以去掉这个 --with。
+    {"name": "SQLite", "cmd": 'uvx --with "mcp<2" mcp-server-sqlite --db-path data/chats.db',
+     "desc": "查询 SQLite 数据库（6 个工具，已钉住 mcp SDK 1.x）", "transport": "stdio"},
 ]
 
 # JSON 配置参考（原来在 dialog_mixin.show_mcp_market）
@@ -227,8 +233,15 @@ class MCPDialog(QDialog):
             self.list.clear()
             servers = self._load_servers()
             for i, s in enumerate(servers):
-                it = QListWidgetItem("%s  —  %s" % (s.get("name", "?"),
-                                                    s.get("url", "")))
+                # HTTP 型的看 url，stdio 型的看 command ——
+                # 原来一律取 s["url"]，stdio 服务器没这个键，列表里显示成空的
+                if str(s.get("command") or "").strip():
+                    detail, kind = str(s["command"]), "stdio"
+                else:
+                    detail, kind = str(s.get("url") or ""), "HTTP"
+                it = QListWidgetItem("%s  [%s]  %s"
+                                     % (s.get("name", "?"), kind, detail[:70]))
+                it.setToolTip(detail)
                 it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
                 it.setCheckState(Qt.Checked if s.get("enabled", True) else Qt.Unchecked)
                 it.setData(Qt.UserRole, i)

@@ -38,6 +38,7 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 import threading
 import time
 from collections import deque
@@ -67,6 +68,37 @@ atexit.register(_cleanup_all)
 def live_count():
     with _LIVE_LOCK:
         return len(_LIVE)
+
+
+def _child_env():
+    """给子进程准备环境变量：把常见的可执行文件目录补进 PATH。
+
+    为什么需要：MCP 服务器大多靠 npx / uvx 启动，而这两个不一定在 PATH 上 ——
+    `pip install uv` 装的 uv/uvx 落在 Python 的 Scripts 目录里，
+    该目录默认**不在** PATH 上；官方安装器装的 uv 在 ~/.local/bin；
+    node 装在 C:\\Program Files\\nodejs。用户（尤其是朋友）在自己终端里
+    未必配过这些，程序这边补上就不用他们自己折腾环境变量了。
+    """
+    env = os.environ.copy()
+    # 注意别把这里包进 try/except —— 之前漏了 `import sys`，
+    # sys.prefix 抛 NameError 被 except 静默吞掉，结果 Python 的 Scripts 目录
+    # 一直没被补进 PATH（pip 装的 uv/uvx 就在那里）。
+    extra = [
+        os.path.join(sys.prefix, "Scripts"),        # Windows: pip 安装的脚本
+        os.path.join(sys.prefix, "bin"),            # POSIX venv
+        os.path.join(os.path.expanduser("~"), ".local", "bin"),   # 官方 uv 安装器
+        os.path.join(os.path.expanduser("~"), ".cargo", "bin"),
+    ]
+    if os.name == "nt":
+        extra += [
+            os.path.join(os.environ.get("APPDATA", ""), "npm"),
+            r"C:\Program Files\nodejs",
+            r"C:\Program Files (x86)\nodejs",
+        ]
+    exist = [d for d in extra if d and os.path.isdir(d)]
+    if exist:
+        env["PATH"] = os.pathsep.join(exist + [env.get("PATH", "")])
+    return env
 
 
 class StdioMCPServer:
@@ -125,7 +157,7 @@ class StdioMCPServer:
             kwargs = dict(stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, text=True, encoding="utf-8",
                           errors="replace", bufsize=1, cwd=self.cwd,
-                          shell=use_shell)
+                          shell=use_shell, env=_child_env())
             if os.name == "nt":
                 kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             self.proc = subprocess.Popen(argv, **kwargs)
