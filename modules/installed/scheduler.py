@@ -19,6 +19,7 @@ class Scheduler(BaseModule):
         self.last_learn = 0  # D7: 修复 status() 引用未定义属性
         self.last_health = 0  # P2-9: 模型健康巡检
         self.last_auto = 0  # 自动更新巡检（P0-3: 每6小时检查建议，部署需手动确认）
+        self.last_anomaly = 0  # 异常检测（接上 anomaly_detector，只读检查）
         self._boot_time = time.time()  # v10.1: 启动先让用户用聊天，后台闭环延后开跑，不抢 Ollama
         self.last_error = ""  # D7: 最近一次任务失败信息
         self.fail_count = 0
@@ -65,8 +66,9 @@ class Scheduler(BaseModule):
                 rv_iv = self.trunk.rule("定时.复习间隔秒", 1800)
                 rc_iv = self.trunk.rule("定时.热检间隔秒", 300)
                 auto_iv = self.trunk.rule("定时.自动更新间隔秒", 21600)
+                an_iv = self.trunk.rule("定时.异常检测间隔秒", 3600)
             except Exception:
-                bk_iv, heal_iv, rv_iv, rc_iv, auto_iv = 3600, 14400, 1800, 300, 21600
+                bk_iv, heal_iv, rv_iv, rc_iv, auto_iv, an_iv = 3600, 14400, 1800, 300, 21600, 3600
             # 每小时备份（D7: 失败自动重试+告警）
             if now - self.last_backup > bk_iv:
                 def _do_backup():
@@ -115,6 +117,20 @@ class Scheduler(BaseModule):
                             self.trunk._log("自动更新巡检: 发现 %d 项待办（部署需手动确认）" % len(probs))
                 self._safe_run("自动更新巡检", _auto)
                 self.last_auto = now
+            # 每1小时异常检测（启动 300 秒后首轮）
+            # anomaly_detector 登记了很久但一直没人调用它 —— 它就是做监控的。
+            # 只读检查（check_health 不改任何数据），放后台跑是安全的。
+            if now - self.last_anomaly > an_iv and now - self._boot_time > 300:
+                def _anomaly():
+                    self.trunk.call("anomaly_detector", "__no__")
+                    ad = self.trunk.modules.get("anomaly_detector")
+                    if ad and hasattr(ad, "check_health"):
+                        r = ad.check_health() or {}
+                        warn = r.get("告警") or r.get("warnings") or []
+                        if warn:
+                            self.trunk._log("异常检测: %s" % str(warn)[:120])
+                self._safe_run("异常检测", _anomaly)
+                self.last_anomaly = now
             # 每30分钟记忆复习（启动 300 秒后首轮）
             if now - self.last_review > rv_iv and now - self._boot_time > 300:
                 def _review():

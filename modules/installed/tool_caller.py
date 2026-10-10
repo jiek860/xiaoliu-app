@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """工具调用器 v11.0 - 真Function Calling：LLM输出JSON→自动执行→结果喂回"""
 import json
-import sys, os as _os
+import sys, os as _os, time
 from core.safe import safe
 from modules.base import BaseModule
 
@@ -114,10 +114,21 @@ class ToolCaller(BaseModule):
             return {"用工具": "无", "回答": "直接聊天"}
 
         results = []
+        # 工具调用日志：tool_call_logger 这个模块登记了却没人调用，
+        # 它专门就是干这个的（记工具名/参数/结果/耗时，留最近 50 条）。
+        tcl = self.trunk.modules.get("tool_call_logger")
+        if tcl is None:
+            try:
+                self.trunk.call("tool_call_logger", "__no__")
+                tcl = self.trunk.modules.get("tool_call_logger")
+            except Exception:
+                tcl = None
+
         for call in calls:
             tool_name = call["tool"]
             args = call.get("args", {})
             info = self.tools[tool_name]
+            _t0 = time.time()
             try:
                 if tool_name.startswith("mcp_"):
                     r = self.trunk.call(info["mod"], info["method"],
@@ -129,9 +140,16 @@ class ToolCaller(BaseModule):
                     r = self.trunk.call(info["mod"], info["method"], arg_val)
                 results.append({"工具": tool_name, "参数": args, "结果": str(r)[:400], "成功": True})
                 self.usage_history.append({"tool": tool_name, "query": query, "ok": True})
+                _res = r
             except Exception as e:
                 results.append({"工具": tool_name, "参数": args, "结果": str(e)[:60], "成功": False})
                 self.usage_history.append({"tool": tool_name, "query": query, "ok": False})
+                _res = e
+            if tcl is not None:
+                try:
+                    tcl.log_call(tool_name, args, _res, time.time() - _t0)
+                except Exception:
+                    pass
 
         return {"用工具": [c["tool"] for c in calls], "结果": results}
 

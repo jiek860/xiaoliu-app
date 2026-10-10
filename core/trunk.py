@@ -14,6 +14,9 @@ class Trunk:
     """融合式躯干：核心能力直接内置，扩展模块注册调用"""
 
     def __init__(self):
+        # 进程起点：给深度自检报启动耗时用（见 _deep_check）
+        import time as _tstart
+        self._process_start = _tstart.time()
         # 打包后（PyInstaller frozen）：可写数据放 exe 旁边，只读资源放 _MEIPASS
         if getattr(sys, 'frozen', False):
             self.base = os.path.dirname(sys.executable)
@@ -296,6 +299,16 @@ class Trunk:
             self._log("MCP客户端: %s" % str(e)[:40])
         # Ollama 后台预热
         threading.Thread(target=self._warmup_ollama, daemon=True).start()
+        # 定期内存清理：memory_optimizer 登记了很久没人调用
+        # （它只做 gc.collect() + 收窄内部历史缓存，不动任何数据，放后台安全）
+        try:
+            self.call("memory_optimizer", "__no__")
+            mo = self.modules.get("memory_optimizer")
+            if mo is not None and hasattr(mo, "start_periodic"):
+                r = mo.start_periodic(1800)
+                self._log("内存优化: %s" % str(r.get("状态", "已启动")))
+        except Exception as e:
+            self._log("内存优化启动失败: %s" % str(e)[:60])
 
     # 启动备份的节流间隔（小时）：距上次备份不到这么久就跳过，
     # 免得一天重启十次就备十份。
@@ -632,6 +645,14 @@ class Trunk:
             mem=psutil.virtual_memory()
             log("💾 内存: 已用%d%% 可用%dMB"%(mem.percent,mem.available//1048576))
         except Exception: log("💾 内存: psutil未装")
+        # 启动耗时：接上 startup_optimizer（它登记了很久没人调用）。
+        # 只报数，不做任何"优化动作"——它的 precompile() 会在启动时
+        # 编译整个项目，放到这里会把启动拖慢好几秒，不调。
+        try:
+            import time as _tb
+            _el = _tb.time() - getattr(self, "_process_start", _tb.time())
+            log("⏱ 启动耗时: %.1f秒（进程起到现在）" % _el)
+        except Exception: pass
         try:
             # os.statvfs 是 Unix 专用 API，Windows 上根本没有这个函数，
             # 原来被 except 吞掉，这行从来没打印过。
@@ -732,24 +753,52 @@ class Trunk:
             if never: log("   未触发模块: %s"%(", ".join(never[:8])))
         except Exception: pass
         try:
-            # 找孤儿：注册了但 trunk.call 历史里从没出现过的
-            # 注意这只是"提示"：事件触发、动态名调用的模块本来就会落到这里，
-            # 而且这里不计入 errors / 健康分。别把它显示得像故障。
+            # 真正的"死模块"检测：模块名在**全项目源码**里除了登记表自己，
+            # 一处都没出现过 —— 那就说明没有任何代码路径能用到它。
+            #
+            # 原来这里只找 trunk.call("名字") 这一种直接引用，而且把"当前没加载"
+            # 也算进去，于是按需加载/定时调用的模块全被误报成孤儿
+            # （实测报 50 个，其实都是能用的），这行提示因此失去意义。
+            # 现在按"名字有没有在别处出现过"判断：出现过就算可达（宁可漏报不误报）。
             import re as _re
-            call_hist=set()
-            for py in _g.glob(os.path.join(self.base,"core","*.py"))+_g.glob(os.path.join(self.base,"gui","*.py")):
-                for line in open(py,encoding="utf-8",errors="ignore"):
-                    for m in _re.findall(r'trunk\.call\(["\'](\w+)["\']',line): call_hist.add(m)
-                    for m in _re.findall(r'self\.call\(["\'](\w+)["\']',line): call_hist.add(m)
-            orphans=[m for m in self._lazy if m not in call_hist and m not in loaded]
-            if orphans:
-                log("👻 孤儿模块: %d个（提示，不计入健康分）" % len(orphans))
-                log("   含义：源码里没有 trunk.call(\"名字\") 直接引用、当前也没加载。")
-                log("   事件触发/按需加载的模块本就会出现在这里，属正常现象。")
-                log("   %s%s" % (", ".join(orphans[:8]), " …" if len(orphans) > 8 else ""))
+            _dirs = ("core", "gui", "modules", "tests", "tools", "scripts")
+            _srcs = []
+            for _d in _dirs:
+                _root = os.path.join(self.base, _d)
+                for _r, _ds, _fs in os.walk(_root):
+                    _ds[:] = [x for x in _ds if x not in ("__pycache__", "_deprecated")]
+                    for _f in _fs:
+                        if _f.endswith(".py"):
+                            _srcs.append(os.path.join(_r, _f))
+            _IGNORE = {os.path.join(self.base, "core", "lazy_config.py")}
+            dead = []
+            for _name, _tup in self._lazy.items():
+                _own = {os.path.join(self.base, "modules", "installed", _tup[0] + ".py"),
+                        os.path.join(self.base, "core", _tup[0] + ".py")}
+                _pat = _re.compile(r"\b" + _re.escape(_name) + r"\b")
+                _hit = False
+                for _p in _srcs:
+                    if _p in _own or _p in _IGNORE or os.sep + "modules_repo" + os.sep in _p:
+                        continue
+                    try:
+                        if _pat.search(open(_p, encoding="utf-8", errors="ignore").read()):
+                            _hit = True
+                            break
+                    except Exception:
+                        continue
+                if not _hit:
+                    dead.append(_name)
+            if dead:
+                log("👻 死模块: %d个（登记了但全项目没有调用点）" % len(dead))
+                log("   这些模块装了也不会被用到，建议接上入口或从登记表摘掉。")
+                log("   %s%s" % (", ".join(dead[:10]), " …" if len(dead) > 10 else ""))
+                # 死模块算真问题：它让"模块 N 个"这个数字虚高，
+                # 也让插件市场把它们当成可用功能推给用户。
+                errors.append("有%d个登记模块没有任何调用点" % len(dead))
             else:
-                log("👻 孤儿模块: ✓")
-        except Exception: pass
+                log("👻 死模块: ✓ 登记的模块都有调用点")
+        except Exception:
+            pass
 
 
                 # 10. 健康分（基于以上错误数）
@@ -1618,8 +1667,45 @@ class Trunk:
         except Exception:
             pass
 
+    # 这些是"其实没答出来"的占位串，用来判断要不要走端侧兜底
+    _FAIL_MARKS = ("（抱歉", "回复时出了点问题", "这个功能还没做好",
+                   "Pipeline 不可用", "服务不可用")
+
+    def _looks_failed(self, answer):
+        """判断这次回复其实是失败的（空串 / 明显的错误占位）"""
+        try:
+            a = "" if answer is None else str(answer).strip()
+        except Exception:
+            return True
+        if not a:
+            return True
+        if len(a) > 60:          # 正常回答不会这么短就带失败特征
+            return False
+        return any(m in a for m in self._FAIL_MARKS)
+
+    def _local_fallback_reply(self, user_input):
+        """本地模型不可用时的端侧兜底
+
+        local_fallback 这个模块登记了很久、全项目没人调用它。
+        它做的就是这件事：Ollama 没起来时，至少回一句人话
+        （"启动 Ollama 就能正常聊"），而不是让用户对着空气发呆。
+        """
+        try:
+            if "local_fallback" not in self.modules:
+                self.call("local_fallback", "__no__")
+            fb = self.modules.get("local_fallback")
+            if fb is not None and hasattr(fb, "reply"):
+                t = fb.reply(user_input)
+                if t:
+                    self._log("模型不可用，已用端侧兜底回复")
+                    return t
+        except Exception as e:
+            self._log("端侧兜底失败: %s" % str(e)[:60])
+        return None
+
     def _reply_inner(self, user_input, on_token=None):
         """回复主流程 v2：优先 pipeline，出错先降级、冷却后自动重试"""
+        answer = None
         if self._pipeline_ready():
             was_degraded = not self._use_pipeline
             try:
@@ -1634,9 +1720,15 @@ class Trunk:
                 self._use_pipeline = True
                 self._pipeline_fail_count = 0
                 self._pipeline_retry_at = 0.0
-                return answer
-        # 回退到旧流程
-        return self._reply_legacy(user_input, on_token=on_token)
+        if answer is None:
+            # 回退到旧流程
+            answer = self._reply_legacy(user_input, on_token=on_token)
+        # 全都失败（空回复 / 错误占位）→ 端侧兜底给一句人话
+        if self._looks_failed(answer):
+            fb = self._local_fallback_reply(user_input)
+            if fb:
+                return fb
+        return answer
 
 
 

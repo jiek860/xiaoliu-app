@@ -16,12 +16,23 @@ class GroupChatPipeline(BaseModule):
         self.state_path = os.path.join(self.base, "data", "group_loop.json")
         self.state = self._load()
 
+    # 状态文件里必须存在的键。老版本写下的文件可能缺字段
+    # （实测 stats() 会 KeyError: 'good'），读进来后统一补齐。
+    _DEFAULT_STATE = {"rounds": 0, "anomalies": 0, "good": 0, "bad": 0,
+                      "feedback_history": []}
+
     def _load(self):
+        data = None
         if os.path.exists(self.state_path):
             try:
-                return json.load(open(self.state_path, encoding="utf-8"))
-            except: pass
-        return {"rounds": 0, "anomalies": 0, "good": 0, "bad": 0, "feedback_history": []}
+                data = json.load(open(self.state_path, encoding="utf-8"))
+            except Exception:
+                data = None
+        if not isinstance(data, dict):
+            return dict(self._DEFAULT_STATE)
+        out = dict(self._DEFAULT_STATE)
+        out.update(data)
+        return out
 
     def _save(self):
         from core.safe import atomic_write_json

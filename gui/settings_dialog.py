@@ -244,6 +244,8 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
     l3.addWidget(_open_btn("🎙️", "语音对话",
                            "语音实时对话：静音自动断句、可随时打断、连续多轮"))
     l3.addWidget(_open_btn("📅", "日历待办", "日历 + 待办 + 笔记"))
+    l3.addWidget(_open_btn("🧰", "实用工具",
+                           "图片识别 / 记忆整理 / 统计报表 / 一键迁移 / 群聊辩论 等"))
     l3.addStretch(1)
     tabs.addTab(tab3, "🛠️ 工具")
 

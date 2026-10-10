@@ -105,6 +105,8 @@ class DialogMixin:
                 "手机远程":     getattr(self, "mobile_dialog", None),
                 "检查更新":     getattr(self, "update_dialog", None),
                 "桌宠":         getattr(self, "pet_dialog", None),
+                # 一批后台模块的统一入口（原来登记了却全项目没人调用）
+                "实用工具":     getattr(self, "module_tools_dialog", None),
             },
         )
 
@@ -178,6 +180,23 @@ class DialogMixin:
     def update_dialog(self):
         """检查更新 / 回滚 / 更新历史"""
         return self._open_simple_dialog("update_dialog", "UpdateDialog")
+
+    def module_tools_dialog(self):
+        """🧰 实用工具 —— 一批后台模块的统一入口
+
+        这些模块（图片识别/记忆整理/数据清洗/统计报表/一键迁移/群聊辩论…）
+        原来都登记在 LAZY_MAP 里，却全项目没有一处调用它们。
+        它们不是对话框类而是功能类，所以统一收进这一个面板：
+        左边按分组点，右边看结果，全部在后台线程跑。
+        """
+        try:
+            from gui.module_tools_dialog import ModuleToolsDialog
+            w = ModuleToolsDialog(self.trunk, self)
+            w.exec_()
+            return w
+        except Exception as e:
+            QMessageBox.warning(self, "实用工具", "打不开：" + str(e)[:120])
+            return None
 
     def pet_dialog(self):
         """桌面悬浮窗（桌宠）—— 非模态，可以一直开着

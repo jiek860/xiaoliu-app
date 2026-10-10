@@ -292,6 +292,34 @@ class LLMClient:
                 return "⚠ 连不上本地 Ollama（11434 端口）。\n请确认 Ollama 已启动，或在设置里切换到云端模型。"
             return "⚠ 本地模型出错: " + str(e)[:80]
 
+    def _mask_if_enabled(self, msgs):
+        """发云端前按需脱敏（sensitive_detector）
+
+        默认**关闭**：自动脱敏会改变真正发出去的内容
+        （比如你问"这个身份证号对不对"会被打成 110***********234），
+        所以做成开关，用户自己在 config.json 里加 "云端脱敏": true 才生效。
+        sensitive_detector 这个模块登记了很久没人调用，这里给它接上。
+        """
+        try:
+            if not self.config.get("云端脱敏", False):
+                return msgs
+            if self.trunk is None:
+                return msgs
+            if "sensitive_detector" not in self.trunk.modules:
+                self.trunk.call("sensitive_detector", "__no__")
+            sd = self.trunk.modules.get("sensitive_detector")
+            if sd is None or not hasattr(sd, "mask"):
+                return msgs
+            out = []
+            for m in msgs:
+                if isinstance(m, dict) and isinstance(m.get("content"), str):
+                    m = dict(m)
+                    m["content"] = sd.mask(m["content"])
+                out.append(m)
+            return out
+        except Exception:
+            return msgs
+
     def _try_cloud(self, message):
         url = self.config.get("cloud_url", "")
         key = self.config.get("cloud_key", "")
@@ -303,6 +331,7 @@ class LLMClient:
                         for m in message]
             else:
                 msgs = [{"role": "user", "content": message}]
+            msgs = self._mask_if_enabled(msgs)
             if not url.endswith("/chat/completions"):
                 url = url.rstrip("/") + "/chat/completions"
             r = requests.post(url,
