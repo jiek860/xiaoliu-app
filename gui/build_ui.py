@@ -119,17 +119,10 @@ def build_ui(win):
                 win._module_button_clicked(_n, _a))
             sidebar.addWidget(_mb)
 
-    fc_btn = QPushButton("功能中心")
-    fc_btn.setToolTip("打开功能中心：电脑控制、MCP市场、插件市场等")
-    fc_btn.setStyleSheet("""
-        QPushButton { background:transparent; color:#333; border:none; padding:10px;
-                      border-radius:12px; font-size:13px; text-align:left; }
-        QPushButton:hover { background:#f0f0f0; }
-    """)
-    fc_btn.clicked.connect(win.center_dialog)
-    sidebar.addWidget(fc_btn)
+    # "功能中心"按钮已移除：它里面的入口全部并入设置窗口，
+    # 按用途分成 工具 / 扩展 / 记录 / 系统 四个标签页。
     set_btn = QPushButton("设置")
-    set_btn.setToolTip("打开设置：模型配置、界面、数据等")
+    set_btn.setToolTip("打开设置：模型 / 界面 / 工具 / 扩展 / 记录 / 系统")
     set_btn.setStyleSheet("""
         QPushButton { background:transparent; color:#333; border:none; padding:10px;
                       border-radius:12px; font-size:13px; text-align:left; }

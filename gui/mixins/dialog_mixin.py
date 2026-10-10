@@ -77,32 +77,30 @@ class DialogMixin:
     def set_dialog(self):
         from gui.settings_dialog import show_settings_dialog
         # 全容错：所有属性不存在就传None，绝对不报错
-        # computer_dialog 不再传：设置里的"数据"标签连同那个按钮已移除
+        # commands 就是原来"功能中心"里的那批入口，现已并入设置按用途分标签页。
+        # 某个回调缺失时，设置里对应按钮会自动置灰。
         show_settings_dialog(
             self, self._dlg, self.trunk, self.base,
             getattr(self, "ai_name", "小6"), getattr(self, "title", "小6智能体"),
             getattr(self, "model_btn", None), getattr(self, "_status_local", None), getattr(self, "_status_cloud", None),
             getattr(self, "chat", None), getattr(self, "input", None),
+            {
+                "电脑控制":     getattr(self, "computer_dialog", None),
+                "机器人":       getattr(self, "bot_dialog", None),
+                "插件":         getattr(self, "plugin_dialog", None),
+                "MCP市场":      getattr(self, "mcp_dialog", None),
+                "历史记录":     getattr(self, "history_dialog", None),
+                "日志":         getattr(self, "log_dialog", None),
+                "系统":         getattr(self, "sys_dialog", None),
+                "首次设置向导": getattr(self, "onboarding_dialog", None),
+            },
         )
 
-    def center_dialog(self):
-        from gui.center_dialog import show_center_dialog
-        # 知识库 / 知识图谱 不再在这里露出。
-        # 它俩只是"查看器"窗口，后台的 knowledge_graph / knowledge_qa /
-        # vector_store 等模块照常运行、照常被对话链路调用（自动入图、检索、
-        # RAG），摘掉入口不影响任何后台能力。
-        # kb_dialog / graph_dialog 两个方法保留，要恢复入口加回一行即可。
-        items = [
-            ("🖥️", "电脑控制", "操作软件 / 文件 / 窗口 / 系统", self.computer_dialog),
-            ("⚙️", "系统", "深度自检 / 备份 / 闭环 / 训练", self.sys_dialog),
-            ("🧩", "插件", "安装 / 卸载 / 热加载模块", self.plugin_dialog),
-            ("📋", "日志", "运行日志 / 错误 / 操作记录", self.log_dialog),
-            ("🔌", "MCP市场", "可视化安装 MCP 服务器", self.mcp_dialog),
-            ("🤖", "机器人", "企业微信/钉钉聊天机器人", self.bot_dialog),
-            ("📜", "历史记录", "分页/搜索/导出全部聊天记录", self.history_dialog),
-            ("🧭", "首次设置向导", "模型没配好、它不回话时打开这个", self.onboarding_dialog),
-        ]
-        show_center_dialog(self, self._dlg, items)
+    # center_dialog() 已移除：它那 8 个入口全部并入上面的设置窗口，
+    # 按用途分成了 工具 / 扩展 / 记录 / 系统 四个标签页。
+    # 只留一个空壳"功能中心"反而会让人以为里面还有东西。
+    # 知识库 / 知识图谱 两个查看器（kb_dialog / graph_dialog）按需求不在界面露出，
+    # 后台的 knowledge_graph / knowledge_qa / vector_store 照常运行。
 
     def history_dialog(self):
         from gui.history_dialog import HistoryDialog

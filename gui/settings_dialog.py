@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""设置窗口 v2.1 - 分标签页：模型 / 界面"""
+"""设置窗口 v3.0 - 分标签页：模型 / 界面 / 工具 / 扩展 / 记录 / 系统
+
+原来"功能中心"里那批入口已全部并入这里，按用途分类成标签页。
+"""
 import os, json, urllib.request
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QLineEdit, QPushButton, QComboBox, QCheckBox,
@@ -8,9 +11,42 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 
 
 def show_settings_dialog(parent, dlg, trunk, base, ai_name, title,
-                         model_btn, local_light, cloud_light, chat, input_box):
-    """设置窗口 - 分标签页"""
-    d, l = dlg("设置", 550, 600)
+                         model_btn, local_light, cloud_light, chat, input_box,
+                         commands=None):
+    """设置窗口
+
+    commands: {名称: 可调用}，由主窗口传入 —— 就是原来"功能中心"里的那批入口
+              （电脑控制 / 系统 / 插件 / 日志 / MCP市场 / 机器人 / 历史记录 /
+              首次设置向导）。某个回调没传或不可调用时，对应按钮置灰而不是报错。
+    """
+    d, l = dlg("设置", 620, 640)
+    CMD = commands or {}
+
+    def _open_btn(icon, name, desc):
+        """生成一个"打开某个功能窗口"的按钮。
+
+        行为和原来的功能中心一致：先关掉设置窗口，再打开目标窗口。
+        """
+        b = QPushButton("%s  %s" % (icon, name))
+        b.setToolTip(desc)
+        b.setMinimumHeight(34)
+        fn = CMD.get(name)
+        if not callable(fn):
+            b.setEnabled(False)
+            b.setToolTip("这个功能在当前版本不可用")
+            return b
+
+        def _go(_checked=False, f=fn, n=name):
+            try:
+                d.close()
+            except Exception:
+                pass
+            try:
+                f()
+            except Exception as e:
+                QMessageBox.warning(None, n, "打开失败: %s" % str(e)[:80])
+        b.clicked.connect(_go)
+        return b
 
     # 标签页
     tabs = QTabWidget()
@@ -96,15 +132,10 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name, title,
         d2.exec_()
     l1.addWidget(QPushButton("云端模型设置", clicked=cloud_set))
 
-    l1.addWidget(QLabel("\n🔌 MCP服务器"))
-    l1.addWidget(QLabel("MCP服务器地址:"))
-    mcp_url = QLineEdit(trunk.config.get("mcp_url", "http://localhost:3742"))
-    l1.addWidget(mcp_url)
-    l1.addWidget(QPushButton("保存并重连", clicked=lambda: (
-        trunk.config.update({"mcp_url": mcp_url.text()}),
-        trunk.save_config(),
-        QMessageBox.information(d, "成功", "MCP地址已保存，重启生效")
-    )))
+    l1.addWidget(QLabel("\n🌐 联网"))
+    net_chk = QCheckBox("允许联网检索（对话时按需搜索）")
+    net_chk.setChecked(trunk.config.get("联网", True))
+    l1.addWidget(net_chk)
     tabs.addTab(tab1, "🤖 模型")
 
     # ===== 标签2: 界面 =====
@@ -138,9 +169,53 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name, title,
     l2.addWidget(QPushButton("编辑AI人格", clicked=_edit_persona))
     tabs.addTab(tab2, "🎨 界面")
 
+    # ===== 标签3: 工具（原来是功能中心的"帮你干活"一组）=====
+    tab3 = QWidget()
+    l3 = QVBoxLayout(tab3)
+    l3.addWidget(QLabel("🛠️ 工具"))
+    l3.addWidget(_open_btn("🖥️", "电脑控制", "操作软件 / 文件 / 窗口 / 系统"))
+    l3.addWidget(_open_btn("🤖", "机器人", "企业微信 / 钉钉聊天机器人"))
+    l3.addStretch(1)
+    tabs.addTab(tab3, "🛠️ 工具")
+
+    # ===== 标签4: 扩展（插件 + MCP）=====
+    tab4 = QWidget()
+    l4 = QVBoxLayout(tab4)
+    l4.addWidget(QLabel("🧩 扩展"))
+    l4.addWidget(_open_btn("🧩", "插件", "安装 / 卸载 / 热加载模块"))
+    l4.addWidget(_open_btn("🔌", "MCP市场", "可视化安装 MCP 服务器"))
+    l4.addWidget(QLabel("\n🔌 MCP服务器地址"))
+    mcp_url = QLineEdit(trunk.config.get("mcp_url", "http://localhost:3742"))
+    l4.addWidget(mcp_url)
+    l4.addWidget(QPushButton("保存并重连", clicked=lambda: (
+        trunk.config.update({"mcp_url": mcp_url.text()}),
+        trunk.save_config(),
+        QMessageBox.information(d, "成功", "MCP地址已保存，重启生效")
+    )))
+    l4.addStretch(1)
+    tabs.addTab(tab4, "🧩 扩展")
+
+    # ===== 标签5: 记录 =====
+    tab5 = QWidget()
+    l5 = QVBoxLayout(tab5)
+    l5.addWidget(QLabel("📜 记录"))
+    l5.addWidget(_open_btn("📜", "历史记录", "分页 / 搜索 / 导出全部聊天记录"))
+    l5.addWidget(_open_btn("📋", "日志", "运行日志 / 错误 / 操作记录"))
+    l5.addStretch(1)
+    tabs.addTab(tab5, "📜 记录")
+
+    # ===== 标签6: 系统 =====
+    tab6 = QWidget()
+    l6 = QVBoxLayout(tab6)
+    l6.addWidget(QLabel("⚙️ 系统"))
+    l6.addWidget(_open_btn("⚙️", "系统", "深度自检 / 备份 / 闭环 / 训练"))
+    l6.addWidget(_open_btn("🧭", "首次设置向导", "模型没配好、它不回话时打开这个"))
+    l6.addStretch(1)
+    tabs.addTab(tab6, "⚙️ 系统")
+
     # 原来的"🗂 数据"和"⚙️ 高级"两个标签已移除（按需求只保留后台运行）：
     #   · 数据页：只有"记忆管理"(trunk.call vector_store run) 和"电脑控制"两个
-    #     按钮，两个功能在对话链路 / 功能中心里都照常可用
+    #     按钮，两个功能在对话链路 / 上面「工具」页里都照常可用
     #   · 高级页：只有一个 QTextBrowser 日志框，而且**从来没有被写入过**，
     #     是个空摆设
     # 后台的 vector_store / knowledge_graph 等模块不受影响，照常随 trunk 加载。
