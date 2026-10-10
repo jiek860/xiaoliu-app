@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """日志中心窗口 - 系统/错误/操作记录"""
-import os, json, subprocess
+import os, subprocess
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QTextBrowser, QTabWidget)
 
@@ -66,29 +66,42 @@ def show_log_dialog(parent, dlg, base, export_logs, export_data, import_data):
             err_tb.setPlainText("── crashes.log（%d 行）──\n%s\n\n── gui_crashes.log（%d 行）──\n%s"
                                 % (n2, t1, n3, t2))
 
-            opf = os.path.join(base, "data", "chat_gui.jsonl")
+            # 操作记录读 chats.db 的 messages 表。
+            # 原来读的是 data/chat_gui.jsonl —— 那是 v5 的聊天存储，现在
+            # AccountManager 全部走 ChatStore(chats.db)，没有任何代码再写它，
+            # 所以这个页签永远显示"操作记录文件不存在"。
+            opf = os.path.join(base, "data", "chats.db")
+            rows = []
+            n4 = 0
             if os.path.exists(opf):
-                rows = []
                 try:
-                    with open(opf, encoding="utf-8") as f:
-                        for ln in f.readlines()[-100:]:
-                            ln = ln.strip()
-                            if not ln:
-                                continue
-                            try:
-                                r = json.loads(ln)
-                                u = r.get("u", "") if isinstance(r, dict) else ""
-                                a = r.get("a", "") if isinstance(r, dict) else ""
-                                rows.append("👤 " + u[:120] + "\n🤖 " + str(a)[:200] + "\n---")
-                            except Exception:
-                                rows.append(ln[:200])
+                    import sqlite3
+                    con = sqlite3.connect(opf)
+                    try:
+                        n4 = con.execute("select count(*) from messages").fetchone()[0]
+                        cur = con.execute(
+                            "select role, text from "
+                            "(select id, role, text from messages order by id desc limit 100) "
+                            "order by id asc")
+                        pend = None
+                        for role, text in cur:
+                            text = str(text or "")
+                            if role == "user":
+                                if pend:
+                                    rows.append("👤 " + pend + "\n🤖 （无回复）\n---")
+                                pend = text[:120]
+                            else:
+                                rows.append("👤 " + (pend or "") + "\n🤖 " + text[:200] + "\n---")
+                                pend = None
+                        if pend:
+                            rows.append("👤 " + pend + "\n🤖 （无回复）\n---")
+                    finally:
+                        con.close()
                 except Exception:
                     rows.append("（操作记录解析异常）")
                 op_tb.setPlainText("\n".join(rows) if rows else "（暂无操作记录）")
-                n4 = sum(1 for _ in open(opf, encoding="utf-8"))
             else:
-                op_tb.setPlainText("（操作记录文件不存在）")
-                n4 = 0
+                op_tb.setPlainText("（还没有聊天记录库）")
             info.setText("系统日志 %d 行 · 错误日志 %d+%d 行 · 操作记录 %d 条" % (n1, n2, n3, n4))
         except Exception as e:
             info.setText("读取失败: " + str(e)[:60])

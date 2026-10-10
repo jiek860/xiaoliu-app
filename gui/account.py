@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """账号与聊天记录管理"""
 import os
-import json
 from core.chat_store import ChatStore
 
 
@@ -12,7 +11,6 @@ class AccountManager:
         self.chat_store = ChatStore(os.path.join(base_dir, "data", "chats.db"))
         self.username = "guest"
         self.session = "default"
-        self.guest_chat = os.path.join(base_dir, "data", "chat_gui.jsonl")
 
     def current_username(self):
         try:
@@ -25,15 +23,10 @@ class AccountManager:
             pass
         return None
 
-    def chat_path_for(self, username):
-        if not username:
-            return self.guest_chat
-        d = os.path.join(self.base, "data", "users", str(username), "chat")
-        try:
-            os.makedirs(d, exist_ok=True)
-        except Exception:
-            pass
-        return os.path.join(d, "gui.jsonl")
+    # 注：原来的 chat_path_for(username) 已删除。
+    # 它计算 data/chat_gui.jsonl 与 data/users/<名>/chat/gui.jsonl 这些 v5 的
+    # JSONL 路径，但全项目没有任何调用方 —— 聊天记录现在全部走下面的
+    # ChatStore(chats.db)。它还有 os.makedirs 的副作用，留着只会凭空建目录。
 
     def save_line(self, role: str, text: str):
         try:
