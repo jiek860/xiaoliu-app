@@ -23,8 +23,9 @@ sys.path.insert(0, BASE)
 sys.path.insert(0, os.path.join(BASE, "libs"))
 
 from tools.check_shapes import (  # noqa: E402
-    SNAPSHOT, check_call_targets, check_manifest, check_unpack,
-    load_module_api, runtime_shapes, scan_call_sites, scan_unpack_sites,
+    SNAPSHOT, _shape_of_json, check_call_targets, check_manifest,
+    check_module_attrs, check_unpack, load_module_api, runtime_data_schema,
+    runtime_shapes, scan_call_sites, scan_unpack_sites,
 )
 
 
@@ -104,6 +105,113 @@ def test_call_scanner_ignores_non_literal(tmp_path):
     (tmp_path / "var.py").write_text(
         't.call(mod_name, method_name)\n', encoding="utf-8")
     assert scan_call_sites(roots=[str(tmp_path)]) == []
+
+
+# ------------------------------------------------- 2b 属性访问的自证
+
+def test_attr_scanner_flags_missing_attr(tmp_path):
+    """注入 `vs = _load_lazy("vector_store")` 之后读不存在的属性，必须抓到
+
+    这正是自检读 vs.embeddings 的那个 bug：属性早没了，
+    getattr 的默认值兜住不报错，但逻辑是错的。
+    """
+    (tmp_path / "bad3.py").write_text(
+        'def f(self):\n'
+        '    vs = self.trunk._load_lazy("vector_store")\n'
+        '    return vs.embeddings\n', encoding="utf-8")
+    api = {"vector_store": {"search", "add", "run"}}
+    checked, probs, guarded = check_module_attrs(api, roots=[str(tmp_path)])
+    assert checked == 1, "扫描器没找到这个属性访问"
+    assert probs, "检查器没能发现「访问了不存在的属性」"
+
+
+def test_attr_scanner_accepts_existing_attr(tmp_path):
+    (tmp_path / "ok3.py").write_text(
+        'def f(self):\n'
+        '    vs = self.trunk._load_lazy("vector_store")\n'
+        '    return vs.search("q")\n', encoding="utf-8")
+    api = {"vector_store": {"search", "add", "run"}}
+    checked, probs, _ = check_module_attrs(api, roots=[str(tmp_path)])
+    assert checked == 1 and not probs
+
+
+def test_attr_scanner_does_not_leak_across_functions(tmp_path):
+    """一个函数里的模块绑定不能泄漏到另一个函数
+
+    这是个真实踩过的坑：模块级作用域如果直接 walk 整棵树，
+    函数 a 里的 `gc = self._load_lazy("group_chat")` 会泄漏到函数 b，
+    把标准库的 gc.collect() 误判成「group_chat 没有 collect 方法」。
+    """
+    (tmp_path / "leak.py").write_text(
+        'import gc\n'
+        '\n'
+        'def a(self):\n'
+        '    gc = self.trunk._load_lazy("group_chat")\n'
+        '    return gc.compose("hi")\n'
+        '\n'
+        'def b(self):\n'
+        '    gc.collect()\n', encoding="utf-8")
+    api = {"group_chat": {"compose"}}
+    checked, probs, _ = check_module_attrs(api, roots=[str(tmp_path)])
+    assert not probs, "作用域泄漏了: %s" % probs
+
+
+def test_attr_scanner_skips_hasattr_guarded(tmp_path):
+    """被 hasattr 保护过的属性访问不算 bug（那是防御性写法）"""
+    (tmp_path / "g.py").write_text(
+        'def f(self):\n'
+        '    m = self.trunk.modules.get("memory_loop")\n'
+        '    if m and hasattr(m, "recall"):\n'
+        '        return m.recall("q")\n', encoding="utf-8")
+    api = {"memory_loop": {"run"}}          # 故意不给 recall
+    checked, probs, guarded = check_module_attrs(api, roots=[str(tmp_path)])
+    assert not probs
+    assert guarded == 1
+
+
+def test_attr_scanner_ignores_attribute_assignment(tmp_path):
+    """给模块对象挂属性是合法的，不该算成「访问了不存在的属性」"""
+    (tmp_path / "set.py").write_text(
+        'def f(self):\n'
+        '    m = self.trunk._load_lazy("llm")\n'
+        '    m.something_new = 1\n', encoding="utf-8")
+    api = {"llm": {"chat"}}
+    checked, probs, _ = check_module_attrs(api, roots=[str(tmp_path)])
+    assert not probs
+
+
+# ------------------------------------------------- 数据存储结构
+
+def test_data_shape_helper_hides_user_keys():
+    """用户主键的文件只记值的形状，不把用户名写进快照（快照要进 git）"""
+    s = _shape_of_json({"xiao6": [{"u": "a", "a": "b"}], "admin": [{"u": "c"}]},
+                       hide_keys=True)
+    assert s["kind"] == "map-of"
+    dumped = json.dumps(s, ensure_ascii=False)
+    assert "xiao6" not in dumped and "admin" not in dumped
+    assert set(s["value"]["item_keys"]) == {"u", "a"}
+
+
+def test_data_shape_helper_records_normal_dict_keys():
+    """结构键是代码定义的，要照实记下来（别为了藏用户名把有用信息一起藏掉）"""
+    s = _shape_of_json({"三元组": [], "实体": {}})
+    assert s["kind"] == "dict"
+    assert s["keys"] == ["三元组", "实体"]
+
+
+def test_data_stores_readable_and_expected_kind():
+    """核心数据存储必须读得出来，且形态没变
+
+    v5->v6 那次迁移（vectors.json -> vectors.db）就是这里悄悄变的：
+    代码还在按 JSON 读，文件早就是 SQLite 了。文件不存在是允许的
+    （首次运行），但存在就必须是预期形态。
+    """
+    sch = runtime_data_schema()
+    for k, v in sch.items():
+        assert v.get("kind") != "error", "%s 读取失败: %s" % (k, v.get("error"))
+    for k in ("data.chats.db", "data.vectors.db"):
+        if sch.get(k, {}).get("kind") != "absent":
+            assert sch[k]["kind"] == "sqlite", "%s 不再是 sqlite: %s" % (k, sch[k])
 
 
 # =============================================================== B. 现状

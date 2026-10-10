@@ -229,6 +229,217 @@ def check_call_targets(api, roots=None):
     return checked, problems, unknown_mod, probes
 
 
+# ----------------------------------------------------------------- 检查 2b
+
+# 把模块绑定到变量的几种写法：
+#     x = self.trunk._load_lazy("mod")
+#     x = self.trunk.modules.get("mod")
+#     x = self.trunk.modules.get("mod") if self.trunk else None
+#     x = self.trunk.modules.get("mod") or self.trunk._load_lazy("mod")
+BIND_FUNCS = ("_load_lazy", "get")
+
+
+def _module_of_expr(node):
+    """从一个赋值右值里找出它绑定的是哪个模块
+
+    会在整棵子树里找 _load_lazy("X") / modules.get("X") 这类调用。
+    返回模块名字符串；找不到或有多个不同名字则返回 None。
+    """
+    if node is None:
+        return None
+    found = set()
+    for sub in ast.walk(node):
+        if not isinstance(sub, ast.Call):
+            continue
+        f = sub.func
+        if not isinstance(f, ast.Attribute) or f.attr not in BIND_FUNCS:
+            continue
+        if not sub.args:
+            continue
+        a = sub.args[0]
+        if isinstance(a, ast.Constant) and isinstance(a.value, str):
+            # 只认 _load_lazy / modules.get 这两种形状，别把别的 .get 也算进来
+            if f.attr == "_load_lazy" or unparse(f.value).endswith("modules"):
+                found.add(a.value)
+    if len(found) == 1:
+        return found.pop()
+    return None
+
+
+def _scope_nodes(tree):
+    """产出 (作用域名, 该作用域的子树)
+
+    模块级只取"不在任何函数/类里的语句"。这一点很关键：
+    如果模块级直接 walk 整棵树，某个函数里 `gc = self._load_lazy("group_chat")`
+    的绑定就会泄漏到另一个函数，把标准库的 `gc.collect()` 误判成
+    group_chat 没有 collect 方法。
+    """
+    mod_body = [n for n in tree.body
+                if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
+    if mod_body:
+        yield "<module>", ast.Module(body=mod_body, type_ignores=[])
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            yield node.name, node
+
+
+def scan_module_attr_sites(roots=None):
+    """找出「变量 = 取模块(...)」之后对该变量属性的访问
+
+    返回 [(文件, 行号, 模块名, 属性名, 变量名, 是否被 hasattr 保护)]
+    """
+    sites = []
+    for rel, path in iter_py(roots):
+        tree = parse(rel, path)
+        if tree is None:
+            continue
+        for _scope, node in _scope_nodes(tree):
+            # 1. 收集 变量 -> 模块名；同一个名字绑到不同模块就作废
+            binds, ambiguous = {}, set()
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Assign):
+                    mod = _module_of_expr(sub.value)
+                    for tg in sub.targets:
+                        if isinstance(tg, ast.Name):
+                            if tg.id in binds and binds[tg.id] != mod:
+                                ambiguous.add(tg.id)
+                            binds[tg.id] = mod
+                elif isinstance(sub, ast.AnnAssign):
+                    mod = _module_of_expr(sub.value)
+                    if isinstance(sub.target, ast.Name):
+                        if sub.target.id in binds and binds[sub.target.id] != mod:
+                            ambiguous.add(sub.target.id)
+                        binds[sub.target.id] = mod
+            binds = {k: v for k, v in binds.items() if v and k not in ambiguous}
+            if not binds:
+                continue
+
+            # 2. 收集 hasattr(x, "attr") —— 这些属性是被保护过的，不算 bug
+            guarded = set()
+            for sub in ast.walk(node):
+                if (isinstance(sub, ast.Call)
+                        and isinstance(sub.func, ast.Name) and sub.func.id == "hasattr"
+                        and len(sub.args) == 2
+                        and isinstance(sub.args[0], ast.Name)
+                        and isinstance(sub.args[1], ast.Constant)
+                        and isinstance(sub.args[1].value, str)):
+                    guarded.add((sub.args[0].id, sub.args[1].value))
+
+            # 3. 找对这些变量的属性访问（只算读取，赋值不算）
+            for sub in ast.walk(node):
+                if not isinstance(sub, ast.Attribute):
+                    continue
+                if not isinstance(sub.ctx, ast.Load):
+                    continue
+                v = sub.value
+                if not (isinstance(v, ast.Name) and v.id in binds):
+                    continue
+                mod = binds[v.id]
+                sites.append((rel, sub.lineno, mod, sub.attr, v.id,
+                              (v.id, sub.attr) in guarded))
+    # 模块级作用域会把整个文件都走一遍，函数作用域又各走一遍，
+    # 同一个访问点会被收进来多次，这里按位置去重
+    seen, uniq = set(), []
+    for s in sites:
+        k = (s[0], s[1], s[2], s[3], s[4])
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append(s)
+    uniq.sort(key=lambda x: (x[0], x[1]))
+    return uniq
+
+
+def check_module_attrs(api, roots=None):
+    """变量取到模块之后，访问的属性必须真的存在
+
+    这一条能抓到 self._load_lazy("vector_store") 之后读 vs.embeddings 这类问题 ——
+    属性早就不存在了，getattr 默认值兜住不报错，但逻辑是错的（自检永远显示不对齐）。
+    """
+    problems, checked, guarded_n = [], 0, 0
+    for rel, ln, mod, attr, var, guarded in scan_module_attr_sites(roots):
+        if guarded:
+            guarded_n += 1
+            continue
+        if attr.startswith("__"):
+            continue
+        if mod not in api:
+            continue
+        checked += 1
+        if attr not in api[mod]:
+            problems.append("%s:%d  %s（变量 %s）没有属性 %r"
+                            % (rel, ln, mod, var, attr))
+    return checked, problems, guarded_n
+
+
+# ----------------------------------------------------------------- 检查 3b
+
+# 纳入结构快照的数据存储（代码定义的、结构稳定的那些）
+# 不含 logs / 截图 / 导出物这类会随手增减的东西
+DATA_STORES = ("config.json", "memory.json", "graph.json", "self_eval.json",
+               "chats.db", "vectors.db")
+
+# 这几个文件的主键是用户名 —— 属于用户数据，只记值的形状，
+# 不把用户名写进快照（快照是要进 git 的）
+DATA_USER_KEYED = ("memory.json",)
+
+
+def _shape_of_json(obj, depth=0, hide_keys=False):
+    """只记结构，不记值 —— 避免把用户数据/密钥写进快照
+
+    hide_keys=True 时，形如 {用户名: [记录]} 的映射只记值的形状。
+    """
+    if depth > 2:
+        return {"kind": "deep"}
+    if isinstance(obj, dict):
+        vals = [v for v in obj.values()]
+        if hide_keys and vals and all(isinstance(v, (list, dict)) for v in vals):
+            return {"kind": "map-of", "value": _shape_of_json(vals[0], depth + 1,
+                                                              hide_keys)}
+        return {"kind": "dict", "keys": sorted(obj)[:80]}
+    if isinstance(obj, list):
+        keys = set()
+        kinds = set()
+        for it in obj[:200]:
+            kinds.add(type(it).__name__)
+            if isinstance(it, dict):
+                keys |= set(it)
+        return {"kind": "list", "item_kinds": sorted(kinds),
+                "item_keys": sorted(keys)[:60]}
+    return {"kind": type(obj).__name__}
+
+
+def runtime_data_schema():
+    """收集数据存储的结构（表/列/键），用于发现 v5->v6 那种静默迁移"""
+    out = {}
+    data = os.path.join(BASE, "data")
+    for name in DATA_STORES:
+        p = os.path.join(data, name)
+        key = "data." + name
+        if not os.path.exists(p):
+            out[key] = {"kind": "absent"}
+            continue
+        try:
+            if name.endswith(".db"):
+                import sqlite3
+                con = sqlite3.connect(p)
+                tabs = {}
+                for (t,) in con.execute(
+                        "select name from sqlite_master where type='table'"):
+                    if t.startswith("sqlite_"):
+                        continue
+                    tabs[t] = sorted(c[1] for c in
+                                     con.execute('PRAGMA table_info("%s")' % t))
+                con.close()
+                out[key] = {"kind": "sqlite", "tables": tabs}
+            else:
+                obj = json.load(open(p, encoding="utf-8"))
+                out[key] = _shape_of_json(obj, hide_keys=(name in DATA_USER_KEYED))
+        except Exception as e:
+            out[key] = {"kind": "error", "error": str(e)[:60]}
+    return out
+
+
 # ----------------------------------------------------------------- 检查 3
 
 def runtime_shapes():
@@ -252,6 +463,7 @@ def runtime_shapes():
             shapes["manifest.keys"] = sorted(keys)
         except Exception as e:
             shapes["manifest.error"] = str(e)[:80]
+    shapes.update(runtime_data_schema())
     return shapes
 
 
@@ -339,12 +551,31 @@ def run(verbose=False, update=False):
     else:
         print("   [OK] 所有调用目标都存在")
 
+    # 2b. 变量取模块后的属性访问
+    print("\n[2b] 属性访问  变量 = _load_lazy(\"模块\") 之后的 变量.属性")
+    checked2, probs2, guarded_n = check_module_attrs(api)
+    print("   检查 %d 处属性访问（另有 %d 处被 hasattr 保护，跳过）"
+          % (checked2, guarded_n))
+    if probs2:
+        for p in probs2:
+            print("   [X] " + p)
+        all_problems += probs2
+    else:
+        print("   [OK] 访问的属性都存在")
+
     # 3. 结构契约
     print("\n[3] 结构契约")
     shapes = runtime_shapes()
     for k in sorted(shapes):
+        if k.startswith("data."):
+            continue
         v = shapes[k]
         print("   %-24s %s" % (k, str(v)[:96]))
+
+    print("\n   数据存储结构（v5->v6 那种静默迁移就靠这个发现）:")
+    for k in sorted(shapes):
+        if k.startswith("data."):
+            print("   %-24s %s" % (k, str(shapes[k])[:88]))
 
     probs, n = check_manifest()
     if probs:

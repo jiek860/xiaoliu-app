@@ -3,6 +3,128 @@
   "LAZY_MAP.value_arity": [
     3
   ],
+  "data.chats.db": {
+    "kind": "sqlite",
+    "tables": {
+      "messages": [
+        "id",
+        "role",
+        "session_id",
+        "text",
+        "ts",
+        "username"
+      ],
+      "messages_fts": [
+        "role",
+        "session_id",
+        "text",
+        "username"
+      ],
+      "messages_fts_config": [
+        "k",
+        "v"
+      ],
+      "messages_fts_data": [
+        "block",
+        "id"
+      ],
+      "messages_fts_docsize": [
+        "id",
+        "sz"
+      ],
+      "messages_fts_idx": [
+        "pgno",
+        "segid",
+        "term"
+      ]
+    }
+  },
+  "data.config.json": {
+    "keys": [
+      "agent_max_steps",
+      "ai_name",
+      "ai_persona",
+      "browser_timeout",
+      "chat_history_limit",
+      "chat_history_limit_simple",
+      "cloud_key",
+      "cloud_model",
+      "cloud_url",
+      "code_exec_timeout",
+      "feedback_email_pass",
+      "feedback_email_to",
+      "feedback_email_user",
+      "feedback_smtp_port",
+      "feedback_smtp_server",
+      "font_size",
+      "http_timeout",
+      "llm_timeout",
+      "local_model",
+      "log_level",
+      "max_tokens_reply",
+      "mcp_servers",
+      "mcp_url",
+      "memory_max_items",
+      "memory_unload_idle_sec",
+      "model_mode",
+      "module_server",
+      "ollama_url",
+      "online_repo_url",
+      "reflect_every",
+      "retrieval_top_k",
+      "search_cache_sec",
+      "search_timeout",
+      "simple_reply_max_len",
+      "small_model",
+      "vector_cache_size",
+      "vector_preload",
+      "vl_model",
+      "wecom_webhook",
+      "工具调用",
+      "电脑控制",
+      "群聊模式",
+      "联网"
+    ],
+    "kind": "dict"
+  },
+  "data.graph.json": {
+    "keys": [
+      "三元组"
+    ],
+    "kind": "dict"
+  },
+  "data.memory.json": {
+    "kind": "map-of",
+    "value": {
+      "item_keys": [],
+      "item_kinds": [],
+      "kind": "list"
+    }
+  },
+  "data.self_eval.json": {
+    "item_keys": [
+      "time",
+      "分",
+      "问"
+    ],
+    "item_kinds": [
+      "dict"
+    ],
+    "kind": "list"
+  },
+  "data.vectors.db": {
+    "kind": "sqlite",
+    "tables": {
+      "vectors": [
+        "embedding",
+        "hits",
+        "id",
+        "tag",
+        "text",
+        "time"
+      ]
+    }
+  },
   "manifest.count": 51,
   "manifest.keys": [
     "button",
