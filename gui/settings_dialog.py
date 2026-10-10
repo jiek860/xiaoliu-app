@@ -1,15 +1,14 @@
 # -*- coding: utf-8 -*-
-"""设置窗口 v2.0 - 分标签页：模型/界面/数据/高级"""
+"""设置窗口 v2.1 - 分标签页：模型 / 界面"""
 import os, json, urllib.request
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QLineEdit, QPushButton, QComboBox, QCheckBox,
-                             QMessageBox, QTextBrowser, QInputDialog,
+                             QMessageBox, QInputDialog,
                              QTabWidget, QWidget, QFormLayout)
 
 
 def show_settings_dialog(parent, dlg, trunk, base, ai_name, title,
-                         model_btn, local_light, cloud_light, chat, input_box,
-                         computer_dialog):
+                         model_btn, local_light, cloud_light, chat, input_box):
     """设置窗口 - 分标签页"""
     d, l = dlg("设置", 550, 600)
 
@@ -139,24 +138,12 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name, title,
     l2.addWidget(QPushButton("编辑AI人格", clicked=_edit_persona))
     tabs.addTab(tab2, "🎨 界面")
 
-    # ===== 标签3: 数据 =====
-    tab3 = QWidget()
-    l3 = QVBoxLayout(tab3)
-    l3.addWidget(QLabel("🗂 数据管理"))
-    l3.addWidget(QPushButton("记忆管理", clicked=lambda: QMessageBox.information(d, "记忆", str(trunk.call("vector_store", "run")))))
-    l3.addWidget(QPushButton("电脑控制", clicked=lambda: (d.close(), computer_dialog())))
-    tabs.addTab(tab3, "🗂 数据")
-
-    # ===== 标签4: 高级 =====
-    tab4 = QWidget()
-    l4 = QVBoxLayout(tab4)
-    l4.addWidget(QLabel("⚙️ 高级设置"))
-    l4.addWidget(QLabel("日志输出:"))
-    lres = QTextBrowser()
-    lres.setFixedHeight(80)
-    lres.setReadOnly(True)
-    l4.addWidget(lres)
-    tabs.addTab(tab4, "⚙️ 高级")
+    # 原来的"🗂 数据"和"⚙️ 高级"两个标签已移除（按需求只保留后台运行）：
+    #   · 数据页：只有"记忆管理"(trunk.call vector_store run) 和"电脑控制"两个
+    #     按钮，两个功能在对话链路 / 功能中心里都照常可用
+    #   · 高级页：只有一个 QTextBrowser 日志框，而且**从来没有被写入过**，
+    #     是个空摆设
+    # 后台的 vector_store / knowledge_graph 等模块不受影响，照常随 trunk 加载。
 
     l.addWidget(tabs)
 

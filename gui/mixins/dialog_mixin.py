@@ -77,11 +77,12 @@ class DialogMixin:
     def set_dialog(self):
         from gui.settings_dialog import show_settings_dialog
         # 全容错：所有属性不存在就传None，绝对不报错
+        # computer_dialog 不再传：设置里的"数据"标签连同那个按钮已移除
         show_settings_dialog(
             self, self._dlg, self.trunk, self.base,
             getattr(self, "ai_name", "小6"), getattr(self, "title", "小6智能体"),
             getattr(self, "model_btn", None), getattr(self, "_status_local", None), getattr(self, "_status_cloud", None),
-            getattr(self, "chat", None), getattr(self, "input", None), getattr(self, "computer_dialog", None),
+            getattr(self, "chat", None), getattr(self, "input", None),
         )
 
     def center_dialog(self):
