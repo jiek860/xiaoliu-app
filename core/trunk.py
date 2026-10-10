@@ -209,9 +209,9 @@ class Trunk:
 
     def export_module_map(self):
         import json, os
-        groups = {"llm":"核心","vector_store":"核心","knowledge_graph":"核心","rules_engine":"核心","auth":"核心","backup":"核心","trunk":"核心","scheduler":"后台","hot_reload":"后台","mobile_remote":"后台","learning_loop":"闭环","self_heal":"闭环","memory_loop":"闭环","task_loop":"闭环","skill_distill":"闭环","smart_router":"智能体","deep_search":"工具","tool_caller":"工具","computer_controller":"工具","code_runner":"工具","file_upload":"工具","multimodal":"工具","voice":"工具","mcp_server":"工具","task_planner":"高级","error_lib":"高级","auto_updater":"高级","proactive_learner":"高级","rag_engine":"高级","reasoning_engine":"高级","plugin_market":"高级","skill_capture":"高级","self_reflect":"L模块","empathy":"L模块","personality":"L模块","forgetting_curve":"L模块","l135_anomaly":"L模块","memory_cards":"L模块"}
-        descs = {"llm":"大模型：本地+云端+流式","vector_store":"向量检索：nomic-embed+余弦","knowledge_graph":"知识图谱：三元组+多跳","rules_engine":"规则引擎：底层规则","auth":"账号激活登录：激活码授权","backup":"自动备份：保留2份","trunk":"微核躯干：注册/总线","scheduler":"定时任务：24h后台","hot_reload":"热更新：沙盒+回滚","mobile_remote":"手机远程","learning_loop":"学习闭环：找缺口→搜索→入库","self_heal":"自愈闭环：错误→分析→修复","memory_loop":"记忆闭环：对话→记忆卡→复习","task_loop":"任务闭环：拆步→执行→验证","skill_distill":"技能沉淀：成功任务→SKILL","smart_router":"智能路由：LLM判断谁答","deep_search":"深度搜索：多源并行","tool_caller":"工具调用：LLM自动决定","computer_controller":"电脑控制：鼠标键盘","code_runner":"代码沙盒：隔离跑Python","file_upload":"文件上传：PDF/Word","multimodal":"多模态：看图/听音频","voice":"语音：STT/TTS","mcp_server":"MCP服务：连外部工具","task_planner":"任务规划：自动拆步","error_lib":"错误库：记录+修复建议","auto_updater":"自动更新：自更新流水线","proactive_learner":"主动学习：定时上网找知识","rag_engine":"RAG：检索增强生成","reasoning_engine":"推理引擎：多跳推理","plugin_market":"插件市场：一键装模块","skill_capture":"技能捕获：自动沉淀","self_reflect":"自我反思：回答后打分","empathy":"共情：情绪感知","personality":"人格引擎：小6性格","forgetting_curve":"遗忘：旧记忆自动删","l135_anomaly":"异常检测：行为偏差","memory_cards":"记忆卡：情景记忆"}
-        cns = {"trunk":"微核躯干","llm":"大模型","vector_store":"向量检索","knowledge_graph":"知识图谱","rules_engine":"规则引擎","auth":"账号授权","backup":"自动备份","scheduler":"定时任务","hot_reload":"热更新","mobile_remote":"手机远程","learning_loop":"学习闭环","self_heal":"自愈闭环","memory_loop":"记忆闭环","task_loop":"任务闭环","skill_distill":"技能沉淀","smart_router":"智能路由","deep_search":"深度搜索","tool_caller":"工具调用","computer_controller":"电脑控制","code_runner":"代码沙盒","file_upload":"文件上传","multimodal":"多模态","voice":"语音","mcp_server":"MCP服务","task_planner":"任务规划","error_lib":"错误库","auto_updater":"自动更新","proactive_learner":"主动学习","rag_engine":"RAG引擎","reasoning_engine":"推理引擎","plugin_market":"插件市场","skill_capture":"技能捕获","self_reflect":"自我反思","empathy":"共情","personality":"人格引擎","forgetting_curve":"遗忘","l135_anomaly":"异常检测","memory_cards":"记忆卡"}
+        groups = {"llm":"核心","vector_store":"核心","knowledge_graph":"核心","rules_engine":"核心","auth":"核心","backup":"核心","trunk":"核心","scheduler":"后台","hot_reload":"后台","mobile_remote":"后台","learning_loop":"闭环","memory_loop":"闭环","task_loop":"闭环","skill_distill":"闭环","smart_router":"智能体","deep_search":"工具","tool_caller":"工具","computer_controller":"工具","code_runner":"工具","file_upload":"工具","multimodal":"工具","voice":"工具","mcp_server":"工具","task_planner":"高级","error_lib":"高级","auto_updater":"高级","proactive_learner":"高级","rag_engine":"高级","reasoning_engine":"高级","plugin_market":"高级","skill_capture":"高级","self_reflect":"L模块","empathy":"L模块","personality":"L模块","forgetting_curve":"L模块","l135_anomaly":"L模块","memory_cards":"L模块"}
+        descs = {"llm":"大模型：本地+云端+流式","vector_store":"向量检索：nomic-embed+余弦","knowledge_graph":"知识图谱：三元组+多跳","rules_engine":"规则引擎：底层规则","auth":"账号激活登录：激活码授权","backup":"自动备份：保留2份","trunk":"微核躯干：注册/总线","scheduler":"定时任务：24h后台","hot_reload":"热更新：沙盒+回滚","mobile_remote":"手机远程","learning_loop":"学习闭环：找缺口→搜索→入库","memory_loop":"记忆闭环：对话→记忆卡→复习","task_loop":"任务闭环：拆步→执行→验证","skill_distill":"技能沉淀：成功任务→SKILL","smart_router":"智能路由：LLM判断谁答","deep_search":"深度搜索：多源并行","tool_caller":"工具调用：LLM自动决定","computer_controller":"电脑控制：鼠标键盘","code_runner":"代码沙盒：隔离跑Python","file_upload":"文件上传：PDF/Word","multimodal":"多模态：看图/听音频","voice":"语音：STT/TTS","mcp_server":"MCP服务：连外部工具","task_planner":"任务规划：自动拆步","error_lib":"错误库：记录+修复建议","auto_updater":"自动更新：自更新流水线","proactive_learner":"主动学习：定时上网找知识","rag_engine":"RAG：检索增强生成","reasoning_engine":"推理引擎：多跳推理","plugin_market":"插件市场：一键装模块","skill_capture":"技能捕获：自动沉淀","self_reflect":"自我反思：回答后打分","empathy":"共情：情绪感知","personality":"人格引擎：小6性格","forgetting_curve":"遗忘：旧记忆自动删","l135_anomaly":"异常检测：行为偏差","memory_cards":"记忆卡：情景记忆"}
+        cns = {"trunk":"微核躯干","llm":"大模型","vector_store":"向量检索","knowledge_graph":"知识图谱","rules_engine":"规则引擎","auth":"账号授权","backup":"自动备份","scheduler":"定时任务","hot_reload":"热更新","mobile_remote":"手机远程","learning_loop":"学习闭环","memory_loop":"记忆闭环","task_loop":"任务闭环","skill_distill":"技能沉淀","smart_router":"智能路由","deep_search":"深度搜索","tool_caller":"工具调用","computer_controller":"电脑控制","code_runner":"代码沙盒","file_upload":"文件上传","multimodal":"多模态","voice":"语音","mcp_server":"MCP服务","task_planner":"任务规划","error_lib":"错误库","auto_updater":"自动更新","proactive_learner":"主动学习","rag_engine":"RAG引擎","reasoning_engine":"推理引擎","plugin_market":"插件市场","skill_capture":"技能捕获","self_reflect":"自我反思","empathy":"共情","personality":"人格引擎","forgetting_curve":"遗忘","l135_anomaly":"异常检测","memory_cards":"记忆卡"}
         all_names = list(self.modules.keys()) + [k for k in self._lazy.keys() if k not in self.modules]
         modules = [{"name":n,"cn":cns.get(n,n),"desc":descs.get(n,""),"group":groups.get(n,"其他"),"loaded":n in self.modules} for n in all_names]
         # 星型：所有模块都连 trunk
@@ -226,8 +226,7 @@ class Trunk:
                 for j in range(i+1, len(ms)):
                     links.append([ms[i], ms[j]])
         # 关键闭环连接（跨组）
-        _loop_links = [["learning_loop","proactive_learner"],["self_heal","error_lib"],
-            ["self_heal","auto_updater"],["task_loop","task_planner"],
+        _loop_links = [["learning_loop","proactive_learner"],        ["task_loop","task_planner"],
             
             ["rag_engine","vector_store"],["rag_engine","knowledge_graph"],
             ["rag_engine","deep_search"],["skill_distill","skill_capture"],
@@ -383,7 +382,7 @@ class Trunk:
         return score
 
     def _deep_check(self):
-        """深度自检报告 v2：10 项检查 + 发现问题自动联动自愈闭环"""
+        """深度自检报告 v2：11 项检查（含目录层级/星型拓扑/结构契约）"""
         import py_compile, re as _re
         import glob as _g          # 提前导入，确保全程可用
         results = []
@@ -475,22 +474,22 @@ class Trunk:
         if not c["ok"]:
             errors.append("云端: " + c["error"])
 
-        # 6. 自修复闭环状态
+        # 6. 错误库状态
+        #    这里原来叫「自愈闭环」，检的是 self_heal 模块在不在。
+        #    那个模块已删除（名字叫自愈、实际只标记不改代码），
+        #    现在只报错误库自己还有多少条未修复。
         try:
-            sh_in = "self_heal" in self._lazy or self.has("self_heal")
             n = 0
             try:
                 r = self.call("error_lib", "list")
                 n = (r or {}).get("未修复", 0)
             except Exception:
                 pass
-            log("🩹 自愈闭环: 模块%s，未修复错误 %d 条%s" % ("✓" if sh_in else "✗", n, " ⚠" if n else ""))
-            if not sh_in:
-                errors.append("自愈闭环未注册")
+            log("🩹 错误库: 未修复错误 %d 条%s" % (n, " ⚠" if n else " ✓"))
             if n:
                 errors.append("有%d条未修复错误" % n)
         except Exception as e:
-            log("🩹 自愈闭环: ❌ %s" % str(e)[:40])
+            log("🩹 错误库: ❌ %s" % str(e)[:40])
 
         # 7. 向量/嵌入对齐
         #    向量库已迁到 SQLite + numpy 矩阵：条目在 .data，向量在 ._emb_mat。
@@ -758,30 +757,27 @@ class Trunk:
         log("💯 健康分: %d" % hs)
         log("")
         if errors:
-            log("⚠ 发现 %d 类问题，自动联动自愈闭环…" % len(errors))
+            log("⚠ 发现 %d 类问题：" % len(errors))
             for e in errors:
                 log("   · " + e)
         else:
             log("✔ 全部 11 项检查通过")
         report = "\n".join(results)
 
-        # 联动：有问题 → 交给自愈闭环（内部含 LLM分析→沙盒验证→弹窗确认→应用）
-        if errors:
-            try:
-                r = self.call("self_heal", "run")
-                report += "\n\n=== 自愈闭环联动 ===\n" + str(r)[:300]
-            except Exception as e:
-                report += "\n\n=== 自愈闭环触发失败 ===\n" + str(e)[:80]
+        # 这里原来会联动 self_heal（自愈闭环：LLM分析→沙盒验证→弹窗确认→应用）。
+        # 那个模块已删除 —— 它并不改代码，只是把错误标记成已处理，
+        # 却会顺带弹一次确认窗。标记与清理现在由错误库自己做，
+        # 定时任务每 4 小时跑一次（见 modules/installed/scheduler.py）。
         return report
 
     def _auto_unload_loop(self):
         import time as _t, gc
-        # 常驻白名单：核心 + 后台服务（定时任务/热更新/手机远程/自愈/学习闭环等带独立线程的模块不可卸载，
+        # 常驻白名单：核心 + 后台服务（定时任务/热更新/手机远程/学习闭环等带独立线程的模块不可卸载，
         # 否则 stop() 会停掉服务线程——热更新失效、手机远程断连的根因）
         core = {"llm", "vector_store", "auth", "backup", "knowledge_graph",
                 "rules_engine",
                 "scheduler", "hot_reload", "mobile_remote", "error_lib",
-                "learning_loop", "self_heal", "memory_loop"}
+                "learning_loop", "memory_loop"}
         while True:
             _t.sleep(30)
             try:
@@ -1175,7 +1171,7 @@ class Trunk:
             self._chat_active_until = time.time() + 120  # P0-2: 聊天活跃窗口(120s)，后台重任务让路
             return self._reply_inner(user_input, on_token=on_token)
         except Exception as e:
-            # 错误入库（可被自愈闭环处理）+ 日志，聊天只给友好提示
+            # 错误入库（可在「设置 → 系统」里查看/清空）+ 日志，聊天只给友好提示
             self._log("回复异常: " + str(e)[:200])
             try:
                 self.call("error_lib", "log", "reply", "reply", str(e))
@@ -1524,7 +1520,7 @@ class Trunk:
             # 常驻白名单：和_auto_unload_loop保持一致
             core = {"llm", "vector_store", "auth", "backup", "knowledge_graph",
                     "rules_engine", "scheduler", "hot_reload", "mobile_remote",
-                    "error_lib", "learning_loop", "self_heal", "memory_loop"}
+                    "error_lib", "learning_loop", "memory_loop"}
             now = time.time()
             to_unload = []
             for name in list(self.modules.keys()):

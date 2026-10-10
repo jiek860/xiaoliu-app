@@ -7,7 +7,7 @@
 群聊子角色可用 force_model 固定模型，不参与路由。"""
 import json, os, requests, time, re, threading
 
-# 全局 Ollama 串行锁：主回复/学习闭环/自愈闭环/嵌入等所有本地调用排队依次执行，不并发抢模型
+# 全局 Ollama 串行锁：主回复/学习闭环/嵌入等所有本地调用排队依次执行，不并发抢模型
 _OLLAMA_LOCK = threading.RLock()
 
 

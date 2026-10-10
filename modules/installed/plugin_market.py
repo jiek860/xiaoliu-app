@@ -34,7 +34,7 @@ def _icon_of(name):
         return "💗"
     if any(k in m for k in ["远程", "remote", "mobile", "网络"]):
         return "🌐"
-    if any(k in m for k in ["安全", "自愈", "heal", "错误", "error", "异常"]):
+    if any(k in m for k in ["安全", "错误", "error", "异常"]):
         return "🛡️"
     if any(k in m for k in ["文件", "upload", "upload"]):
         return "📁"

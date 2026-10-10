@@ -184,6 +184,33 @@ class ErrorLibrary(BaseModule):
         return {"分析": txt, "错误": last.get("error", "")}
 
     @safe
+    def mark_all_fixed(self):
+        """把所有未修复的错误标记为已处理
+
+        原来这一步只存在于 self_heal.apply() 里。self_heal 已删除
+        （名字叫"自愈"，实际只是标记 + 记录，一行代码都不改），
+        标记和清理的职责搬回错误库自己，另外定时任务会定期调它。
+        """
+        import time as _t
+        lst = self._load_runtime()
+        n = 0
+        for e in lst:
+            if not e.get("fixed"):
+                e["fixed"] = True
+                e["fixed_time"] = _t.time()
+                n += 1
+        self._save_runtime(lst)
+        return {"ok": True, "已标记": n, "总数": len(lst)}
+
+    @safe
+    def clear_all(self):
+        """清空运行时错误记录：先全部标记已处理，再立刻清理掉"""
+        self.mark_all_fixed()
+        r = self.cleanup_fixed(hours=0)
+        left = len(self._load_runtime())
+        return {"ok": True, "清理": r.get("清理", 0), "剩余": left}
+
+    @safe
     def cleanup_fixed(self, hours=24):
         """清理 hours 小时前已修复的错误"""
         import time

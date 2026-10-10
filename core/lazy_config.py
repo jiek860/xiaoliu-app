@@ -27,7 +27,6 @@ LAZY_MAP = {
     "group_loop":       ("group_loop",       "GroupChatPipeline",   "群聊闭环"),
     # ===== 闭环 =====
     "learning_loop":    ("learning_loop",    "LearningPipeline",    "学习闭环"),
-    "self_heal":        ("self_heal",        "SelfHealPipeline",    "自愈闭环"),
     "task_loop":        ("task_loop",        "TaskPipeline",        "任务闭环"),
     "skill_distill":    ("skill_distill",    "SkillDistill",        "技能沉淀"),
     "skill_capture":    ("skill_capture",    "SkillCapture",        "技能捕获"),

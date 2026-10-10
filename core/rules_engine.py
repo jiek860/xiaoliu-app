@@ -176,7 +176,6 @@ class RuleEngine:
         self.register("群聊.开关", C, "规则", "群聊组合+评估+子智能体统一开关", True)
         self.register("技能.确认门", C, "规则", "技能沉淀需用户确认后入库", True)
         self.register("电脑控制.白名单", C, "规则", "文件操作限白名单", True)
-        self.register("自愈.apply模式", C, "参数", "自愈应用方式:标记(2)或真改代码(1)", 2)
         self.register("嵌入.节流秒", C, "参数", "嵌入请求最小间隔(秒)", 0.2)
         self.register("情景.直接接线", C, "规则", "_bg 直接调 remember_scene", True)
 
@@ -190,7 +189,7 @@ class RuleEngine:
         self.register("定时.失败重试", D, "参数", "定时任务失败自动重试次数", 1)
         self.register("群聊.重复阈值", D, "参数", "角色回复与主回复相似度超过即跳过", 0.7)
         self.register("定时.备份间隔秒", D, "参数", "自动备份间隔(秒)", 3600)
-        self.register("定时.自愈间隔秒", D, "参数", "自愈闭环间隔(秒)", 14400)
+        self.register("定时.错误库维护间隔秒", D, "参数", "多久做一次错误库维护：标记已处理并清理旧的(秒)", 14400)
         self.register("定时.复习间隔秒", D, "参数", "记忆复习间隔(秒)", 1800)
         self.register("定时.热检间隔秒", D, "参数", "热更新检测间隔(秒)", 300)
         self.register("学习.连续间隔秒", D, "参数", "连续学习轮间冷却(秒)", 60)

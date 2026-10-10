@@ -157,6 +157,8 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name, title,
         l2.addWidget(QPushButton("确认", clicked=save_c))
         d2.exec_()
     l1.addWidget(QPushButton("云端模型设置", clicked=cloud_set))
+    l1.addWidget(_open_btn("📦", "模型管理",
+                           "列出 / 下载 / 删除 Ollama 本地模型"))
 
     l1.addWidget(QLabel("\n🌐 联网"))
     net_chk = QCheckBox("允许联网检索（对话时按需搜索）")
@@ -193,6 +195,8 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name, title,
             QMessageBox.information(d, "已保存", "AI人格已更新")
     l2.addWidget(QLabel("\n🧠 AI人格"))
     l2.addWidget(QPushButton("编辑AI人格", clicked=_edit_persona))
+    l2.addWidget(QLabel("\n🐾 桌面"))
+    l2.addWidget(_open_btn("🐾", "桌宠", "桌面悬浮窗，再点一次收起"))
     tabs.addTab(tab2, "🎨 界面")
 
     # ===== 标签3: 工具（原来是功能中心的"帮你干活"一组）=====
@@ -201,6 +205,9 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name, title,
     l3.addWidget(QLabel("🛠️ 工具"))
     l3.addWidget(_open_btn("🖥️", "电脑控制", "操作软件 / 文件 / 窗口 / 系统"))
     l3.addWidget(_open_btn("🤖", "机器人", "企业微信 / 钉钉聊天机器人"))
+    l3.addWidget(_open_btn("🎙️", "语音对话",
+                           "语音实时对话：静音自动断句、可随时打断、连续多轮"))
+    l3.addWidget(_open_btn("📅", "日历待办", "日历 + 待办 + 笔记"))
     l3.addStretch(1)
     tabs.addTab(tab3, "🛠️ 工具")
 
@@ -222,6 +229,9 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name, title,
     l5.addWidget(QLabel("📜 记录"))
     l5.addWidget(_open_btn("📜", "历史记录", "分页 / 搜索 / 导出全部聊天记录"))
     l5.addWidget(_open_btn("📋", "日志", "运行日志 / 错误 / 操作记录"))
+    l5.addWidget(_open_btn("🔍", "搜索聊天", "全局搜索所有会话里的消息"))
+    l5.addWidget(_open_btn("🧠", "记忆可视化", "记忆时间线 / 图谱 / 搜索 / 编辑"))
+    l5.addWidget(_open_btn("📊", "数据统计", "用量与数据的统计报表"))
     l5.addStretch(1)
     tabs.addTab(tab5, "📜 记录")
 
@@ -229,8 +239,10 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name, title,
     tab6 = QWidget()
     l6 = QVBoxLayout(tab6)
     l6.addWidget(QLabel("⚙️ 系统"))
-    l6.addWidget(_open_btn("⚙️", "系统", "深度自检 / 备份 / 闭环 / 训练"))
+    l6.addWidget(_open_btn("⚙️", "系统", "深度自检 / 备份 / 训练"))
     l6.addWidget(_open_btn("🧭", "首次设置向导", "模型没配好、它不回话时打开这个"))
+    l6.addWidget(_open_btn("📱", "手机远程", "手机连上这台电脑使用"))
+    l6.addWidget(_open_btn("🔄", "检查更新", "检查新版本 / 回滚 / 更新历史"))
     l6.addStretch(1)
     tabs.addTab(tab6, "⚙️ 系统")
 

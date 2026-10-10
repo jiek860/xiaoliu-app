@@ -70,15 +70,10 @@ class AnomalyDetector(BaseModule):
         if not self.errors:
             return {"状态": "无错误"}
 
-        # 调用自愈闭环
-        try:
-            sh = self.trunk.modules.get("self_heal")
-            if sh and hasattr(sh, "fix"):
-                r = sh.fix(self.errors[-1])
-                return {"修复": r}
-        except: pass
-
-        return {"状态": "无自动修复能力"}
+        # 这里原来调 self_heal.fix() 做自动修复，但 SelfHealPipeline
+        # 根本没有 fix 方法，hasattr 永远为假 —— 那个分支从来没执行过。
+        # self_heal 已删除，这段一并去掉，如实说明没有自动修复能力。
+        return {"状态": "无自动修复能力", "说明": "请到「设置 → 系统 → 日志」里看错误详情"}
 
     @safe
     def error_stats(self):

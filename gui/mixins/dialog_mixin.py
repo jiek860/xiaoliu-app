@@ -95,6 +95,16 @@ class DialogMixin:
                 "日志":         getattr(self, "log_dialog", None),
                 "系统":         getattr(self, "sys_dialog", None),
                 "首次设置向导": getattr(self, "onboarding_dialog", None),
+                # 下面这批原来是没有入口的孤儿窗口，现已接入
+                "模型管理":     getattr(self, "model_manager_dialog", None),
+                "语音对话":     getattr(self, "voice_chat_dialog", None),
+                "记忆可视化":   getattr(self, "memory_view_dialog", None),
+                "数据统计":     getattr(self, "stats_dialog", None),
+                "日历待办":     getattr(self, "tools_dialog", None),
+                "搜索聊天":     getattr(self, "search_dialog", None),
+                "手机远程":     getattr(self, "mobile_dialog", None),
+                "检查更新":     getattr(self, "update_dialog", None),
+                "桌宠":         getattr(self, "pet_dialog", None),
             },
         )
 
@@ -107,6 +117,91 @@ class DialogMixin:
     def history_dialog(self):
         from gui.history_dialog import HistoryDialog
         HistoryDialog(self.trunk, self.account, self).show()
+
+    # ---------------- 以下 9 个窗口原本是"孤儿" ----------------
+    # 它们写好了、类也完整，但全项目没有任何地方能打开它们（实测过：
+    # 12 个孤儿 GUI 文件里这 9 个都能正常构造）。这里给它们接上入口，
+    # 按钮挂在「设置」对应的标签页里（见 gui/settings_dialog.py）。
+    # 全部是同一种签名 (trunk, parent=None)，所以包一层就行。
+
+    def _open_simple_dialog(self, modname, clsname, modal=True):
+        """打开一个 (trunk, parent=None) 签名的窗口
+
+        modal=True 走 exec_()（适合"看完就关"的）；
+        否则走 show() 并留引用，免得窗口一闪就没（Python 侧被回收）。
+        """
+        try:
+            mod = __import__("gui." + modname, fromlist=[clsname])
+            cls = getattr(mod, clsname)
+            w = cls(self.trunk, self)
+        except Exception as e:
+            QMessageBox.warning(self, "打开失败",
+                                "%s 打不开：%s" % (clsname, str(e)[:120]))
+            return None
+        if modal:
+            w.exec_()
+        else:
+            if not hasattr(self, "_keep_windows"):
+                self._keep_windows = []
+            self._keep_windows.append(w)
+            w.show()
+        return w
+
+    def model_manager_dialog(self):
+        """本地模型管理：列出 / 下载 / 删除 Ollama 模型"""
+        return self._open_simple_dialog("model_manager_dialog", "ModelManagerDialog")
+
+    def voice_chat_dialog(self):
+        """语音实时对话：VAD 静音检测、可随时打断、连续多轮"""
+        return self._open_simple_dialog("voice_chat_dialog", "VoiceChatDialog")
+
+    def memory_view_dialog(self):
+        """记忆可视化：时间线 / 图谱 / 搜索 / 编辑"""
+        return self._open_simple_dialog("memory_view_dialog", "MemoryViewDialog")
+
+    def stats_dialog(self):
+        """数据统计报表"""
+        return self._open_simple_dialog("stats_dialog", "StatsDialog")
+
+    def tools_dialog(self):
+        """日历 + 待办 + 笔记"""
+        return self._open_simple_dialog("tools_dialog", "ToolsDialog")
+
+    def search_dialog(self):
+        """消息搜索：全局搜索所有会话"""
+        return self._open_simple_dialog("search_dialog", "SearchDialog")
+
+    def mobile_dialog(self):
+        """手机远程连接管理"""
+        return self._open_simple_dialog("mobile_dialog", "MobileDialog")
+
+    def update_dialog(self):
+        """检查更新 / 回滚 / 更新历史"""
+        return self._open_simple_dialog("update_dialog", "UpdateDialog")
+
+    def pet_dialog(self):
+        """桌面悬浮窗（桌宠）—— 非模态，可以一直开着
+
+        它是常驻的小窗口，不是"打开-关闭"的对话框，所以：
+          · show() 而不是 exec_()（不然会把主界面卡住）
+          · 已经开着就再点一次收起来（当开关用）
+        """
+        try:
+            w = getattr(self, "_desktop_pet", None)
+            if w is not None:
+                if w.isVisible():
+                    w.hide()
+                    return None
+                w.show()
+                return w
+            from gui.desktop_pet import DesktopPet
+            w = DesktopPet(self.trunk, self)
+            self._desktop_pet = w
+            w.show()
+            return w
+        except Exception as e:
+            QMessageBox.warning(self, "桌宠", "打不开：" + str(e)[:120])
+            return None
 
     def onboarding_dialog(self):
         """重新打开首次设置向导（模型没配好时随时可用）"""

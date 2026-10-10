@@ -61,7 +61,7 @@ class Scheduler(BaseModule):
             busy = self.trunk._chat_busy() if hasattr(self.trunk, "_chat_busy") else False
             try:
                 bk_iv = self.trunk.rule("定时.备份间隔秒", 3600)
-                heal_iv = self.trunk.rule("定时.自愈间隔秒", 14400)
+                heal_iv = self.trunk.rule("定时.错误库维护间隔秒", 14400)
                 rv_iv = self.trunk.rule("定时.复习间隔秒", 1800)
                 rc_iv = self.trunk.rule("定时.热检间隔秒", 300)
                 auto_iv = self.trunk.rule("定时.自动更新间隔秒", 21600)
@@ -84,17 +84,25 @@ class Scheduler(BaseModule):
                         ll.start_continuous(1200)
                     self._learn_started = True
                 self._safe_run("主动学习", _start_learn)
-            # 每4小时自愈闭环（启动 300 秒后首轮；聊天中让路，扫描错误→分析→修复，有错才动）
+            # 每4小时错误库例行维护（启动 300 秒后首轮；聊天中让路）
+            #
+            # 原来这里是"自愈闭环"：调 self_heal.run()。但那个模块名字叫自愈、
+            # 实际只把错误记录标成已处理、不改任何代码，LLM 生成的那段建议
+            # 也只是被当成文字存下来。已删除。
+            # 保留它真正做过的唯一有用的事 —— 标记 + 清理，直接由错误库自己做。
             if busy:
                 pass
             elif now - self.last_heal > heal_iv and now - self._boot_time > 300:
-                def _heal():
-                    self.trunk.call("self_heal", "__no__")
-                    sh = self.trunk.modules.get("self_heal")
-                    if sh and hasattr(sh, "scan") and sh.scan() > 0:
-                        if sh and hasattr(sh, "run"):
-                            sh.run()
-                self._safe_run("自愈闭环", _heal)
+                def _tidy_errors():
+                    el = self.trunk.modules.get("error_lib")
+                    if not el:
+                        self.trunk.call("error_lib", "__no__")
+                        el = self.trunk.modules.get("error_lib")
+                    if el and hasattr(el, "mark_all_fixed"):
+                        el.mark_all_fixed()
+                        if hasattr(el, "cleanup_fixed"):
+                            el.cleanup_fixed(72)      # 已处理的留 3 天
+                self._safe_run("错误库维护", _tidy_errors)
                 self.last_heal = now
             # 每6小时自动更新巡检（启动600秒后首轮；只检查+生成建议，部署需弹窗确认）
             if now - self.last_auto > auto_iv and now - self._boot_time > 600:

@@ -123,13 +123,16 @@ def show_system_dialog(self):
     btn1 = QPushButton("🔪 深度自检报告")
     btn1.clicked.connect(lambda: self._bg_call(result, self.trunk._deep_check, "深度自检"))
     l2.addWidget(btn1)
-    btn2 = QPushButton("自修复")
-    # 原来是 trunk.call("error_lib", "auto_fix") —— error_lib 根本没有 auto_fix
-    # 这个方法，点了只会弹「这个功能还没做好」，按钮一直是坏的。
-    # 真正的自修复流程在 self_heal 模块里（扫描错误 → LLM 分析 → 沙盒验证 →
-    # 确认后把错误标记为已处理）。
-    btn2.setToolTip("扫描错误库 → LLM 分析 → 沙盒验证 → 确认后标记为已处理")
-    btn2.clicked.connect(lambda: self._bg_call(result, lambda: self.trunk.call("self_heal", "run"), "自修复"))
+    btn2 = QPushButton("🗑 清空错误库")
+    # 这个按钮的历史：
+    #   一版调 trunk.call("error_lib", "auto_fix") —— error_lib 没有这个方法，
+    #   点了只弹「这个功能还没做好」；
+    #   一版改调 self_heal.run() —— 但那个模块名字叫"自愈"、实际只把记录标成
+    #   已处理、一行代码都不改，还会顺带弹一次确认窗。现已删除。
+    # 现在如实做成它一直实际上在做的事：把错误记录标记为已处理并清理掉。
+    btn2.setToolTip("把所有未修复的错误标记为已处理并清理（不改代码）")
+    btn2.clicked.connect(lambda: self._bg_call(
+        result, lambda: self.trunk.call("error_lib", "clear_all"), "清空错误库"))
     l2.addWidget(btn2)
     l1.addWidget(box2)
 
