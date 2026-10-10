@@ -1,10 +1,17 @@
 # -*- coding: utf-8 -*-
 """插件市场窗口 - 网格卡片/安装/卸载/热加载"""
-import os, sys, importlib
+import os, sys, importlib, threading
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QScrollArea, QWidget, QFrame,
                              QGridLayout, QMessageBox, QFileDialog,
                              QProgressDialog)
+from PyQt5.QtCore import QObject, pyqtSignal
+
+
+class _OnlineSignals(QObject):
+    """把后台取在线清单的结果送回主线程（Qt 控件只能主线程碰）"""
+    done = pyqtSignal(object)
+    failed = pyqtSignal(str)
 
 
 def show_plugin_dialog(parent, dlg, trunk, open_mcp, show_components):
@@ -55,6 +62,13 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp, show_components):
     msg.setWordWrap(True)
     msg.setStyleSheet("color:#475569;")
     l.addWidget(msg)
+
+    # 后台取在线清单的结果通过信号回到主线程。
+    # 以对话框为父对象并留一份引用 —— 只当局部变量的话，
+    # 函数返回后可能被回收，后台线程 emit 就没人接了。
+    sig = _OnlineSignals(d)
+    d._online_sig = sig
+    sig.failed.connect(lambda e: msg.setText("在线拉取失败: " + str(e)))
 
     def _clear_grid():
         while grid.count():
@@ -145,26 +159,31 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp, show_components):
         return card
 
     def _refresh():
+        """先瞬时渲染一版，再后台去取在线清单。
+
+        原来 `pm.list_online()` 是在这里同步调的 —— 它要发 HTTP 请求去
+        仓库拿 manifest.json，网络不快时点开插件市场要先卡一秒左右窗口才出来。
+        现在：本地那份立刻画出来，在线那份后台取，取回来再补上校验信息。
+        """
         try:
             if "core.lazy_config" in sys.modules:
                 importlib.reload(sys.modules["core.lazy_config"])
             mods = []
             try:
-                online = pm.list_online()
-                local_files = set()
-                for fn in os.listdir(pm.installed_dir):
-                    if fn.endswith(".py"):
-                        local_files.add(fn)
-                for o in online:
-                    installed = o.get("file", "") in local_files
-                    mods.append({"name": o.get("name", "?"), "file": o.get("file", "?"), "cls": "?",
-                                 "installed": installed, "active": installed, "desc": o.get("desc", ""),
-                                 "size": o.get("size", 0), "icon": "🧩" if not installed else "✅",
-                                 # 带上校验信息，下载时用于验签
-                                 "sha256": o.get("sha256", ""), "signature": o.get("signature", "")})
-                msg.setText("在线 %d 个模块" % len(online))
+                local = pm.list_all()          # 只读本地文件，不联网
+                for m in local:
+                    mods.append({
+                        "name": m.get("name", "?"), "file": m.get("file", "?"),
+                        "cls": m.get("cls", "?"),
+                        "installed": bool(m.get("installed")),
+                        "active": bool(m.get("active")),
+                        "desc": m.get("desc", ""), "size": m.get("size", 0),
+                        "icon": m.get("icon", "🧩"),
+                        "sha256": "", "signature": "",
+                    })
+                msg.setText("本地 %d 个模块 · 正在获取在线清单…" % len(mods))
             except Exception as ee:
-                msg.setText("在线拉取失败: " + str(ee)[:80])
+                msg.setText("本地扫描失败: " + str(ee)[:80])
             _clear_grid()
             cols = 4
             for idx, m in enumerate(mods):
@@ -177,6 +196,42 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp, show_components):
         except Exception as e:
             status.setText("❌ 扫描失败: " + str(e)[:60])
 
+    def _fetch_online_async():
+        """后台取在线清单，回来再刷新（不联网也能用，只是少了校验信息）"""
+        def _work():
+            try:
+                online = pm.list_online()
+            except Exception as ee:
+                sig.failed.emit(str(ee)[:80])
+                return
+            sig.done.emit(online)
+
+        threading.Thread(target=_work, daemon=True,
+                         name="plugin-online-fetch").start()
+
+    def _on_online_done(online):
+        try:
+            local_files = {f for f in os.listdir(pm.installed_dir) if f.endswith(".py")}
+            mods = []
+            for o in online:
+                installed = o.get("file", "") in local_files
+                mods.append({"name": o.get("name", "?"), "file": o.get("file", "?"),
+                             "cls": "?", "installed": installed, "active": installed,
+                             "desc": o.get("desc", ""), "size": o.get("size", 0),
+                             "icon": "🧩" if not installed else "✅",
+                             "sha256": o.get("sha256", ""),
+                             "signature": o.get("signature", "")})
+            _clear_grid()
+            cols = 4
+            for idx, m in enumerate(mods):
+                grid.addWidget(_card(m), idx // cols, idx % cols)
+            grid.setRowStretch((len(mods) - 1) // cols + 1, 1)
+            msg.setText("在线 %d 个模块 · 点击卡片按钮 安装/卸载" % len(mods))
+        except Exception as e:
+            msg.setText("在线列表刷新失败: " + str(e)[:70])
+
+    refresh_btn.clicked.connect(lambda: (_refresh(), _fetch_online_async()))
+
     def _pick_file():
         path, _ = QFileDialog.getOpenFileName(d, "选择插件 .py", "", "Python 文件 (*.py)")
         if not path:
@@ -188,6 +243,7 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp, show_components):
             msg.setText("❌ " + str(e)[:60])
         _refresh()
     file_btn.clicked.connect(_pick_file)
-    refresh_btn.clicked.connect(_refresh)
-    _refresh()
+    sig.done.connect(_on_online_done)
+    _refresh()                 # 本地那份，瞬时
+    _fetch_online_async()      # 在线那份，后台
     d.exec_()

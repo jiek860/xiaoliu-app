@@ -3,11 +3,12 @@
 
 原来"功能中心"里那批入口已全部并入这里，按用途分类成标签页。
 """
-import os, json, urllib.request
+import os, json, threading, urllib.request
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QLineEdit, QPushButton, QComboBox, QCheckBox,
                              QMessageBox, QInputDialog,
                              QTabWidget, QWidget, QFormLayout)
+from PyQt5.QtCore import QObject, pyqtSignal
 
 
 def show_settings_dialog(parent, dlg, trunk, base, ai_name, title,
@@ -85,14 +86,39 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name, title,
             QMessageBox.warning(d, "错误", "Ollama未启动\n请先打开Ollama")
     l1.addWidget(QPushButton("检测本地模型", clicked=check_local))
 
-    try:
-        ollama_url = trunk.config.get("ollama_url", "http://localhost:11434")
-        req = urllib.request.Request(ollama_url + "/api/tags")
-        data = json.loads(urllib.request.urlopen(req, timeout=3).read())
-        models = [mm["name"] for mm in data.get("models", [])]
-        l1.addWidget(QLabel("📦 已检测到 %d 个模型" % len(models)))
-    except:
-        l1.addWidget(QLabel("⚠️ Ollama未连接"))
+    # Ollama 探测放后台做。
+    # 原来是在**构建对话框的过程中**直接发请求（timeout=3），
+    # Ollama 不在线时（比如 ollama_url 指向局域网里没开的机器），
+    # 每次点「设置」都要先卡满 3 秒窗口才出来。
+    ollama_lbl = QLabel("⏳ 正在检测 Ollama…")
+    l1.addWidget(ollama_lbl)
+
+    class _Probe(QObject):
+        done = pyqtSignal(str)
+
+    # 以对话框为父对象，并把引用挂到 d 上 ——
+    # 只写成局部变量的话，函数返回后它可能被 Python 回收，
+    # 后台线程 emit 的信号就没人接了（实测标签一直停在"正在检测…"）。
+    _probe = _Probe(d)
+    d._ollama_probe = _probe
+    _probe.done.connect(ollama_lbl.setText)
+
+    def _probe_ollama():
+        try:
+            url = trunk.config.get("ollama_url", "http://localhost:11434")
+            req = urllib.request.Request(url + "/api/tags")
+            data = json.loads(urllib.request.urlopen(req, timeout=3).read())
+            n = len(data.get("models", []))
+            text = "📦 已检测到 %d 个模型" % n
+        except Exception:
+            text = "⚠️ Ollama 未连接"
+        try:
+            _probe.done.emit(text)
+        except Exception:
+            pass
+
+    threading.Thread(target=_probe_ollama, daemon=True,
+                     name="settings-ollama-probe").start()
 
     def cloud_set():
         d2 = QDialog(d); d2.setWindowTitle("云端模型"); l2 = QVBoxLayout(d2)

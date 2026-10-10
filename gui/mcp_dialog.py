@@ -29,12 +29,13 @@
       "预置服务器 + 复制命令"页，不再假装能一键安装。
 """
 import json
+import threading
 
 from PyQt5.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout,
                              QLabel, QPushButton, QListWidget, QListWidgetItem,
                              QMessageBox, QTabWidget, QWidget, QFormLayout,
                              QLineEdit, QComboBox)
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 
 
 # 预置 MCP 服务器（原来在 mcp_wizard_dialog.PRESETS）
@@ -69,16 +70,28 @@ REFERENCE = [
 
 
 class MCPDialog(QDialog):
-    """MCP 总面板"""
+    """MCP 总面板
+
+    打开时**不会**同步去加载/连接 mcp_client —— 那一步要串行起 4 个
+    stdio 子进程（npx/uvx）再握手，实测要 10 秒左右，全压在 UI 线程上
+    就是"点一下卡十秒页面才出来"。现在改成：
+      · 服务器列表立刻用 config 渲染（只读配置，毫秒级）
+      · 客户端放后台线程加载连接，好了再发信号回来刷新工具列表
+    """
+
+    client_ready = pyqtSignal()
 
     def __init__(self, trunk, parent=None):
         super().__init__(parent)
         self.trunk = trunk
         self._loading = False          # 刷新列表时抑制 itemChanged 回调
+        self._client_loading = False
         self.setWindowTitle("🔌 MCP")
         self.resize(780, 640)
         self._build_ui()
-        self._refresh()
+        self.client_ready.connect(self._refresh)
+        self._refresh()                # 先用配置渲染，不碰客户端
+        self._load_client_async()      # 客户端后台加载
 
     # ------------------------------------------------------------ 界面
 
@@ -203,6 +216,11 @@ class MCPDialog(QDialog):
             pass
 
     def _mcp_client(self):
+        """拿到客户端实例（**可能触发加载并连接**，会阻塞几秒）。
+
+        只在用户明确动作（添加 / 删除 / 重连 / 测试）时调；
+        打开面板走 _loaded_client()。
+        """
         m = self.trunk.modules.get("mcp_client")
         if not m:
             try:
@@ -210,6 +228,34 @@ class MCPDialog(QDialog):
             except Exception:
                 m = None
         return m
+
+    def _loaded_client(self):
+        """只取**已经**加载好的实例，绝不在这里触发加载（加载会连服务器）"""
+        return self.trunk.modules.get("mcp_client")
+
+    def _load_client_async(self):
+        """后台加载/连接客户端，连好了发信号回主线程刷新
+
+        QDialog 不是线程安全的，所以工作线程只负责加载，刷新交回主线程。
+        """
+        if self._loaded_client() is not None or self._client_loading:
+            return
+        self._client_loading = True
+
+        def _work():
+            try:
+                self._mcp_client()
+            except Exception:
+                pass
+            finally:
+                self._client_loading = False
+            try:
+                self.client_ready.emit()
+            except Exception:
+                pass
+
+        threading.Thread(target=_work, daemon=True,
+                         name="mcp-dialog-load").start()
 
     def _sync_client(self):
         """把配置变更推给客户端。
@@ -249,14 +295,18 @@ class MCPDialog(QDialog):
             if servers:
                 self.list.setCurrentRow(0)
 
-            c = self._mcp_client()
+            c = self._loaded_client()          # 不触发加载，见 _loaded_client 说明
             tools = list(getattr(c, "tools", []) or []) if c else []
             self.tool_list.clear()
             for t in tools[:200]:
                 self.tool_list.addItem("🛠 %s" % (t.get("name") or t))
             n_on = sum(1 for s in servers if s.get("enabled", True))
-            self.status.setText("共 %d 个服务器（启用 %d）· 已连接工具 %d 个"
-                                % (len(servers), n_on, len(tools)))
+            if c is None:
+                self.status.setText("共 %d 个服务器（启用 %d）· 正在后台连接…"
+                                    % (len(servers), n_on))
+            else:
+                self.status.setText("共 %d 个服务器（启用 %d）· 已连接工具 %d 个"
+                                    % (len(servers), n_on, len(tools)))
         finally:
             self._loading = False
 

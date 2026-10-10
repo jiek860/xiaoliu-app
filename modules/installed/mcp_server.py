@@ -188,13 +188,29 @@ class MCPServer(BaseModule):
                     body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
                 except Exception:
                     body = b"{}"
+                # 出错时直接关连接：错误分支可能没读请求体，
+                # 在 HTTP/1.1 keep-alive 下残留的 body 会串到下一条请求上
+                # （实测会让客户端报 ConnectionAbortedError）
+                if code >= 400:
+                    self.close_connection = True
                 try:
                     self.send_response(code)
                     self.send_header("Content-Type",
                                      "application/json; charset=utf-8")
                     self.send_header("Content-Length", str(len(body)))
+                    if code >= 400:
+                        self.send_header("Connection", "close")
                     self.end_headers()
                     self.wfile.write(body)
+                except Exception:
+                    pass
+
+            def _drain_body(self):
+                """把请求体读干净，避免残留数据污染复用连接上的下一个请求"""
+                try:
+                    n = int(self.headers.get("Content-Length") or 0)
+                    if n > 0:
+                        self.rfile.read(n)
                 except Exception:
                     pass
 
@@ -214,6 +230,7 @@ class MCPServer(BaseModule):
             def do_POST(self):
                 p = (urlparse(self.path).path or "/").rstrip("/") or "/"
                 if p != "/call":
+                    self._drain_body()
                     self._send(404, {"ok": False, "错误": "未知路径: " + p})
                     return
                 try:

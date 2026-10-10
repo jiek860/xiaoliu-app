@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """MCP客户端 v2.0 - 连接外部MCP服务器 + 调用工具 + 添加/删除/测试 + 历史 + 统计"""
-import json, urllib.request, sys, os, time
+import json, urllib.request, sys, os, time, threading
 from core.safe import safe
 from modules.base import BaseModule
 
@@ -35,6 +35,7 @@ class MCPClient(BaseModule):
         self.call_count = 0
         self.conn_errors = []    # 连接失败的诊断，给界面看
         self._stopped = False    # 退出时置位，防止"正在连接的"在 stop 之后才落地
+        self._lock = threading.RLock()   # 并行连接时保护 tools / stdio / conn_errors
         self.reload_servers()
 
     def reload_servers(self):
@@ -96,38 +97,65 @@ class MCPClient(BaseModule):
         self.servers = servers
         self.tools = []
         self.conn_errors = []
-        for srv in self.servers:
-            if srv.get("transport") == "stdio":
-                self._connect_stdio(srv)
-            else:
-                self._connect_http(srv)
+        self._connect_all()
         return {"ok": True, "服务器数": len(self.servers), "工具数": len(self.tools),
                 "失败": self.conn_errors}
+
+    def _connect_all(self):
+        """并行连接所有服务器。
+
+        原来是 for 循环串行连 —— 4 个 stdio 服务器（npx/uvx 起进程 + 握手）
+        串起来要 6~10 秒，而这条路径会被 GUI 直接调用（打开 MCP 面板、
+        点重连），整段时间 UI 是卡住的。并行之后只花最慢那一个的时间。
+        """
+        if not self.servers:
+            return
+        import concurrent.futures as cf
+        workers = max(1, min(8, len(self.servers)))
+        try:
+            with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+                list(ex.map(self._connect_one, self.servers))
+        except Exception:
+            for srv in self.servers:       # 并行出问题就退回串行，别整个失败
+                self._connect_one(srv)
+
+    def _connect_one(self, srv):
+        if srv.get("transport") == "stdio":
+            self._connect_stdio(srv)
+        else:
+            self._connect_http(srv)
 
     def _connect_http(self, srv):
         try:
             r = urllib.request.urlopen(srv["url"] + "/tools", timeout=3)
             data = json.loads(r.read().decode())
             if isinstance(data, list):
+                found = []
                 for t in data:
                     if not isinstance(t, dict):
                         continue
                     t = dict(t)
                     t["_server"] = srv["name"]
                     t["_transport"] = "http"
-                    self.tools.append(t)
+                    found.append(t)
+                with self._lock:
+                    self.tools.extend(found)
         except Exception as e:
-            self.conn_errors.append("%s (HTTP): %s" % (srv["name"], str(e)[:90]))
+            with self._lock:
+                self.conn_errors.append("%s (HTTP): %s" % (srv["name"], str(e)[:90]))
 
     def _connect_stdio(self, srv):
         """启动 stdio 子进程并拉工具列表"""
         try:
             from core.mcp_stdio import StdioMCPServer
         except Exception as e:
-            self.conn_errors.append("%s (stdio): 传输层不可用 %s" % (srv["name"], str(e)[:60]))
+            with self._lock:
+                self.conn_errors.append("%s (stdio): 传输层不可用 %s"
+                                        % (srv["name"], str(e)[:60]))
             return
         # 兜底：同名槽位已经有连接就先收掉，别把它覆盖成孤儿
-        old = self.stdio.pop(srv["name"], None)
+        with self._lock:
+            old = self.stdio.pop(srv["name"], None)
         if old is not None:
             try:
                 old.stop()
@@ -144,12 +172,14 @@ class MCPClient(BaseModule):
                 except Exception:
                     pass
                 return
-            self.stdio[srv["name"]] = s
-            self.tools.extend(s.tools)
+            with self._lock:
+                self.stdio[srv["name"]] = s
+                self.tools.extend(s.tools)
             self._log("MCP stdio 已连接: %s（%d 个工具）" % (srv["name"], len(s.tools)))
         else:
             why = s.diagnostics()
-            self.conn_errors.append("%s (stdio): %s" % (srv["name"], why))
+            with self._lock:
+                self.conn_errors.append("%s (stdio): %s" % (srv["name"], why))
             self._log("MCP stdio 连接失败: %s —— %s" % (srv["name"], why))
             try:
                 s.stop()

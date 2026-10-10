@@ -19,8 +19,9 @@
 想重新看一遍：删掉它，或从「设置 → 系统 → 首次设置向导」打开。
 """
 import os
+import threading
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (QWizard, QWizardPage, QVBoxLayout, QHBoxLayout,
                              QLabel, QComboBox, QLineEdit, QPushButton,
                              QMessageBox, QApplication, QGroupBox, QRadioButton)
@@ -61,6 +62,10 @@ def mark_done(trunk):
 class OnboardingWizard(QWizard):
     """首次运行引导向导"""
 
+    # 后台探测 Ollama 完成后，用它把结果送回主线程
+    # （Qt 控件只能在主线程碰，工作线程只负责发信号）
+    probe_done = pyqtSignal(dict, str)
+
     def __init__(self, trunk, parent=None):
         super().__init__(parent)
         self.trunk = trunk
@@ -70,6 +75,7 @@ class OnboardingWizard(QWizard):
         self.setOption(QWizard.NoBackButtonOnStartPage, True)
         self._build_pages()
         self.currentIdChanged.connect(self._on_page_changed)
+        self.probe_done.connect(self._apply_local_status)
 
     # ---------------- 页面 ----------------
     def _build_pages(self):
@@ -177,9 +183,33 @@ class OnboardingWizard(QWizard):
             self.rb_local.setChecked(True)
         self._refresh_local_status()
 
-    def _refresh_local_status(self):
+    def _refresh_local_status(self, async_=True):
+        """检测本地 Ollama 并把结果显示到状态标签
+
+        默认**异步**：原来是在 initializePage 里同步发请求（timeout=3），
+        向导窗口要等这次探测完才显示出来 —— Ollama 不在线时就是先卡 3 秒。
+        """
         url = self.ed_ollama.text().strip() or model_setup.DEFAULT_OLLAMA
-        info = model_setup.probe_ollama(url, timeout=3)
+        if not async_:
+            self._apply_local_status(model_setup.probe_ollama(url, timeout=3), url)
+            return
+        self.lbl_local_status.setText("⏳ 正在检测 %s …" % url)
+        self.lbl_local_status.setStyleSheet("color:#64748b;")
+
+        def _work():
+            try:
+                info = model_setup.probe_ollama(url, timeout=3)
+            except Exception:
+                info = {"reachable": False, "models": []}
+            try:
+                self.probe_done.emit(info, url)
+            except Exception:
+                pass
+
+        threading.Thread(target=_work, daemon=True,
+                         name="onboarding-probe").start()
+
+    def _apply_local_status(self, info, url):
         if info["reachable"]:
             n = len(info["models"])
             if n:
