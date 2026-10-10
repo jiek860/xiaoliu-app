@@ -183,15 +183,10 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name, title,
     l4 = QVBoxLayout(tab4)
     l4.addWidget(QLabel("🧩 扩展"))
     l4.addWidget(_open_btn("🧩", "插件", "安装 / 卸载 / 热加载模块"))
-    l4.addWidget(_open_btn("🔌", "MCP市场", "可视化安装 MCP 服务器"))
-    l4.addWidget(QLabel("\n🔌 MCP服务器地址"))
-    mcp_url = QLineEdit(trunk.config.get("mcp_url", "http://localhost:3742"))
-    l4.addWidget(mcp_url)
-    l4.addWidget(QPushButton("保存并重连", clicked=lambda: (
-        trunk.config.update({"mcp_url": mcp_url.text()}),
-        trunk.save_config(),
-        QMessageBox.information(d, "成功", "MCP地址已保存，重启生效")
-    )))
+    # MCP 的所有东西都在 mcp_dialog 那一页里（服务器管理 / 预置服务器 / 配置参考）。
+    # 这里原来还有个"MCP服务器地址 + 保存并重连"，写的是 config["mcp_url"] ——
+    # 全项目没有任何代码读那个键，是个死设置；真正生效的是 config["mcp_servers"]。
+    l4.addWidget(_open_btn("🔌", "MCP", "服务器管理 / 预置服务器 / 配置参考"))
     l4.addStretch(1)
     tabs.addTab(tab4, "🧩 扩展")
 

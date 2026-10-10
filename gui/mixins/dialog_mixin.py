@@ -51,8 +51,10 @@ class DialogMixin:
 
     def plugin_dialog(self):
         from gui.plugin_dialog import show_plugin_dialog
+        # 插件市场里那个「🔌 MCP」按钮也指向唯一的 MCP 面板
+        # （以前指向 show_mcp_market，那是另一个只显示 JSON 的窗口）
         show_plugin_dialog(self, self._dlg, self.trunk,
-                           self.show_mcp_market, self.show_components)
+                           self.mcp_dialog, self.show_components)
 
     def mcp_dialog(self):
         from gui.mcp_dialog import MCPDialog
@@ -88,7 +90,7 @@ class DialogMixin:
                 "电脑控制":     getattr(self, "computer_dialog", None),
                 "机器人":       getattr(self, "bot_dialog", None),
                 "插件":         getattr(self, "plugin_dialog", None),
-                "MCP市场":      getattr(self, "mcp_dialog", None),
+                "MCP":          getattr(self, "mcp_dialog", None),
                 "历史记录":     getattr(self, "history_dialog", None),
                 "日志":         getattr(self, "log_dialog", None),
                 "系统":         getattr(self, "sys_dialog", None),
@@ -335,32 +337,8 @@ class DialogMixin:
         finally:
             btn.setEnabled(True)
 
-    def show_mcp_market(self):
-        d = QDialog(self)
-        d.setWindowTitle("🔌 MCP 市场")
-        d.setMinimumSize(560, 400)
-        l = QVBoxLayout(d)
-        l.addWidget(QLabel("MCP Server 列表（点配置复制 JSON 到剪贴板）："))
-        servers = [
-            ("filesystem", "文件系统访问",
-             '{"mcpServers":{"filesystem":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/path/to/dir"]}}}'),
-            ("fetch", "网页抓取",
-             '{"mcpServers":{"fetch":{"command":"uvx","args":["mcp-server-fetch"]}}}'),
-            ("git", "Git 仓库操作",
-             '{"mcpServers":{"git":{"command":"uvx","args":["mcp-server-git","--repository","/path/to/repo"]}}}'),
-        ]
-        for name, desc, cfg in servers:
-            row = QHBoxLayout()
-            row.addWidget(QLabel(f"<b>{name}</b> {desc}"))
-            row.addStretch(1)
-            b = QPushButton("复制配置")
-            def _cp(c=cfg):
-                QApplication.clipboard().setText(c)
-                QMessageBox.information(d, "已复制", "配置已复制到剪贴板")
-            b.clicked.connect(_cp)
-            row.addWidget(b)
-            l.addLayout(row)
-        l.addWidget(QPushButton("关闭", clicked=d.close))
-        d.exec_()
+    # show_mcp_market() 已移除：它只是"显示几个 JSON 片段 + 复制"，属于
+    # 另一个 MCP 窗口。现在所有 MCP 相关的东西（服务器管理 / 预置服务器 /
+    # 配置参考）都在 gui/mcp_dialog.py 的 MCPDialog 里，通过 mcp_dialog() 打开。
 
 

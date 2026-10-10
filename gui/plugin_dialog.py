@@ -7,8 +7,12 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QProgressDialog)
 
 
-def show_plugin_dialog(parent, dlg, trunk, show_mcp_market, show_components):
-    """插件市场窗口"""
+def show_plugin_dialog(parent, dlg, trunk, open_mcp, show_components):
+    """插件市场窗口
+
+    open_mcp: 打开 MCP 总面板的回调（就是主窗口的 mcp_dialog）。
+              以前这里传的是另一个只显示 JSON 的窗口。
+    """
     d, l = dlg("🧩 插件市场", w=880, h=700)
     pm = trunk._load_lazy("plugin_market")
     if not pm:
@@ -26,9 +30,9 @@ def show_plugin_dialog(parent, dlg, trunk, show_mcp_market, show_components):
     file_btn.setStyleSheet("padding:6px 14px;")
     head.addWidget(file_btn)
     mcp_btn = QPushButton("🔌 MCP")
-    mcp_btn.setToolTip("MCP Server 配置")
+    mcp_btn.setToolTip("打开 MCP 总面板（服务器管理 / 预置服务器 / 配置参考）")
     mcp_btn.setStyleSheet("padding:6px 14px;")
-    mcp_btn.clicked.connect(show_mcp_market)
+    mcp_btn.clicked.connect(open_mcp)
     head.addWidget(mcp_btn)
     opt_btn = QPushButton("🧩 可选组件")
     opt_btn.setToolTip("安装语音识别/浏览器自动化等重功能")
