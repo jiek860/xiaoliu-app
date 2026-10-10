@@ -61,13 +61,24 @@ class ReplyPipeline:
         messages = self.pa.assemble(user_input, context, is_simple)
         self._record("拼提示词", "ok")
 
+        # 先把群聊角色回复发出去，让它和主回复的生成**并行**。
+        # 原来角色回复是等主回复生成完再串着跑的（生成 12 秒 → 再等角色 11 秒），
+        # 一轮多花十几秒。而走真实子智能体的那几个角色并不依赖主回复。
+        role_fut = None
+        try:
+            gc = t._load_lazy("group_chat")
+            if gc is not None and hasattr(gc, "start_roles"):
+                role_fut = gc.start_roles(user_input)
+        except Exception:
+            role_fut = None
+
         _t0 = time.time()
         answer = self.ld.dispatch(messages, on_token=on_token)
         self._record("模型生成", "ok" if answer else "fail",
                      "%.1f秒" % (time.time() - _t0))
 
         t.mem_add(user_input, answer)
-        answer = self.pp.merge_group(user_input, answer)
+        answer = self.pp.merge_group(user_input, answer, prefetch=role_fut)
         answer = self.pp.verify_code(user_input, answer)
         self.pp.kick_off_background(user_input, answer)
         self._record("收尾", "ok")

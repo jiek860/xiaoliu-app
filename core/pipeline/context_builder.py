@@ -21,6 +21,82 @@ class ContextBuilder:
         has_complex = any(w in user_input for w in self._TRIGGERS)
         return len(user_input.strip()) <= 15 and not has_complex
 
+    # ============ 联网：只在"明确要查外部信息"时才搜 ============
+    #
+    # 原来是一张很宽的关键词表，里面混着 "怎么" "教程" "今天" "是什么"
+    # "有哪些" "推荐" "对比" "区别" —— 这些在日常对话里太常见，
+    # 结果「这个怎么用」也会去联网，每次白等几秒还往提示词里塞一堆无关网页。
+    # 现在分两档，都要求"用户确实在问外部/时效性的事实"：
+    _NET_STRONG = (
+        # 明确要求去搜
+        "搜一下", "搜下", "搜索", "查一下", "查下", "帮我查", "帮我搜",
+        "百度", "谷歌", "必应", "bing",
+        # 明确的时效信号
+        "最新", "实时", "现在几点", "今天几号", "股价", "汇率", "油价",
+        "天气", "气温", "下雨", "几度", "预报", "新闻", "热点",
+        # 明确要外部资源
+        "官网", "下载地址", "多少钱", "价格", "报价", "行情", "排行榜",
+    )
+    # 时间词 + 事实词 同时出现才算（避免"今天心情不好"也去搜）
+    _NET_TIME = ("今天", "现在", "目前", "最近", "今年", "这几天", "当前")
+    _NET_FACT = ("天气", "新闻", "价格", "股价", "汇率", "赛事", "票房",
+                 "版本", "发布会", "政策", "规定", "行情", "温度")
+
+    def needs_web(self, user_input: str) -> bool:
+        """这次要不要联网。宁可少搜 —— 搜错了不仅慢，还会污染上下文。"""
+        try:
+            if not self.trunk.config.get("联网", True):
+                return False
+            q = user_input.strip()
+            if not q or len(q) > 100:      # 长文多半是让我分析/写作，不是查事实
+                return False
+            if any(w in q for w in self._NET_STRONG):
+                return True
+            if (any(w in q for w in self._NET_TIME)
+                    and any(w in q for w in self._NET_FACT)):
+                return True
+            return False
+        except Exception:
+            return False
+
+    # ============ 工具调用：先零成本粗筛，命中才去问 LLM ============
+    #
+    # 原来只要不是"简单消息"就一律走工具调用，而工具调用的第一步是
+    # **让云端 LLM 决策一次**（一次完整的往返，实测约 5 秒）。
+    # 于是「什么是量子纠缠」这种纯知识问题，也要先花 5 秒让 LLM 回答
+    # "不需要工具"，然后才真正开始回答。
+    #
+    # 现在先看用户有没有"想让它动手"的意思，没有就直接跳过，一次调用都不发。
+    # 下面的词对应 tool_caller 实际提供的 7 个工具：
+    #   code_run 运行Python / file_read 读文件 / vector_search 搜记忆 /
+    #   graph_query 查知识图谱 / task_plan 规划步骤 / computer 控制电脑 /
+    #   deep_search（联网那条已经单独判过了）
+    _TOOL_HINTS = (
+        # 运行代码 / 计算
+        "运行", "执行", "跑一下", "跑下", "算一下", "算算", "计算一下", "写个脚本",
+        # 读文件
+        "读一下", "读读", "读取", "打开文件", "看看这个文件", "文件里",
+        # 翻记忆 / 知识库
+        "我之前", "我上次", "我说过", "还记得", "记不记得", "我的记录",
+        "知识库", "之前学过", "以前说过",
+        # 规划
+        "帮我规划", "规划一下", "分步骤", "拆解", "制定计划", "列个计划",
+        # 电脑操作（快速通道没接住的复杂表述会落到这里）
+        "截屏", "截图", "打开", "关闭", "启动",
+    )
+
+    def maybe_needs_tools(self, user_input: str) -> bool:
+        """这次值不值得问 LLM"要不要用工具"。"""
+        try:
+            if not self.trunk.config.get("工具调用", True):
+                return False
+            q = user_input.strip()
+            if len(q) < 4:
+                return False
+            return any(w in q for w in self._TOOL_HINTS)
+        except Exception:
+            return False
+
     def _ctx_vector(self, user_input: str) -> str:
         try:
             vs = self.trunk.modules.get("vector_store")
@@ -72,12 +148,9 @@ class ContextBuilder:
 
     def _web_search(self, user_input: str) -> str:
         try:
-            if not self.trunk.config.get("联网", True):
+            if not self.needs_web(user_input):     # 判据见 needs_web
                 return ""
             q = user_input.strip()
-            hits = [w for w in self._NET_HINTS if w in q]
-            if not (hits and len(q) <= 120):
-                return ""
             ds = self.trunk._load_lazy("deep_search")
             if not ds:
                 return ""
@@ -91,7 +164,10 @@ class ContextBuilder:
 
     def _tool_call(self, user_input: str, is_simple: bool) -> str:
         try:
-            if is_simple or not self.trunk.config.get("工具调用", True):
+            if is_simple or not self.maybe_needs_tools(user_input):
+                # 粗筛没过就直接跳过 —— 一次 LLM 调用都不发。
+                # 原来这里只要不是"简单消息"就一律进，于是纯知识问答
+                # 也要先花约 5 秒让云端 LLM 回答"不需要工具"。
                 return ""
             tc = self.trunk._load_lazy("tool_caller")
             if not tc:
@@ -137,8 +213,11 @@ class ContextBuilder:
     def build(self, user_input: str, is_simple: bool) -> str:
         context = ""
         if not is_simple:
-            # 三个检索并行跑，每个单独限时；用 shutdown(wait=False) 而不是 with，
-            # 否则退出时会 join，慢的那个会把整个 build 拖住。
+            # 三个检索并行跑，**整块共用一个 6 秒预算**。
+            # 原来是对每个 future 各给 6 秒（f.result(timeout=6)），
+            # 三个加起来最坏 18 秒 —— 实测纯知识问题在检索上白花 10 秒。
+            # 现在用 wait(timeout=6) 统一计时，到点就把已经拿到的那部分用上，
+            # 没回来的不要了（线程留着跑完，用 shutdown(wait=False) 不 join）。
             import concurrent.futures
             ex = concurrent.futures.ThreadPoolExecutor(max_workers=3)
             try:
@@ -147,11 +226,13 @@ class ContextBuilder:
                     ex.submit(self._ctx_memory, user_input),
                     ex.submit(self._ctx_graph, user_input),
                 ]
-                for f in futs:
-                    try:
-                        context += f.result(timeout=6)
-                    except Exception:
-                        pass
+                done, _pending = concurrent.futures.wait(futs, timeout=6)
+                for f in futs:                       # 按提交顺序拼，结果稳定
+                    if f in done:
+                        try:
+                            context += f.result(timeout=0)
+                        except Exception:
+                            pass
             except Exception as e:
                 self.trunk._log(f"并行检索失败: {e}")
             finally:

@@ -249,8 +249,43 @@ class GroupChat(BaseModule):
             return None
 
     # ---------- 群聊编排 ----------
-    def compose(self, question, main_answer, username=None):
-        """小6主回复 + 相关角色并行补充，返回合并文本；无角色命中时原样返回"""
+    def start_roles(self, question, username=None):
+        """先把角色回复**发出去**，和主回复的生成并行跑
+
+        为什么要有这个方法：
+          原来角色回复是串在主回复**后面**的（生成 12 秒 → 再等角色 11 秒），
+          一轮回复白白多花十几秒。而角色回复其实不依赖主回复
+          （小七/小八/小九 都映射到真实子智能体，走 _role_reply 的路径①，
+           那条路径根本不用 main_answer），所以完全可以重叠。
+        只预取走路径①的角色 —— 走路径②（LLM 按人设生成）的要用到主回复要点，
+        那种还是老实等主回复出来再说。
+
+        返回 {角色: Future}；没有可预取的角色就返回 None。
+        """
+        try:
+            if self.trunk:
+                cfg = getattr(self.trunk, "config", {}) or {}
+                if cfg.get("群聊模式", True) is False:
+                    return None
+            roles = [r for r in self.pick_roles(question) if r in self.ROLE_MOD]
+            if not roles:
+                return None
+            if username is None:
+                username = self._username()
+            ex = ThreadPoolExecutor(max_workers=3)
+            futs = {r: ex.submit(self._role_reply, r, question, "", username)
+                    for r in roles}
+            self._prefetch_ex = ex
+            return futs
+        except Exception:
+            return None
+
+    def compose(self, question, main_answer, username=None, prefetch=None):
+        """小6主回复 + 相关角色补充，返回合并文本；无角色命中时原样返回
+
+        prefetch: start_roles() 的返回值。给了就用它（角色回复大概率和
+                  主回复同时跑完，这里几乎不用等）。
+        """
         # C7: 群聊开关统一传播——模块内再查一次开关，双保险
         if self.trunk:
             cfg = getattr(self.trunk, "config", {}) or {}
@@ -263,12 +298,22 @@ class GroupChat(BaseModule):
         parts = ["【小6】\n" + str(main_answer).strip()]
         if not roles:
             return "\n".join(parts)
-        with ThreadPoolExecutor(max_workers=3) as ex:
-            futs = [ex.submit(self._role_reply, r, question, main_answer, username)
-                    for r in roles]
-            for role, fut in zip(roles, futs):
+
+        prefetch = prefetch or {}
+        todo = [r for r in roles if r not in prefetch]
+        ex = None
+        try:
+            futs = {r: prefetch[r] for r in roles if r in prefetch}
+            if todo:
+                ex = ThreadPoolExecutor(max_workers=3)
+                for r in todo:
+                    futs[r] = ex.submit(self._role_reply, r, question,
+                                        main_answer, username)
+            for role in roles:                       # 保持角色顺序
                 try:
-                    seg = fut.result(timeout=15)  # 角色超时15s，失败直接跳过，主回复先出
+                    # 预取的那些基本已经好了，给个短上限就够；
+                    # 现发的还是给 15 秒
+                    seg = futs[role].result(timeout=15 if role in todo else 3)
                 except Exception:
                     seg = None
                 # D8: 角色回复与主回复重复度过高（Jaccard>0.7）则跳过该角色发言
@@ -276,6 +321,9 @@ class GroupChat(BaseModule):
                     seg = None
                 if seg:
                     parts.append(seg)
+        finally:
+            if ex is not None:
+                ex.shutdown(wait=False)
         return "\n\n".join(parts)
 
     def _jaccard(self, a, b):

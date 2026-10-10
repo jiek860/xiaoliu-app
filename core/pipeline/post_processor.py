@@ -8,14 +8,29 @@ class PostProcessor:
     def __init__(self, trunk):
         self.trunk = trunk
 
-    def merge_group(self, user_input: str, answer: str) -> str:
+    def merge_group(self, user_input: str, answer: str, prefetch=None) -> str:
+        """合并群聊角色的补充发言
+
+        prefetch: group_chat.start_roles() 的返回值 —— 那是**在生成主回复之前**
+                  就发出去的角色回复，走到这里基本已经跑完，不用再等十几秒。
+        """
+        gc = None
         try:
             gc = self.trunk._load_lazy("group_chat")
-            if gc and hasattr(gc, "compose"):
-                return gc.compose(user_input, answer)
         except Exception:
-            pass
-        return answer
+            return answer
+        if not gc or not hasattr(gc, "compose"):
+            return answer
+        try:
+            return gc.compose(user_input, answer, prefetch=prefetch)
+        except TypeError:
+            # 老版本的 compose 不认 prefetch —— 退回不带它调
+            try:
+                return gc.compose(user_input, answer)
+            except Exception:
+                return answer
+        except Exception:
+            return answer
 
     _CODE_TRIGGERS = ("写", "运行", "实现", "代码", "bug", "修复",
                       "脚本", "程序", "函数", "报错")
