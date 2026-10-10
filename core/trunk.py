@@ -382,33 +382,39 @@ class Trunk:
         if miss:
             errors.append("核心模块缺失: " + str(miss))
 
-        # 3. 懒加载模块对账（43 条 ↔ 文件 ↔ 类名）
+        # 3. 懒加载模块对账（登记表 ↔ 文件 ↔ 类名）
+        #    两处必须和 _load_lazy 的真实规则一致，否则全是误报：
+        #      a) 登记表直接用内存里的 self._lazy，不要再去正则解析源码 ——
+        #         原来那种扫 '": (' 的写法只认得出缩进不整齐的行，90 条里只认出 12 条
+        #      b) 文件查找要先 modules/installed，找不到再回退 core/（_load_lazy 就是这么做的）
         try:
-            ltxt = open(os.path.join(self.base, "core", "lazy_config.py"), encoding="utf-8").read()
-            lazy = []
-            for _ln in open(os.path.join(self.base, "core", "lazy_config.py"), encoding="utf-8"):
-                if '": (' in _ln:
-                    _k = _ln.strip().split('"')[1]
-                    _rest = _ln.split("(", 1)[1]
-                    _parts = _rest.split('"')
-                    if len(_parts) >= 4:
-                        lazy.append((_k, _parts[1], _parts[3]))
-                    else:
-                        lazy.append((_k, _parts[1], ""))
+            lazy = getattr(self, "_lazy", {}) or {}
             lmiss = []
-            for k, f, c in lazy:
-                fp = os.path.join(self.modules_dir, f + ".py")
-                if os.path.exists(fp):
-                    if not _re.search(r"class\s+" + c + r"\b", open(fp, encoding="utf-8").read()):
-                        lmiss.append(k + "(类名)")
+            for k, v in lazy.items():
+                if isinstance(v, (list, tuple)) and len(v) >= 2:
+                    f, c = v[0], v[1]
+                elif isinstance(v, (list, tuple)) and v:
+                    f, c = v[0], ""
                 else:
+                    f, c = str(v), ""
+                fp = os.path.join(self.modules_dir, f + ".py")
+                if not os.path.exists(fp):
+                    fp = os.path.join(self.base, "core", f + ".py")
+                if not os.path.exists(fp):
                     lmiss.append(k + "(文件)")
+                elif c:
+                    try:
+                        if not _re.search(r"class\s+" + _re.escape(c) + r"\b",
+                                          open(fp, encoding="utf-8").read()):
+                            lmiss.append(k + "(类名)")
+                    except Exception:
+                        pass
             log("🧩 懒加载模块: %d条 %s" % (len(lazy), "✓ 全对齐" if not lmiss else "❌" + str(lmiss[:3])))
             if lmiss:
                 errors.append("懒加载对账失败: " + str(lmiss[:3]))
         except Exception as e:
             log("🧩 懒加载模块: ❌ %s" % str(e)[:40])
-            errors.append("懒加载配置解析失败")
+            errors.append("懒加载对账失败: %s" % str(e)[:40])
 
         # 4. Ollama
         o = self._check_ollama()
@@ -440,10 +446,19 @@ class Trunk:
             log("🩹 自愈闭环: ❌ %s" % str(e)[:40])
 
         # 7. 向量/嵌入对齐
+        #    向量库已迁到 SQLite + numpy 矩阵：条目在 .data，向量在 ._emb_mat。
+        #    原来读的 .embeddings 属性早就不存在了，getattr 默认 {} 恒为 0，
+        #    所以不管实际对不对齐都报"差N"—— 纯误报。
         try:
             vs = self.modules.get("vector_store")
-            nv = len(getattr(vs, "data", []))
-            ne = len(getattr(vs, "embeddings", {}))
+            nv = len(getattr(vs, "data", None) or [])
+            ne = len(getattr(vs, "embeddings", None) or {})
+            if not ne:
+                mat = getattr(vs, "_emb_mat", None)
+                try:
+                    ne = int(mat.shape[0]) if mat is not None else 0
+                except Exception:
+                    ne = 0
             ok7 = nv == ne
             log("🧮 向量/嵌入: %d/%d %s" % (nv, ne, "✓ 对齐" if ok7 else "❌差%d" % (nv - ne)))
             if not ok7:
@@ -466,13 +481,26 @@ class Trunk:
             log("🧮 向量/嵌入: ❌ %s" % str(e)[:40])
 
         # 8. 数据文件完整性
+        #    vectors.json / embeddings.json 是旧版遗留，现已迁到 SQLite（vectors.db），
+        #    检查它们必然报"损坏"—— 纯误报。SQLite 库用 quick_check 验完整性。
         dmiss = []
-        for fn in ("config.json", "graph.json", "memory.json", "vectors.json", "embeddings.json"):
+        for fn in ("config.json", "graph.json", "memory.json"):
             try:
                 json.load(open(os.path.join(self.data_dir, fn), encoding="utf-8"))
             except Exception:
                 dmiss.append(fn)
-        log("🗂 数据文件: %s" % ("✓ 5个可读" if not dmiss else "❌ " + str(dmiss)))
+        for fn in ("vectors.db", "chats.db"):
+            p = os.path.join(self.data_dir, fn)
+            if not os.path.exists(p):
+                continue                      # 首次运行还没建，不算错
+            try:
+                import sqlite3
+                con = sqlite3.connect(p)
+                con.execute("PRAGMA quick_check").fetchone()
+                con.close()
+            except Exception:
+                dmiss.append(fn + "(损坏)")
+        log("🗂 数据文件: %s" % ("✓ 全部可读" if not dmiss else "❌ " + str(dmiss)))
         if dmiss:
             errors.append("数据文件损坏: " + str(dmiss))
 
@@ -519,7 +547,15 @@ class Trunk:
                             _bn = _o[:-3]
                             if _bn in ("__init__", "config"):
                                 continue
-                            if _re.search(r"import\s+.*" + _re.escape(_bn) + r"|from\s+.*" + _re.escape(_bn), _src):
+                            # 只认"真的导入了这个兄弟模块"：
+                            #     from modules.installed.<名> import ...
+                            #     import <名> / from <名> import ...
+                            # 原来写的是 import\s+.*<名>，只要文件名出现在任意 import 行的
+                            # 后半段就报违规，于是 from core.realtime.tts import TTS
+                            # 被误判成 realtime_chat.py→tts.py —— 那其实是在导入 core，完全合规。
+                            _pat = (r"modules\.installed\." + _re.escape(_bn) + r"\b"
+                                    r"|^\s*(?:from|import)\s+" + _re.escape(_bn) + r"\b")
+                            if _re.search(_pat, _src, _re.M):
                                 _viol.append("%s→%s" % (_f, _o))
                     except Exception:
                         pass
@@ -551,8 +587,13 @@ class Trunk:
             log("💾 内存: 已用%d%% 可用%dMB"%(mem.percent,mem.available//1048576))
         except Exception: log("💾 内存: psutil未装")
         try:
-            log("💽 磁盘: 可用%dGB"%(os.statvfs(self.base).f_bavail*os.statvfs(self.base).f_frsize//1073741824))
-        except Exception: pass
+            # os.statvfs 是 Unix 专用 API，Windows 上根本没有这个函数，
+            # 原来被 except 吞掉，这行从来没打印过。
+            import psutil
+            _du = psutil.disk_usage(self.base)
+            log("💽 磁盘: 可用%dGB / 共%dGB" % (_du.free // 1073741824, _du.total // 1073741824))
+        except Exception:
+            pass
         try:
             kg = self.modules.get("knowledge_graph")
             if kg:
@@ -605,9 +646,19 @@ class Trunk:
             if boot: log("🚀 启动耗时: %.1f秒"%(time.time()-boot))
         except Exception: pass
         try:
-            cf=os.path.join(self.base,"data","chat_history.jsonl")
-            n=sum(1 for _ in open(cf,encoding="utf-8")) if os.path.exists(cf) else 0
-            log("💬 聊天记录: %d条"%n)
+            # 聊天记录在 chats.db 的 messages 表（SQLite），
+            # 旧的 chat_history.jsonl 早已不用，所以这里一直显示 0 条。
+            cf = os.path.join(self.base, "data", "chats.db")
+            n = 0
+            if os.path.exists(cf):
+                import sqlite3
+                con = sqlite3.connect(cf)
+                try:
+                    n = con.execute("select count(*) from messages").fetchone()[0]
+                except Exception:
+                    n = 0
+                con.close()
+            log("💬 聊天记录: %d条" % n)
         except Exception: pass
         # 层级检测 + 链接检测
         try:
@@ -619,6 +670,8 @@ class Trunk:
         except Exception: pass
         try:
             # 找孤儿：注册了但 trunk.call 历史里从没出现过的
+            # 注意这只是"提示"：事件触发、动态名调用的模块本来就会落到这里，
+            # 而且这里不计入 errors / 健康分。别把它显示得像故障。
             import re as _re
             call_hist=set()
             for py in _g.glob(os.path.join(self.base,"core","*.py"))+_g.glob(os.path.join(self.base,"gui","*.py")):
@@ -626,8 +679,13 @@ class Trunk:
                     for m in _re.findall(r'trunk\.call\(["\'](\w+)["\']',line): call_hist.add(m)
                     for m in _re.findall(r'self\.call\(["\'](\w+)["\']',line): call_hist.add(m)
             orphans=[m for m in self._lazy if m not in call_hist and m not in loaded]
-            log("👻 孤儿模块: %d个 %s"%(len(orphans),"⚠ "+", ".join(orphans[:5]) if orphans else "✓"))
-            if orphans: log("   (注:事件触发模块不算错误)")
+            if orphans:
+                log("👻 孤儿模块: %d个（提示，不计入健康分）" % len(orphans))
+                log("   含义：源码里没有 trunk.call(\"名字\") 直接引用、当前也没加载。")
+                log("   事件触发/按需加载的模块本就会出现在这里，属正常现象。")
+                log("   %s%s" % (", ".join(orphans[:8]), " …" if len(orphans) > 8 else ""))
+            else:
+                log("👻 孤儿模块: ✓")
         except Exception: pass
 
 

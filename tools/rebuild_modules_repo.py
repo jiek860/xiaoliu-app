@@ -106,13 +106,11 @@ def main():
                         "title": cn, "src": src})
 
     # ---------- 2. 元信息 ----------
-    meta_by_name = {}
-    mpath = os.path.join(BASE, "modules", "installed_meta.json")
-    if os.path.exists(mpath):
-        try:
-            meta_by_name = json.load(open(mpath, encoding="utf-8-sig"))
-        except Exception:
-            pass
+    # 来源优先级：
+    #   1. modules_repo/manifest.json 里同 name 的旧条目
+    #      —— 现在它才是权威（随程序发布，界面按钮也从它读），重建时要保留
+    #   2. modules/installed_meta.json（可能已被移到 core/_deprecated/，两个位置都找）
+    #   3. 模块文件自己的 docstring
     old_manifest = []
     opath = os.path.join(REPO, "manifest.json")
     if os.path.exists(opath):
@@ -120,20 +118,31 @@ def main():
             old_manifest = json.load(open(opath, encoding="utf-8-sig"))
         except Exception:
             pass
-    old_by_title = {}
+    old_by_name, old_by_title = {}, {}
     for m in old_manifest:
-        t = m.get("title")
-        if t:
-            old_by_title.setdefault(t, m)
+        if m.get("name"):
+            old_by_name.setdefault(m["name"], m)
+        if m.get("title"):
+            old_by_title.setdefault(m["title"], m)
+
+    meta_by_name = {}
+    for cand in (os.path.join(BASE, "modules", "installed_meta.json"),
+                 os.path.join(BASE, "core", "_deprecated", "installed_meta.json")):
+        if os.path.exists(cand):
+            try:
+                meta_by_name = json.load(open(cand, encoding="utf-8-sig"))
+                break
+            except Exception:
+                pass
 
     manifest = []
     src_meta, src_old, src_doc = 0, 0, 0
     for item in sorted(publish, key=lambda x: x["name"]):
         entry = {"name": item["name"], "title": item["title"],
                  "file": item["file"], "cls": item["cls"]}
+        om = old_by_name.get(item["name"]) or old_by_title.get(item["title"])
         mm = meta_by_name.get(item["name"])
-        om = old_by_title.get(item["title"])
-        base = mm or om
+        base = om or mm
         if mm:
             src_meta += 1
         elif om:
