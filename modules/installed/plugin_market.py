@@ -91,7 +91,21 @@ class PluginMarket(BaseModule):
         modules = []
         seen = set()
         # 1. 已注册（installed 有文件）
-        for name, (f, cls) in LAZY_MAP.items():
+        #    注意：LAZY_MAP 的值自 v3.0 起是 3 元组 (文件, 类名, 中文名)。
+        #    这里原来写成 `for name, (f, cls) in LAZY_MAP.items()`，只解 2 个，
+        #    必然抛 "too many values to unpack (expected 2)" —— 整个插件市场
+        #    扫描直接失败（界面显示"❌ 扫描失败"）。
+        for name, info in LAZY_MAP.items():
+            if isinstance(info, (list, tuple)) and len(info) >= 2:
+                f, cls = info[0], info[1]
+            elif isinstance(info, (list, tuple)) and info:
+                f, cls = info[0], "?"
+            else:
+                f, cls = str(info), "?"
+            # stt / voice 这类别名指向同一个文件，只保留先出现的那条，
+            # 免得同一个模块在列表里出现两次（卡片数会和在线清单对不上）
+            if f in seen:
+                continue
             fp = os.path.join(self.installed_dir, f + ".py")
             if not os.path.exists(fp):
                 fp2 = os.path.join(self.repo_dir, f + ".py")
