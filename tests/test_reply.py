@@ -62,6 +62,11 @@ def trunk():
 
     另外要屏蔽 DiskCache：它按用户输入做持久化缓存，会把上一次测试的
     结果带到这一次，导致"模型一次都没被调用"这种假象。
+
+    还要拦住错误库写入：error_lib 落盘用的是 trunk.base 而不是 data_dir，
+    光重定向 data_dir 拦不住。之前就是漏了这一点，FakeLLM(boom=True) 把
+    64 条"模拟模型故障"写进了用户真实的 data/errors_runtime.json，
+    还被自愈闭环捡去当成待修复目标、弹窗打扰用户。
     """
     from core.trunk import Trunk
 
@@ -90,6 +95,15 @@ def trunk():
             return None
         return _orig_load(name)
     t._load_lazy = _load_no_cache
+    # ⚠️ 拦住错误库写入。error_lib 落盘用的是 trunk.base（不是 data_dir！），
+    # 只重定向 data_dir 拦不住 —— 之前就是漏了这里才污染了真实错误库。
+    _orig_call = t.call
+
+    def _call_no_errorlib(name, method, *a, **k):
+        if name == "error_lib":
+            return {"ok": True, "测试桩": "不写真实错误库"}
+        return _orig_call(name, method, *a, **k)
+    t.call = _call_no_errorlib
     # 电脑控制快速通道会真的解析意图并可能操作本机，测试里绕过
     if getattr(t, "_pipeline", None):
         t._pipeline._try_computer_control = lambda ui: None
