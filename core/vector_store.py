@@ -133,8 +133,19 @@ class VectorStore:
             except Exception:
                 pass
 
+    # 嵌入失败后的冷却秒数。
+    # 为什么要这个：嵌入服务（Ollama）挂掉时，每次检索都要白等一个 timeout
+    # 才走到关键词降级 —— 实测一轮回复里 memory_loop.recall 会调 3 次，
+    # 3 × 15 秒 = 45 秒纯等待，而模型生成本身只要 8 秒。
+    # 失败一次就冷却一段时间，期间直接走关键词降级，结果照样能用。
+    _EMBED_COOLDOWN = 300
+    _EMBED_TIMEOUT = 5
+
     def _embed(self, text):
         """真神经网络嵌入（nomic-embed-text）——节流防Ollama被打爆"""
+        # 冷却期内直接放弃，别再白等一个 timeout
+        if time.time() < getattr(self, "_embed_retry_at", 0):
+            return []
         now = time.time()
         gap = self.embed_gap
         wait = gap - (now - self._last_embed)
@@ -147,11 +158,18 @@ class VectorStore:
                 url = (self.trunk.config.get("ollama_url", "http://localhost:11434")
                        if self.trunk else "http://localhost:11434")
                 r = requests.post(url + "/api/embeddings",
-                    json={"model": "nomic-embed-text", "prompt": text[:500]}, timeout=15)
-                return r.json().get("embedding", [])
+                    json={"model": "nomic-embed-text", "prompt": text[:500]},
+                    timeout=self._EMBED_TIMEOUT)
+                emb = r.json().get("embedding", [])
+                if emb:
+                    self._embed_retry_at = 0        # 成功：解除冷却
+                return emb
         except Exception as e:
+            # 失败 → 进入冷却，这期间检索直接走关键词降级
+            self._embed_retry_at = time.time() + self._EMBED_COOLDOWN
             try:
-                self.trunk._log("嵌入异常: %s" % str(e)[:60])
+                self.trunk._log("嵌入失败（%ds 内不再重试，检索走关键词降级）: %s"
+                                % (self._EMBED_COOLDOWN, str(e)[:60]))
             except Exception:
                 pass
             return []

@@ -44,8 +44,14 @@ class LLMClient:
         threading.Thread(target=self._warmup, daemon=True).start()
 
     def _warmup(self):
-        """启动时后台预热模型"""
+        """启动时后台预热模型（只在用本地模型时做）"""
         try:
+            # 云端模式下不预热本地：
+            #   · 预热是为了让第一次聊天不等模型冷加载，走云端时用不上
+            #   · 它会持 get_ollama_lock() 最多 30 秒，而 vector_store._embed
+            #     也要这把锁 —— 本地推理挂掉时，这个预热会把嵌入检索一起拖住
+            if _is_cloud_mode(self.config.get("model_mode", "本地路由")):
+                return
             time.sleep(2)
             with get_ollama_lock():
                 requests.post(self.base_url + "/api/chat",
@@ -383,6 +389,23 @@ class LLMClient:
     def stream_chat(self, message, on_token=None, force_model=None):
         """真流式：/api/chat stream=True 逐块接收，首字秒出；失败回退非流式"""
         try:
+            # 先看模式：设成"云端模型"就别碰本地。
+            #
+            # 这里原来只认 _pick_model() 返回 "__cloud__" 这个魔数，而
+            # _pick_model 永远只返回本地模型名（VL/小模型/主力），从不返回它 ——
+            # 那个分支是死代码。后果：设置里切成"云端模型"后，
+            # chat() 照做了，但 GUI 的回复走的是带 on_token 的 stream_chat()，
+            # 它完全不看 model_mode，每次回复都先去打本地 /api/chat
+            # （timeout=120），等满两分钟才降级到云端 —— 这就是"切了云端还是很慢"。
+            mode_cloud = _is_cloud_mode(self.config.get("model_mode", "本地路由"))
+            if mode_cloud and not force_model:
+                full = self._try_cloud(message)
+                if full:
+                    if on_token:
+                        on_token(full)
+                    return full
+                if on_token:
+                    on_token("（云端模型没响应，试一下本地…）")
             model = force_model or self._pick_model(message)
             # 云端路径：无流式，直接一次性返回
             if model == "__cloud__":

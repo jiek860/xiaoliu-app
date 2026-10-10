@@ -135,11 +135,28 @@ class DeepSearch(BaseModule):
                 cached["缓存"] = True
                 return cached
 
-        results = self._bing(query, 5)
-        if not results:
-            results = self._sogou(query, 5)
-        if not results:
-            results = self._ddg(query, 5)
+        # 三个引擎**并行**试，谁先出结果用谁的。
+        # 原来是串行：bing 失败等 6 秒 → sogou 失败再等 6 秒 → ddg 再等 6 秒，
+        # 一次搜索最坏 18 秒；而这几家在墙内多半不通，等于每次都在等满。
+        import concurrent.futures
+        results = []
+        _ex = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+        try:
+            futs = [_ex.submit(self._bing, query, 5),
+                    _ex.submit(self._sogou, query, 5),
+                    _ex.submit(self._ddg, query, 5)]
+            for f in concurrent.futures.as_completed(futs, timeout=8):
+                try:
+                    r = f.result()
+                except Exception:
+                    r = None
+                if r:
+                    results = r
+                    break
+        except Exception:
+            pass
+        finally:
+            _ex.shutdown(wait=False)
 
         if self._is_code_query(query):
             gh = self._github(query, 3)

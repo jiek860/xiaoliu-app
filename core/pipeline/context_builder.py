@@ -104,23 +104,76 @@ class ContextBuilder:
             self.trunk._log(f"工具调用失败: {e}")
         return ""
 
+    # 联网搜索 / 工具调用各自的总时限（秒）。
+    # 这两步是串行的且原来完全没有上限：实测联网搜索最坏 3 个引擎各 6 秒
+    # 再加一次 LLM 总结 ≈ 14 秒；工具调用要先让 LLM 决策、再执行工具
+    # （工具里又可能含向量检索和联网搜索）≈ 58 秒。
+    # 回复前的"准备"不该比生成还慢，所以各自卡一个上限，超了就放弃这部分上下文。
+    _WEB_BUDGET = 8
+    _TOOL_BUDGET = 12
+
+    def _bounded(self, fn, budget, what):
+        """在一棵受控的线程里跑 fn，超过 budget 秒就放弃（线程留着跑完，不阻塞回复）
+
+        注意不能用 `with ThreadPoolExecutor(...)` 来限时：
+        它的 __exit__ 会 join 所有线程，超时形同虚设
+        （实测 memory 那个任务要 45 秒，build() 就真的等了 45 秒）。
+        """
+        import concurrent.futures
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            fut = ex.submit(fn)
+            try:
+                return fut.result(timeout=budget)
+            except concurrent.futures.TimeoutError:
+                self.trunk._log("%s 超过 %d 秒，本次跳过" % (what, budget))
+                return ""
+            except Exception:
+                return ""
+        finally:
+            # 不 wait：让还在跑的线程自己结束，别拖住回复
+            ex.shutdown(wait=False)
+
     def build(self, user_input: str, is_simple: bool) -> str:
         context = ""
         if not is_simple:
+            # 三个检索并行跑，每个单独限时；用 shutdown(wait=False) 而不是 with，
+            # 否则退出时会 join，慢的那个会把整个 build 拖住。
+            import concurrent.futures
+            ex = concurrent.futures.ThreadPoolExecutor(max_workers=3)
             try:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
-                    futs = [
-                        ex.submit(self._ctx_vector, user_input),
-                        ex.submit(self._ctx_memory, user_input),
-                        ex.submit(self._ctx_graph, user_input),
-                    ]
-                    for f in futs:
-                        try:
-                            context += f.result(timeout=12)
-                        except Exception:
-                            pass
+                futs = [
+                    ex.submit(self._ctx_vector, user_input),
+                    ex.submit(self._ctx_memory, user_input),
+                    ex.submit(self._ctx_graph, user_input),
+                ]
+                for f in futs:
+                    try:
+                        context += f.result(timeout=6)
+                    except Exception:
+                        pass
             except Exception as e:
                 self.trunk._log(f"并行检索失败: {e}")
-        context += self._web_search(user_input)
-        context += self._tool_call(user_input, is_simple)
+            finally:
+                ex.shutdown(wait=False)
+        # 联网搜索 和 工具调用 互不依赖，**并行**跑。
+        # 原来是串行：各自卡 8 秒和 12 秒上限，加起来最坏 20 秒，
+        # 而这两件事没有任何先后关系 —— 并行之后只花最慢那个的时间。
+        import concurrent.futures
+        ex2 = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+        try:
+            f_web = ex2.submit(self._bounded, lambda: self._web_search(user_input),
+                               self._WEB_BUDGET, "联网搜索")
+            f_tool = ex2.submit(self._bounded, lambda: self._tool_call(user_input, is_simple),
+                                self._TOOL_BUDGET, "工具调用")
+            for f in (f_web, f_tool):
+                try:
+                    context += f.result(timeout=max(self._WEB_BUDGET,
+                                                    self._TOOL_BUDGET) + 2)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        finally:
+            ex2.shutdown(wait=False)
         return context
