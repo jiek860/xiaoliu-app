@@ -101,23 +101,11 @@ def build(trunk):
     # 星型：所有模块都连 trunk
     links = [[n, "trunk"] for n in all_names if n != "trunk"]
 
-    # 组内互联（星心不参与，否则每条星型边会被画两遍）
-    _groups = {}
-    for n in all_names:
-        if n == "trunk":
-            continue
-        _groups.setdefault(GROUPS.get(n, "其他"), []).append(n)
-    for ms in _groups.values():
-        for i in range(len(ms)):
-            for j in range(i + 1, len(ms)):
-                links.append([ms[i], ms[j]])
-
     # 防御：任一端点不存在就丢掉。以后再改名也画不出悬空边。
     _valid = set(all_names)
     links.extend([e for e in LOOP_LINKS if e[0] in _valid and e[1] in _valid])
 
-    # 去重：组内互联与 LOOP_LINKS 会撞出同一条边（如 self_reflect↔personality
-    # 两个都在 L 模块组），重复边在图上会叠成两条线。
+    # 去重（LOOP_LINKS 内部偶尔会撞）
     _seen, _uniq = set(), []
     for a, b in links:
         k = (a, b) if a <= b else (b, a)
@@ -125,7 +113,54 @@ def build(trunk):
             continue
         _seen.add(k)
         _uniq.append([a, b])
-    return {"modules": modules, "links": _uniq}
+
+    # 真实的模块间调用（都经 trunk.call 转接，模块之间没有直接 import）。
+    # 注意：这里原来是「组内互联」—— 同组节点两两连线，42 个"其他"组模块
+    # 就画出 C(42,2)=861 条边，占了全图 91%，看上去像模块互相乱接。
+    # 那只是分组着色的一种画法，不是程序里的连线，会严重误导人（实测真实
+    # 跨模块调用只有 9 条）。所以改成只画"真的会互相调用"的边。
+    calls = _real_calls(trunk, _valid)
+    return {"modules": modules, "links": _uniq, "calls": calls}
+
+
+def _real_calls(trunk, valid):
+    """扫 modules/installed/*.py 里的 trunk.call("模块","方法")，得到真实的调用边"""
+    import ast
+    inst = os.path.join(trunk.base, "modules", "installed")
+    if not os.path.isdir(inst):
+        return []
+    # 文件名 -> 模块键
+    f2m = {}
+    for k, v in trunk._lazy.items():
+        if isinstance(v, (list, tuple)) and v:
+            f2m[v[0] + ".py"] = k
+
+    edges = {}
+    for fn in sorted(os.listdir(inst)):
+        if not fn.endswith(".py"):
+            continue
+        src = f2m.get(fn)
+        if not src:
+            continue
+        try:
+            tree = ast.parse(open(os.path.join(inst, fn),
+                                  encoding="utf-8", errors="ignore").read())
+        except Exception:
+            continue
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "call" and len(node.args) >= 2):
+                continue
+            a0, a1 = node.args[0], node.args[1]
+            if not (isinstance(a0, ast.Constant) and isinstance(a1, ast.Constant)):
+                continue
+            tgt, meth = a0.value, a1.value
+            # "__no__" 是懒加载探针惯用法（故意写错方法名只为触发加载），不算调用
+            if meth == "__no__" or tgt == src or tgt not in valid or src not in valid:
+                continue
+            edges.setdefault((src, tgt), set()).add(meth)
+    return [[s, t, ", ".join(sorted(ms))] for (s, t), ms in sorted(edges.items())]
 
 
 def export(trunk, path=None):

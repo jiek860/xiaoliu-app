@@ -38,9 +38,10 @@ let chart = echarts.init(document.getElementById('chart'));
 let lastSig = "";
 
 function render(data) {
+  const calls = data.calls || [];
   chart.setOption({
     backgroundColor: 'transparent',
-    tooltip: { formatter: p => p.dataType==='node' ? (p.data.cn || p.data.name) : '' },
+    tooltip: { formatter: p => p.dataType==='node' ? (p.data.cn || p.data.name) : (p.data.meth ? (p.data.source+' → '+p.data.target+'：'+p.data.meth) : '') },
     series: [{
       type: 'graph', layout: 'force',
       force: { repulsion: 200, edgeLength: [60,120], gravity: 0.15 },
@@ -55,11 +56,18 @@ function render(data) {
         itemStyle: { color: groupColors[m.group] || '#888', borderColor: m.loaded?'#fff':'#555', borderWidth: m.loaded?2:1 },
         cn: m.cn, desc: m.desc, group: m.group, loaded: m.loaded
       })),
-      links: data.links.map(([s,t]) => ({ source: s, target: t }))
+      links: [
+        // 灰线 = 星型结构（每个模块都注册在躯干上）
+        ...data.links.map(([s,t]) => ({ source: s, target: t })),
+        // 橙线 = 真实的模块间调用（经 trunk.call 转接，一共就十来条）
+        ...calls.map(c => ({ source: c[0], target: c[1], meth: c[2],
+                             lineStyle: { color: '#f6a623', width: 2.5, curveness: 0.25, opacity: 0.95 } }))
+      ]
     }]
   }, true);
   document.getElementById('status').textContent =
-    '最后刷新: ' + new Date().toLocaleTimeString() + ' | 模块: ' + data.modules.length + ' | 连接: ' + data.links.length;
+    '最后刷新: ' + new Date().toLocaleTimeString() + ' | 模块: ' + data.modules.length +
+    ' | 星型连线: ' + data.links.length + ' | 橙线(真实调用): ' + calls.length;
 }
 
 chart.on('click', function(p) {
