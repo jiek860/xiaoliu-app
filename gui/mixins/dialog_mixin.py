@@ -107,6 +107,7 @@ class DialogMixin:
                 "桌宠":         getattr(self, "pet_dialog", None),
                 # 一批后台模块的统一入口（原来登记了却全项目没人调用）
                 "实用工具":     getattr(self, "module_tools_dialog", None),
+                "模块星图":     getattr(self, "module_map_dialog", None),
             },
         )
 
@@ -197,6 +198,29 @@ class DialogMixin:
         except Exception as e:
             QMessageBox.warning(self, "实用工具", "打不开：" + str(e)[:120])
             return None
+
+    def module_map_dialog(self):
+        """🕸️ 模块星图 —— 用系统浏览器打开
+
+        页面本身在 docs/模块星图.html（随程序入库），数据由 trunk.export_module_map()
+        每次启动写到 data/modules_map.js，页面用 ../data/modules_map.js 读它。
+        之所以不在 Qt 里嵌：那张图是 ECharts 画的，塞进 QWebEngine 要多背一个
+        几十 MB 的运行时，交给系统浏览器最省事。
+        """
+        import os
+        from PyQt5.QtCore import QUrl
+        from PyQt5.QtGui import QDesktopServices
+        html = os.path.join(self.base, "docs", "模块星图.html")
+        if not os.path.exists(html):
+            QMessageBox.information(self, "模块星图", "找不到星图页面：\n" + html)
+            return None
+        # 顺手重导一次，避免看到的是上一次启动的旧图
+        try:
+            self.trunk.export_module_map()
+        except Exception:
+            pass
+        QDesktopServices.openUrl(QUrl.fromLocalFile(html))
+        return None
 
     def pet_dialog(self):
         """桌面悬浮窗（桌宠）—— 非模态，可以一直开着

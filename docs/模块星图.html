@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>小6 模块星图</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+body { margin:0; font-family:"Microsoft YaHei",sans-serif; background:#1a1a2e; color:#eee; }
+#chart { width:100vw; height:100vh; }
+#detail {
+  position:fixed; right:20px; top:20px; width:320px;
+  background:rgba(255,255,255,0.08); border-radius:12px; padding:16px;
+  backdrop-filter:blur(10px); display:none; z-index:99;
+}
+#detail h3 { margin:0 0 8px; color:#8bc8ea; }
+#detail .row { margin:4px 0; font-size:13px; color:#ccc; }
+#detail .close { float:right; cursor:pointer; color:#888; }
+#status { position:fixed; left:10px; bottom:10px; font-size:11px; color:#666; }
+</style>
+</head>
+<body>
+<div id="chart"></div>
+<div id="detail">
+  <span class="close" onclick="document.getElementById('detail').style.display='none'">✕</span>
+  <h3 id="d-name"></h3>
+  <div class="row" id="d-desc"></div>
+  <div class="row" id="d-status"></div>
+  <div class="row" id="d-links"></div>
+</div>
+<div id="status">加载中...</div>
+<script src="../data/modules_map.js"></script>
+<script>
+const groupColors = {
+  "核心":"#8bc8ea", "后台":"#94d8c3", "闭环":"#f4b393",
+  "智能体":"#c9a7e8", "工具":"#a2ddaa", "高级":"#e1b98f", "L模块":"#eaa7b2"
+};
+let chart = echarts.init(document.getElementById('chart'));
+let lastSig = "";
+
+function render(data) {
+  chart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { formatter: p => p.dataType==='node' ? (p.data.cn || p.data.name) : '' },
+    series: [{
+      type: 'graph', layout: 'force',
+      force: { repulsion: 200, edgeLength: [60,120], gravity: 0.15 },
+      roam: true,
+      label: { show: true, fontSize: 12, color: '#fff', fontWeight: 'bold' },
+      lineStyle: { color: 'rgba(255,255,255,0.25)', width: 1 },
+      emphasis: { lineStyle: { width: 3, color: '#8bc8ea' } },
+      data: data.modules.map(m => ({
+        name: m.name,
+        label: { formatter: m.cn || m.name },
+        symbolSize: m.loaded ? 38 : 22,
+        itemStyle: { color: groupColors[m.group] || '#888', borderColor: m.loaded?'#fff':'#555', borderWidth: m.loaded?2:1 },
+        cn: m.cn, desc: m.desc, group: m.group, loaded: m.loaded
+      })),
+      links: data.links.map(([s,t]) => ({ source: s, target: t }))
+    }]
+  }, true);
+  document.getElementById('status').textContent =
+    '最后刷新: ' + new Date().toLocaleTimeString() + ' | 模块: ' + data.modules.length + ' | 连接: ' + data.links.length;
+}
+
+chart.on('click', function(p) {
+  if (p.dataType !== 'node') return;
+  const d = p.data;
+  const data = window.MODULE_DATA;
+  const connected = data.links.filter(([s,t]) => s===d.name || t===d.name).map(([s,t]) => s===d.name ? t : s);
+  const cnMap = {};
+  data.modules.forEach(m => cnMap[m.name] = m.cn || m.name);
+  const cnConnected = connected.map(n => cnMap[n] || n);
+  document.getElementById('d-name').textContent = (d.cn || d.name) + ' (' + d.name + ')';
+  document.getElementById('d-desc').textContent = d.desc || '(无描述)';
+  document.getElementById('d-status').textContent = (d.loaded ? '✅ 已加载' : '⏳ 懒加载') + ' | 分组: ' + d.group;
+  document.getElementById('d-links').textContent = '连接: ' + cnConnected.join(', ');
+  document.getElementById('detail').style.display = 'block';
+});
+
+function refresh() {
+  const old = document.getElementById('dynmap');
+  if (old) old.remove();
+  const s = document.createElement('script');
+  s.id = 'dynmap';
+  s.src = '../data/modules_map.js?t=' + Date.now();
+  s.onload = function() {
+    if (window.MODULE_DATA) {
+      const sig = JSON.stringify(window.MODULE_DATA.modules.map(m=>m.name+m.loaded));
+      if (sig !== lastSig) { render(window.MODULE_DATA); lastSig = sig; }
+    }
+  };
+  document.head.appendChild(s);
+}
+
+if (window.MODULE_DATA) {
+  render(window.MODULE_DATA);
+  lastSig = JSON.stringify(window.MODULE_DATA.modules.map(m=>m.name+m.loaded));
+}
+refresh();
+setInterval(refresh, 3000);
+window.addEventListener('resize', () => chart.resize());
+</script>
+</body>
+</html>
