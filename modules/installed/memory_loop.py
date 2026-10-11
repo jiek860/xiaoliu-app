@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """记忆闭环 v12.0 - 编排者：对话→记忆卡总结→遗忘曲线安排→到期复习→检索增强"""
 import os, time, json
-import sys, os as _os
 from core.safe import safe
 from modules.base import BaseModule
 

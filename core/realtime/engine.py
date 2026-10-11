@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """实时对话主引擎 v2.1"""
-import os, time, queue, tempfile, threading, shutil
+import time, queue, tempfile, threading, shutil
 try: import numpy as np
 except: np = None
 from .bus import EventBus

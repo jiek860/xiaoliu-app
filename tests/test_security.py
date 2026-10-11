@@ -4,7 +4,6 @@
 这几条对应用户端最容易悄悄退化的地方，改代码后跑一遍即可。
 """
 import os
-import re
 import sys
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

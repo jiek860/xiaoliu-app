@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """一键迁移新电脑 - 导出/导入完整迁移包"""
-import os, zipfile, json, datetime
+import os, zipfile, datetime
 
 
 class Migration:

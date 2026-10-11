@@ -1,15 +1,8 @@
 # -*- coding: utf-8 -*-
 """语音实时对话 v2.0 - VAD静音检测、随时打断、连续多轮"""
-from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTextBrowser, QSlider
-)
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextBrowser
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-import threading
 import time
-import pyaudio
-import wave
-import os
 
 
 class VoiceChatWorker(QThread):

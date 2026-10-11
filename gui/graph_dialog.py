@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """知识图谱窗口 - 三元组浏览/搜索/统计"""
 import os, json, io
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QLineEdit, QPushButton, QTextBrowser)
+from PyQt5.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QTextBrowser
 
 
 def show_graph_dialog(parent, dlg, trunk):

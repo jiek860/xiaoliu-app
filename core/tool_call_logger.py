@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """P1-11: 工具调用记录与可视化"""
-import os, json, time
+import time
 
 
 class ToolCallLogger:

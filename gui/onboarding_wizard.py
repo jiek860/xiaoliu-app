@@ -21,10 +21,8 @@
 import os
 import threading
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (QWizard, QWizardPage, QVBoxLayout, QHBoxLayout,
-                             QLabel, QComboBox, QLineEdit, QPushButton,
-                             QMessageBox, QApplication, QGroupBox, QRadioButton)
+from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtWidgets import QWizard, QWizardPage, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QGroupBox, QRadioButton
 
 from core import model_setup
 

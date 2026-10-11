@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """P1-09: 人格成长报告"""
 import os, json, time
-from datetime import datetime
 
 
 class GrowthReport:

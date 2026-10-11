@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """工具调用器 v11.0 - 真Function Calling：LLM输出JSON→自动执行→结果喂回"""
 import json
-import sys, os as _os, time
-from core.safe import safe
+import time
 from modules.base import BaseModule
 
 

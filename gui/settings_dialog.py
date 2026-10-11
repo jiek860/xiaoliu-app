@@ -3,11 +3,8 @@
 
 原来"功能中心"里那批入口已全部并入这里，按用途分类成标签页。
 """
-import os, json, threading, urllib.request
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QLineEdit, QPushButton, QComboBox, QCheckBox,
-                             QMessageBox, QInputDialog,
-                             QTabWidget, QWidget, QFormLayout)
+import json, threading, urllib.request
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QCheckBox, QMessageBox, QInputDialog, QTabWidget, QWidget
 from PyQt5.QtCore import QObject, pyqtSignal
 
 

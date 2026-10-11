@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """错误库 v2.1 - 错误码 + 中文说明 + 解决方案 + 统计 + 导出 + 搜索"""
-import sys, os
+import os
 from core.safe import safe
 from modules.base import BaseModule
 

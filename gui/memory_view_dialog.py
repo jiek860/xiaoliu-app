@@ -1,11 +1,7 @@
 # -*- coding: utf-8 -*-
 """记忆可视化 - 时间线/图谱/搜索/编辑"""
 import os, json
-from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QListWidgetItem, QTextBrowser, QLineEdit,
-    QTabWidget, QWidget, QMessageBox, QInputDialog, QMenu, QAction
-)
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QListWidgetItem, QTextBrowser, QLineEdit, QTabWidget, QWidget, QMessageBox, QInputDialog, QMenu, QAction
 from PyQt5.QtCore import Qt
 
 

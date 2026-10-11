@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """浏览器操作 v2.0 - 打开网页 + 点击 + 输入 + 截图 + 滚动 + 历史"""
-import sys, os, time
+import os, time
 from core.safe import safe
 from modules.base import BaseModule
 

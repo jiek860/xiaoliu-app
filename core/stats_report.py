@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """v26-6.2: 数据统计报表"""
-import os, json, datetime
+import os, json
 
 
 class StatsReport:

@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """日志中心窗口 - 系统/错误/操作记录"""
 import os, subprocess
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QTextBrowser, QTabWidget)
+from PyQt5.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTextBrowser, QTabWidget
 
 
 def show_log_dialog(parent, dlg, base, export_logs, export_data, import_data):

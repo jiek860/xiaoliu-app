@@ -2,7 +2,6 @@
 """P1-17: 桌面悬浮窗"""
 from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout
 from PyQt5.QtCore import Qt, QPoint
-from PyQt5.QtGui import QCursor
 
 
 class DesktopPet(QWidget):

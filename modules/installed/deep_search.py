@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """深度搜索 v9.0 - 反反爬：完整浏览器指纹+Cookie池+随机延迟"""
 import urllib.request, re, urllib.parse, json, gzip, time, random, http.cookiejar
-import sys, os as _os
 from core.safe import safe
 from modules.base import BaseModule
 

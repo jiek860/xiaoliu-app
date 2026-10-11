@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """知识问答 v2.1 - RAG知识库 + 文档列表 + 搜索 + 删除 + 清空 + 统计 + 导出"""
-import sys, os, time
+import os
 from core.safe import safe
 from modules.base import BaseModule
 

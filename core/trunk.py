@@ -6,7 +6,7 @@
 3. 日志与崩溃兜底
 4. 配置读取与保存
 """
-import os, json, time, threading, sys, traceback, shutil
+import os, json, time, threading, sys, traceback
 from datetime import datetime
 
 
@@ -210,59 +210,12 @@ class Trunk:
             self._log("模块星图导出失败: %s" % e)
 
     def export_module_map(self):
-        import json, os
-        groups = {"llm":"核心","vector_store":"核心","knowledge_graph":"核心","rules_engine":"核心","auth":"核心","backup":"核心","trunk":"核心","scheduler":"后台","hot_reload":"后台","mobile_remote":"后台","learning_loop":"闭环","memory_loop":"闭环","task_loop":"闭环","skill_distill":"闭环","smart_router":"智能体","deep_search":"工具","tool_caller":"工具","computer_controller":"工具","code_runner":"工具","file_upload":"工具","multimodal":"工具","voice":"工具","mcp_server":"工具","task_planner":"高级","error_lib":"高级","auto_updater":"高级","active_learning":"高级","knowledge_qa":"高级","reasoning_engine":"高级","plugin_market":"高级","skill_capture":"高级","self_reflect":"L模块","empathy":"L模块","personality":"L模块","forgetting_curve":"L模块","anomaly_detector":"L模块","memory_cards":"L模块"}
-        descs = {"llm":"大模型：本地+云端+流式","vector_store":"向量检索：nomic-embed+余弦","knowledge_graph":"知识图谱：三元组+多跳","rules_engine":"规则引擎：底层规则","auth":"账号激活登录：激活码授权","backup":"自动备份：保留2份","trunk":"微核躯干：注册/总线","scheduler":"定时任务：24h后台","hot_reload":"热更新：沙盒+回滚","mobile_remote":"手机远程","learning_loop":"学习闭环：找缺口→搜索→入库","memory_loop":"记忆闭环：对话→记忆卡→复习","task_loop":"任务闭环：拆步→执行→验证","skill_distill":"技能沉淀：成功任务→SKILL","smart_router":"智能路由：LLM判断谁答","deep_search":"深度搜索：多源并行","tool_caller":"工具调用：LLM自动决定","computer_controller":"电脑控制：鼠标键盘","code_runner":"代码沙盒：隔离跑Python","file_upload":"文件上传：PDF/Word","multimodal":"多模态：看图/听音频","voice":"语音：STT/TTS","mcp_server":"MCP服务：连外部工具","task_planner":"任务规划：自动拆步","error_lib":"错误库：记录+修复建议","auto_updater":"自动更新：自更新流水线","active_learning":"主动学习：定时上网找知识","knowledge_qa":"RAG：检索增强生成","reasoning_engine":"推理引擎：多跳推理","plugin_market":"插件市场：一键装模块","skill_capture":"技能捕获：自动沉淀","self_reflect":"自我反思：回答后打分","empathy":"共情：情绪感知","personality":"人格引擎：小6性格","forgetting_curve":"遗忘：旧记忆自动删","anomaly_detector":"异常检测：行为偏差","memory_cards":"记忆卡：情景记忆"}
-        cns = {"trunk":"微核躯干","llm":"大模型","vector_store":"向量检索","knowledge_graph":"知识图谱","rules_engine":"规则引擎","auth":"账号授权","backup":"自动备份","scheduler":"定时任务","hot_reload":"热更新","mobile_remote":"手机远程","learning_loop":"学习闭环","memory_loop":"记忆闭环","task_loop":"任务闭环","skill_distill":"技能沉淀","smart_router":"智能路由","deep_search":"深度搜索","tool_caller":"工具调用","computer_controller":"电脑控制","code_runner":"代码沙盒","file_upload":"文件上传","multimodal":"多模态","voice":"语音","mcp_server":"MCP服务","task_planner":"任务规划","error_lib":"错误库","auto_updater":"自动更新","active_learning":"主动学习","knowledge_qa":"RAG引擎","reasoning_engine":"推理引擎","plugin_market":"插件市场","skill_capture":"技能捕获","self_reflect":"自我反思","empathy":"共情","personality":"人格引擎","forgetting_curve":"遗忘","anomaly_detector":"异常检测","memory_cards":"记忆卡"}
-        # trunk 必须自己也是一个节点：它是星心。原来节点表只有模块，"trunk" 不在
-        # 其中，而查看器（data/modules_map.html，ECharts）的 links 端点不存在会被
-        # 静默丢弃 —— 结果 78 条星型连线一条都画不出来，可这张图的卖点就是星型拓扑。
-        # 中文名兜底：上面 cns 那张表只覆盖 37 个名字，剩下 40 多个模块会直接显示
-        # 英文 key（stt / weather / memory_crypto…）。LAZY_MAP 每条本来就带第 3 个
-        # 字段就是中文显示名，直接拿它兜底，不用再维护第二份对照表。
-        _cn_of_lazy = {k: v[2] for k, v in self._lazy.items() if len(v) >= 3 and v[2]}
-        all_names = ["trunk"] + list(self.modules.keys()) + [k for k in self._lazy.keys() if k not in self.modules]
-        modules = [{"name":n,"cn":(cns.get(n) or _cn_of_lazy.get(n) or n),"desc":descs.get(n,""),"group":groups.get(n,"其他"),"loaded":(n == "trunk" or n in self.modules)} for n in all_names]
-        # 星型：所有模块都连 trunk
-        links = [[n, "trunk"] for n in all_names if n != "trunk"]
-        # 组内互联
-        _groups = {}
-        for n in all_names:
-            if n == "trunk":
-                continue          # 星心只走星型边，不参与组内互联，否则每条边画两遍
-            g = groups.get(n, "其他")
-            _groups.setdefault(g, []).append(n)
-        for g, ms in _groups.items():
-            for i in range(len(ms)):
-                for j in range(i+1, len(ms)):
-                    links.append([ms[i], ms[j]])
-        # 关键闭环连接（跨组）
-        # 注意：这里原来写的 proactive_learner / rag_engine 是模块的旧名，LAZY_MAP
-        # 里早已不存在（现名 active_learning / knowledge_qa），画出来就是悬空边。
-        _loop_links = [["learning_loop","active_learning"],        ["task_loop","task_planner"],
-            
-            ["knowledge_qa","vector_store"],["knowledge_qa","knowledge_graph"],
-            ["knowledge_qa","deep_search"],["skill_distill","skill_capture"],
-            ["memory_loop","memory_cards"],["memory_loop","forgetting_curve"],
-            ["self_reflect","personality"],["empathy","personality"],
-            ["computer_controller","code_runner"],["file_upload","knowledge_qa"],
-            ["multimodal","llm"],["voice","llm"],["tool_caller","deep_search"]]
-        # 防御：任一端点不存在就丢掉。以后再有模块改名，也画不出悬空边。
-        _valid = set(all_names)
-        links.extend([e for e in _loop_links if e[0] in _valid and e[1] in _valid])
-        # 去重：组内互联与 _loop_links 会撞出同一条边（如 self_reflect↔personality
-        # 两个都在 L 模块组），重复边在图上会叠成两条线。
-        _seen, _uniq = set(), []
-        for a, b in links:
-            k = (a, b) if a <= b else (b, a)
-            if k in _seen:
-                continue
-            _seen.add(k)
-            _uniq.append([a, b])
-        links = _uniq
-        out = {"modules":modules,"links":links}
-        p = os.path.join(self.base, os.path.join("data", "modules_map.js"))
-        open(p,"w",encoding="utf-8").write("var MODULE_DATA = " + json.dumps(out, ensure_ascii=False, indent=2) + ";")
+        """把模块星图写到 data/modules_map.js（实现在 core/module_map.py）
+
+        纯展示逻辑，不属于内核职责，已搬出去 —— 内核只留一行委托。
+        """
+        from core import module_map
+        return module_map.export(self)
 
     def _start_background(self):
         """P2-4: 延迟3秒启动后台服务，不阻塞UI"""

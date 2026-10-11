@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """P2-20: GPU加速检测"""
-import os, subprocess, platform
+import subprocess, platform
 
 
 class GPUDetector:

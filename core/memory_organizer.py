@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """v26-3.2: 记忆自动整理 完整版"""
 import os, json, time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
 class MemoryOrganizer:

@@ -4,7 +4,6 @@
 """
 import os
 import json
-import shutil
 from datetime import datetime
 
 # 当前配置数据结构版本，以后改字段就+1

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """自我反思 v2.0 - LLM打分 + 历史记录 + 改进建议 + 清空 + 统计"""
-import sys, os, time, json
+import os, time, json
 from core.safe import safe
 from modules.base import BaseModule
 

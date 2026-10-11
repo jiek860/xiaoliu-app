@@ -1,11 +1,7 @@
 # -*- coding: utf-8 -*-
 """对话框混入：所有窗口入口 + 后台任务启动"""
 import os
-from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QWidget, QScrollArea, QMessageBox,
-    QInputDialog, QFileDialog, QApplication, QLabel, QHBoxLayout,
-    QPushButton,
-)
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QWidget, QScrollArea, QMessageBox, QInputDialog, QFileDialog
 from PyQt5.QtCore import Qt
 from gui.workers import TaskWorker, LearnWorker, BgWorker
 

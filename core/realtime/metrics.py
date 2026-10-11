@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """延迟统计：P50/P95"""
-import time, statistics
+import time
 
 class Metrics:
     def __init__(self):

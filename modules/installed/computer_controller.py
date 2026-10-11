@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
-import sys, os as _os
-from core.safe import safe
 from modules.base import BaseModule
 """电脑操作 v11.0 - 完整本地电脑操控
 能力：打开应用/窗口管理/鼠标键盘/截屏/剪贴板/系统信息/文件白名单+确认
 安全：文件操作限白名单，删除/关机等危险操作弹窗确认，全部动作留日志
 """
-import os, re, sys, json, time, shutil, subprocess
+import os, re, time, shutil, subprocess
 from datetime import datetime
 
 class ComputerController(BaseModule):

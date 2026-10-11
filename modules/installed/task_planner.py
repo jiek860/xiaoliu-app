@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 import os任务规划器 v10.0 - 真多步任务：LLM拆步+并行执行+子智能体委派+断点续做+质量评分"""
-import threading, json, os, time
+import json, os, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import sys, os as _os
-from core.safe import safe
 from modules.base import BaseModule
 
 class TaskPlanner(BaseModule):

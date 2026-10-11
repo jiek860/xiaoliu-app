@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """v26-6.2: 数据统计报表 完整版（GUI对话框）"""
-import os, json, datetime
+import os, json
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QTextBrowser, QComboBox)
 

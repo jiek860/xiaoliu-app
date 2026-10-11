@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-import sys, os as _os
-from core.safe import safe
 from modules.base import BaseModule
 """学习闭环 v13.0 - 多方向学习库：编程/拟人化/自主化/自我进化/多智能体 轮换学习
 编排者：找缺口→搜资料→提炼→入库→汇报
@@ -143,7 +141,13 @@ class LearningPipeline(BaseModule):
         try:
             safe_name = re.sub(r'[\\/:*?"<>|]', "_", topic)[:40]
             doc = os.path.join(self.kb_dir, "[" + d + "] " + safe_name + ".md")
-            open(doc, "w", encoding="utf-8").write("\n".join(md_lines))
+            body = "\n".join(md_lines)
+            open(doc, "w", encoding="utf-8").write(body)
+            # 建索引：knowledge_docs/ 里已经有 80 多个文档，但 trunk 的
+            # _index.json 只有 27 条、停在 09-22 —— 就是因为这里只写文件、
+            # 从来没调过 kb_add，索引再没人更新（kb_search/kb_categories 靠它）。
+            if self.trunk is not None and hasattr(self.trunk, "kb_add"):
+                self.trunk.kb_add("学习主题: " + topic, body[:500], d)
         except Exception:
             pass
         self.state["rounds"] += 1

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """遗忘曲线 v2.0 - 间隔重复记忆 + 记忆提取 + 复习提醒 + 清空 + 统计"""
-import os, json, time, sys
+import os, json, time
 from core.safe import safe
 from modules.base import BaseModule
 

@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 """机器人对话框 v2.0 - 企业微信 + 钉钉完整版"""
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QLineEdit, QComboBox, QMessageBox,
-                             QTabWidget, QTextEdit, QGroupBox)
-from PyQt5.QtCore import QEvent, QTimer
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QMessageBox, QTextEdit, QGroupBox
+from PyQt5.QtCore import QEvent
 from core.bot_server import BotServer
 
 

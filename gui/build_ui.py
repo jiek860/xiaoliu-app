@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 """主界面布局构建 - 顶部栏+侧边栏+聊天框+输入框"""
 import os
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QListWidget, QTextBrowser, QFrame,
-                             QTextEdit, QDialog, QMessageBox, QRubberBand)
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget, QFrame, QTextEdit, QDialog, QMessageBox, QRubberBand
 from PyQt5.QtCore import Qt, QRect, QPoint
 
 

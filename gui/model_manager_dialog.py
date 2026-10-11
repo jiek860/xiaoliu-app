@@ -1,10 +1,6 @@
 # -*- coding: utf-8 -*-
 """本地模型管理 - 列出/下载/删除Ollama模型"""
-from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QListWidgetItem, QLineEdit, QMessageBox,
-    QProgressBar, QInputDialog
-)
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QLineEdit, QMessageBox, QProgressBar
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
 

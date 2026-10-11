@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """机器人服务 v2.0 - 企业微信 + 钉钉，收到消息AI处理后回复"""
-import os, sys, json, time, threading, hashlib, hmac, base64, urllib.request
+import json, threading, urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 

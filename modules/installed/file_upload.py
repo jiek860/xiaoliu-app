@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """文件上传 v2.1 - 上传 + 读取 + 列表 + 搜索 + 删除 + 统计 + 清空 + 导出"""
-import sys, os, time
+import os, time
 from core.safe import safe
 from modules.base import BaseModule
 

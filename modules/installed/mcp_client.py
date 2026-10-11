@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """MCP客户端 v2.0 - 连接外部MCP服务器 + 调用工具 + 添加/删除/测试 + 历史 + 统计"""
-import json, urllib.request, sys, os, time, threading
+import json, urllib.request, time, threading
 from core.safe import safe
 from modules.base import BaseModule
 

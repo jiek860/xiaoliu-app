@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """系统窗口 v2.0 - 标签页卡片式（仿设置窗口）"""
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QLineEdit, QPushButton, QMessageBox,
-                             QTextBrowser, QTextEdit, QGroupBox, QTabWidget, QWidget)
+from PyQt5.QtWidgets import QVBoxLayout, QLabel, QLineEdit, QPushButton, QTextBrowser, QTextEdit, QGroupBox, QTabWidget, QWidget
 
 
 BTN_STYLE = """

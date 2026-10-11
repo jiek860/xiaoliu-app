@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
 """v26-7.1: 日历+待办+笔记 统一工具对话框"""
-import os, json
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QLineEdit, QListWidget, QTabWidget,
-                             QWidget, QMessageBox, QDateEdit)
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QListWidget, QTabWidget, QWidget, QMessageBox, QDateEdit
 from PyQt5.QtCore import QDate
 
 

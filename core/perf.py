@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """性能监控 v1.0 - 记录关键操作耗时"""
-import time
 import threading
 from collections import defaultdict
 

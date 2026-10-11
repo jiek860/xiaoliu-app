@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """系统混入：状态栏刷新、数据导出导入"""
 import os
-import json
 import zipfile
 import datetime
 from PyQt5.QtWidgets import QMessageBox, QFileDialog

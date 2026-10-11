@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """图片识别 v2.1 - OCR文字识别 + 历史记录 + 可用性检查 + 统计 + 清空 + 导出"""
-import sys, os, time
+import os, time
 from core.safe import safe
 from modules.base import BaseModule
 

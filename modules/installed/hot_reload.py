@@ -7,7 +7,7 @@ from modules.base import BaseModule
 # 在干净进程里 importlib.util 不存在，reload_module 会报
 # "module 'importlib' has no attribute 'util'" 然后走回滚 ——
 # 全程序能跑只是因为别处碰巧先导入了它，属于侥幸。
-import os, sys, importlib, importlib.util, time, subprocess, hashlib, threading
+import os, sys, importlib, importlib.util, subprocess, hashlib, threading
 
 class HotReload(BaseModule):
     NAME = "hot_reload"

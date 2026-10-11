@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """主动学习 v2.1 - 发现用户偏好 + 主动推荐 + 统计 + 清空 + 导出"""
-import sys, os, time
+import time
 from core.safe import safe
 from modules.base import BaseModule
 

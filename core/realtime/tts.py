@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """TTS：edge-tts封装"""
-import os, asyncio, time, threading
+import os, asyncio, time
 
 class TTS:
     def __init__(self, tmp_dir, voice="zh-CN-XiaoxiaoNeural"):

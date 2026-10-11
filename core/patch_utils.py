@@ -2,8 +2,6 @@
 """差分更新 v1.0 - 纯Python实现（difflib文本差分）
 适合py文件更新，不需要第三方库
 """
-import os
-import json
 import difflib
 
 

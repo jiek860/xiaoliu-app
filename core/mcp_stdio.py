@@ -40,7 +40,6 @@ import shlex
 import subprocess
 import sys
 import threading
-import time
 from collections import deque
 
 # 官方当前常用的协议版本；服务端会回它自己支持的版本，我们跟着用即可

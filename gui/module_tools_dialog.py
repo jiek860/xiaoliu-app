@@ -20,7 +20,6 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QTextEdit, QGroupBox, QScrollArea,
                              QWidget, QMessageBox, QInputDialog, QFileDialog, QLineEdit,
                              QGridLayout)
-from PyQt5.QtCore import Qt
 
 from gui.workers import BgWorker
 

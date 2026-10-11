@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
 """P1-14: 消息搜索对话框 - 全局搜索所有会话"""
-import os
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QListWidgetItem, QMessageBox
 )
-from PyQt5.QtCore import Qt
 
 
 class SearchDialog(QDialog):

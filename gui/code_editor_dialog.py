@@ -12,16 +12,9 @@ import os
 import sys
 import ast
 import tempfile
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                             QPlainTextEdit, QTextEdit, QPushButton, QLabel, QFileDialog,
-                             QMessageBox, QTabWidget, QTreeView, QFileSystemModel,
-                             QSplitter, QCompleter, QInputDialog, QApplication,
-                             QAction, QStatusBar)
-from PyQt5.QtCore import (Qt, QProcess, pyqtSignal, QRect, QSize, QDir,
-                          QTimer)
-from PyQt5.QtGui import (QFont, QTextCharFormat, QColor, QSyntaxHighlighter,
-                         QTextDocument, QTextCursor, QTextFormat, QKeySequence,
-                         QTextOption, QIcon, QPainter, QBrush, QPen)
+from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit, QTextEdit, QPushButton, QLabel, QFileDialog, QMessageBox, QTabWidget, QTreeView, QFileSystemModel, QSplitter, QCompleter, QStatusBar
+from PyQt5.QtCore import Qt, QProcess, pyqtSignal, QRect, QSize, QTimer
+from PyQt5.QtGui import QFont, QTextCharFormat, QColor, QSyntaxHighlighter, QTextDocument, QTextCursor, QPainter
 
 
 # ============ Python 语法高亮 ============

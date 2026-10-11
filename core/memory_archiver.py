@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """P2-08: 记忆压缩/归档 - 旧记忆自动压缩"""
-import os, json, time
+import os, json
 from datetime import datetime, timedelta
 
 

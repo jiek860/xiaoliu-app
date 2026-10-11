@@ -2,10 +2,8 @@
 """批量重命名中文模块为英文名 + 全局搜索替换 import 引用。"""
 import argparse
 import json
-import os
 import re
 import shutil
-import sys
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent

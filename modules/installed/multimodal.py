@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """多模态 v3.0 - 图片 + 音频 + 视频 + 摄像头"""
-import sys, os, time
+import os, time
 from core.safe import safe
 from modules.base import BaseModule
 

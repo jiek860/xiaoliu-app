@@ -1,5 +1,5 @@
 # 自动备份模块
-import os, shutil, json
+import os, shutil
 from datetime import datetime
 from core.logger import get_logger
 

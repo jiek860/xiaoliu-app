@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """任务闭环 v13.0 - 云端开真自主循环，本地保持简单拆步"""
 import os, time, json
-import sys, os as _os
-from core.safe import safe
+import sys
 from modules.base import BaseModule
 
 

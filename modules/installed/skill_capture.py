@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """技能捕获 v2.0 - 成功任务自动存技能 + 确认 + 搜索 + 历史 + 统计"""
-import os, json, time, re
-import sys
+import os, time, re
 from core.safe import safe
 from modules.base import BaseModule
 

@@ -1,10 +1,7 @@
 # -*- coding: utf-8 -*-
 """插件市场窗口 - 网格卡片/安装/卸载/热加载"""
 import os, sys, importlib, threading
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QScrollArea, QWidget, QFrame,
-                             QGridLayout, QMessageBox, QFileDialog,
-                             QProgressDialog, QApplication)
+from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QWidget, QFrame, QGridLayout, QMessageBox, QFileDialog, QProgressDialog, QApplication
 from PyQt5.QtCore import QObject, pyqtSignal
 
 

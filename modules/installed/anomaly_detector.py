@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """异常检测 v2.0 - 监控错误 + 告警 + 记录 + 自动修复 + 统计 + 清空"""
-import sys, os, time
+import time
 from core.safe import safe
 from modules.base import BaseModule
 

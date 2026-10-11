@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """翻译 v2.1 - 8种语言翻译 + 批量翻译 + 历史记录 + 语言列表 + 清空 + 统计 + 导出"""
-import sys, os, time
+import time
 from core.safe import safe
 from modules.base import BaseModule
 

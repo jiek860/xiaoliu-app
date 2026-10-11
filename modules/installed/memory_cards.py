@@ -5,7 +5,6 @@ import os记忆卡系统 v2（规则级）：对话后按规则触发→分类�
 """
 import json, os, time, re, threading
 from datetime import datetime
-import sys, os as _os
 from core.safe import safe
 from modules.base import BaseModule
 

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """P2-09: 人格市场 - 导出/导入人格包"""
-import os, json, zipfile
+import os, zipfile
 
 
 class PersonalityMarket:

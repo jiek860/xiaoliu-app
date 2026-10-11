@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """知识库窗口 - 搜索/分类列表/详情"""
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QLabel, QLineEdit,
-                             QTextBrowser, QListWidget, QTabWidget, QPushButton)
+from PyQt5.QtWidgets import QLabel, QLineEdit, QTextBrowser, QListWidget, QTabWidget, QPushButton
 
 
 def show_kb_dialog(parent, dlg, trunk, safe_stop_workers):

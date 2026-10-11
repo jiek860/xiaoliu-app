@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 """l45_personality v2.0 - 小6拟人化全套（强指令+示例+心境驱动+主动搭话+记忆带话）"""
 import json, os, time, re, random
-from datetime import datetime, timedelta
-import sys, os as _os
-from core.safe import safe
+from datetime import datetime
 from modules.base import BaseModule
 
 

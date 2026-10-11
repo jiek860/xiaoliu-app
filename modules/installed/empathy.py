@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """共情模块 v2.1 - 情绪识别 + 情绪回复 + 情绪记忆 + 情绪趋势 + 情绪总结 + 统计 + 导出"""
-import re, sys, os, time
+import time
 from core.safe import safe
 from modules.base import BaseModule
 

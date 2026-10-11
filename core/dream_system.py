@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """P2-10: 梦境系统 - 每天生成一个梦"""
-import os, json, random, time
+import os, json, random
 from datetime import datetime
 
 

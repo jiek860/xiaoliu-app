@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """技能沉淀 v2.0 - 成功任务沉淀为可复用技能 + 高频技能 + 清空 + 统计"""
-import os, json, time, sys
+import os, json, time
 from core.safe import safe
 from modules.base import BaseModule
 

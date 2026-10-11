@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """模块健康度 - 记录模块失败次数，连续失败自动禁用"""
-import os, json, time
+import os, json
 from core.paths import BASE
 class ModuleHealth:
     DISABLE_THRESHOLD = 5

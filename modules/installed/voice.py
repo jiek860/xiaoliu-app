@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """语音识别模块 v2.0 - 完整版"""
-import os, time, json, wave, threading
+import os, time, wave, threading
 from modules.base import BaseModule
 
 class _BackendFasterWhisper:

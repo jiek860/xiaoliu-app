@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """群聊闭环 v2.1 - 智能路由 + 群聊组合 + 异常检测 + 反馈 + 统计 + 重置 + 导出"""
 import os, time, json
-import sys
 from core.safe import safe
 from modules.base import BaseModule
 

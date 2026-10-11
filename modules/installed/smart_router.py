@@ -2,8 +2,6 @@
 """
 import os智能路由 v10.0 - LLM真意图识别+路由缓存+反馈学习+置信度阈值"""
 import re, json, os
-import sys, os as _os
-from core.safe import safe
 from modules.base import BaseModule
 
 class SmartRouter(BaseModule):

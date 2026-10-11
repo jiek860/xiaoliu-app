@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 """聊天视图：气泡渲染、群聊分段、系统通知（v2 - 修复 _trim_old_messages 缺失）"""
-import os
 import re
 from datetime import datetime
 from PyQt5.QtWidgets import QTextBrowser
-from PyQt5.QtCore import Qt
 from gui.markdown_renderer import MarkdownRenderer
 
 GROUP_COLORS = {

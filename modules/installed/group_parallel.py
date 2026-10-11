@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """群聊并行 v2.1 - 多角色对话 + 角色列表 + 历史记录 + 统计 + 清空"""
-import sys, os, time
+import time
 from core.safe import safe
 from modules.base import BaseModule
 
