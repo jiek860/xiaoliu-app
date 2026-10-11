@@ -132,7 +132,10 @@ class Scheduler(BaseModule):
                 self._safe_run("异常检测", _anomaly)
                 self.last_anomaly = now
             # 每30分钟记忆复习（启动 300 秒后首轮）
-            if now - self.last_review > rv_iv and now - self._boot_time > 300:
+            # 加 not busy：复习会走 vector_store.add → 嵌入请求（Ollama），
+            # 是这批定时任务里唯一会跟聊天抢模型的，所以聊天中让路。
+            # 其余任务（备份/热检/异常检测/健康自检）是磁盘或轻 HTTP 操作，不必让。
+            if now - self.last_review > rv_iv and now - self._boot_time > 300 and not busy:
                 def _review():
                     self.trunk.call("memory_loop", "__no__")
                     ml = self.trunk.modules.get("memory_loop")

@@ -42,8 +42,6 @@ class ReplyPipeline:
         except Exception:
             pass
         t._set_status("正在理解你的问题...")
-        t.publish("perceive", user_input)
-        t.last_chat = time.time()
         t._reply_n = getattr(t, "_reply_n", 0) + 1
         self._record("接收消息", "ok", user_input[:60])
 

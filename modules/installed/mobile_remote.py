@@ -13,6 +13,7 @@ import json
 import os
 import secrets
 import threading
+import time
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -63,6 +64,15 @@ add('bot',d.回答||JSON.stringify(d));
 typing.innerText='';
 }
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')send()});
+// 轮询电脑端主动发来的消息（手机远程对话框里的「发消息」走这条路）
+async function poll(){
+ try{
+  const r=await fetch('/poll?k='+encodeURIComponent(TOKEN));
+  const d=await r.json();
+  (d.msgs||[]).forEach(m=>add('bot',(m.title?m.title+'：':'')+m.text));
+ }catch(e){}
+}
+setInterval(poll,3000);
 add('bot','你好！我在手机上了。');
 </script></body></html>'''
 
@@ -83,6 +93,26 @@ class MobileRemote(BaseModule):
                 pass
         self.token = ""
         self.server = None
+        # 待发给手机的消息。浏览器只能轮询，服务端没法主动推送，
+        # 所以 send() 只入队，等页面下一次 /poll 取走。
+        self._outbox = []
+        self._outbox_lock = threading.Lock()
+
+    def send(self, title="小6通知", text=""):
+        """把一条消息推给手机端（GUI「设置 → 工具 → 手机远程 → 发消息」用）。
+
+        为什么是队列而不是直接推：手机端是个网页，HTTP 里服务端无法主动开口，
+        只能由页面定时来取。所以这里入队，页面 /poll 时一次性拿走。
+        """
+        msg = {"title": str(title or ""), "text": str(text or ""),
+               "time": time.strftime("%H:%M:%S")}
+        with self._outbox_lock:
+            self._outbox.append(msg)
+            if len(self._outbox) > 100:          # 上限，防止没人取时无限堆积
+                self._outbox = self._outbox[-100:]
+            n = len(self._outbox)
+        return {"ok": True, "待发": n,
+                "提示": "手机页面在线时会自动收到" if self.server else "移动端未启动，消息已保留"}
 
     def _ensure_token(self):
         if not self.token:
@@ -106,6 +136,7 @@ class MobileRemote(BaseModule):
             return "移动端已在运行"
         token = self._ensure_token()
         trunk = self.trunk
+        me = self                      # 闭包里要访问 _outbox，先留个引用
         html = HTML.replace("__TOKEN__", token).encode("utf-8")
 
         class H(BaseHTTPRequestHandler):
@@ -135,6 +166,16 @@ class MobileRemote(BaseModule):
                         except Exception as e:
                             r = "出错: " + str(e)[:80]
                         self._json({"回答": r})
+                        return
+                    if u.path == "/poll":
+                        # 手机页面定时来取「电脑端主动发来的消息」
+                        if qs.get("k", [""])[0] != token:
+                            self._json({"error": "令牌无效"}, 403)
+                            return
+                        with me._outbox_lock:
+                            msgs = list(me._outbox)
+                            me._outbox.clear()
+                        self._json({"msgs": msgs})
                         return
                     # 首页
                     if u.path not in ("/", "/index.html"):

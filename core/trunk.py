@@ -7,7 +7,6 @@
 4. 配置读取与保存
 """
 import os, json, time, threading, sys, traceback, shutil
-from collections import deque
 from datetime import datetime
 
 
@@ -45,11 +44,6 @@ class Trunk:
         self._owns_excepthook = False
 
         self.modules = {}
-        self.handlers = {}
-        # 事件暂存只留最近 200 条。原来是无界 list：publish("perceive") 每条用户
-        # 消息都会 append 一次，而 trunk.events 全项目无人读取，属于纯漏内存 +
-        # 永久留存用户原话。deque(maxlen) 自动丢弃最旧的，publish 接口不变。
-        self.events = deque(maxlen=200)
         self._lock = threading.Lock()
         self._last_use = {}
         self.stats = {"calls": 0, "errors": 0, "module_stats": {}}
@@ -94,6 +88,10 @@ class Trunk:
         self._bg_queue = _q.Queue()
         self._bg_worker = threading.Thread(target=self._bg_loop, daemon=True)
         self._bg_worker.start()
+        # 空闲任务队列：反思/记忆闭环要调模型，不能在用户连续聊天时插队。
+        # 不能放在 _bg_loop 里 sleep —— 那是单线程队列，会把记忆入库一起堵住。
+        self._idle_queue = _q.Queue()
+        threading.Thread(target=self._idle_worker, daemon=True).start()
         threading.Thread(target=self._auto_unload_loop, daemon=True).start()
         # 后台服务丢线程，不阻塞 UI 启动
         threading.Thread(target=self._start_background, daemon=True).start()
@@ -1210,16 +1208,12 @@ class Trunk:
     def snapshot(self):
         return {"modules": list(self.modules.keys()), "lazy": list(self._lazy.keys())}
 
-    def publish(self, event, data=None):
-        self.events.append({"event": event, "data": data, "time": time.time()})
-        for cb in self.handlers.get(event, []):
-            try:
-                cb(data)
-            except Exception as e:
-                self._log("异常: " + str(e)[:80])
-
-    def subscribe(self, event, cb):
-        self.handlers.setdefault(event, []).append(cb)
+    # publish / subscribe 事件总线已删除（2026-10-11）。
+    # 原因：subscribe() 从初始提交起零调用，publish("perceive") 每条用户消息白跑一次；
+    # 而它唯一想做的事（通知后台"用户在聊天"）实际由 _chat_active_until 轮询完成，
+    # 后处理则改用 _idle_queue 排队。留着一个没人接的总线只会误导后来的人。
+    # 真要重启推送式通知，先补 unsubscribe —— 否则 _auto_unload_loop 真卸载模块后，
+    # 回调会留在订阅表里打到已卸载对象上。
 
     def _chat_busy(self):
         """聊天中（含排队）或回复后120s内返回 True，后台闭环应让路，避免抢 Ollama"""
@@ -1258,10 +1252,7 @@ class Trunk:
 
     def _reply_legacy(self, user_input, on_token=None):
         self._set_status("💭 正在理解你的问题...")
-        self.publish("perceive", user_input)
-        # 聊天活跃标记（后台学习用它判断是否暂停）＋ 轮次计数（反思降频）
-        if not hasattr(self, "last_chat"): self.last_chat = 0.0
-        self.last_chat = time.time()
+        # 轮次计数（反思降频用）
         if not hasattr(self, "_reply_n"): self._reply_n = 0
         self._reply_n += 1
         # 磁盘缓存：先查缓存，命中直接返回
@@ -1496,6 +1487,43 @@ class Trunk:
             finally:
                 self._bg_queue.task_done()
 
+    def _defer_to_idle(self, fn):
+        """把「要调模型」的后处理排到用户空闲之后再做。
+
+        为什么必须排队、不能当场判断：后处理就在回复刚结束那一刻执行，
+        那一刻用户必然刚说过话 —— 任何「现在空闲吗」的检查都必然为否。
+        原来的 _idle 就是这么恒假了三个星期的，所以这里换成排队等空闲。
+        """
+        try:
+            if self._idle_queue.qsize() > 200:
+                self._log("空闲任务积压过多，丢弃一轮后处理")
+                return
+            self._idle_queue.put(fn)
+        except Exception:
+            pass
+
+    def _idle_worker(self):
+        """空闲任务线程：等不忙了再做反思 / 记忆闭环"""
+        while True:
+            try:
+                task = self._idle_queue.get()
+                if task is None:
+                    break
+                # 最多等 10 分钟；等不到就放弃这一轮，避免无限积压
+                deadline = time.time() + 600
+                while self._chat_busy() and time.time() < deadline:
+                    time.sleep(5)
+                if self._chat_busy():
+                    self._log("空闲任务：等了10分钟仍在聊天，放弃本轮")
+                    continue
+                try:
+                    task()
+                except Exception as e:
+                    self._log("空闲任务异常: %s" % str(e)[:80])
+                time.sleep(1)          # 任务之间喘口气，别一口气把模型打满
+            except Exception as e:
+                self._log("空闲任务线程异常: %s" % str(e)[:80])
+
     def set_private_mode(self, on):
         """P1-21: 开启/关闭隐私模式（无痕会话）"""
         self._private_mode = bool(on)
@@ -1515,8 +1543,6 @@ class Trunk:
             kg = self.modules.get("knowledge_graph")
             if kg:
                 kg.add_dialog(user_input, answer)
-            # P0-2: 聊天活跃窗口内（90s）跳过重 LLM 后台任务，不抢模型
-            _idle = time.time() >= getattr(self, "_chat_active_until", 0)
             # P2-8: 每次回答后轻量自评估（规则打分，不占模型，沉淀到 data/self_eval.json）
             try:
                 _rfl = self.modules.get("self_reflect") or self._load_lazy("self_reflect")
@@ -1524,10 +1550,17 @@ class Trunk:
                     _rfl.quick_eval(user_input, answer)
             except Exception:
                 pass
-            # 反思（降频：每5轮一次，省模型排队）
-            if _idle and getattr(self, "_reply_n", 0) % 5 == 1:
-                self._load_lazy("self_reflect")
-                r = self.call("self_reflect", "reflect", user_input, answer)
+            # 反思（降频：每5轮一次）。要调模型，排到用户空闲后做。
+            #
+            # 这里原来是 `if _idle and ...`，而 _idle 恒为 False：
+            # _chat_active_until 在任务入队前一行刚被设成 now+120，而后处理又恰好
+            # 在回复刚结束那一刻执行 —— "现在空闲吗"必然为否。反思/记忆闭环/技能捕获
+            # 三条链因此静默失效了三个星期（reflections.json 停在 09-23，
+            # episodic_memory.json 也停在 09-23）。结论：换采样点没用，只能排队等空闲。
+            if getattr(self, "_reply_n", 0) % 5 == 1:
+                self._defer_to_idle(
+                    lambda ui=user_input, an=answer:
+                        self.call("self_reflect", "reflect", ui, an))
             # 拟人：感知用户情绪 + 记住值得以后提的事
             pers = self.modules.get("personality")
             if pers:
@@ -1539,30 +1572,39 @@ class Trunk:
             # 记忆卡：由memory_loop内部统一调用，避免重复触发
             # （之前这里单独调一次，ml.run内部又调一次，导致同一轮写2张卡）
             # ===== 闭环自动接线 =====
-            # 记忆闭环：对话→记忆卡→遗忘曲线→到期复习→检索增强（非活跃窗口才做）
-            if _idle:
+            # 记忆闭环：对话→记忆卡→遗忘曲线→到期复习→检索增强。
+            # 内部会调模型（memory_cards.maybe_summarize），排到空闲后做。
+            def _memory_chain(ui=user_input, an=answer):
                 try:
                     ml = self._load_lazy("memory_loop")
                     if ml and hasattr(ml, "run"):
                         # C2: 情景记忆直接接线（不依赖记忆闭环内部流程，禁了闭环也不断线）
                         try:
                             if hasattr(ml, "remember_scene"):
-                                ml.remember_scene(user_input, answer)
+                                ml.remember_scene(ui, an)
                         except Exception:
                             pass
-                        ml.run(user_input, answer)
-                except Exception:
-                    pass
-            # 技能沉淀：任务类对话且产出成功 → 自动捕获技能（非活跃窗口才做）
-            if _idle:
-                try:
-                    kw = ["帮我写", "帮我做", "帮我实现", "写一个", "做一个", "实现一个", "修复", "整理一下"]
-                    if any(k in user_input for k in kw) and not str(answer).startswith(("（", "抱歉", "出错了")):
-                        sl = self._load_lazy("skill_distill")
-                        if sl and hasattr(sl, "capture"):
-                            sl.capture(user_input, str(answer)[:300], True)
-                except Exception:
-                    pass
+                        ml.run(ui, an)
+                except Exception as e:
+                    self._log("记忆闭环异常: %s" % str(e)[:80])
+            self._defer_to_idle(_memory_chain)
+            # 技能捕获：任务类对话且产出成功 → 存成 SKILL.md。
+            # 两点要注意：
+            #   1) capture() 是 skill_capture 的方法，skill_distill 只有 distill()。
+            #      原来加载错了模块，又用 hasattr 挡着，于是静默失效了很久
+            #      （data/skills/ 最后写入停在 09-22）。
+            #   2) 它纯写文件、不调模型，所以不必等空闲，立即执行。
+            try:
+                kw = ["帮我写", "帮我做", "帮我实现", "写一个", "做一个", "实现一个", "修复", "整理一下"]
+                if any(k in user_input for k in kw) and not str(answer).startswith(("（", "抱歉", "出错了")):
+                    sc = self._load_lazy("skill_capture")
+                    if sc:
+                        # confirm=True 直接进正式库：confirm_skill() 全项目没有调用方，
+                        # 走 pending 的话技能会永远堆在 data/skills_pending/ 没人确认。
+                        sc.capture(user_input, str(answer)[:300], success=True, confirm=True)
+            except Exception as e:
+                # 故意不用 hasattr 兜底：方法名再改错要能在日志里看见，而不是又静默失踪
+                self._log("技能捕获失败: %s" % str(e)[:80])
             # 任务闭环：智能路由判断复杂任务（关键词→LLM→缓存），自动拆解执行
             try:
                 txt = str(user_input)
