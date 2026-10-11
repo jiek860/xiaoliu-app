@@ -8,7 +8,7 @@
 本模块只当"指挥"，具体活全部 trunk.call 给对应模块（星型拓扑）。
 """
 from modules.base import BaseModule
-import os, shutil, subprocess, sys, time, json, re, hashlib, py_compile
+import os, shutil, subprocess, sys, time, json, re, hashlib, py_compile, threading
 
 
 class AutoUpdater(BaseModule):
@@ -150,14 +150,23 @@ class AutoUpdater(BaseModule):
             "spec.loader.exec_module(m)\n"
             "print('OK')\n"
         ) % patch_path
-        tf = os.path.join(self.staging, "_patch_test.py")
-        open(tf, "w", encoding="utf-8").write(test_code)
+        # 文件名带 pid+线程号：与 hot_reload.sandbox_test 同一个坑，
+        # 共用固定文件名时两个验证流程并发会互相覆盖，验证结果张冠李戴。
+        tf = os.path.join(
+            self.staging, "_patch_test_%d_%d.py" % (os.getpid(), threading.get_ident()))
+        with open(tf, "w", encoding="utf-8") as f:
+            f.write(test_code)
         try:
             r = subprocess.run([sys.executable, tf], capture_output=True, timeout=15)
             out = r.stdout.decode("utf-8", errors="replace")
             return r.returncode == 0 and "OK" in out, out[-100:]
         except Exception as e:
             return False, "超时或执行错误: " + str(e)[:50]
+        finally:
+            try:
+                os.remove(tf)
+            except OSError:
+                pass
 
     # ============ ⑤ 弹窗确认 ============
     def ask_confirm(self, plan_text):

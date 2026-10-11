@@ -3,7 +3,11 @@
 v5.1: 改用 importlib 动态加载，支持中文文件名模块；监控目录兼容 modules_repo/
 """
 from modules.base import BaseModule
-import os, sys, importlib, time, subprocess, hashlib
+# importlib.util 是子模块，必须显式导入：只写 import importlib 的话，
+# 在干净进程里 importlib.util 不存在，reload_module 会报
+# "module 'importlib' has no attribute 'util'" 然后走回滚 ——
+# 全程序能跑只是因为别处碰巧先导入了它，属于侥幸。
+import os, sys, importlib, importlib.util, time, subprocess, hashlib, threading
 
 class HotReload(BaseModule):
     NAME = "hot_reload"
@@ -21,6 +25,8 @@ class HotReload(BaseModule):
         self.last_check = {}
         self.reload_count = 0
         self.core_dir = os.path.join(self.base, "core")
+        # 同一时刻只允许一个热更新在跑：避免并发写 staging、并发抢 sys.modules
+        self._reload_lock = threading.RLock()
         os.makedirs(self.staging, exist_ok=True)
 
     def check_changes(self):
@@ -80,8 +86,15 @@ class HotReload(BaseModule):
             "print('OK')",
         ]
         test_code = chr(10).join(lines)
-        test_file = os.path.join(self.staging, "_reload_test.py")
-        open(test_file, "w", encoding="utf-8").write(test_code)
+        # 每个调用者用独立的临时文件名。
+        # 原来所有线程共用 staging/_reload_test.py：并发热更新时后写的那个会把先写的
+        # 覆盖掉，先写的那个子进程实际执行的是别人的脚本 ——
+        # 实测 2 线程并发，好模块被判"验证失败"最高 40/40；反序启动时坏模块被判
+        # "验证通过"11/40（坏代码会被直接加载进程序）。文件名带上 pid+线程号即可根治。
+        test_file = os.path.join(
+            self.staging, "_reload_test_%d_%d.py" % (os.getpid(), threading.get_ident()))
+        with open(test_file, "w", encoding="utf-8") as f:
+            f.write(test_code)
         try:
             r = subprocess.run([sys.executable, test_file],
                                capture_output=True, timeout=10, cwd=self.base)
@@ -95,9 +108,23 @@ class HotReload(BaseModule):
             return False
         except Exception:
             return False
+        finally:
+            # 临时文件用完就删，不再在 staging/ 里堆垃圾
+            try:
+                os.remove(test_file)
+            except OSError:
+                pass
 
     def reload_module(self, name):
-        """沙盒验证后热更新；加载/构造失败自动回滚旧版本"""
+        """沙盒验证后热更新；加载/构造失败自动回滚旧版本
+
+        串行化：scheduler / auto_updater / 自身巡检都可能从不同线程调进来，
+        不加锁的话同一个模块会被并发加载、sys.modules 被互相顶掉。
+        """
+        with self._reload_lock:
+            return self._reload_module_locked(name)
+
+    def _reload_module_locked(self, name):
         if not self.sandbox_test(name):
             return False, "⚠️ 沙盒验证失败，已保留旧版本（未加载）"
         try:
