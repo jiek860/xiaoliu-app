@@ -137,6 +137,10 @@ class ModuleToolsDialog(QDialog):
             gl = groups[gname]
             b = QPushButton(label)
             b.setMinimumHeight(32)
+            # 必须自己覆写内边距：全局样式表给所有 QPushButton 加了 padding:10px
+            # （上下共 20px），32px 高的按钮就只剩 10px 放字，13px 的文字会被压掉。
+            # app 里其它小按钮（model_btn / editor_btn / voice_btn）都是这么处理的。
+            b.setStyleSheet("padding: 2px 8px;")
             b.setToolTip(desc)
             b.clicked.connect(
                 lambda _c=False, l=label, m=mod, me=meth, d=desc,

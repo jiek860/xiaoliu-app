@@ -12,28 +12,10 @@ from core.trunk import Trunk
 from gui.mixins import (
     ChatMixin, DialogMixin, VoiceMixin, SystemMixin, LifecycleMixin,
 )
-
-STYLE = """
-QMainWindow { background: #ffffff; }
-QWidget { color: #1f1f1f; font-family: 'Microsoft YaHei UI'; font-size: 13px; }
-QPushButton {
-    background: #ffffff; border: 1px solid #e5e6eb;
-    border-radius: 6px; padding: 10px; color: #1f1f1f;
-    font-size: 13px; text-align: left; padding-left: 15px;
-}
-QPushButton:hover { background: #f2f3f5; border: 1px solid #4a9eff; color: #4a9eff; }
-QTextBrowser, QListWidget, QComboBox {
-    background: #ffffff; border: 1px solid #e5e6eb;
-    border-radius: 8px; color: #1f1f1f;
-}
-QLineEdit {
-    background: #ffffff; border: 1px solid #e5e6eb;
-    border-radius: 6px; color: #1f1f1f; padding: 8px;
-}
-QDialog, QScrollArea { background: #ffffff; }
-QLabel { color: #1f1f1f; font-size: 13px; }
-QCheckBox { color: #1f1f1f; }
-"""
+# 样式表只有 gui/style.py 一份。
+# 这里原来粘了一份一模一样的副本，两边都得改 —— 正是"改了一个忘另一个"的经典坑。
+# 而且那份副本里的 padding:10px 会让 32px 高的按钮只剩 10px 放字（见 module_tools_dialog）。
+from gui.style import STYLE
 
 
 class JarvisWindow(

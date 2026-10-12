@@ -249,7 +249,9 @@ def build_ui(win):
     win.plus_btn = QPushButton("+")
     win.plus_btn.setFixedSize(40, 30)
     win.plus_btn.setToolTip("附件")
-    win.plus_btn.setStyleSheet("QPushButton{background:#4a9eff;color:white;border:none;border-radius:6px;font-size:18px;font-weight:bold;}QPushButton:hover{background:#3a8eef;}")
+    # padding:0 是必须的：全局样式表给所有 QPushButton 加了 padding:5px 10px /
+    # padding-left:15px，而这个 40x30 的小按钮光靠那点内边距就放不下 18px 的 "+"。
+    win.plus_btn.setStyleSheet("QPushButton{background:#4a9eff;color:white;border:none;border-radius:6px;font-size:18px;font-weight:bold;padding:0;}QPushButton:hover{background:#3a8eef;}")
     def _show_plus_menu():
         from PyQt5.QtWidgets import QMenu
         menu = QMenu(win)
@@ -318,7 +320,8 @@ def build_ui(win):
     btn_row.addWidget(win.editor_btn)
     send = QPushButton("发送")
     send.setFixedSize(64, 30)
-    send.setStyleSheet("QPushButton{background:#4a9eff;color:white;border:none;border-radius:6px;font-size:13px;font-weight:bold;}QPushButton:hover{background:#3a8eef;}QPushButton:pressed{background:#2a7edf;}")
+    # padding:0 同理：64x30 的按钮被全局 padding 吃掉 20px 高，13px 的"发送"会被压掉
+    send.setStyleSheet("QPushButton{background:#4a9eff;color:white;border:none;border-radius:6px;font-size:13px;font-weight:bold;padding:0;}QPushButton:hover{background:#3a8eef;}QPushButton:pressed{background:#2a7edf;}")
     send.clicked.connect(win.send)
     btn_row.addWidget(send)
     fl.addLayout(btn_row)
