@@ -95,12 +95,29 @@ CORE_CAPS = [
         "readonly": True,
         "hints": ["显卡", "gpu", "有没有显卡", "显存", "能跑模型吗"],
     },
+    # 注：group_parallel.list_roles 已改到插件模块里用 TOOLS 声明
+    # （它在 modules/installed，走签名清单那一侧），这里不再重复。
     {
-        "mod": "group_parallel", "method": "list_roles", "name": "group_roles",
-        "desc": "列出群聊里有哪些智能体角色",
+        "mod": "browser_session", "method": "list", "name": "browser_sessions",
+        "desc": "看保存了哪些浏览器登录会话（cookies）",
         "args": {},
         "readonly": True,
-        "hints": ["群聊角色", "有哪些角色", "智能体列表"],
+        "hints": ["浏览器会话", "保存的登录", "cookie", "登录状态"],
+    },
+    {
+        "mod": "action_recorder", "method": "list_recordings",
+        "name": "action_recordings",
+        "desc": "看录制了哪些操作回放",
+        "args": {},
+        "readonly": True,
+        "hints": ["录制列表", "操作录制", "回放", "录了什么"],
+    },
+    {
+        "mod": "personality_market", "method": "export_personality",
+        "name": "personality_export",
+        "desc": "把当前 AI 人格导出成一个小包，可以分享或备份",
+        "args": {"out_path": "导出到哪个文件，如 D:\\\\人格包.zip"},
+        "hints": ["导出人格", "人格包", "备份人格", "分享人格"],
     },
     # ─────────── 娱乐（只读）───────────
     {

@@ -8,6 +8,23 @@ from modules.base import BaseModule
 class OCR(BaseModule):
     NAME = "image_ocr"
     VERSION = "1.0"
+
+    TOOLS = [
+        {"name": "ocr_available", "method": "available",
+         "desc": "检查图片识别功能能不能用（依赖可选组件）",
+         "args": {},
+         "readonly": True,
+         "hints": ["ocr能用吗", "图片识别能用吗"]},
+        {"name": "ocr_read", "method": "recognize",
+         "desc": "识别一张图片里的文字",
+         "args": {"image_path": "图片路径，如 D:\\截图.png"},
+         "hints": ["识别图片", "图片文字", "提取文字", "ocr", "截图识字"]},
+        {"name": "ocr_history", "method": "get_history",
+         "desc": "以前识别过哪些图片",
+         "args": {"count": "看几条，默认 10"},
+         "readonly": True,
+         "hints": ["识别历史", "以前识别的图片"]},
+    ]
     def __init__(self, trunk=None):
         super().__init__(trunk)
         self.trunk = trunk

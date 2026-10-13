@@ -4,10 +4,19 @@ r"""能力注册表：把"模块能做什么"合并成一张工具表
 两个来源
 --------
     来源 A  插件模块（modules/installed 里那 48 个）
-            模块里声明 TOOLS → tools/rebuild_modules_repo.py 写进
-            modules_repo/manifest.json 的 tools 字段 → RSA 签名保护
+            模块里声明 TOOLS → 运行时**从源码读**（AST），
+            清单里的同名字段只是副本，供市场列表/界面显示。
     来源 B  core 模块（core/ 里那 24 个，不是插件、没有清单条目）
             在 core/core_caps.py 里集中声明
+
+为什么来源 A 读源码而不是读清单
+------------------------------
+modules_repo 的 RSA 签名签的是**模块文件的 sha256**
+（core/plugin_signer.calc_hash / tools/sign_modules.py），
+清单条目的其它字段（包括 tools）**不在签名覆盖范围内** ——
+清单里的 tools 被改了，验签照样通过。
+而改模块源码必然改变文件哈希 → 验签失败。
+所以把"能力声明"放在源码里、运行时读源码，它才真正被签名保护。
 
 为什么要分开：72 个登记模块里 48 个是插件、24 个在 core，
 而"只能靠点按钮到达"的功能（统计报表/记忆整理/成长报告…）绝大多数在 core 那批里 ——
@@ -19,11 +28,49 @@ r"""能力注册表：把"模块能做什么"合并成一张工具表
     · 任何异常都返回空结果，绝不因为能力数据把界面搞崩
     · 只返回**文件确实已安装**的模块的能力（没装的不该出现在工具表里）
 """
+import ast
 import json
 import os
 
 MANIFEST_REL = os.path.join("modules_repo", "manifest.json")
 INSTALLED_REL = os.path.join("modules", "installed")
+
+
+def tools_of_source(path, cls=None):
+    """从模块源码里取类属性 TOOLS（用 AST，不执行模块代码）
+
+    **这是权威来源，不是清单。**
+    原因：modules_repo 的 RSA 签名签的是**模块文件的 sha256**
+    （见 core/plugin_signer.calc_hash / tools/sign_modules.py），
+    清单条目里的其它字段（包括 tools）**不在签名覆盖范围内**。
+    也就是说：清单里的 tools 被人改了，验签照样通过。
+    而模块源码改了 -> 文件哈希变了 -> 验签必然失败。
+
+    所以运行时以**源码里的 TOOLS** 为准，清单里的那份只是给
+    插件市场列表/界面看的副本。两边不一致时以源码为准。
+    """
+    try:
+        tree = ast.parse(open(path, encoding="utf-8").read())
+    except Exception:
+        return []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        if cls and node.name != cls:
+            continue
+        for sub in node.body:
+            if not isinstance(sub, ast.Assign):
+                continue
+            names = [t.id for t in sub.targets if isinstance(t, ast.Name)]
+            if "TOOLS" not in names:
+                continue
+            try:
+                val = ast.literal_eval(sub.value)
+            except Exception:
+                return []
+            if isinstance(val, list):
+                return [t for t in val if isinstance(t, dict)]
+    return []
 
 
 def _read_manifest(base):
@@ -81,14 +128,24 @@ def load_tools(base, include_core=True):
     """
     out = {}
 
-    # ── 来源 A：签名清单里的插件模块 ──
+    # ── 来源 A：插件模块（以**源码里声明的 TOOLS** 为准）──
+    #
+    # 清单里的 tools 只是副本：RSA 签名签的是模块文件的 sha256，
+    # 不覆盖清单条目字段，所以清单里那份改了不起作用（验签也不报）。
+    # 源码里的 TOOLS 才是被哈希保护的，运行时读它。
     if base:
         for m in _read_manifest(base):
             if not isinstance(m, dict):
                 continue
-            if not _installed(base, str(m.get("file") or "")):
+            fname = str(m.get("file") or "")
+            if not _installed(base, fname):
                 continue
-            for t in (m.get("tools") or []):
+            src = os.path.join(base, INSTALLED_REL, fname)
+            declared = tools_of_source(src, str(m.get("cls") or "") or None)
+            if not declared:
+                # 源码里没声明才退回清单副本（兼容旧模块）
+                declared = m.get("tools") or []
+            for t in declared:
                 r = _norm(dict(t, _source="plugin"), str(m.get("name") or ""))
                 if r:
                     out[r[0]] = r[1]

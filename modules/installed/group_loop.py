@@ -8,6 +8,19 @@ from modules.base import BaseModule
 class GroupChatPipeline(BaseModule):
     NAME = "group_loop"
     VERSION = "1.0"
+
+    TOOLS = [
+        {"name": "grouploop_stats", "method": "stats",
+         "desc": "群聊闭环统计：累计轮次、好评率、差评数",
+         "args": {},
+         "readonly": True,
+         "hints": ["群聊统计", "群聊闭环", "好评率"]},
+        {"name": "grouploop_worst", "method": "worst_rounds",
+         "desc": "看看群聊里表现最差的几轮",
+         "args": {"n": "看几条，默认 5"},
+         "readonly": True,
+         "hints": ["最差几轮", "群聊表现", "差评"]},
+    ]
     def __init__(self, trunk=None):
         super().__init__(trunk)
         self.trunk = trunk

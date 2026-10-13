@@ -8,6 +8,20 @@ from modules.base import BaseModule
 class Translator(BaseModule):
     NAME = "translate"
     VERSION = "1.0"
+
+    TOOLS = [
+        {"name": "translate_text", "method": "translate",
+         "desc": "把一段文字翻译成目标语言",
+         "args": {"text": "要翻译的文字",
+                  "to_lang": "目标语言代码，如 en/zh/ja，默认 en"},
+         "readonly": True,
+         "hints": ["翻译", "translate", "译成", "英文怎么说", "中文意思"]},
+        {"name": "translate_detect", "method": "detect_lang",
+         "desc": "判断一段文字是什么语言",
+         "args": {"text": "要判断的文字"},
+         "readonly": True,
+         "hints": ["什么语言", "哪国语言", "识别语言"]},
+    ]
     def __init__(self, trunk=None):
         super().__init__(trunk)
         self.trunk = trunk

@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""v26-7.1: 天气工具（wttr.in）"""
+"""v26-7.1: 天气工具（wttr.in）
+
+TOOLS 是"能力声明"：告诉系统"我能被这样调用"，由 tools/rebuild_modules_repo.py
+写进 modules_repo/manifest.json 的 tools 字段（那份清单是 RSA 签名的）。
+字段含义见 core/core_caps.py 的说明。
+"""
 from modules.base import BaseModule
 import urllib.request, urllib.parse, json
 
@@ -7,6 +12,15 @@ import urllib.request, urllib.parse, json
 class Weather(BaseModule):
     NAME = "weather"
     VERSION = "1.0"
+
+    TOOLS = [
+        {"name": "weather_now", "method": "get",
+         "desc": "查某个城市现在的天气（温度/天气/湿度）",
+         "args": {"city": "城市名，如：杭州、北京；不填用默认城市"},
+         "readonly": True,
+         "hints": ["天气", "气温", "下雨", "温度", "冷不冷", "热不热"]},
+    ]
+
     def __init__(self, trunk=None):
         super().__init__(trunk)
         self.trunk = trunk

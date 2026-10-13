@@ -216,18 +216,35 @@ class ToolCaller(BaseModule):
 
         m = self.trunk.modules.get(info["mod"])
         fn = getattr(m, method, None) if m is not None else None
-        names = []
+        names, required = [], []
         if fn is not None:
             try:
                 import inspect
-                names = [p.name for p in inspect.signature(fn).parameters.values()
+                ps = list(inspect.signature(fn).parameters.values())
+                names = [p.name for p in ps
                          if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)]
+                required = [p.name for p in ps
+                            if p.default is p.empty and p.kind in
+                            (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)]
             except Exception:
-                names = []
+                names, required = [], []
+
+        # ① 声明了参数且名字都对得上 -> 按 kwargs 传（支持多参数）
         if args and names and all(k in names for k in args):
             return self.trunk.call(info["mod"], method, **args)
-        arg_val = list(args.values())[0] if args else query
-        return self.trunk.call(info["mod"], method, arg_val)
+
+        # ② 没声明参数 -> 看方法到底要不要参数，别硬塞
+        #    原来这里写的是 `arg_val = list(args.values())[0] if args else query`，
+        #    于是零参数的 list_pending() 会被调成 list_pending("")，
+        #    直接 TypeError（被 @safe 吞掉就变成静默返回 None）。
+        if not args:
+            if not required:
+                return self.trunk.call(info["mod"], method)      # 零参数方法
+            return self.trunk.call(info["mod"], method, query)    # 要吃参数，用整句
+
+        # ③ 声明了参数但名字对不上（如 computer 声明 action / 方法却是 text）
+        #    -> 退回"只传第一个值"，这是现有内置工具的兼容路径
+        return self.trunk.call(info["mod"], method, list(args.values())[0])
 
     def _confirm_tool(self, tool_name, args):
         """需确认的能力：没有确认界面就拒绝（和 shell 同一条原则）"""

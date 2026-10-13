@@ -48,6 +48,27 @@ def doc_of(path):
     return ""
 
 
+def _tools_of(item):
+    """读模块里声明的 TOOLS 能力表（不执行模块代码，用 AST 取值）
+
+    模块用类属性 TOOLS 声明"我能被这样调用"，例如：
+        TOOLS = [{"name": "weather_now", "method": "get",
+                  "desc": "查天气", "args": {"city": "城市名"},
+                  "readonly": True, "hints": ["天气"]}]
+
+    注意：写进清单的这份**只是副本**（给市场列表/界面看）。
+    运行时不读它 —— 因为 RSA 签名签的是模块文件的 sha256，
+    不覆盖清单条目字段。运行时由 core/module_caps.tools_of_source
+    直接从源码读，那样才真正被哈希保护。两边逻辑保持一致。
+    """
+    try:
+        sys.path.insert(0, BASE)
+        from core.module_caps import tools_of_source
+        return tools_of_source(item["src"], item.get("cls"))
+    except Exception:
+        return []
+
+
 # 旧元信息里没有分组的模块，按名字关键词归类，免得插件市场里一半都堆在"其他"
 GROUP_HINTS = [
     ("联网检索", ("搜索", "search", "知识", "qa", "ocr", "多模态", "mcp", "浏览", "browse",
@@ -155,6 +176,9 @@ def main():
             entry["group"] = guess_group(item["title"], item["file"])
         entry["version"] = (base or {}).get("version") or "1.0"
         entry["button"] = (base or {}).get("button")
+        # 能力声明：模块里声明的 TOOLS 优先，其次保留旧清单里已有的。
+        # 写进清单后会一起参与 sha256 + RSA 签名，所以能力声明是防篡改的。
+        entry["tools"] = _tools_of(item) or (base or {}).get("tools") or []
         entry["needs_model"] = bool((base or {}).get("needs_model"))
         entry["depends"] = (base or {}).get("depends") or []
         entry["size"] = os.path.getsize(item["src"])

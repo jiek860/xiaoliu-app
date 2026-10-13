@@ -8,6 +8,14 @@ from modules.base import BaseModule
 class GroupChatParallel(BaseModule):
     NAME = "group_parallel"
     VERSION = "1.0"
+
+    TOOLS = [
+        {"name": "group_roles", "method": "list_roles",
+         "desc": "列出群聊里有哪些智能体角色",
+         "args": {},
+         "readonly": True,
+         "hints": ["群聊角色", "有哪些角色", "智能体列表"]},
+    ]
     def __init__(self, trunk=None):
         super().__init__(trunk)
         self.trunk = trunk
