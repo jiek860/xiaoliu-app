@@ -140,19 +140,29 @@ class ToolCaller(BaseModule):
     _MAX_CANDIDATES = 15
 
     def _candidates(self, query):
-        """第一级粗筛：按关键词把候选缩到 ~15 个
+        """第一级粗筛：先按模式收窄，再按关键词缩到 ~15 个
+
+        两级：
+            模式收窄   core/tool_presets —— 日常/干活/编程，默认"全部"不过滤
+            关键词粗筛  hints 匹配（2 字滑窗，解决"整理记忆" vs "整理下记忆"）
 
         context_builder._TOOL_HINTS 是**第 0 级**（不像要动手就不进 tool_caller）；
         这里是第 1 级。关键词一个都没命中时退回内置工具（通用能力）。
         """
         try:
+            from core import tool_presets
+            pool = tool_presets.filter_tools(self.tools,
+                                             tool_presets.current(self.trunk))
+        except Exception:
+            pool = self.tools
+        try:
             from core import module_caps
-            sub = module_caps.shortlist(self.tools, query, self._MAX_CANDIDATES)
+            sub = module_caps.shortlist(pool, query, self._MAX_CANDIDATES)
             if sub:
                 return dict(sub)
         except Exception:
             pass
-        return dict(self.tools)
+        return dict(pool)
 
     def _llm_decide(self, query):
         """真Function Calling：LLM输出JSON决定用什么工具和参数"""
