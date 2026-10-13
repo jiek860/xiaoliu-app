@@ -29,16 +29,25 @@ class MoodReport:
         # 最近N天
         cutoff = datetime.now() - timedelta(days=days)
         recent = []
+        bad_date = 0
         for h in history:
             try:
                 t = datetime.strptime(h.get("date", "2026-01-01"), "%Y-%m-%d")
                 if t >= cutoff:
                     recent.append(h)
             except Exception:
-                pass
+                # 日期格式不对就跳过这条；但要报数 ——
+                # 否则"最近 N 天没有情绪记录"和"记录日期全坏了"分不清
+                bad_date += 1
 
         if not recent:
-            return {"说明": "最近%d天没有情绪记录" % days}
+            r = {"说明": "最近%d天没有情绪记录" % days}
+            if bad_date:
+                r["日期异常"] = bad_date
+                r["说明"] = ("最近%d天没有情绪记录，但有 %d 条记录的日期"
+                             "读不出来（已跳过）—— 可能是数据写坏了"
+                             % (days, bad_date))
+            return r
 
         # 统计主导情绪
         moods = [h.get("情绪", "中性") for h in recent]

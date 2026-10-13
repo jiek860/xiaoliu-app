@@ -37,11 +37,16 @@ class DreamSystem:
             return []
         lines = open(self.path, encoding="utf-8").readlines()[-count:]
         dreams = []
+        skipped = 0
         for ln in lines:
             try:
                 dreams.append(json.loads(ln.strip()))
             except Exception:
-                pass
+                # 坏行跳过（一行坏了不该让整个"看梦"失败），但**要报数** ——
+                # 否则"还没做过梦"和"记录全坏了"分不清
+                skipped += 1
+        if skipped:
+            dreams.append({"说明": "有 %d 行梦境记录读不出来，已跳过" % skipped})
         return dreams
 
     def run(self, *a):

@@ -14,15 +14,36 @@ class MemoryOrganizer:
         os.makedirs(self.archive_dir, exist_ok=True)
 
     def auto_organize(self):
-        """一键整理记忆卡"""
+        """一键整理记忆卡
+
+        ⚠️ 这里原来有个**数据丢失**问题（2026-10-13 修）：
+            读的时候 `except: pass` 跳过解析失败的行，
+            写回却是 `open(path, "w")` **全量覆盖** ——
+            于是那几行被**永久删除**，而且返回值里的
+            "原始: len(cards)" 报的是**解析成功的条数**（不是文件行数），
+            所以返回 {"原始": 5, "保留": 5} 看起来"一条没丢"，
+            实际文件里可能有 8 行。
+
+        现在的原则：**坏行原样保留**。解析不了不代表该删 ——
+        可能是格式略有问题的有效数据，也可能是别的版本写的。
+        宁可留着让人看见，也不能静默抹掉用户的记忆。
+        """
         if not os.path.exists(self.cards_path):
             return {"状态": "无记忆卡"}
         cards = []
-        for ln in open(self.cards_path, encoding="utf-8"):
-            try:
-                cards.append(json.loads(ln))
-            except Exception:
-                pass
+        bad_lines = []                 # 解析失败的行，原样留着
+        total_lines = 0
+        with open(self.cards_path, encoding="utf-8") as f:
+            for i, ln in enumerate(f, 1):
+                if not ln.strip():
+                    continue
+                total_lines += 1
+                try:
+                    cards.append(json.loads(ln))
+                except Exception as e:
+                    bad_lines.append((i, ln.rstrip("\n"),
+                                      "%s: %s" % (type(e).__name__,
+                                                  str(e)[:60])))
 
         # 1. 去重：相似度>0.7合并
         keep = []
@@ -63,17 +84,30 @@ class MemoryOrganizer:
                 for c in archived:
                     f.write(json.dumps(c, ensure_ascii=False) + "\n")
 
-        # 4. 写回主文件
-        with open(self.cards_path, "w", encoding="utf-8") as f:
+        # 4. 写回主文件（先写临时文件再替换，中途崩不会毁掉原文件）
+        tmp = self.cards_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             for c in active:
                 f.write(json.dumps(c, ensure_ascii=False) + "\n")
+            # 坏行原样保留 —— 不删
+            for _ln, raw, _why in bad_lines:
+                f.write(raw + "\n")
+        os.replace(tmp, self.cards_path)
 
-        return {
-            "原始": len(cards),
+        r = {
+            "原始": total_lines,            # 文件里实际的行数（不是解析成功的数）
             "保留": len(active),
             "合并": merged,
             "归档": len(archived),
         }
+        if bad_lines:
+            r["无法解析"] = len(bad_lines)
+            r["无法解析明细"] = ["第 %d 行（%s）" % (n, why)
+                                 for n, _raw, why in bad_lines[:5]]
+            r["提示"] = ("有 %d 行没法解析，已**原样保留**在文件里"
+                         "（不影响本次整理，但值得看看是不是哪里写坏了）"
+                         % len(bad_lines))
+        return r
 
     def check_conflicts(self):
         """检测冲突记忆（同话题不同结论）"""
@@ -88,11 +122,14 @@ class MemoryOrganizer:
                 lines = f.read().splitlines()[-200:]
         except Exception as e:
             return {"冲突数": 0, "错误": str(e)[:60]}
+        skipped = 0
         for ln in lines:
             try:
                 cards.append(json.loads(ln))
             except Exception:
-                pass
+                # 跳过个别坏行是对的（一行坏了不该让整个检测读不出来），
+                # 但**要报出跳过数** —— 否则"没有冲突"和"全被跳过没检测"分不清
+                skipped += 1
         conflicts = []
         for i, c1 in enumerate(cards):
             for c2 in cards[i+1:]:
@@ -105,7 +142,12 @@ class MemoryOrganizer:
                             subj2 = b[3:8]
                             if subj1 == subj2:
                                 conflicts.append({"fact1": a, "fact2": b})
-        return {"冲突数": len(conflicts), "冲突": conflicts[:10]}
+        r = {"冲突数": len(conflicts), "冲突": conflicts[:10]}
+        if skipped:
+            r["跳过"] = skipped
+            r["说明"] = ("有 %d 行记忆卡读不出来已跳过 —— "
+                         "本次检测没覆盖这些行" % skipped)
+        return r
 
     def run(self, *a):
         return self.auto_organize()

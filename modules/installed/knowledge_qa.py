@@ -73,14 +73,23 @@ class KnowledgeQnA(BaseModule):
     def search_doc(self, keyword):
         """搜索文档"""
         results = []
+        unreadable = []
         for f in os.listdir(self.docs_dir):
             path = os.path.join(self.docs_dir, f)
             try:
                 content = open(path, encoding="utf-8").read()
                 if keyword in content:
                     results.append(f)
-            except: pass
-        return {"找到": len(results), "文档": results}
+            except Exception as e:
+                # 单个文档读不了不该让整个搜索失败，但要**报出来** ——
+                # 否则"没搜到"和"文件全读不了"分不清
+                unreadable.append("%s（%s）" % (f, type(e).__name__))
+        r = {"找到": len(results), "文档": results}
+        if unreadable:
+            r["读不了"] = len(unreadable)
+            r["读不了明细"] = unreadable[:5]
+            r["说明"] = "有 %d 个文档读不出来，本次搜索没覆盖它们" % len(unreadable)
+        return r
 
     @safe
     def ask(self, question):
@@ -92,16 +101,26 @@ class KnowledgeQnA(BaseModule):
         # 先搜索相关文档
         relevant = self.search_doc(question)
         context = ""
+        missed = []
         for doc in relevant.get("文档", [])[:3]:
             path = os.path.join(self.docs_dir, doc)
             try:
                 context += open(path, encoding="utf-8").read()[:500] + "\n"
-            except: pass
+            except Exception as e:
+                # 参考文档读不了，回答质量会下降 —— 要告诉用户，别让他以为
+                # "模型就是答不好"。这条以前是 except: pass。
+                missed.append("%s（%s）" % (doc, type(e).__name__))
 
         try:
             r = llm.chat(f"基于以下资料回答问题:\n{context[:1000]}\n\n问题: {question}")
             self.query_count += 1
-            return {"问题": question, "回答": r, "参考文档": relevant.get("文档", [])}
+            out = {"问题": question, "回答": r,
+                   "参考文档": relevant.get("文档", [])}
+            if missed:
+                out["参考文档读不了"] = missed
+                out["说明"] = ("有 %d 篇参考文档读不出来，这次回答没用到它们 ——"
+                               " 回答可能因此不够准" % len(missed))
+            return out
         except Exception as e:
             return {"错误": str(e)[:80]}
 

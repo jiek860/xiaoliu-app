@@ -98,6 +98,11 @@ class CrashExport:
                     try:
                         z.writestr("config_读取失败.txt", cfg_note)
                     except Exception:
+                        # 这里静默是**故意的，别改**（2026-10-13 审计时确认）：
+                        # 这只是"尽力往包里塞一张说明纸条"，
+                        # 而 cfg_note 本身已经在**返回值**里了（调用方看得到）。
+                        # 塞不进去说明 zip 本身有问题，外面的流程会报出来，
+                        # 这里再抛一次只会掩盖真正的原因。
                         pass
 
             info = "OS: %s\nPython: %s" % (platform.platform(), platform.python_version())

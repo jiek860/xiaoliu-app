@@ -27,6 +27,11 @@ class GPUDetector:
                     info["显存"] = out.split(",")[1].strip()
                     info["推荐后端"] = "CUDA"
         except Exception:
+            # 这里静默是**故意的，别改**（2026-10-13 审计时确认）：
+            # 走这条分支的典型情况是"机器上没有 nvidia-smi / 不是 N 卡"——
+            # 那是**正常结果**（没独显也是合法配置），不是错误。
+            # 报出来只会让每次自检都刷一条无意义的告警，
+            # 真正的"有卡但检测失败"会体现在返回值 info 里（NVIDIA=False）。
             pass
         return info
 

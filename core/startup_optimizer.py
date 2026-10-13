@@ -11,16 +11,34 @@ class StartupOptimizer:
         self.t0 = time.time()
 
     def precompile(self):
-        """预编译所有pyc文件，加快二次启动"""
+        """预编译所有pyc文件，加快二次启动
+
+        两个坑都在这里修掉了（2026-10-13 审计 + 测试发现）：
+          ① 编译失败的文件原来被静默跳过 —— 用户既不知道，下次启动也还是慢
+          ② 更要紧的是 `doraise=False` **根本不抛异常**：它把 SyntaxError
+             打到 stderr 就返回 None，于是 `except` 永远不触发，
+             `count += 1` 反而**把编不过的文件也算成成功了**
+             （测试实测：一个正常文件 + 一个语法错文件，返回 {'预编译文件': 2}）
+        """
         count = 0
+        failed = []                   # [(文件, 原因)]
         for d in ("core", "gui", "modules/installed"):
             for f in glob.glob(os.path.join(self.base, d, "*.py")):
                 try:
-                    py_compile.compile(f, doraise=False)
+                    # doraise=True 才会真的抛出来，改成 False 就又回到坑里了
+                    py_compile.compile(f, doraise=True)
                     count += 1
-                except Exception:
-                    pass
-        return {"预编译文件": count}
+                except Exception as e:
+                    failed.append((os.path.basename(f),
+                                   "%s: %s" % (type(e).__name__,
+                                               str(e)[:60])))
+        r = {"预编译文件": count}
+        if failed:
+            r["失败"] = len(failed)
+            r["失败明细"] = ["%s（%s）" % (n, why) for n, why in failed[:8]]
+            r["说明"] = ("有 %d 个文件没能预编译（上面列了前 8 个）—— "
+                         "这些文件下次启动会现编译，稍微慢一点" % len(failed))
+        return r
 
     def elapsed(self):
         """启动耗时"""
