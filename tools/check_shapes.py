@@ -26,7 +26,7 @@ r"""结构假设检查器 —— 抓「共享数据的结构变了，调用方�
   1. 解包宽度   for k, (a, b) in X.items()
                   —— 值真实是几个元素，就必须解几个
   2. 调用目标   trunk.call("模块", "方法")
-                  —— 那个模块必须真的有这个方法（否则界面弹「这个功能还没做好」）
+                  —— 那个模块必须真的有这个方法（否则界面弹「功能不可用」）
   3. 结构契约   登记表 / 清单 / 数据文件的形状是否还是个调用方以为的样子
 
 用法
@@ -228,7 +228,7 @@ def check_call_targets(api, roots=None):
             continue
         checked += 1
         if method not in api[mod]:
-            problems.append("%s:%d  %s 没有方法 %r（调用会返回「这个功能还没做好」）"
+            problems.append("%s:%d  %s 没有方法 %r（调用会返回「功能不可用」）"
                             % (rel, ln, mod, method))
     return checked, problems, unknown_mod, probes
 

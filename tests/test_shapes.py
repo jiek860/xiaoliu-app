@@ -248,7 +248,7 @@ def module_api():
 def test_all_call_targets_exist(module_api):
     """每个 call("模块","方法") 的方法都必须真的存在
 
-    这条能抓到「按钮看着有、点了只弹『这个功能还没做好』」——
+    这条能抓到「按钮看着有、点了只弹『功能不可用』」——
     历史上 error_lib.auto_fix、file_upload.read、proactive_learner.learn
     都是这么被找出来的。
     """

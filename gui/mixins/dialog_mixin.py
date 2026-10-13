@@ -297,7 +297,7 @@ class DialogMixin:
             return
         # 原来这一句是 trunk.call("file_upload", "read", path)，里面藏着三个问题：
         #   ① file_upload 没有 read 方法（只有 read_file），调用只会返回
-        #      「这个功能还没做好」，文件内容永远是空的
+        #      「功能不可用」，文件内容永远是空的
         #   ② read_file(fname) 会把 fname 拼到 data/uploads 下面去找，
         #      传绝对路径必然"文件不存在"
         #   ③ 就算前两条都对了，它返回的键是"内容"不是这里读的"text"

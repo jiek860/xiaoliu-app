@@ -867,7 +867,9 @@ class Trunk:
             kg = self.modules.get("knowledge_graph")
             if kg:
                 kg.add_dialog(user_input, answer)
-            # P2-8: 每次回答后轻量自评估（规则打分，不占模型，沉淀到 data/self_eval.json）
+            # P2-8: 每次回答后轻量自评估（规则粗筛，不占模型，落在
+            # data/reflect_history.json —— 注释原来写的是 self_eval.json，
+            # 但那个文件全项目没有写入方）
             try:
                 _rfl = self.modules.get("self_reflect") or self._load_lazy("self_reflect")
                 if _rfl and hasattr(_rfl, "quick_eval"):
