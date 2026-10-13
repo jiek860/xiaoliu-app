@@ -501,6 +501,18 @@ class Trunk:
             try: self.status_cb(text)
             except: pass
 
+    def _warn_user(self, text, detail=None):
+        """用户能看见的告警：状态栏一行 + 日志一行。
+
+        后处理（记忆沉淀 / 技能捕获 / 后台整理）出错原来只进日志，界面上完全无感，
+        用户只会觉得"它怎么好像没记住"。这类"坏了但不报错"的降级要留个痕迹。
+        """
+        try:
+            self._set_status("⚠ " + text)
+        except Exception:
+            pass
+        self._log(text + ((": " + str(detail)[:80]) if detail else ""), "WARN")
+
     def _log(self, msg: str, level: str = "INFO") -> None:
         line = "[%s][%s] %s" % (datetime.now().strftime("%H:%M:%S"), level, msg)
         if level in ("WARN", "ERROR"):
@@ -788,7 +800,7 @@ class Trunk:
         """
         try:
             if self._idle_queue.qsize() > 200:
-                self._log("空闲任务积压过多，丢弃一轮后处理")
+                self._warn_user("后台整理任务积压过多，跳过一轮")
                 return
             self._idle_queue.put(fn)
         except Exception:
@@ -806,12 +818,13 @@ class Trunk:
                 while self._chat_busy() and time.time() < deadline:
                     time.sleep(5)
                 if self._chat_busy():
-                    self._log("空闲任务：等了10分钟仍在聊天，放弃本轮")
+                    # 一直没等到空闲：这轮反思/记忆沉淀就没了，得让用户知道
+                    self._warn_user("你聊得太连续，后台整理这轮跳过了")
                     continue
                 try:
                     task()
                 except Exception as e:
-                    self._log("空闲任务异常: %s" % str(e)[:80])
+                    self._warn_user("后台整理出错（详情见日志）", e)
                 time.sleep(1)          # 任务之间喘口气，别一口气把模型打满
             except Exception as e:
                 self._log("空闲任务线程异常: %s" % str(e)[:80])
@@ -878,7 +891,7 @@ class Trunk:
                             pass
                         ml.run(ui, an)
                 except Exception as e:
-                    self._log("记忆闭环异常: %s" % str(e)[:80])
+                    self._warn_user("记忆沉淀失败（详情见日志）", e)
             self._defer_to_idle(_memory_chain)
             # 技能捕获：任务类对话且产出成功 → 存成 SKILL.md。
             # 两点要注意：
@@ -895,8 +908,9 @@ class Trunk:
                         # 走 pending 的话技能会永远堆在 data/skills_pending/ 没人确认。
                         sc.capture(user_input, str(answer)[:300], success=True, confirm=True)
             except Exception as e:
-                # 故意不用 hasattr 兜底：方法名再改错要能在日志里看见，而不是又静默失踪
-                self._log("技能捕获失败: %s" % str(e)[:80])
+                # 故意不用 hasattr 兜底：方法名再改错要能在日志里看见，而不是又静默失踪。
+                # 同时给用户一行状态栏提示 —— 技能没沉淀下来是用户能感知的损失。
+                self._warn_user("技能捕获失败（详情见日志）", e)
             # 任务闭环：智能路由判断复杂任务（关键词→LLM→缓存），自动拆解执行
             try:
                 txt = str(user_input)
