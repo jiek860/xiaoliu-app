@@ -1,7 +1,7 @@
 ══════════════════════════════════════════════════════════════════════
 小6智能体 · 最新完整源码与功能说明
-版本：v25.1.6（core/version.py 的实际值）
-更新日期：2026-10-13
+版本：v25.2.0（core/version.py 的实际值）
+更新日期：2026-10-14
 适用场景：个人自用 + 朋友分发，本地/云端模型
 ══════════════════════════════════════════════════════════════════════
 
@@ -10,14 +10,15 @@
 微核星型架构：核心是 core/trunk.py 总线，所有模块通过 trunk.call() 调用，
 模块之间不直接互相 import（这条约束让任意模块都能单独装卸而不牵连别人）。
 
-规模（2026-10-13 实测）：
+规模（2026-10-14 实测）：
   LAZY_MAP 登记模块   72 个（按需懒加载）
-  modules/installed   47 个插件文件
+  modules/installed   47 个插件（另有 __init__.py，是包标记不算模块）
   modules_repo        47 个（与 installed 同步，全部 RSA 签名）
-  core                57 个 .py
-  gui                 37 个 .py
-  规则引擎            62 条可调规则
-  工具调用            19 个工具
+  core                60 个 .py（含子目录共 86）
+  gui                 38 个 .py（含子目录共 44）
+  规则引擎            63 条可调规则
+  能力注册表          38 条能力（插件来源 20 + core 来源 18）
+  工具表              57 个（内置 19 + 注册表 38）
 
 目录结构：
   项目根目录/
@@ -26,16 +27,20 @@
   │                     #   HF 镜像设置、核心依赖缺失检查
   ├─ gui\               # PyQt5 全部界面代码
   │  ├─ app_pyqt.py     # 备用入口（可直接双击启动，与 run.py 环境准备一致）
-  │  ├─ main_window.py  # 主窗口装配（登录门禁、引导、组件挂载）
+  │  ├─ main_window.py  # 主窗口装配（登录门禁、引导、组件挂载、Ctrl+K 快捷键）
   │  ├─ build_ui.py     # 主窗口、侧边栏、输入框布局
+  │  ├─ command_palette.py  # ★命令面板（Ctrl+K）：能力和面板的统一搜索入口
   │  ├─ chat_view.py    # 聊天气泡渲染
   │  ├─ settings_dialog.py  # 设置窗口（常用/模型/界面/数据/高级5个标签）
   │  ├─ history_dialog.py   # 独立历史记录窗口
   │  ├─ computer_dialog.py  # 电脑控制面板
-  │  ├─ module_tools_dialog.py # 实用工具面板（带搜索框）
+  │  ├─ module_tools_dialog.py # 实用工具（已改成薄壳，转发到命令面板）
   │  └─ mixins/         # 界面逻辑拆分（chat/dialog/lifecycle/system/voice）
   ├─ core\              # 核心微核
   │  ├─ trunk.py        # 总线：模块调度、回复主链路、后台队列、空闲任务队列
+  │  ├─ module_caps.py  # ★能力注册表：合并"插件 TOOLS 声明"与"core 声明"
+  │  ├─ core_caps.py    # ★core 侧能力声明（那些没有插件清单的模块）
+  │  ├─ tool_presets.py # ★工具模式预设（日常/干活/编程/维护）
   │  ├─ llm_client.py   # 大模型客户端：本地Ollama+云端三级路由
   │  ├─ vector_store.py # 本地向量知识库（嵌入降级时状态栏提示）
   │  ├─ config.py       # 配置读写+自动数据迁移
@@ -45,9 +50,9 @@
   │  ├─ chat_store.py   # 聊天记录SQLite存储
   │  ├─ self_check.py   # 自检：Ollama预热/云端探测/健康分/深度体检
   │  ├─ module_map.py   # 模块星图：分组、说明、真实调用边（AST扫描）
-  │  ├─ rules_engine.py # 规则引擎：62条规则，落盘 data/rules/rules.json
+  │  ├─ rules_engine.py # 规则引擎：63条规则，落盘 data/rules/rules.json
   │  ├─ pipeline\       # 回复流水线（reply_pipeline / legacy_reply / context_builder）
-  │  └─ version.py      # 版本号 v25.1.6（全项目唯一来源）
+  │  └─ version.py      # 版本号 v25.2.0（全项目唯一来源）
   ├─ modules\
   │  ├─ base.py         # 插件模块统一基类（BaseModule）
   │  ├─ installed\      # 所有功能插件（47 个）
@@ -55,11 +60,81 @@
   ├─ modules_repo\      # 插件市场仓库（独立 git 仓库 + RSA 签名清单）
   ├─ data\              # 运行时数据：配置/聊天记录/日志/备份/规则/浏览器
   ├─ docs\              # 设计与归档文档（模块星图.html、电脑操控补全方案.md）
+  ├─ tools\             # ★检查与维护脚本（5 个守卫，见第十节）
   ├─ requirements.txt   # 核心依赖清单
   ├─ install.bat        # 朋友一键装依赖
-  └─ check.bat          # 一键自检脚本
+  └─ check.bat          # 一键自检脚本（6 步）
 
-二、当前已实现功能清单
+二、能力架构（v25.2.0 核心变化）
+────────────────────────────────────────
+【要解决的问题】
+  以前"一个能力"要能让模型调用，得手工改三处代码：tool_caller 里的工具表、
+  提示词、分发分支。结果是：能调用的能力长期只有 19 个，而项目里登记着 72 个
+  模块 —— 大量功能只能靠点按钮，模型够不着，坏了也没人发现
+  （memory_organizer.check_conflicts 就因为"只能手点"，文件对象切片那个
+   TypeError 藏了很久，那功能其实从来没成功过）。
+
+【现在怎么做的】
+  能力**声明式**注册，两个来源：
+
+  来源A  插件模块（modules/installed 里那 47 个）
+         在类里声明 TOOLS，例如：
+             TOOLS = [
+                 {"name": "weather_now", "method": "get",
+                  "desc": "查某个城市现在的天气",
+                  "args": {"city": "城市名，如：杭州"},
+                  "readonly": True,
+                  "hints": ["天气", "气温", "下雨"]},
+             ]
+  来源B  core 模块（core/ 里那 24 个，不是插件、没有清单条目）
+         在 core/core_caps.py 里集中声明
+
+  ⚠️ 安全要点：来源A **运行时从模块源码读 TOOLS**（用 AST，不执行模块代码），
+     而不是读 modules_repo/manifest.json 里那份。原因：
+     RSA 签名覆盖的是**模块文件的 sha256**，清单条目的其它字段（含 tools）
+     不在签名覆盖范围内 —— 改清单里的 tools，验签照样通过。
+     改源码必然改变文件哈希 -> 验签失败。所以读源码，声明才真正受签名保护。
+     清单里那份只是给市场列表/界面看的副本。
+
+【字段含义】
+     name      工具名（模型看到的）
+     method    模块里的方法名
+     desc      给模型看的一句话说明
+     args      {参数名: 说明}，模型会按这个填
+     readonly  只读 —— 不加确认、不转后台
+     confirm   要确认（没确认界面时**拒绝执行**，不会静默跑）
+     danger    危险操作（还要规则允许）
+     bg        长任务 —— 聊天触发时转后台线程，不卡回复
+     hints     关键词，用于两级筛选
+
+【两级筛选：为什么不让模型看全部 57 个工具】
+  实测 _llm_decide 的提示词：57 个工具不筛选要 3000+ 字符，
+  而且**候选里混着不相关的能力会拉低模型选择准确率**（工具越多越容易挑错）。
+    第 0 级  core/pipeline/context_builder._TOOL_HINTS  不像要动手就不进 tool_caller
+    第 1 级  tool_caller._candidates()  按模式收窄 + 按 hints 缩到 ~15 个
+  实测效果：粗筛后最坏 889 字符（阈值 1155）
+  hints 匹配用 2 字滑窗，解决"整理记忆" vs "帮我整理下记忆"这类说法差异。
+
+【工具模式预设】core/tool_presets.py
+    全部   可用 57 / 57   ← 默认，不过滤（行为与加这机制之前完全一致）
+    日常   可用 22 / 57 （查资料、记事、看统计，不碰文件系统和命令）
+    干活   可用 15 / 57 （操作电脑、看界面、跑命令、动文件）
+    编程   可用 10 / 57 （只留工程向，提示词 889 -> 574 字符）
+    维护   可用 12 / 57 （记忆整理、数据清理、导出、体检）
+  规则「工具.模式」控制，落盘 data/rules/rules.json。
+  模式只收窄**给模型看的候选**，不影响命令面板里能搜到什么。
+  三重防御：模式名不认识→不过滤；为 None→不过滤；过滤后为空→原样返回。
+
+【长任务后台执行】
+  聊天触发的工具调用是被回复流程**同步**调用的
+  （core/pipeline/legacy_reply.py:133、context_builder.py:200），
+  所以自动更新闭环这类要跑几分钟的能力会把整条回复卡死。
+  标了 bg: True 的会转后台线程（threading，不依赖 Qt），
+  立刻返回「已在后台开始」，完成后写日志 + 状态栏提示。
+  当前 7 个：auto_update / task_goal / learn_topic / debate / model_vote
+            / migrate_export / crash_export
+
+三、当前已实现功能清单
 ────────────────────────────────────────
 ✅ 核心聊天
   - 流式回复、Markdown渲染、代码块高亮
@@ -67,13 +142,20 @@
   - 磁盘缓存：重复问题秒回，不用重复调LLM
   - 历史对话按会话隔离，按账号隔离
   - 失败提示说清「哪个模块 + 下一步」，不再是一句"请联系开发者"
+✅ 命令面板（Ctrl+K）★v25.2.0 新增
+  - 一个搜索框找所有东西：能力 38 条 + 面板 19 个 = 57 条
+  - ↑↓ 选择、回车执行；能力按匹配度排序，面板补在后面
+  - 需要参数的会逐个问（路径类给"选文件"，密码类走掩码输入框）
+  - 能力执行**复用 tool_caller._dispatch** —— readonly/confirm/danger
+    那套安全分级只有一处实现，面板不另起一套
+  - 它取代了原来"实用工具"面板的 24 个按钮（见第十一节）
 ✅ 语音能力
-  - faster-whisper本地语音输入
+  - faster-whisper本地语音输入（子线程识别 + 信号回 GUI 线程更新，见第七节）
   - edge-tts语音合成，自动朗读默认关闭，可手动开
   - 实时对话流水线：VAD静音检测，支持打断
 ✅ 工具与联网
   - 联网搜索、Bing/搜狗/DuckDuckGo（UA轮换 + 三引擎并行，失败自动换源）
-  - Function Calling：19 个工具（见第五节）
+  - Function Calling：57 个工具（见第五节）
   - 截图识字：GLM-4V识别截图内容
 ✅ 电脑与自动化
   - 电脑控制：操作窗口/文件/鼠标键盘，危险操作确认
@@ -84,37 +166,38 @@
   - 知识图谱三元组存储
   - 后台学习闭环，不阻塞聊天（排到空闲队列，不跟聊天抢模型）
   - 自我反思：评不上就如实留空，不再记假分污染统计
-✅ 浏览器自动化（DOM 级）★本次新增
+✅ 浏览器自动化（DOM 级）
   - 基于 Playwright（chromium，装在程序文件夹 data/browsers）
   - DOM 选择器定位，**不是截图猜坐标**：
       打开网页 / 点击元素 / 输入文字 / 读取页面文字 / 批量填表
       登录并保持会话 / 开新标签 / 滚动 / 截图 / 等待
   - 两种用法：聊天里说「打开 xxx 并读取页面文字」，
     或让 LLM 通过 browser 工具自主调用
-✅ 文件读写搜索编辑 ★本次新增
+✅ 文件读写搜索编辑
   - fs_read   读文件，**带行号**，可只读一段（长文件不会塞爆上下文）
   - fs_search 搜文件内容，返回「文件:行号: 内容」，纯 Python 实现
   - fs_edit   精确替换：**原文必须唯一**（0次/多次都拒绝），改前自动备份
   - 全部受白名单约束（项目目录 + 桌面 + 下载 + 文档，
     可在 config 的「文件白名单」里加根目录）
-✅ UI 元素树：按控件名操作 ★本次新增
+✅ UI 元素树：按控件名操作
   - 基于 Windows UI Automation（uiautomation）
   - 从「盲点坐标」升级到「按控件名操作」：
       列出所有窗口 / 查看某程序的控件树 / 按名字找控件
       按控件名点击按钮 / 往指定输入框填字
   - 聊天里可以直接说「点击确定按钮」「看看记事本的控件」
     —— 窗口挪位置也不受影响
-✅ 命令执行：白名单 + 默认关闭 ★本次新增
+✅ 命令执行：白名单 + 默认关闭
   - **默认禁用**（规则「电脑控制.允许命令」= false）
   - 28 个白名单命令：dir/type/where/tasklist/whoami/ipconfig/systeminfo/findstr
     + python/py/git/pip/node/npm/pytest/ruff/ffmpeg/curl/ping 等
   - 拒绝一切串联与重定向（&& || | ; > < & 反引号 $( %( ），只允许单条命令
   - 每条命令都要弹窗确认；**没有确认界面时直接拒绝**（不会静默执行）
   - 完整日志：命令 + 退出码 + 耗时；超时 60 秒
-✅ 规则引擎：62 条可调开关 ★本次新增
+✅ 规则引擎：63 条可调开关
   - 落盘在 data/rules/rules.json，改完重启即生效
   - 危险项默认全关：电脑控制.允许关机 / 电脑控制.允许命令
-  - E 组「自主规则」已接通 4 条（见第八节）
+  - 工具.模式：全部/日常/干活/编程/维护（v25.2.0 新增）
+  - E 组「自主规则」已接通 4 条（见第九节）
 ✅ 界面按键与入口
   【左侧边栏（从上到下）】
   1.  新建对话按钮
@@ -131,14 +214,7 @@
   【+号弹出菜单内容】
   上传文件 / 送编辑器 / 语音输入 / 区域截图 / 导出聊天记录 / 自动朗读开关 / 截图识字
   ── 分隔线 ──
-  功能中心 / 清空当前对话
-
-  【功能中心（+号菜单点开进入）】
-  自动分3组列表显示，点击任意一行打开对应功能：
-  · 让它更聪明：知识库、知识图谱、插件市场
-  · 帮你干活：电脑控制、机器人、MCP市场、历史记录
-  · 系统维护：系统自检、日志中心
-  工具面板顶部有搜索框，可按名称/说明实时筛选
+  清空当前对话 / 打开设置
 
   【设置窗口（侧边栏点设置打开）】
   标签页从左到右：
@@ -147,10 +223,13 @@
   2.  模型：模型模式切换、Ollama地址配置、云端API配置
   3.  界面：AI人格编辑
   4.  数据：备份、恢复、导出配置
-  5.  高级：功能中心、日志中心、历史记录入口，底部显示日志输出
-      新增 🕸️ 模块星图按钮（打开 docs/模块星图.html，看模块分组与真实调用关系）
+  5.  高级：日志中心、历史记录等入口，底部显示日志输出
+      工具标签页里有 ⌘ 命令面板（Ctrl+K） 和 🕸️ 模块星图
 
-三、当前模型配置（默认值）
+  ⚠️ 原来那个"功能中心"窗口已移除（它那批入口早先已并入设置按用途分标签页）；
+     "实用工具"24 按钮面板也已撤，改成命令面板（见第十一节）。
+
+四、当前模型配置（默认值）
 ────────────────────────────────────────
   model_mode: 云端模型
   cloud_model: glm-4v-flash
@@ -161,7 +240,7 @@
   vl_model: qwen3-vl:8b（视觉模型，识别图片）
   配置存储在data/config.json，所有修改自动迁移兼容老配置。
 
-四、核心调用链路
+五、核心调用链路
 ────────────────────────────────────────
 用户发消息 → gui/chat_view.py发送 → trunk.reply()
   → 电脑控制预判：能解析成电脑/浏览器/文件指令就直接执行（不必问模型）
@@ -171,13 +250,18 @@
         （含"规则约束"，如防幻觉的自主.真实不假装）
     3.  llm_client路由选模型：短消息→小模型，带图→视觉模型，复杂→云端
     4.  流式输出回复到聊天框
-    5.  工具调用：LLM 从 19 个工具里选（含 browser/ui_*/fs_*/shell）
+    5.  工具调用：从 57 个工具里**两级筛选**出 ~15 个候选给模型选
+        （模式收窄 + hints 粗筛；标了 bg 的转后台不阻塞）
   → 后台队列异步处理：记忆沉淀、备份、学习
   → 需要调模型的后处理（反思/记忆闭环）排到**空闲队列**，等不忙了再做
   → 如果pipeline异常，自动降级到旧回复逻辑，不会崩
   → 后处理失败会在状态栏留一行提示（不再无声无息）
 
-五、核心对外接口（trunk.call可调用）
+  状态的跨线程回传：trunk.status_cb 接的是 main_window 的
+  statusMessage.emit（pyqtSignal），所以后台线程调 _set_status 是安全的
+  —— 信号由 Qt 排队到 GUI 线程，不是直接改控件。
+
+六、核心对外接口（trunk.call可调用）
 ────────────────────────────────────────
 模块名 | 功能
 ------|------
@@ -189,19 +273,19 @@ backup | 备份：backup_now()、restore()
 voice | 语音：stt()语音识别
 speech | 语音：speak_async()语音合成
 deep_search | 深度联网搜索
-computer_controller | 电脑控制总入口，本次大幅扩充：
+computer_controller | 电脑控制总入口：
     try_handle()      聊天入口，解析并执行一句话指令
     open_app() / list_windows() / activate_window() / close_window()
     mouse_move() / mouse_click() / mouse_drag() / mouse_scroll()
     type_text() / hotkey() / press_key() / clipboard_get() / clipboard_set()
     screenshot() / vision_understand() / system_info()
     list_dir() / create_file() / delete_file() / copy_file() / move_file()
-    ★ read_text()   读文件带行号，可指定行范围
-    ★ search_text() 搜文件内容
-    ★ edit_text()   精确替换（唯一性校验 + 自动备份）
-    ★ ui_windows() / ui_find() / ui_dump() / ui_click() / ui_type()  UI元素树
-    ★ shell()       执行白名单命令（默认关闭）
-browser | ★ 浏览器自动化（Playwright，DOM级）：
+    read_text()   读文件带行号，可指定行范围
+    search_text() 搜文件内容
+    edit_text()   精确替换（唯一性校验 + 自动备份）
+    ui_windows() / ui_find() / ui_dump() / ui_click() / ui_type()  UI元素树
+    shell()       执行白名单命令（默认关闭）
+browser | 浏览器自动化（Playwright，DOM级）：
     open() / click() / type_text() / get_text() / fill_form()
     login_and_keep() / new_tab() / scroll() / screenshot() / wait()
     try_handle() / run()  聊天与工具入口
@@ -209,14 +293,56 @@ chat_store | 聊天记录：append()、load()、search()
 error_lib | 错误日志：log()
 scheduler | 定时任务：加任务、跑备份/复习
 rules_engine | 规则引擎：get()、set()、reset_rule()、all_rules()
+module_caps | ★能力注册表：load_tools()、shortlist()、describe()、tools_of_source()
+tool_presets | ★工具模式：names()、match()、filter_tools()、current()、describe()
 
-tool_caller 当前注册的 19 个工具：
-  vector_search / graph_query / deep_search / code_run / file_read / task_plan
-  computer / browser / fs_read / fs_search / fs_edit
-  ui_find / ui_click / ui_dump / shell
-  mcp_chat / mcp_run_code / mcp_search / mcp_backup（MCP 外部工具）
+tool_caller 当前 57 个工具，分三部分：
+  内置 19 个（原有）：
+    vector_search / graph_query / deep_search / code_run / file_read / task_plan
+    computer / browser / fs_read / fs_search / fs_edit
+    ui_find / ui_click / ui_dump / shell
+    mcp_chat / mcp_run_code / mcp_search / mcp_backup（MCP 外部工具）
+  插件来源 20 个（模块里声明的 TOOLS）：
+    weather_now
+    todo_add / todo_list / todo_done
+    note_add / note_search
+    calendar_today / calendar_add
+    translate_text / translate_detect
+    ocr_available / ocr_read / ocr_history
+    grouploop_stats / grouploop_worst / group_roles
+    learn_topic / learn_status / task_goal / auto_update
+  来源 core 18 个（core/core_caps.py）：
+    stats_report / mood_report / growth_report / dream_make / dream_recent
+    memory_organize / memory_archive / memory_archives / memory_conflicts
+    clean_data / gpu_check / debate / model_vote
+    migrate_export / crash_export / personality_export
+    browser_sessions / action_recordings
 
-六、依赖清单（requirements.txt）
+七、线程安全约定（重要）
+────────────────────────────────────────
+Qt 规定**控件只能在 GUI 线程碰**。子线程直接改控件会随机崩，
+这类 bug 在本项目已出现两次：
+    · gui/model_manager_dialog.py   在 threading.Thread 里 list_w.clear()
+    · gui/mixins/voice_mixin.py     在子线程里 self.input.setPlainText(...)
+                                    （注释还写着"回到主线程更新UI"，其实没回）
+
+【正确做法】子线程只 emit 信号，槽函数在 GUI 线程执行：
+    class _VoiceRelay(QObject):
+        done = pyqtSignal(str, str)
+    relay.done.connect(self._on_voice_done)   # 槽在 GUI 线程跑
+    def _do_listen():                          # 子线程只做识别
+        ...
+        relay.done.emit(text, err)             # 跨线程 emit 是安全的
+  中继对象要以窗口为父 + 引用挂到 self 上，否则会被回收、信号没人接。
+
+【为什么 status_cb 安全】
+    self.trunk.status_cb = self.statusMessage.emit   # 暴露的是 emit，不是控件函数
+  所以后台线程调 trunk._set_status() 是安全的。
+
+【自动检查】tools/check_threads.py 会扫全部线程入口（当前 39 个），
+  用 AST 精确取函数体（end_lineno，不靠正则猜），发现子线程碰控件就报错。
+
+八、依赖清单（requirements.txt）
 ────────────────────────────────────────
 核心必装（不装跑不起来，共 5 个）：
   PyQt5>=5.15
@@ -229,7 +355,7 @@ tool_caller 当前注册的 19 个工具：
   faster-whisper（本地语音识别）
   Pillow/pyautogui/pyperclip（电脑控制）
   opencv-python（多模态）
-  ★ playwright（浏览器自动化）—— 包 + 浏览器二进制两件事：
+  playwright（浏览器自动化）—— 包 + 浏览器二进制两件事：
       pip install playwright -i https://pypi.tuna.tsinghua.edu.cn/simple
       浏览器装到程序文件夹（约 705 MB）：
         set PLAYWRIGHT_BROWSERS_PATH=<项目根>\data\browsers
@@ -237,60 +363,9 @@ tool_caller 当前注册的 19 个工具：
         py -3 -m playwright install chromium
       ⚠️ 官方 CDN cdn.playwright.dev 在国内连不上（实测"基础连接已经关闭"），
          必须带 PLAYWRIGHT_DOWNLOAD_HOST 走国内镜像，否则会卡在 0% 不动。
-  ★ uiautomation（UI元素树，约 200KB）
+  uiautomation（UI元素树，约 200KB）
       pip install uiautomation -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-七、分发说明
-────────────────────────────────────────
-  朋友拿到文件夹后：
-  1.  安装Python 3.10+，勾选Add python to PATH
-  2.  双击install.bat自动装所有核心依赖
-  3.  双击启动PyQt.bat（或进入gui文件夹双击app_pyqt.py）启动
-  启动时自动检查：Python版本够不够、核心依赖缺不缺，缺了弹中文提示，不黑窗口闪退。
-  ⚠️ 如果要把浏览器功能一起分发，记得连 data/browsers 一起拷（约 705 MB）；
-     只拷代码的话浏览器功能不可用，其余功能不受影响。
-
-八、本次更新明细（2026-10-13）
-────────────────────────────────────────
-【新增能力】
-  1. 浏览器自动化修活（此前代码写了但跑不起来：chromium 未下载 + 无人调用）
-     → 现在能 DOM 级读页面/填表/点击，实测 13/13 通过
-  2. 文件工具三件套：fs_read / fs_search / fs_edit（实测 24/24 通过）
-  3. UI 元素树：ui_windows / ui_find / ui_dump / ui_click / ui_type
-     （实测 24/24 通过；从此 GUI 操作可按控件名，不再只会点坐标）
-  4. 命令执行 shell：28 条白名单 + 默认关闭 + 每条确认 + 拒绝串联
-     （实测：非法命令在弹确认之前就被拦，确认回调调用次数 0）
-【修掉的问题】
-  5. 「复制 a.txt 到 b.txt」曾被解析成"改剪贴板"，还回一句"已复制到剪贴板"
-     ——看起来像成功了，实际没复制文件。根因：剪贴板正则贪婪且排在文件复制之前，
-     导致 copy_file 规则永远不可达。现按路径特征区分两者。
-  6. 文件操作只认绝对路径（"新建文件 test.txt" 不认），现支持相对路径
-  7. restart 没被标记为危险操作（dangerous 表里写的是 reboot，匹配不到 restart）
-  8. 「打开百度」会去找一个叫"百度"的程序，现在按网址打开
-  9. 自我反思：LLM 挂了会静默记一个"5 分"，和真实评分混在一起
-     （实测 50 条里 48 条是这种假分，平均分被灌成 5.08）
-     → 现在评不上如实留空并写明原因，统计只算真评分（平均分 7.0）
-  10. 规则引擎 E 组 10 条规则此前**零处被读取**（等于摆设），
-      现接通其中 4 条且默认值等于原有行为：
-        联网.反爬应对   → deep_search 的 UA 轮换与节流（可关）
-        学习.自主选方向  → learning_loop 的方向轮换（可关，关掉固定第一个方向）
-        自主.升级      → auto_updater 的部署环节（关掉则只分析不落地）
-        联网.默认放开   → 是否靠时效词自动联网（关掉只认"明确要求搜"）
-  11. 「检测本地模型」按钮会卡界面 3 秒（urlopen 跑在主线程）→ 已线程化（0.001 秒）
-  12. 模型管理对话框在子线程里操作 Qt 控件（会随机崩溃）→ 改为信号回主线程
-  13. 后处理（记忆沉淀/技能捕获/后台整理）失败只写日志，界面上完全无感
-      → 现在状态栏 + 日志双写
-  14. 懒加载探针（19 处 call(模块,"__no__")）被当成"调用失败"刷 WARN 日志 → 已静音
-  15. 26 个按钮文字被裁（全局样式表 padding 吃掉固定高度按钮的空间）→ 已修
-  16. 登录门禁此前是阻塞 while，窗口要等登录完才显示 → 改为窗口先显示
-  17. 模块星图曾有 83 条悬空边 + 952 条装饰性边（占 91%），
-      现改为 AST 扫描真实 trunk.call 调用边
-【架构调整】
-  18. trunk.py 从 1827 行瘦身到 1086 行：
-      _deep_check → core/self_check.py；_reply_legacy → core/pipeline/legacy_reply.py；
-      事件总线已删除（无人使用）；105 个死 import 清理（未使用 import 从 219 降到 12）
-  19. 插件市场仓库 modules_repo 与 modules/installed 重新同步（此前 47 个文件里
-      41 个不一致，是一份陈旧快照），并全部重新 RSA 签名
+      （依赖 comtypes）
 
 九、已知边界与注意事项
 ────────────────────────────────────────
@@ -303,5 +378,116 @@ tool_caller 当前注册的 19 个工具：
     （data/agents_*_mem.json 里有 86 轮历史，但当前代码不读不写）
   · E 组规则里 `联网.AI反馈收集`、`安全.研究放开` 尚无对应实现，属于未启用的设计；
     完整规格见 docs/自主规则_未启用.md
+  · data/self_eval.json 与 data/reflections.json 目前没有写入方（孤儿数据）
+  · 加了确认的能力在**没有确认界面**时直接拒绝执行（fail-closed），
+    不会静默跑 —— 这是故意的
+
+十、检查脚本与守卫（tools/，check.bat 6 步）
+────────────────────────────────────────
+check.bat 双击就跑，依次做 6 件事，任何一步失败就停并说明原因：
+  [1/6] 语法检查        py -3 -m compileall core gui modules ...
+  [2/6] 提交前测试      py -3 -m pytest tests/ -q    （当前 152 个用例）
+  [3/6] 密钥合规        确认程序目录里没有私钥/共享密钥
+  [4/6] 版本号一致性    tools/check_version.py
+  [5/6] 复杂度预算      tools/check_buttons.py + tools/check_tools.py
+  [6/6] 线程安全        tools/check_threads.py
+
+五个"防回弹"守卫（都是棘轮：只许改善不许变差）：
+  check_shapes.py   结构静默漂移。共享数据格式（清单字段、JSON 结构）变了
+                    就报错，逼着先确认调用方都改好了再 --update 基准。
+  check_version.py  版本号一致性。以 core/version.py 为唯一权威，
+                    核对 CHANGELOG 等位置（历史上漂移过：CHANGELOG 到
+                    v25.1.5 了 version.py 还写着 v25.1.3）。
+  check_buttons.py  按钮预算。口径 = 创建点 + 循环表行数。
+                    ⚠️ 为什么要有"循环表行数"：旧"实用工具"面板 24 个按钮是
+                    `for ... in self.ACTIONS:` 循环创建的，源码只有 1 处创建点
+                    —— 只数创建点会把 24 个控件记成 1 个（实测踩过）。
+  check_tools.py    工具/提示词预算。粗筛后提示词上限 1155 字符
+                    （实测最坏 889）；另外检查有没有能力漏声明 hints。
+  check_threads.py  子线程不许碰 Qt 控件。AST 精确取线程体，
+                    扫 39 个线程入口（见第七节）。
+
+另有两个维护脚本：
+  tools/rebuild_modules_repo.py  重建插件清单（含从源码 AST 读 TOOLS）
+  tools/sign_modules.py          给清单重新 RSA 签名
+  ⚠️ 跑签名脚本要先设 X6_KEY_VAULT=<密钥库目录>，否则找不到私钥，
+     modules_repo 会处于"未签名"状态，用户端会拒绝安装。
+
+十一、按钮精简（v25.2.0）
+────────────────────────────────────────
+【背景】实测 GUI 里有 114 处控件创建、27 个文件。其中"实用工具"面板一个人
+就占 24 个按钮 —— 而那 24 条能力里 23 条其实"说一句"就能用。
+按钮多不是功能多，是**功能的统一调用入口缺失**，只能一个功能配一个按钮。
+
+【做了什么】114 -> 108
+  1. "实用工具"面板 24 个按钮 -> 命令面板（Ctrl+K）
+     数据来自能力注册表，模块声明 TOOLS 就自动出现，不用手写按钮表
+  2. 系统面板 4 个"点一下就调一个能力"的按钮：
+     自动更新闭环 -> auto_update    开始学习 -> learn_topic
+     任务闭环     -> task_goal      采纳建议 -> learn_topic（见下）
+  3. 日志中心 2 个**重复入口**：
+     导出日志包 -> 注册表里已有 crash_export
+     导出数据   -> 注册表里已有 migrate_export
+     （这两个按钮走的是另一套局部实现，同一件事两个真相，已一并清掉）
+
+【⚠️ 撤按钮的顺序：先声明能力，再撤按钮】
+  撤按钮 != 删功能。每个撤掉的按钮，能力都先在注册表里声明好、验证可调用，
+  才动按钮。撤完逐个核对："能力在注册表里吗 / 签名能调吗 / 命令面板搜得到吗"。
+
+【顺带修掉的 bug】「✅ 采纳建议（学第一条）」从来没工作过：
+  它读的是建议文本框的第一行，而那个框全项目只有一处
+  setPlainText("🤔 正在生成建议...")，之后再没人填过内容 ——
+  等于每次拿这句占位符去网上搜。撤掉它、改成声明 learn_topic 才是正解。
+
+【不再撤的原因】剩下 108 个里绝大多数是**交互本身**，不是功能入口：
+  表单/确认（登录、激活、同意条款、引导向导）
+  列表行内操作（卸载、下载、编辑、删除 —— 针对"选中项"，说话没法表达选哪个）
+  浏览导航（更早、更新、刷新、关闭、换目录）
+  实时控制（开始对话、打断、结束 —— 需要即时性）
+  设置项、主界面核心交互
+  真正"点一下就执行一个能力"的按钮已经撤得差不多了（24 + 6 = 30 个）。
+
+十二、分发说明
+────────────────────────────────────────
+  朋友拿到文件夹后：
+  1.  安装Python 3.10+，勾选Add python to PATH
+  2.  双击install.bat自动装所有核心依赖
+  3.  双击启动PyQt.bat（或进入gui文件夹双击app_pyqt.py）启动
+  启动时自动检查：Python版本够不够、核心依赖缺不缺，缺了弹中文提示，不黑窗口闪退。
+  ⚠️ 如果要把浏览器功能一起分发，记得连 data/browsers 一起拷（约 705 MB）；
+     只拷代码的话浏览器功能不可用，其余功能不受影响。
+
+十三、v25.2.0 更新明细（2026-10-14）
+────────────────────────────────────────
+【新增】
+  1. 能力注册表（core/module_caps.py + core_caps.py）
+     双来源合并，38 条能力；插件侧运行时从源码读 TOOLS（受签名保护）
+  2. 命令面板 Ctrl+K（gui/command_palette.py）
+     57 条可搜索入口；执行复用 tool_caller._dispatch，安全分级只有一处实现
+  3. 工具模式预设（core/tool_presets.py）
+     日常/干活/编程/维护，默认"全部"不过滤；编程模式提示词 889 -> 574 字符
+  4. 长任务后台执行：能力可标 bg: True，7 个长任务已标
+  5. 两级筛选：模式收窄 + hints 粗筛（2 字滑窗），候选从 57 缩到 ~15
+【修复】
+  6. 零参数方法被硬塞空字符串：list_pending() 被调成 list_pending("")
+     -> TypeError，还被 @safe 吞成**静默返回 None**（最难查的那种）
+  7. 工具分发器只传第一个参数（list(args.values())[0]），多参数能力全残废
+  8. memory_organizer.check_conflicts **从来没成功过**：
+     `open(...)[-200:]` 对文件对象切片必然 TypeError
+  9. 「采纳建议」按钮一直是坏的（读占位符去搜，见第十一节）
+  10. 语音输入在子线程里碰 Qt 控件（注释写着"回到主线程"其实没回）-> 信号中继
+  11. 能力声明曾不受签名保护 -> 改成运行时从源码读 TOOLS
+  12. 我自己方案里的度量口径错误：只数"创建点"会把 24 个循环创建的按钮
+      记成 1 个，导致撤完按钮总数纹丝不动（114->114）-> 加"循环表行数"口径
+  13. check_tools 的 --rebase 与主检查用了不同格式（443 vs 889 字符），
+      写出的预算立刻被判超标 -> 抽出共用构造函数
+【架构调整】
+  14. 按钮 114 -> 108，并新增按钮预算棘轮锁住成果
+  15. 新增 5 个守卫，check.bat 从 3 步变 6 步
+  16. 清掉因撤按钮变成死代码的 export_logs / export_data（与注册表重复实现）
+  17. gui/system_dialog.py 撤按钮后清掉 3 个局部函数与 2 个死 import
+【当前测试状态】
+  152 个 pytest 用例全通过；六个守卫退出码全 0；
+  模块仓库漂移 0、47/47 验签通过
 ══════════════════════════════════════════════════════════════════════
 文档结束，当前代码为可用版本，可直接分发使用。

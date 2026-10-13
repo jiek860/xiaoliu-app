@@ -68,22 +68,42 @@ def main():
                              "## %s" % (latest, ver, ver)))
 
     # ---------- 3. 分发说明文档 ----------
+    #
+    # 只检查**版本声明**那一处（「版本：v25.2.0」这种），
+    # 不检查文中提到的历史版本号。
+    #
+    # 原来这里是 `re.findall(r"v?25\.\d+\.\d+", src)` 然后要求**全部**等于当前版本 ——
+    # 太粗暴：文档里讲"版本号曾经漂移过（CHANGELOG 到 v25.1.5 了 version.py
+    # 还写着 v25.1.3）"必然要举例，那两处被当成不一致就是**误报**。
+    # 现在改成只认显式声明行。
+    DECL = re.compile(r"版\s*本[号]?\s*[:：]\s*(v?[\d]+\.[\d]+\.[\d]+)")
     for name in ("小6智能体最新架构与功能说明.txt",):
         p = os.path.join(BASE, name)
         if not os.path.exists(p):
             continue
         src = open(p, encoding="utf-8").read()
-        found = sorted(set(re.findall(r"v?25\.\d+\.\d+", src)))
-        bad = [f for f in found if f.lstrip("vV") != bare]
+        declared = DECL.findall(src)
+        if not declared:
+            problems.append((name,
+                             "找不到版本声明 —— 应为「版本：%s」这样一行" % ver))
+            continue
+        bad = sorted({d for d in declared if d.lstrip("vV") != bare})
         if bad:
-            problems.append((name, "里面写着 %s，应为 %s" % ("、".join(bad), ver)))
+            problems.append((name,
+                             "版本声明写着 %s，应为 %s" % ("、".join(bad), ver)))
             if args.fix:
                 for b in bad:
-                    src = src.replace(b, ver)
+                    src = re.sub(r"(版\s*本[号]?\s*[:：]\s*)" + re.escape(b),
+                                 r"\g<1>" + ver, src)
                 open(p, "w", encoding="utf-8").write(src)
-                print("  🔧 已把 %s 里的 %s 改成 %s" % (name, "、".join(bad), ver))
+                print("  🔧 已把 %s 的版本声明改成 %s" % (name, ver))
         else:
-            print("  ✅ %s 版本号一致" % name)
+            hist = sorted({v for v in re.findall(r"v?25\.\d+\.\d+", src)
+                           if v.lstrip("vV") != bare})
+            extra = ("（另有 %d 处历史版本号，属说明性内容，不检查）"
+                     % len(hist)) if hist else ""
+            print("  ✅ %s 版本声明 = %s%s"
+                  % (name, declared[0], extra))
 
     # ---------- 4. 扫全项目残留的旧版本号 ----------
     print()
@@ -95,8 +115,12 @@ def main():
     #   开发流程与目录结构梳理.md   历史提交信息示例
     #   开发者须知-密钥与发版.md    讲"版本号曾漂移"时必然要举例
     #   部署步骤.md                命令行示例
+    #   小6智能体最新架构与功能说明.txt
+    #                             第十/十三节讲历史漂移与守卫时举了 v25.1.3/v25.1.5；
+    #                             它的**版本声明**由上面第 3 步单独检查
     EXPLANATORY = ("CHANGELOG.md", "开发流程与目录结构梳理.md",
-                   "开发者须知-密钥与发版.md", "部署步骤.md")
+                   "开发者须知-密钥与发版.md", "部署步骤.md",
+                   "小6智能体最新架构与功能说明.txt")
     rest = []
     for root, dirs, fs in os.walk(BASE):
         dirs[:] = [d for d in dirs if d not in
