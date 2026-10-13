@@ -90,7 +90,13 @@ def main():
     print("  全项目扫描其它 25.x.x 残留：")
     SKIP = ("\\libs\\", "\\optional_libs\\", "\\backups\\", "\\.git\\", "_trash",
             "\\__pycache__\\", "\\data\\", "\\modules_repo\\")
-    HIST = ("CHANGELOG.md", "开发流程与目录结构梳理.md")
+    # 这些文件里的版本号是**说明性**的，不是版本声明 —— 扫出来只会是噪声：
+    #   CHANGELOG.md              历史条目（v25.1.5 等就是该留着）
+    #   开发流程与目录结构梳理.md   历史提交信息示例
+    #   开发者须知-密钥与发版.md    讲"版本号曾漂移"时必然要举例
+    #   部署步骤.md                命令行示例
+    EXPLANATORY = ("CHANGELOG.md", "开发流程与目录结构梳理.md",
+                   "开发者须知-密钥与发版.md", "部署步骤.md")
     rest = []
     for root, dirs, fs in os.walk(BASE):
         dirs[:] = [d for d in dirs if d not in
@@ -101,7 +107,7 @@ def main():
                 continue
             fp = os.path.join(root, f)
             rel = os.path.relpath(fp, BASE)
-            if any(s in fp for s in SKIP) or f in HIST:
+            if any(s in fp for s in SKIP) or f in EXPLANATORY:
                 continue
             try:
                 for i, line in enumerate(open(fp, encoding="utf-8", errors="ignore"), 1):
