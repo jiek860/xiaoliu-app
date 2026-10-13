@@ -79,6 +79,25 @@ def deep_check(trunk):
     log("账号: %s" % (_who if _who else "未登录(游客)"))
     log("")
 
+    # 0. 数据文件版本登记（见 core/data_schema.py）
+    # 为什么要查：降级运行时，旧程序按旧格式读新数据会**静默误读**，
+    # 甚至覆盖回去把数据搞坏。这里至少让人看见"数据比程序新"。
+    try:
+        from core import data_schema as _ds
+        _base = getattr(trunk, "base", None) or "."
+        _r = _ds.check(_base)
+        if _r["warning"]:
+            errors.append("数据版本: " + "；".join(_r["warning"])[:200])
+            for w in _r["warning"]:
+                log("  ⚠️ %s" % w)
+        elif _r["unknown"]:
+            log("  数据版本: 登记不完整（%d 项未登记）" % len(_r["unknown"]))
+        else:
+            log("  数据版本: 正常（%d 个文件已登记）" % len(_r["info"]))
+    except Exception as e:
+        log("  数据版本: 检查跳过（%s）" % str(e)[:50])
+    log("")
+
     # 1. 语法检查（全程序目录，非仅 core）
     ok = fail = 0
     bad = []
