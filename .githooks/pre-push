@@ -1,0 +1,20 @@
+#!/bin/sh
+# 推送前全检（约 90 秒）
+#
+# 比 pre-commit 多跑三项慢的/对外的：
+#   · check_shapes       结构契约（要加载 76 个模块，约 12 秒）
+#   · check_repo_sync    插件仓库一致性（modules_repo 会推到 gitee，用户端拉它装插件；
+#                        推一份过期或没签名的清单，用户就装不上）
+#   · pytest             全部用例（约 70 秒）
+#
+# 为什么放这里而不是 pre-commit：本地提交可以频繁、轻量；
+# 推送是对外动作，值得多花一分半确认。
+#
+# 跳过：git push --no-verify
+# 想手动跑：py -3 tools/pre_commit_check.py --full
+
+PY=py
+command -v py >/dev/null 2>&1 || PY=python3
+command -v python3 >/dev/null 2>&1 || PY=python
+
+exec "$PY" tools/pre_commit_check.py --full

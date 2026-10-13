@@ -1,0 +1,17 @@
+#!/bin/sh
+# 提交前快检（约 5 秒）
+#
+# 为什么只跑快检：全套要 85 秒，那样的 hook 大家会拿 --no-verify 绕过去，
+# 等于没有。慢的检查（结构契约 + pytest）放 pre-push 里跑。
+#
+# 跳过：git commit --no-verify（请说明为什么）
+# 想手动跑：py -3 tools/pre_commit_check.py
+#
+# 安装：py -3 tools/pre_commit_check.py --install
+#      （git 的 hook 目录不受版本控制，所以用 core.hooksPath 指到 .githooks）
+
+PY=py
+command -v py >/dev/null 2>&1 || PY=python3
+command -v python3 >/dev/null 2>&1 || PY=python
+
+exec "$PY" tools/pre_commit_check.py
