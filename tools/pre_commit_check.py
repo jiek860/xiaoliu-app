@@ -40,6 +40,9 @@ CHECKS = [
     ("按钮预算", [PY, "tools/check_buttons.py"], False),
     ("工具/提示词预算", [PY, "tools/check_tools.py"], False),
     ("线程安全", [PY, "tools/check_threads.py"], False),
+    # 静默失败棘轮：存量冻结（357 处），新增要说明理由。
+    # 放 pre-commit 是因为它只做 AST 扫描，很快（约 1 秒）。
+    ("静默失败棘轮", [PY, "tools/check_silent.py"], False),
     ("结构契约", [PY, "tools/check_shapes.py"], True),      # 12 秒，放 pre-push
     # plugins_repo 是独立仓库、真的会推到 gitee，用户端拉它装插件。
     # 主仓库没有远程、没有 CI 兜着，所以"推送前"是唯一的关卡。
