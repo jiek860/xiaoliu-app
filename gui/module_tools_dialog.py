@@ -119,13 +119,24 @@ class ModuleToolsDialog(QDialog):
     def _build(self):
         root = QHBoxLayout(self)
 
-        # 左：分组按钮（可滚动）
+        # 左：搜索框 + 分组按钮（可滚动）
+        # 40 多个按钮平铺着找太费劲，加个过滤框：按名称或说明实时筛，
+        # 整组都被筛掉时连分组标题一起隐藏。
+        left = QVBoxLayout()
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("🔍 搜索功能…（按名称或说明过滤，回车直接执行唯一匹配）")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self._filter)
+        self.search.returnPressed.connect(self._run_only_match)
+        left.addWidget(self.search)
+
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
         left_scroll.setFixedWidth(340)
         host = QWidget()
         lv = QVBoxLayout(host)
         groups = {}
+        self._groups = []            # [(分组框, [(按钮, 名称, 说明)])] 供过滤用
         for gname, label, mod, meth, desc, need_confirm, ask in self.ACTIONS:
             if gname not in groups:
                 box = QGroupBox(gname)
@@ -134,6 +145,7 @@ class ModuleToolsDialog(QDialog):
                 gl.setSpacing(6)
                 groups[gname] = gl
                 lv.addWidget(box)
+                self._groups.append((box, []))
             gl = groups[gname]
             b = QPushButton(label)
             b.setMinimumHeight(32)
@@ -146,9 +158,39 @@ class ModuleToolsDialog(QDialog):
                 lambda _c=False, l=label, m=mod, me=meth, d=desc,
                 nc=need_confirm, a=ask: self._do(l, m, me, d, nc, a))
             gl.addWidget(b, gl.count() // 1, 0)
+            for _box, items in self._groups:
+                if _box.title() == gname:
+                    items.append((b, label, desc))
+                    break
         lv.addStretch(1)
         left_scroll.setWidget(host)
-        root.addWidget(left_scroll)
+        left.addWidget(left_scroll, stretch=1)
+        root.addLayout(left)
+
+    def _filter(self, text=""):
+        """按名称/说明过滤按钮；某组一个都不剩就整组隐藏"""
+        q = (text or "").strip().lower()
+        for box, items in getattr(self, "_groups", []):
+            shown = 0
+            for b, label, desc in items:
+                hit = (not q) or (q in label.lower()) or (q in str(desc or "").lower())
+                b.setVisible(hit)
+                shown += 1 if hit else 0
+            box.setVisible(shown > 0)
+
+    def _visible_buttons(self):
+        out = []
+        for _box, items in getattr(self, "_groups", []):
+            for b, _l, _d in items:
+                if b.isVisible():
+                    out.append(b)
+        return out
+
+    def _run_only_match(self):
+        """回车：只剩一个匹配时直接执行它，省一次点击"""
+        bs = self._visible_buttons()
+        if len(bs) == 1:
+            bs[0].click()
 
         # 右：结果
         right = QVBoxLayout()

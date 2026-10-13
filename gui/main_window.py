@@ -115,36 +115,17 @@ class JarvisWindow(
             self.chat.load_history(msgs)
         except Exception:
             pass
-        # 11. 登录门禁
+        # 11. 登录门禁：改成窗口显示之后再走（见 _do_login_flow）
+        #     这里原来是个阻塞 while，窗口要等登录完才 show() —— 用户只看到一个
+        #     孤零零的登录框浮在空桌面上，后面什么都没有。现在主界面先画出来，
+        #     登录框浮在它上面（show_login 内部是模态 exec_，事件循环照常转）。
         if not self.account.current_username():
             self.chat.append(
                 "<div style='color:#c00'>⚠ 未登录或账号未激活，请先登录已激活的账号。</div>"
             )
-            while not self.account.current_username():
-                try:
-                    ok = self.show_login()
-                except Exception:
-                    traceback.print_exc()
-                    ok = False
-                if not ok:
-                    r = QMessageBox.question(
-                        self, "需要登录",
-                        "未登录，是否重试？\n（点 No 退出程序）",
-                        QMessageBox.Yes | QMessageBox.No,
-                    )
-                    if r == QMessageBox.No:
-                        QApplication.quit()
-                        return
-        # 12. 首次运行引导：模型还没配通时提示怎么配（延迟一点，先让窗口显示出来）
-        try:
-            from gui.onboarding_wizard import needs_onboarding, show_onboarding
-            if needs_onboarding(self.trunk):
-                QTimer.singleShot(400, lambda: show_onboarding(self.trunk, self))
-        except Exception as e:
-            try:
-                self.trunk._log("首次引导检查失败: %s" % str(e)[:60])
-            except Exception:
-                pass
+        QTimer.singleShot(0, self._do_login_flow)
+
+        # 12. 首次运行引导挪进 _do_login_flow 末尾 —— 否则它会盖在登录框上
 
         # 13. 定时器
         self.last_user_msg = time.time()
@@ -157,22 +138,38 @@ class JarvisWindow(
         self._status_timer.start(3 * 60 * 1000)
 
     def _do_login_flow(self):
-        """异步登录流程：不阻塞Qt事件循环"""
-        if self.account.current_username():
+        """窗口显示后再走登录门禁（原来在 __init__ 里阻塞，窗口得等登录完才出现）"""
+        try:
+            while not self.account.current_username():
+                try:
+                    ok = self.show_login()
+                except Exception:
+                    traceback.print_exc()
+                    ok = False
+                if ok:
+                    break
+                r = QMessageBox.question(
+                    self, "需要登录",
+                    "未登录，是否重试？\n（点 No 退出程序）",
+                    QMessageBox.Yes | QMessageBox.No,
+                )
+                if r == QMessageBox.No:
+                    QApplication.quit()
+                    return
+        finally:
+            # 登录过了（或本来就在登录态）才提示首次配置
+            QTimer.singleShot(400, self._maybe_onboarding)
+
+    def _maybe_onboarding(self):
+        """首次运行引导：模型还没配通时提示怎么配"""
+        if not self.account.current_username():
             return
-        while not self.account.current_username():
+        try:
+            from gui.onboarding_wizard import needs_onboarding, show_onboarding
+            if needs_onboarding(self.trunk):
+                show_onboarding(self.trunk, self)
+        except Exception as e:
             try:
-                ok = self.show_login()
+                self.trunk._log("首次引导检查失败: %s" % str(e)[:60])
             except Exception:
-                traceback.print_exc()
-                ok = False
-            if ok:
-                return
-            r = QMessageBox.question(
-                self, "需要登录",
-                "未登录，是否重试？\n（点 No 退出程序）",
-                QMessageBox.Yes | QMessageBox.No,
-            )
-            if r == QMessageBox.No:
-                QApplication.quit()
-                return
+                pass
