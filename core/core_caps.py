@@ -138,12 +138,14 @@ CORE_CAPS = [
         "mod": "migration", "method": "export", "name": "migrate_export",
         "desc": "把整份数据打包成一个压缩包，换电脑时用",
         "args": {"out_path": "导出到哪个文件，如 D:\\\\x6备份.zip"},
+        "bg": True,          # 要打包整个 data/，几秒到几十秒
         "hints": ["迁移", "导出数据", "打包数据", "换电脑", "备份全部"],
     },
     {
         "mod": "crash_export", "method": "export", "name": "crash_export",
         "desc": "打包日志+配置+系统信息（密钥自动脱敏），用来排查崩溃",
         "args": {"out_path": "导出到哪个文件，如 D:\\\\崩溃日志.zip"},
+        "bg": True,          # 要打包日志+配置，几秒
         "hints": ["崩溃日志", "导出日志", "报错打包", "排查"],
     },
     # ─────────── 数据清理（危险，需确认）───────────
@@ -159,12 +161,14 @@ CORE_CAPS = [
         "mod": "group_debate", "method": "debate", "name": "debate",
         "desc": "让几个智能体就某个话题辩论",
         "args": {"topic": "辩题", "rounds": "辩几轮，默认 2"},
+        "bg": True,          # 多轮模型调用，很慢
         "hints": ["辩论", "让它们讨论", "多智能体讨论"],
     },
     {
         "mod": "model_vote", "method": "chat_vote", "name": "model_vote",
         "desc": "多个模型各自回答同一个问题，再投票选最好的",
         "args": {"message": "要问的问题"},
+        "bg": True,          # 要问好几个模型，很慢
         "hints": ["投票", "多个模型", "模型对比"],
     },
 ]

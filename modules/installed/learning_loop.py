@@ -14,6 +14,8 @@ class LearningPipeline(BaseModule):
         {"name": "learn_topic", "method": "run",
          "desc": "学一个网址/主题：搜资料→提炼→存进知识库和向量库",
          "args": {"topic": "网址或学习主题，如 https://docs.python.org 或 异步编程"},
+         # bg：要联网搜资料再让模型提炼，几十秒。聊天触发是同步调用，必须转后台。
+         "bg": True,
          "hints": ["学习", "学一下", "了解一下", "查资料学", "深入研究"]},
         {"name": "learn_status", "method": "status",
          "desc": "看学习闭环的状态和累计轮次",

@@ -20,6 +20,9 @@ class AutoUpdater(BaseModule):
          "desc": "自更新闭环：取问题→生成建议→编程小匠打补丁→沙盒验证→弹窗确认→部署",
          "args": {},
          "confirm": True,
+         # bg：这条要跑几分钟。聊天触发时 _dispatch 是被回复流程**同步**调用的
+         # （core/pipeline/legacy_reply.py:133），同步跑会把回复整个卡死 —— 必须转后台。
+         "bg": True,
          "hints": ["自动更新", "自我更新", "升级自己", "自更新", "改自己代码"]},
     ]
     def __init__(self, trunk=None):

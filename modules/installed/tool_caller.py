@@ -224,6 +224,26 @@ class ToolCaller(BaseModule):
         if info.get("confirm") and not self._confirm_tool(tool_name, args):
             return {"ok": False, "错误": "已取消"}
 
+        # 长任务加 bg 标记 -> 转后台执行，立刻返回
+        #
+        # 为什么必须这么做：聊天触发时 _dispatch 是被回复流程**同步**调用的
+        # （core/pipeline/legacy_reply.py:133、context_builder.py:200），
+        # 而自动更新闭环要跑几分钟、任务闭环要派子智能体、学习要联网搜资料 ——
+        # 同步跑会把整条回复卡死。
+        # 撤按钮之前这些能力走的是 GUI 的 BgWorker（后台线程），所以没这个问题；
+        # 撤按钮后聊天成了主要入口，必须在这里补上，否则等于把"后台跑"退化成"卡界面"。
+        if info.get("bg") and not info.get("readonly"):
+            label = tool_name or ("%s.%s" % (info["mod"], method))
+            self._run_bg(info, args, query, label)
+            return {"ok": True, "已在后台开始": label,
+                    "说明": "这个能力比较慢，已转后台执行，你可以继续聊；"
+                            "完成后会写进日志（data/logs/trunk.log）"}
+
+        return self._invoke(info, args, query)
+
+    def _invoke(self, info, args, query):
+        """真正执行（同步路径与后台路径共用同一份传参逻辑）"""
+        method = info["method"]
         m = self.trunk.modules.get(info["mod"])
         fn = getattr(m, method, None) if m is not None else None
         names, required = [], []
@@ -255,6 +275,32 @@ class ToolCaller(BaseModule):
         # ③ 声明了参数但名字对不上（如 computer 声明 action / 方法却是 text）
         #    -> 退回"只传第一个值"，这是现有内置工具的兼容路径
         return self.trunk.call(info["mod"], method, list(args.values())[0])
+
+    def _run_bg(self, info, args, query, label):
+        """把长任务丢到后台线程，立刻返回
+
+        用 threading 而不是 Qt 的 QThread：tool_caller 是模块，不该依赖 Qt
+        （微核约定：模块之间不互相 import，也不该绑死某个 GUI 框架）。
+        结果写日志 —— 后台线程不碰任何控件，避免跨线程操作 Qt 对象。
+        """
+        import threading
+
+        def _work():
+            try:
+                r = self._invoke(info, args, query)
+                self.trunk._log("后台能力完成: %s -> %s"
+                                % (label, str(r)[:160]))
+                # 通知界面（状态栏回调内部自己保证线程安全，失败就算了）
+                try:
+                    self.trunk._set_status("✅ %s 已完成（详情见日志）" % label)
+                except Exception:
+                    pass
+            except Exception as e:
+                self.trunk._log("后台能力失败: %s - %s"
+                                % (label, str(e)[:80]), "WARN")
+
+        threading.Thread(target=_work, daemon=True,
+                         name="x6cap-%s" % str(label)[:14]).start()
 
     def _confirm_tool(self, tool_name, args):
         """需确认的能力：没有确认界面就拒绝（和 shell 同一条原则）"""

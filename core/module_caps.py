@@ -114,6 +114,11 @@ def _norm(t, default_mod=None):
         "readonly": bool(t.get("readonly")),
         "confirm": bool(t.get("confirm")),
         "danger": bool(t.get("danger")),
+        # bg：长任务标记。聊天触发时 _dispatch 是被回复流程**同步**调用的，
+        # 没这个标记就会把回复卡死（自动更新要跑几分钟）。
+        # 踩过的坑：加了标记但这里没透出来 —— 归一化时把字段吞了，
+        # 表现是"标了也没用"，实测 learn_topic 仍然同步跑了 8 秒。
+        "bg": bool(t.get("bg")),
         "hints": [str(h) for h in hints],
         "source": t.get("_source", ""),
     }

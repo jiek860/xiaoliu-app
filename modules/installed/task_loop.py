@@ -13,6 +13,8 @@ class TaskPipeline(BaseModule):
         {"name": "task_goal", "method": "run",
          "desc": "任务闭环：把一个目标拆成步骤→派子智能体执行→沙盒验证→评分",
          "args": {"goal": "要完成的目标，如 写一个计算器脚本"},
+         # bg：要派子智能体逐步执行，可能几分钟。聊天触发时是同步调用，必须转后台。
+         "bg": True,
          "hints": ["任务闭环", "拆解目标", "帮我完成", "分步做", "执行目标"]},
     ]
     AGENTS = {
