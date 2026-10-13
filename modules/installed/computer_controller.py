@@ -1353,6 +1353,14 @@ class ComputerController(BaseModule):
             return {"ok": False,
                     "错误": "命令 %r 不在白名单内" % first,
                     "白名单": list(self._SHELL_ALLOW)}
+        # 关键：确认环节必须"失败即拒绝"。
+        # trunk.confirm 在没有 GUI 回调时是**放行**的（"无则放行"）——
+        # 对删文件那种白名单内的操作还能接受，但对"执行命令"不行：
+        # 没有界面就没人能看见这条命令，宁可拒绝也不静默跑。
+        if not getattr(self.trunk, "confirm_cb", None):
+            return {"ok": False,
+                    "错误": "当前没有可用的确认界面，拒绝执行命令"
+                            "（避免没人确认就静默跑掉）"}
         if not self._confirm("执行命令", c[:200]):
             return {"ok": False, "错误": "已取消"}
         t0 = time.time()
