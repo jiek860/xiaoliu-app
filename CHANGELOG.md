@@ -1,4 +1,38 @@
 # 版本变更记录
+## v25.2.1 - 2026-10-14
+### 整理（产品升级向：不新增功能，只让已有的变诚实）
+- **模块星图的调用边扫描修好**：原来只认 `trunk.call("字面量","字面量")`，
+  导致一批**正在跑**的模块在图上看不到调用者（像孤儿）。现在承认五种形态：
+  字面量 / 映射表驱动 / 直接 import / 别名 / 能力注册表驱动。
+  实测边数 9 -> 50；agent_coder、agent_analyst、agent_planner、plugin_signer
+  从此能看出谁在用它们
+- **退役 5 个确认无调用路径的模块**（源码保留在 modules/retired/）：
+  active_learning（唯一引用是个全项目无人使用的历史别名）
+  graph_db（自述 P2-19 旧实现，已由 knowledge_graph 取代；而且它构造函数
+  收的是路径不是 trunk，本来就永远加载失败）
+  reasoning_engine（外部零引用，职责与 task_loop 重叠）
+  skill_distill（外部零引用，与 skill_capture 是同一件事的两个真相）
+  empathy（见下）
+- **接通 2 个写好了却没人用的模块**（只声明已有方法，不写新逻辑）：
+  knowledge_qa    -> kqa_ask / kqa_list / kqa_search / kqa_add / kqa_stats
+  startup_optimizer -> startup_precompile
+  LAZY_MAP 72 -> 67，能力注册表 38 -> 44，工具表 57 -> 63
+- **清单瘦身**：modules_repo 从 47 条降到 43 条（退役的不再登记 ——
+  留着会"装了也不会被加载"），重新 RSA 签名，漂移 0
+### 发现
+- **smart_router 的路由结果被丢掉了**：它有 8 条意图→模块映射，
+  但 core/trunk.py 只消费 `意图 == "task"` 这一个分支，
+  **全项目没有任何地方读 `r["模块"]`** —— 包括 empathy 在内的 7 条映射
+  算完就丢。empathy 因此实际到不了（这是它被退役的真实原因）。
+  接入它属于行为变更，不在本次"只整理"的范围，故只记录不实施。
+- 静态可达性分析在这个项目上不可靠：为了得到可信数字，先后踩了
+  5 个度量缺陷（把登记表当调用方 / LAZY_MAP 元组取错下标 /
+  漏 self.call / 漏直接 import / 没处理 stt-voice 这类别名）。
+  结论是**静态扫描只能当下界**，最终仍需人工逐个确认。
+### 修复
+- core/module_map.py 里"模块之间没有直接 import"那句注释已过时
+  （plugin_market 就直接 `from core.plugin_signer import PluginSigner`），已更正
+
 ## v25.2.0 - 2026-10-14
 ### 新增
 - **能力注册表**：core/module_caps.py 把"能力从哪来"统一成两个来源 ——

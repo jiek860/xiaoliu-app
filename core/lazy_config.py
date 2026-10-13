@@ -27,7 +27,6 @@ LAZY_MAP = {
     # ===== 闭环 =====
     "learning_loop":    ("learning_loop",    "LearningPipeline",    "学习闭环"),
     "task_loop":        ("task_loop",        "TaskPipeline",        "任务闭环"),
-    "skill_distill":    ("skill_distill",    "SkillDistill",        "技能沉淀"),
     "skill_capture":    ("skill_capture",    "SkillCapture",        "技能捕获"),
     # ===== 智能体 =====
     "smart_router":     ("smart_router",     "SmartRouter",         "智能路由"),
@@ -46,16 +45,13 @@ LAZY_MAP = {
     "mobile_remote":    ("mobile_remote",    "MobileRemote",        "手机远程"),
     # ===== L 模块 =====
     "self_reflect":     ("self_reflect",     "ReflectEngine",       "自我反思"),
-    "empathy":          ("empathy",          "EmpathyModule",       "共情模块"),
     "anomaly_detector": ("anomaly_detector", "AnomalyDetector",     "异常检测"),
-    "active_learning":  ("active_learning",  "ActiveLearning",      "主动学习"),
     # ===== 后台 =====
     "scheduler":        ("scheduler",        "Scheduler",           "定时任务"),
     "hot_reload":       ("hot_reload",       "HotReload",           "热重载"),
     # ===== 其他 =====
     "error_lib":        ("error_lib",        "ErrorLibrary",        "错误库"),
     "knowledge_qa":     ("knowledge_qa",     "KnowledgeQnA",        "知识问答"),
-    "reasoning_engine": ("reasoning_engine", "ReasoningEngine",     "推理引擎"),
     # ===== 智能体占位 =====
     "agent_coder":      ("agent_coder",      "AgentCoder",          "编程小匠"),
     "agent_analyst":    ("agent_analyst",    "AgentAnalyst",        "分析专家"),
@@ -77,7 +73,6 @@ LAZY_MAP = {
     "dream_system":     ("dream_system",     "DreamSystem",         "梦境系统"),
     "memory_archiver":  ("memory_archiver",  "MemoryArchiver",      "记忆归档"),
     "plugin_signer":    ("plugin_signer",    "PluginSigner",        "插件签名"),
-    "graph_db":         ("graph_db",         "GraphDB",             "知识图谱存储"),
     "gpu_detector":     ("gpu_detector",     "GPUDetector",         "GPU检测"),
 
     # ===== v26新增模块 =====

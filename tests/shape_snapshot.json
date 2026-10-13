@@ -1,5 +1,5 @@
 {
-  "LAZY_MAP.size": 72,
+  "LAZY_MAP.size": 67,
   "LAZY_MAP.value_arity": [
     3
   ],
@@ -114,7 +114,7 @@
       ]
     }
   },
-  "manifest.count": 47,
+  "manifest.count": 43,
   "manifest.keys": [
     "button",
     "cls",

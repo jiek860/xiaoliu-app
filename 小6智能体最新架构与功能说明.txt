@@ -1,6 +1,6 @@
 ══════════════════════════════════════════════════════════════════════
 小6智能体 · 最新完整源码与功能说明
-版本：v25.2.0（core/version.py 的实际值）
+版本：v25.2.1（core/version.py 的实际值）
 更新日期：2026-10-14
 适用场景：个人自用 + 朋友分发，本地/云端模型
 ══════════════════════════════════════════════════════════════════════
@@ -9,16 +9,19 @@
 ────────────────────────────────────────
 微核星型架构：核心是 core/trunk.py 总线，所有模块通过 trunk.call() 调用，
 模块之间不直接互相 import（这条约束让任意模块都能单独装卸而不牵连别人）。
+※ 例外：模块间允许"直接 import 同一进程内的纯工具类"，实测只有 1 处
+  （plugin_market 直接 from core.plugin_signer import PluginSigner）。
 
-规模（2026-10-14 实测）：
-  LAZY_MAP 登记模块   72 个（按需懒加载）
-  modules/installed   47 个插件（另有 __init__.py，是包标记不算模块）
-  modules_repo        47 个（与 installed 同步，全部 RSA 签名）
-  core                60 个 .py（含子目录共 86）
+规模（2026-10-14 实测，v25.2.1 退役 5 个模块后）：
+  LAZY_MAP 登记模块   67 个（按需懒加载）
+  modules/installed   43 个插件（另有 __init__.py，是包标记不算模块）
+  modules/retired     22 个已退役插件（保留源码不加载）
+  modules_repo        43 个（与 installed 同步，全部 RSA 签名）
+  core                59 个 .py（含子目录共 85）
   gui                 38 个 .py（含子目录共 44）
   规则引擎            63 条可调规则
-  能力注册表          38 条能力（插件来源 20 + core 来源 18）
-  工具表              57 个（内置 19 + 注册表 38）
+  能力注册表          44 条能力（插件来源 25 + core 来源 19）
+  工具表              63 个（内置 19 + 注册表 44）
 
 目录结构：
   项目根目录/
@@ -55,7 +58,7 @@
   │  └─ version.py      # 版本号 v25.2.0（全项目唯一来源）
   ├─ modules\
   │  ├─ base.py         # 插件模块统一基类（BaseModule）
-  │  ├─ installed\      # 所有功能插件（47 个）
+  │  ├─ installed\      # 所有功能插件（43 个）
   │  └─ retired\        # 已退役插件（保留源码不加载）
   ├─ modules_repo\      # 插件市场仓库（独立 git 仓库 + RSA 签名清单）
   ├─ data\              # 运行时数据：配置/聊天记录/日志/备份/规则/浏览器
@@ -77,7 +80,7 @@
 【现在怎么做的】
   能力**声明式**注册，两个来源：
 
-  来源A  插件模块（modules/installed 里那 47 个）
+  来源A  插件模块（modules/installed 里那 43 个）
          在类里声明 TOOLS，例如：
              TOOLS = [
                  {"name": "weather_now", "method": "get",
@@ -107,8 +110,8 @@
      bg        长任务 —— 聊天触发时转后台线程，不卡回复
      hints     关键词，用于两级筛选
 
-【两级筛选：为什么不让模型看全部 57 个工具】
-  实测 _llm_decide 的提示词：57 个工具不筛选要 3000+ 字符，
+【两级筛选：为什么不让模型看全部 63 个工具】
+  实测 _llm_decide 的提示词：63 个工具不筛选要 3761 字符，
   而且**候选里混着不相关的能力会拉低模型选择准确率**（工具越多越容易挑错）。
     第 0 级  core/pipeline/context_builder._TOOL_HINTS  不像要动手就不进 tool_caller
     第 1 级  tool_caller._candidates()  按模式收窄 + 按 hints 缩到 ~15 个
@@ -155,7 +158,7 @@
   - 实时对话流水线：VAD静音检测，支持打断
 ✅ 工具与联网
   - 联网搜索、Bing/搜狗/DuckDuckGo（UA轮换 + 三引擎并行，失败自动换源）
-  - Function Calling：57 个工具（见第五节）
+  - Function Calling：63 个工具（见第五节）
   - 截图识字：GLM-4V识别截图内容
 ✅ 电脑与自动化
   - 电脑控制：操作窗口/文件/鼠标键盘，危险操作确认
@@ -250,7 +253,7 @@
         （含"规则约束"，如防幻觉的自主.真实不假装）
     3.  llm_client路由选模型：短消息→小模型，带图→视觉模型，复杂→云端
     4.  流式输出回复到聊天框
-    5.  工具调用：从 57 个工具里**两级筛选**出 ~15 个候选给模型选
+    5.  工具调用：从 63 个工具里**两级筛选**出 ~15 个候选给模型选
         （模式收窄 + hints 粗筛；标了 bg 的转后台不阻塞）
   → 后台队列异步处理：记忆沉淀、备份、学习
   → 需要调模型的后处理（反思/记忆闭环）排到**空闲队列**，等不忙了再做
@@ -296,7 +299,7 @@ rules_engine | 规则引擎：get()、set()、reset_rule()、all_rules()
 module_caps | ★能力注册表：load_tools()、shortlist()、describe()、tools_of_source()
 tool_presets | ★工具模式：names()、match()、filter_tools()、current()、describe()
 
-tool_caller 当前 57 个工具，分三部分：
+tool_caller 当前 63 个工具，分三部分：
   内置 19 个（原有）：
     vector_search / graph_query / deep_search / code_run / file_read / task_plan
     computer / browser / fs_read / fs_search / fs_edit
@@ -311,12 +314,13 @@ tool_caller 当前 57 个工具，分三部分：
     ocr_available / ocr_read / ocr_history
     grouploop_stats / grouploop_worst / group_roles
     learn_topic / learn_status / task_goal / auto_update
-  来源 core 18 个（core/core_caps.py）：
+    kqa_ask / kqa_list / kqa_search / kqa_add / kqa_stats
+  来源 core 19 个（core/core_caps.py）：
     stats_report / mood_report / growth_report / dream_make / dream_recent
     memory_organize / memory_archive / memory_archives / memory_conflicts
     clean_data / gpu_check / debate / model_vote
     migrate_export / crash_export / personality_export
-    browser_sessions / action_recordings
+    browser_sessions / action_recordings / startup_precompile
 
 七、线程安全约定（重要）
 ────────────────────────────────────────
@@ -457,7 +461,67 @@ check.bat 双击就跑，依次做 6 件事，任何一步失败就停并说明�
   ⚠️ 如果要把浏览器功能一起分发，记得连 data/browsers 一起拷（约 705 MB）；
      只拷代码的话浏览器功能不可用，其余功能不受影响。
 
-十三、v25.2.0 更新明细（2026-10-14）
+十三、v25.2.1 更新明细（2026-10-14）—— 整理，不新增功能
+────────────────────────────────────────
+【模块星图的调用边扫描修好】
+  原来只认 trunk.call("字面量","字面量")，导致一批**正在跑**的模块在图上
+  看不到任何调用者（看起来像孤儿）。现在承认五种形态：
+      ① 字面量       trunk.call("mod", "meth")
+      ② 映射表驱动    AGENTS = {"代码": "agent_coder"}; trunk.call(AGENTS[k], ...)
+      ③ 直接 import   from core.plugin_signer import PluginSigner
+      ④ 别名          stt / voice 指向同一文件 -> 两个键都记边
+      ⑤ 注册表驱动    tool_caller 按能力声明里的 mod 分发
+  实测调用边 9 -> 50。agent_coder / agent_analyst / agent_planner /
+  plugin_signer 从此能看出谁在用它们。
+
+【退役 5 个确认无调用路径的模块】（源码保留在 modules/retired/）
+  active_learning   唯一引用是 trunk 的历史别名 "web_learner"，
+                    而**这个别名全项目无人调用**
+  graph_db          自述「P2-19 旧实现」，已由 knowledge_graph 取代；
+                    且它构造函数收的是路径不是 trunk → 本来就永远加载失败
+  reasoning_engine  外部零引用，职责与 task_loop 重叠
+  skill_distill     外部零引用，与 skill_capture 是同一件事的两个真相
+  empathy           见下面的"发现"
+  → LAZY_MAP 72 -> 67；modules_repo 清单 47 -> 43（退役的不再登记，
+    留着会"装了也不会被加载"）；重新 RSA 签名，漂移 0
+
+【接通 2 个写好了却没人用的模块】（只声明已有方法，不写新逻辑）
+  knowledge_qa      -> kqa_ask / kqa_list / kqa_search / kqa_add / kqa_stats
+       它是**文件级**知识库（data/knowledge/*.txt + 字面匹配），
+       与 vector_store（embedding 语义检索）实现不同、用途互补
+  startup_optimizer -> startup_precompile（预编译 .pyc 加快下次启动）
+  → 能力注册表 38 -> 44，工具表 57 -> 63
+
+【⚠️ 一个值得记录的发现：smart_router 的路由结果被丢掉了】
+  smart_router 有 8 条意图→模块映射（code→agent_coder、emotion→empathy、
+  analysis→agent_analyst、planner→agent_planner、search→deep_search…），
+  但 core/trunk.py 只消费 `意图 == "task"` 这一个分支，
+  **全项目没有任何地方读 r["模块"]** —— 实测只有 1 处调 .route()。
+  也就是说这张表算完就丢，empathy 因此实际到不了（这才是它被退役的
+  真实原因，不是"代码不好"）。要让路由真正生效只需让 trunk 用上
+  route() 返回的"模块"字段，但**那属于行为变更**，不在本次
+  "只整理不加功能"的范围，所以只记录、不实施。
+
+【⚠️ 关于"静态可达性分析"的教训】
+  这轮为了数清"到底有多少模块是死的"，先后踩了 5 个度量缺陷：
+      ① 把 core/lazy_config.py（**登记表**）当成调用方
+         —— 里面 `"名字": (` 的定义形态被误判成调用，得出 72/72 全可达
+      ② LAZY_MAP 是 3 元组 (文件名, 类名, 中文标题)，取成 meta[2]（标题）
+         当文件名 → 传递闭包空转
+      ③ 漏了 self.call(...) —— trunk 内部就是这么调模块的
+         （core/trunk.py 里 self.call("scheduler", "start")）
+      ④ 只找 trunk.call，漏了直接 import（plugin_signer 因此被误判）
+      ⑤ 没处理别名（LAZY_MAP 的 key 是 stt，文件却是 voice.py，
+         代码里写的是 "voice"）
+  结论：**静态扫描只能当下界**，在这个项目上不可靠，最终必须人工逐个确认。
+
+【检查结果】
+  152 个 pytest 用例全通过；六个守卫退出码全 0；
+  模块加载 65/65；仓库漂移 0、43/43 验签通过
+  结构快照 diff 只有 2 行（LAZY_MAP.size 72→67、manifest.count 47→43），
+  均为本次有意变化
+
+十四、v25.2.0 更新明细（2026-10-14）
 ────────────────────────────────────────
 【新增】
   1. 能力注册表（core/module_caps.py + core_caps.py）

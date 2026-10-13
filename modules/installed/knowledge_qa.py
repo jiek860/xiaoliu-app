@@ -8,6 +8,43 @@ from modules.base import BaseModule
 class KnowledgeQnA(BaseModule):
     NAME = "knowledge_qa"
     VERSION = "1.0"
+
+    # 能力声明（来源 A：插件侧，运行时从本文件读，源码哈希受 RSA 签名保护）
+    #
+    # 接上它的原因：这套代码写好了、也登记在 LAZY_MAP 里，但全项目
+    # **没有任何地方调用过它** —— 静态分析三路（trunk.call / 映射表 / 直接 import）
+    # 全部零命中。写好的功能没人能用，等于没有。
+    #
+    # 与 vector_store 的区别（别混）：
+    #   vector_store  向量语义检索（embedding + 余弦），适合"意思相近也能找到"
+    #   knowledge_qa  文件级知识库（data/knowledge/*.txt + 子串匹配），
+    #                 适合"我自己放进去的文档，按字面找"
+    TOOLS = [
+        {"name": "kqa_ask", "method": "ask",
+         "desc": "就知识库里的文档回答问题（先按字面找到相关文档再让模型答）",
+         "args": {"question": "要问的问题"},
+         "hints": ["问知识库", "根据文档回答", "知识库问答", "文档里怎么说的"]},
+        {"name": "kqa_list", "method": "list_docs",
+         "desc": "看知识库里放有哪些文档",
+         "args": {},
+         "readonly": True,
+         "hints": ["知识库文档", "有哪些文档", "文档列表"]},
+        {"name": "kqa_search", "method": "search_doc",
+         "desc": "在知识库文档里按字面搜关键词，返回命中的文档名",
+         "args": {"keyword": "要搜的词"},
+         "readonly": True,
+         "hints": ["搜文档", "文档里有没有", "找资料"]},
+        {"name": "kqa_add", "method": "add_doc",
+         "desc": "往知识库加一篇文档（存成 data/knowledge/标题.txt）",
+         "args": {"title": "文档标题", "content": "正文内容"},
+         "hints": ["加进知识库", "存个文档", "记到知识库"]},
+        {"name": "kqa_stats", "method": "stats",
+         "desc": "知识库用量统计",
+         "args": {},
+         "readonly": True,
+         "hints": ["知识库统计", "知识库用了多少"]},
+    ]
+
     def __init__(self, trunk=None):
         super().__init__(trunk)
         self.trunk = trunk

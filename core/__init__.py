@@ -25,7 +25,8 @@ CORE_MODULES = [
     "llm_client",
     "vector_store",
     "knowledge_graph",
-    "graph_db",
+    # "graph_db" 已移除：知识图谱现在走 knowledge_graph，
+    # 它是被取代的旧实现（已退役）。
     "rules_engine",
     "chat_store",
     # 授权与发布

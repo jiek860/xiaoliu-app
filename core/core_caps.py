@@ -171,6 +171,17 @@ CORE_CAPS = [
         "bg": True,          # 要问好几个模型，很慢
         "hints": ["投票", "多个模型", "模型对比"],
     },
+    # ─────────── 启动优化 ───────────
+    # 接上它的原因：core/startup_optimizer.py 写好了、也登记在 LAZY_MAP 里，
+    # 但全项目零调用（core/self_check.py 的注释自己都写着"它登记了很久没人调用"）。
+    {
+        "mod": "startup_optimizer", "method": "precompile",
+        "name": "startup_precompile",
+        "desc": "预编译所有 .py 成 .pyc，让下次启动快一点（可反复跑，无副作用）",
+        "args": {},
+        "bg": True,          # 要编译几百个文件，几秒到几十秒
+        "hints": ["启动慢", "启动优化", "预编译", "加快启动", "启动速度"],
+    },
 ]
 
 # 只能靠 UI 完成的（密码不能打进聊天 —— 会进日志）

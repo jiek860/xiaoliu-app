@@ -77,7 +77,8 @@ class Trunk:
             "errors": "error_lib",
             "enhanced_memory": "vector_store",
             "file_reader": "file_upload",
-            "web_learner": "active_learning",
+            # "web_learner" 别名已移除：它指向的 active_learning 已退役
+        # （全项目本来就没有地方调这个别名，留着只是历史包袱）。
             "auto_fixer": "error_lib",
             "llm_client": "llm",
         }

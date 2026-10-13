@@ -162,42 +162,136 @@ def build(trunk):
 
 
 def _real_calls(trunk, valid):
-    """扫 modules/installed/*.py 里的 trunk.call("模块","方法")，得到真实的调用边"""
+    """扫出真实的模块间调用边。
+
+    为什么不能只认 trunk.call("字面量", "字面量")
+    --------------------------------------------
+    原来只认这一种形态，结果一批**正在跑**的模块在星图上看不到任何调用者，
+    看起来像孤儿（实测被误判过的：agent_coder / agent_analyst / agent_planner /
+    empathy / plugin_signer / stt）。静态扫不到，人就会以为坏了或者没用了。
+
+    现在承认五种形态：
+        ① 字面量       trunk.call("mod", "meth")
+        ② 映射表驱动    AGENTS = {"代码": "agent_coder"}; trunk.call(AGENTS[k], "meth")
+        ③ 直接 import   from core.plugin_signer import PluginSigner
+        ④ 别名          stt / voice 指向同一个文件 -> 两个键都要记边，
+                        否则 code 里用 "voice"、图上看 "stt" 就成了孤儿
+        ⑤ 注册表驱动    tool_caller 按能力声明里的 mod 调用（声明本身就是一条边）
+    """
     import ast
     inst = os.path.join(trunk.base, "modules", "installed")
     if not os.path.isdir(inst):
         return []
-    # 文件名 -> 模块键
-    f2m = {}
+
+    # 文件 -> 所有指向它的模块键（处理别名：voice.py 同时被 stt 和 voice 指向）
+    f2keys = {}
     for k, v in trunk._lazy.items():
         if isinstance(v, (list, tuple)) and v:
-            f2m[v[0] + ".py"] = k
+            f2keys.setdefault(v[0] + ".py", []).append(k)
+
+    # 模块键 -> 该键对应的文件（用来把 "voice" 的调用也算到 "stt" 头上）
+    def same_file_keys(name):
+        for fn, ks in f2keys.items():
+            if name in ks:
+                return ks
+        return [name]
+
+    def table_strings(tree):
+        """文件里"字典/列表字面量"中的模块名集合（映射表驱动的调用目标）"""
+        out = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            val = getattr(node, "value", None)
+            if not isinstance(val, (ast.Dict, ast.List, ast.Set, ast.Tuple)):
+                continue
+            for sub in ast.walk(val):
+                if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+                    if sub.value in valid:
+                        out.add(sub.value)
+        return out
+
+    def import_targets(tree):
+        """直接 import 的模块（绕过 trunk.call 的那条路）"""
+        out = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or not node.module:
+                continue
+            parts = node.module.split(".")
+            # from core.X import ...            -> X
+            # from modules.installed.X import .. -> X
+            if len(parts) >= 2 and parts[0] in ("core", "modules"):
+                cand = parts[-1]
+                if cand in valid:
+                    out.add(cand)
+        return out
 
     edges = {}
     for fn in sorted(os.listdir(inst)):
         if not fn.endswith(".py"):
             continue
-        src = f2m.get(fn)
-        if not src:
+        src_keys = f2keys.get(fn)
+        if not src_keys:
+            continue
+        src = src_keys[0]
+        if src not in valid:
             continue
         try:
             tree = ast.parse(open(os.path.join(inst, fn),
                                   encoding="utf-8", errors="ignore").read())
         except Exception:
             continue
+
+        tstr = table_strings(tree)
+        targets = {}          # 目标模块键 -> 方法名集合
+
+        def add(tgt, meth):
+            if not tgt or tgt in src_keys or tgt not in valid:
+                return
+            # 别名：同一个文件的其它键也记上，免得图上显示成孤儿
+            for k in same_file_keys(tgt):
+                if k in valid and k not in src_keys:
+                    targets.setdefault(k, set()).add(meth)
+
         for node in ast.walk(tree):
-            if not (isinstance(node, ast.Call)
+            if (isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Attribute)
                     and node.func.attr == "call" and len(node.args) >= 2):
+                a0, a1 = node.args[0], node.args[1]
+                meth = (a1.value if isinstance(a1, ast.Constant)
+                        and isinstance(a1.value, str) else "?")
+                # "__no__" 是懒加载探针惯用法（故意写错方法名只为触发加载）
+                if meth == "__no__":
+                    pass
+                elif isinstance(a0, ast.Constant) and isinstance(a0.value, str):
+                    if meth != "__no__":
+                        add(a0.value, meth)                  # ① 字面量
+                else:
+                    # ② 映射表驱动：目标就是本文件表里的那些模块名
+                    for t in tstr:
+                        add(t, meth or "按映射表调用")
+
+        for t in import_targets(tree):                        # ③ 直接 import
+            add(t, "直接 import")
+
+        for tgt, ms in targets.items():
+            edges.setdefault((src, tgt), set()).update(ms)
+
+    # ⑤ 注册表驱动：tool_caller 按能力声明里的 mod 分发，声明本身就是调用边
+    try:
+        from core import module_caps
+        reg = module_caps.load_tools(getattr(trunk, "base", None))
+        for name, info in reg.items():
+            m = info.get("mod")
+            if not m or m not in valid or m == "tool_caller":
                 continue
-            a0, a1 = node.args[0], node.args[1]
-            if not (isinstance(a0, ast.Constant) and isinstance(a1, ast.Constant)):
-                continue
-            tgt, meth = a0.value, a1.value
-            # "__no__" 是懒加载探针惯用法（故意写错方法名只为触发加载），不算调用
-            if meth == "__no__" or tgt == src or tgt not in valid or src not in valid:
-                continue
-            edges.setdefault((src, tgt), set()).add(meth)
+            for k in same_file_keys(m):
+                if k in valid and k != "tool_caller":
+                    edges.setdefault(("tool_caller", k),
+                                     set()).add("按能力声明: " + name)
+    except Exception:
+        pass
+
     return [[s, t, ", ".join(sorted(ms))] for (s, t), ms in sorted(edges.items())]
 
 
