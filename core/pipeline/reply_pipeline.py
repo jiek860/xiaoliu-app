@@ -82,7 +82,10 @@ class ReplyPipeline:
         self._record("收尾", "ok")
 
         t._chat_in_progress = False
-        t._chat_active_until = time.time() + 120
+        # 窗口长度统一由 Trunk._CHAT_ACTIVE_SEC 决定（原来这里写死 120，
+        # 跟 trunk.reply() 的 25 不一致 —— 虽然那个 finally 会覆盖它，
+        # 但两处常量各写各的就是下一个"改一个忘另一个"）
+        t._chat_active_until = time.time() + getattr(t, "_CHAT_ACTIVE_SEC", 25)
         return answer
 
     def _try_computer_control(self, user_input: str):

@@ -162,6 +162,9 @@ class VectorStore:
                     timeout=self._EMBED_TIMEOUT)
                 emb = r.json().get("embedding", [])
                 if emb:
+                    if self._embed_retry_at != 0:
+                        try: self.trunk._set_status("✅ 向量检索已恢复")
+                        except: pass
                     self._embed_retry_at = 0        # 成功：解除冷却
                 return emb
         except Exception as e:
@@ -170,6 +173,8 @@ class VectorStore:
             try:
                 self.trunk._log("嵌入失败（%ds 内不再重试，检索走关键词降级）: %s"
                                 % (self._EMBED_COOLDOWN, str(e)[:60]))
+                try: self.trunk._set_status("⚠ 向量检索暂不可用，已切关键词模式")
+                except: pass
             except Exception:
                 pass
             return []
@@ -328,4 +333,3 @@ class VectorStore:
         if q:
             return {"结果": self.search(q)}
         return {"记忆数": len(self.data), "嵌入模型": "nomic-embed-text"}
-

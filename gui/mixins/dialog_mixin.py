@@ -432,7 +432,11 @@ class DialogMixin:
             return
         r = self.trunk.call(module, action)
         if isinstance(r, dict):
-            txt = "\n".join("%s: %s" % (k, v) for k, v in r.items())
+            if r.get("ok") == False:
+                err = r.get("error") or r.get("原因") or r.get("msg") or "未知错误"
+                txt = f"「{module}」运行失败：\n{err[:200]}"
+            else:
+                txt = "\n".join("%s: %s" % (k, v) for k, v in r.items())
         else:
             txt = str(r)
         QMessageBox.information(self, module, txt[:2000])
@@ -474,5 +478,3 @@ class DialogMixin:
     # show_mcp_market() 已移除：它只是"显示几个 JSON 片段 + 复制"，属于
     # 另一个 MCP 窗口。现在所有 MCP 相关的东西（服务器管理 / 预置服务器 /
     # 配置参考）都在 gui/mcp_dialog.py 的 MCPDialog 里，通过 mcp_dialog() 打开。
-
-

@@ -289,6 +289,11 @@ class Trunk:
     # 免得一天重启十次就备十份。
     _AUTO_BACKUP_MIN_GAP_H = 6
 
+    # 聊天活跃窗口（秒）：一轮回复结束后，后台闭环还要让路多久。
+    # 放 60 秒太长（聊得越久、记忆沉淀和反思越滞后），放太短又会跟下一句话抢模型。
+    # 25 秒是折中。改这里即可，reply_pipeline / legacy_reply 都读这个值。
+    _CHAT_ACTIVE_SEC = 25
+
     def _auto_backup(self):
         """启动时自动备份一次 —— 走真正的备份系统（core/backup.py）
 
@@ -744,7 +749,7 @@ class Trunk:
                     return "❌ 切换失败: " + str(r.get("msg", ""))
 
             self._chat_in_progress = True  # 聊天中（含排队期）：后台闭环持续让路
-            self._chat_active_until = time.time() + 120  # P0-2: 聊天活跃窗口(120s)，后台重任务让路
+            self._chat_active_until = time.time() + self._CHAT_ACTIVE_SEC
             return self._reply_inner(user_input, on_token=on_token)
         except Exception as e:
             # 错误入库（可在「设置 → 系统」里查看/清空）+ 日志，聊天只给友好提示
@@ -757,7 +762,7 @@ class Trunk:
         finally:
             # P0-1: 无论成功失败都复位，防止后台闭环永久让路
             self._chat_in_progress = False
-            self._chat_active_until = time.time() + 120
+            self._chat_active_until = time.time() + self._CHAT_ACTIVE_SEC
 
 
     def _bg_loop(self):

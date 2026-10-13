@@ -226,7 +226,7 @@ def run(trunk, user_input, on_token=None):
     # 7. 后台处理（记忆/技能/群聊评估等闭环，传最终answer）
     trunk._bg_queue.put((user_input, answer))  # P0-4: 改单线程队列
     trunk._chat_in_progress = False
-    trunk._chat_active_until = time.time() + 120  # 回复完成后再给120s让路窗口
+    trunk._chat_active_until = time.time() + getattr(trunk, "_CHAT_ACTIVE_SEC", 25)
     # 把正常LLM答案存进缓存
     try:
         cache = trunk._load_lazy('cache')

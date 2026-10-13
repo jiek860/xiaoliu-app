@@ -41,13 +41,20 @@ class PullWorker(QThread):
 
 class ModelManagerDialog(QDialog):
     """本地模型管理对话框"""
+    # 子线程取完数据后用它把结果送回 GUI 线程 —— Qt 不允许在子线程碰控件
+    modelsReady = pyqtSignal(object, str)
+
     def __init__(self, trunk, parent=None):
         super().__init__(parent)
         self.trunk = trunk
         self.setWindowTitle("本地模型管理")
         self.setMinimumSize(640, 520)
         self._build_ui()
-        self._refresh()
+        # 异步刷新：requests.get 有 5 秒超时，直接在 __init__ 里调会让对话框
+        # 弹出来是僵的。但子线程只能取数据，控件更新必须回到 GUI 线程做。
+        self.modelsReady.connect(self._apply_models)
+        self.msg.setText("正在加载模型列表...")
+        self._refresh_async()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -88,23 +95,49 @@ class ModelManagerDialog(QDialog):
         cfg = getattr(self.trunk, "config", {}) or {}
         return cfg.get("ollama_url", "http://localhost:11434")
 
-    def _refresh(self):
-        """刷新模型列表"""
-        self.list_w.clear()
+    def _fetch_models(self):
+        """只取数据，不碰任何 Qt 控件 —— 所以可以在子线程里跑。
+
+        返回 (models, err)：models 是 [(名字, 大小GB), ...]，err 非空表示失败。
+        """
         try:
             import requests
             url = self._base_url().rstrip("/") + "/api/tags"
             r = requests.get(url, timeout=5)
-            models = r.json().get("models", [])
-            for m in models:
-                name = m.get("name", "?")
-                size = m.get("size", 0) / 1024 / 1024 / 1024
-                item = QListWidgetItem("%s  (%.2f GB)" % (name, size))
-                item.setData(Qt.UserRole, name)
-                self.list_w.addItem(item)
-            self.msg.setText("共 %d 个模型" % len(models))
+            out = []
+            for m in r.json().get("models", []):
+                out.append((m.get("name", "?"),
+                            m.get("size", 0) / 1024 / 1024 / 1024))
+            return out, ""
         except Exception as e:
-            self.msg.setText("❌ Ollama 未启动或无法连接: " + str(e)[:60])
+            return [], "Ollama 未启动或无法连接: " + str(e)[:60]
+
+    def _apply_models(self, models, err):
+        """更新控件 —— 只能在 GUI 线程调用（子线程通过 modelsReady 信号进来）"""
+        self.list_w.clear()
+        if err:
+            self.msg.setText("❌ " + err)
+            return
+        for name, size in models:
+            item = QListWidgetItem("%s  (%.2f GB)" % (name, size))
+            item.setData(Qt.UserRole, name)
+            self.list_w.addItem(item)
+        self.msg.setText("共 %d 个模型" % len(models))
+
+    def _refresh(self):
+        """同步刷新（主线程用：删完 / 下完模型之后）"""
+        models, err = self._fetch_models()
+        self._apply_models(models, err)
+
+    def _refresh_async(self):
+        """异步刷新（打开对话框时用，避免卡 5 秒）"""
+        import threading
+
+        def work():
+            models, err = self._fetch_models()      # 子线程：只取数据
+            self.modelsReady.emit(models, err)      # 信号排队回 GUI 线程
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _pull(self):
         name = self.input.text().strip()
