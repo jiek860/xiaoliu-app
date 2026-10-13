@@ -64,13 +64,31 @@ def build_manifest(base, version, changelog=""):
 
 def main():
     base = os.path.dirname(os.path.abspath(__file__))
-    if len(sys.argv) < 2:
-        print("用法: python build_release.py [版本号] [更新说明]")
-        print("示例: python build_release.py 24.2.0 '修复若干BUG'")
-        sys.exit(1)
+    # 版本号默认取 core/version.py —— 原来必须命令行手传，于是出现
+    # "CHANGELOG 到 v25.1.5 了、version.py 还写着 v25.1.3" 这种漂移。
+    # 现在不传就用 version.py 的值；传了则以传的为准（并提示两者不一致）。
+    try:
+        sys.path.insert(0, base)
+        from core.version import __version__ as _v
+        _default_ver = str(_v).lstrip("vV")
+    except Exception:
+        _default_ver = ""
 
-    version = sys.argv[1]
-    changelog = sys.argv[2] if len(sys.argv) > 2 else ""
+    if len(sys.argv) < 2:
+        if not _default_ver:
+            print("用法: python build_release.py [版本号] [更新说明]")
+            print("示例: python build_release.py 25.1.6 '修复若干BUG'")
+            sys.exit(1)
+        version = _default_ver
+        changelog = ""
+        print(f"未指定版本号，使用 core/version.py 的 v{version}")
+    else:
+        version = sys.argv[1]
+        changelog = sys.argv[2] if len(sys.argv) > 2 else ""
+        if _default_ver and version.lstrip("vV") != _default_ver:
+            print(f"⚠️  命令行给的 v{version} 与 core/version.py 的 v{_default_ver} 不一致")
+            print("    打包前请统一，否则用户端版本比较会错乱：")
+            print("      py -3 tools/check_version.py")
 
     print(f"开始打包 v{version}...")
     manifest = build_manifest(base, version, changelog)

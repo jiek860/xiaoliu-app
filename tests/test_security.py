@@ -106,7 +106,7 @@ def test_version_compare():
     """版本比较：只认数字段，'v' 前缀不影响"""
     from modules.installed.auto_updater import AutoUpdater
     vt = AutoUpdater._version_tuple
-    assert vt("v25.1.3") > vt("25.1.2")
+    assert vt("v25.1.6") > vt("25.1.5")
     assert vt("26.0.0") > vt("v25.9.9")
-    assert vt("v25.1.3") == vt("25.1.3")
-    assert not (vt("v25.1.3") > vt("25.1.3"))
+    assert vt("v25.1.6") == vt("25.1.6")
+    assert not (vt("v25.1.6") > vt("25.1.6"))

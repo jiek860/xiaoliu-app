@@ -3,7 +3,10 @@
 导入所有核心模块，方便外部统一调用
 """
 
-__version__ = "2.0.0"
+# 版本号统一从 core/version.py 取。
+# 这里原来是独立的 "2.0.0"，和程序版本（v25.1.x）各写各的 —— 属于同一类
+# "同一个数在多处维护"的漂移源。现在只有 core/version.py 一个来源。
+from .version import __version__  # noqa: F401
 __author__ = "小6智能体"
 
 # 核心模块列表（与 core/ 目录实际文件对齐）

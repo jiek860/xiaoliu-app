@@ -319,7 +319,7 @@ class AutoUpdater(BaseModule):
     # ============ ⓪ 远端更新：检查 / 下载安装（强制验签）============
     @staticmethod
     def _version_tuple(v):
-        """'v25.1.3' -> (25, 1, 3)，用于版本比较"""
+        """'v25.1.6' -> (25, 1, 6)，用于版本比较"""
         out = []
         for seg in str(v).lstrip("vV").split("."):
             m = re.match(r"\d+", seg)

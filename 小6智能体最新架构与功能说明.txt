@@ -1,37 +1,61 @@
 ══════════════════════════════════════════════════════════════════════
 小6智能体 · 最新完整源码与功能说明
-版本：v25.1.6（最终稳定版）
-更新日期：2026-10-08
+版本：v25.1.6（core/version.py 的实际值）
+更新日期：2026-10-13
 适用场景：个人自用 + 朋友分发，本地/云端模型
 ══════════════════════════════════════════════════════════════════════
 
 一、整体架构
 ────────────────────────────────────────
-微核星型架构：核心是core/trunk.py总线，所有模块通过trunk.call()调用，模块之间不直接互相import。
+微核星型架构：核心是 core/trunk.py 总线，所有模块通过 trunk.call() 调用，
+模块之间不直接互相 import（这条约束让任意模块都能单独装卸而不牵连别人）。
+
+规模（2026-10-13 实测）：
+  LAZY_MAP 登记模块   72 个（按需懒加载）
+  modules/installed   47 个插件文件
+  modules_repo        47 个（与 installed 同步，全部 RSA 签名）
+  core                57 个 .py
+  gui                 37 个 .py
+  规则引擎            62 条可调规则
+  工具调用            19 个工具
+
 目录结构：
   项目根目录/
-  ├─ gui\               # PyQt5全部界面代码
-  │  ├─ app_pyqt.py     # 程序唯一启动入口
+  ├─ run.py             # 程序主启动入口（启动PyQt.bat 跑的就是它）
+  │                     #   负责：libs/optional_libs 依赖路径、MSVCP140 预加载、
+  │                     #   HF 镜像设置、核心依赖缺失检查
+  ├─ gui\               # PyQt5 全部界面代码
+  │  ├─ app_pyqt.py     # 备用入口（可直接双击启动，与 run.py 环境准备一致）
+  │  ├─ main_window.py  # 主窗口装配（登录门禁、引导、组件挂载）
   │  ├─ build_ui.py     # 主窗口、侧边栏、输入框布局
   │  ├─ chat_view.py    # 聊天气泡渲染
   │  ├─ settings_dialog.py  # 设置窗口（常用/模型/界面/数据/高级5个标签）
-  │  ├─ center_dialog.py    # 功能中心（分组列表样式）
   │  ├─ history_dialog.py   # 独立历史记录窗口
-  │  └─ mixins/         # 界面逻辑拆分
+  │  ├─ computer_dialog.py  # 电脑控制面板
+  │  ├─ module_tools_dialog.py # 实用工具面板（带搜索框）
+  │  └─ mixins/         # 界面逻辑拆分（chat/dialog/lifecycle/system/voice）
   ├─ core\              # 核心微核
-  │  ├─ trunk.py        # 总线：模块调度、回复主链路、后台队列
-  │  ├─ llm_client.py   # 大模型客户端：本地Ollama+云端GLM三级路由
-  │  ├─ vector_store.py # 本地向量知识库
+  │  ├─ trunk.py        # 总线：模块调度、回复主链路、后台队列、空闲任务队列
+  │  ├─ llm_client.py   # 大模型客户端：本地Ollama+云端三级路由
+  │  ├─ vector_store.py # 本地向量知识库（嵌入降级时状态栏提示）
   │  ├─ config.py       # 配置读写+自动数据迁移
   │  ├─ crypto.py       # 加密：本地随机密钥，兼容旧XOR
   │  ├─ backup.py       # 自动备份（备份前自动合并SQLite WAL）
   │  ├─ paths.py        # 统一路径管理，跨平台无硬编码
   │  ├─ chat_store.py   # 聊天记录SQLite存储
-  │  ├─ base_module.py  # 插件模块统一基类
-  │  └─ version.py      # 版本号v25.1.6
-  ├─ modules\installed\ # 所有功能插件
-  ├─ data\              # 运行时数据：配置/聊天记录/日志/备份
-  ├─ requirements.txt    # 核心依赖清单
+  │  ├─ self_check.py   # 自检：Ollama预热/云端探测/健康分/深度体检
+  │  ├─ module_map.py   # 模块星图：分组、说明、真实调用边（AST扫描）
+  │  ├─ rules_engine.py # 规则引擎：62条规则，落盘 data/rules/rules.json
+  │  ├─ pipeline\       # 回复流水线（reply_pipeline / legacy_reply / context_builder）
+  │  └─ version.py      # 版本号 v25.1.6（全项目唯一来源）
+  ├─ modules\
+  │  ├─ base.py         # 插件模块统一基类（BaseModule）
+  │  ├─ installed\      # 所有功能插件（47 个）
+  │  └─ retired\        # 已退役插件（保留源码不加载）
+  ├─ modules_repo\      # 插件市场仓库（独立 git 仓库 + RSA 签名清单）
+  ├─ data\              # 运行时数据：配置/聊天记录/日志/备份/规则/浏览器
+  ├─ docs\              # 设计与归档文档（模块星图.html、电脑操控补全方案.md）
+  ├─ requirements.txt   # 核心依赖清单
   ├─ install.bat        # 朋友一键装依赖
   └─ check.bat          # 一键自检脚本
 
@@ -42,13 +66,14 @@
   - 三级模型路由：短消息自动走小模型、带图自动走视觉模型、复杂问题走云端
   - 磁盘缓存：重复问题秒回，不用重复调LLM
   - 历史对话按会话隔离，按账号隔离
+  - 失败提示说清「哪个模块 + 下一步」，不再是一句"请联系开发者"
 ✅ 语音能力
   - faster-whisper本地语音输入
   - edge-tts语音合成，自动朗读默认关闭，可手动开
   - 实时对话流水线：VAD静音检测，支持打断
 ✅ 工具与联网
-  - 联网搜索、Bing/搜狗/DuckDuckGo
-  - Function Calling：天气/笔记/待办/浏览器自动化
+  - 联网搜索、Bing/搜狗/DuckDuckGo（UA轮换 + 三引擎并行，失败自动换源）
+  - Function Calling：19 个工具（见第五节）
   - 截图识字：GLM-4V识别截图内容
 ✅ 电脑与自动化
   - 电脑控制：操作窗口/文件/鼠标键盘，危险操作确认
@@ -57,14 +82,45 @@
 ✅ 记忆与学习
   - 长期记忆库、记忆卡片、遗忘曲线复习
   - 知识图谱三元组存储
-  - 后台学习闭环，不阻塞聊天
-✅ 界面按键与入口（v25.1.6简化后，实际布局）
+  - 后台学习闭环，不阻塞聊天（排到空闲队列，不跟聊天抢模型）
+  - 自我反思：评不上就如实留空，不再记假分污染统计
+✅ 浏览器自动化（DOM 级）★本次新增
+  - 基于 Playwright（chromium，装在程序文件夹 data/browsers）
+  - DOM 选择器定位，**不是截图猜坐标**：
+      打开网页 / 点击元素 / 输入文字 / 读取页面文字 / 批量填表
+      登录并保持会话 / 开新标签 / 滚动 / 截图 / 等待
+  - 两种用法：聊天里说「打开 xxx 并读取页面文字」，
+    或让 LLM 通过 browser 工具自主调用
+✅ 文件读写搜索编辑 ★本次新增
+  - fs_read   读文件，**带行号**，可只读一段（长文件不会塞爆上下文）
+  - fs_search 搜文件内容，返回「文件:行号: 内容」，纯 Python 实现
+  - fs_edit   精确替换：**原文必须唯一**（0次/多次都拒绝），改前自动备份
+  - 全部受白名单约束（项目目录 + 桌面 + 下载 + 文档，
+    可在 config 的「文件白名单」里加根目录）
+✅ UI 元素树：按控件名操作 ★本次新增
+  - 基于 Windows UI Automation（uiautomation）
+  - 从「盲点坐标」升级到「按控件名操作」：
+      列出所有窗口 / 查看某程序的控件树 / 按名字找控件
+      按控件名点击按钮 / 往指定输入框填字
+  - 聊天里可以直接说「点击确定按钮」「看看记事本的控件」
+    —— 窗口挪位置也不受影响
+✅ 命令执行：白名单 + 默认关闭 ★本次新增
+  - **默认禁用**（规则「电脑控制.允许命令」= false）
+  - 28 个白名单命令：dir/type/where/tasklist/whoami/ipconfig/systeminfo/findstr
+    + python/py/git/pip/node/npm/pytest/ruff/ffmpeg/curl/ping 等
+  - 拒绝一切串联与重定向（&& || | ; > < & 反引号 $( %( ），只允许单条命令
+  - 每条命令都要弹窗确认；**没有确认界面时直接拒绝**（不会静默执行）
+  - 完整日志：命令 + 退出码 + 耗时；超时 60 秒
+✅ 规则引擎：62 条可调开关 ★本次新增
+  - 落盘在 data/rules/rules.json，改完重启即生效
+  - 危险项默认全关：电脑控制.允许关机 / 电脑控制.允许命令
+  - E 组「自主规则」已接通 4 条（见第八节）
+✅ 界面按键与入口
   【左侧边栏（从上到下）】
   1.  新建对话按钮
   2.  历史会话列表（点击切换之前的聊天记录）
   3.  设置按钮
   4.  底部：登录/账号按钮
-  （侧边栏没有其他多余按钮，之前的功能中心/清空按钮已收纳）
 
   【主聊天区下方输入框行（从左到右）】
   1.  +号按钮：点开弹出操作菜单
@@ -82,14 +138,17 @@
   · 让它更聪明：知识库、知识图谱、插件市场
   · 帮你干活：电脑控制、机器人、MCP市场、历史记录
   · 系统维护：系统自检、日志中心
+  工具面板顶部有搜索框，可按名称/说明实时筛选
 
   【设置窗口（侧边栏点设置打开）】
   标签页从左到右：
-  1.  常用（第一个打开就看到）：AI名字修改、字体大小选择、联网开关、自动朗读开关
+  1.  常用：AI名字修改、字体大小选择、联网开关、自动朗读开关、
+      检测本地模型（后台探测，不卡界面）
   2.  模型：模型模式切换、Ollama地址配置、云端API配置
   3.  界面：AI人格编辑
   4.  数据：备份、恢复、导出配置
-  5.  高级：直接打开功能中心、日志中心、历史记录入口，底部显示日志输出
+  5.  高级：功能中心、日志中心、历史记录入口，底部显示日志输出
+      新增 🕸️ 模块星图按钮（打开 docs/模块星图.html，看模块分组与真实调用关系）
 
 三、当前模型配置（默认值）
 ────────────────────────────────────────
@@ -97,21 +156,26 @@
   cloud_model: glm-4v-flash
   cloud_url: https://open.bigmodel.cn/api/paas/v4/chat/completions
   ollama_url: http://192.168.1.2:11434
-  local_model: 本地主力模型（Ollama）
-  small_model: 本地小模型（短消息自动用）
+  local_model: xiao6-qwen3.5-4b:latest（本地主力模型）
+  small_model: xiao6-qwen3.5-4b:latest（短消息自动用）
   vl_model: qwen3-vl:8b（视觉模型，识别图片）
   配置存储在data/config.json，所有修改自动迁移兼容老配置。
 
 四、核心调用链路
 ────────────────────────────────────────
 用户发消息 → gui/chat_view.py发送 → trunk.reply()
+  → 电脑控制预判：能解析成电脑/浏览器/文件指令就直接执行（不必问模型）
   → _reply_inner()：优先走pipeline流水线
     1.  并行检索：向量库搜索、记忆召回
     2.  组装Prompt：人格设定+系统提示+历史+检索结果
+        （含"规则约束"，如防幻觉的自主.真实不假装）
     3.  llm_client路由选模型：短消息→小模型，带图→视觉模型，复杂→云端
     4.  流式输出回复到聊天框
+    5.  工具调用：LLM 从 19 个工具里选（含 browser/ui_*/fs_*/shell）
   → 后台队列异步处理：记忆沉淀、备份、学习
+  → 需要调模型的后处理（反思/记忆闭环）排到**空闲队列**，等不忙了再做
   → 如果pipeline异常，自动降级到旧回复逻辑，不会崩
+  → 后处理失败会在状态栏留一行提示（不再无声无息）
 
 五、核心对外接口（trunk.call可调用）
 ────────────────────────────────────────
@@ -125,34 +189,119 @@ backup | 备份：backup_now()、restore()
 voice | 语音：stt()语音识别
 speech | 语音：speak_async()语音合成
 deep_search | 深度联网搜索
-computer_controller | 电脑控制：try_handle()
+computer_controller | 电脑控制总入口，本次大幅扩充：
+    try_handle()      聊天入口，解析并执行一句话指令
+    open_app() / list_windows() / activate_window() / close_window()
+    mouse_move() / mouse_click() / mouse_drag() / mouse_scroll()
+    type_text() / hotkey() / press_key() / clipboard_get() / clipboard_set()
+    screenshot() / vision_understand() / system_info()
+    list_dir() / create_file() / delete_file() / copy_file() / move_file()
+    ★ read_text()   读文件带行号，可指定行范围
+    ★ search_text() 搜文件内容
+    ★ edit_text()   精确替换（唯一性校验 + 自动备份）
+    ★ ui_windows() / ui_find() / ui_dump() / ui_click() / ui_type()  UI元素树
+    ★ shell()       执行白名单命令（默认关闭）
+browser | ★ 浏览器自动化（Playwright，DOM级）：
+    open() / click() / type_text() / get_text() / fill_form()
+    login_and_keep() / new_tab() / scroll() / screenshot() / wait()
+    try_handle() / run()  聊天与工具入口
 chat_store | 聊天记录：append()、load()、search()
 error_lib | 错误日志：log()
 scheduler | 定时任务：加任务、跑备份/复习
+rules_engine | 规则引擎：get()、set()、reset_rule()、all_rules()
+
+tool_caller 当前注册的 19 个工具：
+  vector_search / graph_query / deep_search / code_run / file_read / task_plan
+  computer / browser / fs_read / fs_search / fs_edit
+  ui_find / ui_click / ui_dump / shell
+  mcp_chat / mcp_run_code / mcp_search / mcp_backup（MCP 外部工具）
 
 六、依赖清单（requirements.txt）
 ────────────────────────────────────────
-核心必装（不装跑不起来）：
+核心必装（不装跑不起来，共 5 个）：
   PyQt5>=5.15
   requests>=2.28
   numpy>=1.24
   cryptography>=41.0
   psutil>=5.9
-可选功能依赖：
+可选功能依赖（缺了只影响对应功能）：
   edge-tts（语音合成）
   faster-whisper（本地语音识别）
   Pillow/pyautogui/pyperclip（电脑控制）
   opencv-python（多模态）
+  ★ playwright（浏览器自动化）—— 包 + 浏览器二进制两件事：
+      pip install playwright -i https://pypi.tuna.tsinghua.edu.cn/simple
+      浏览器装到程序文件夹（约 705 MB）：
+        set PLAYWRIGHT_BROWSERS_PATH=<项目根>\data\browsers
+        set PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright
+        py -3 -m playwright install chromium
+      ⚠️ 官方 CDN cdn.playwright.dev 在国内连不上（实测"基础连接已经关闭"），
+         必须带 PLAYWRIGHT_DOWNLOAD_HOST 走国内镜像，否则会卡在 0% 不动。
+  ★ uiautomation（UI元素树，约 200KB）
+      pip install uiautomation -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 七、分发说明
 ────────────────────────────────────────
   朋友拿到文件夹后：
-  1.  安装Python 3.10+，勾选Add Python to PATH
+  1.  安装Python 3.10+，勾选Add python to PATH
   2.  双击install.bat自动装所有核心依赖
-  3.  进入gui文件夹双击app_pyqt.py启动
+  3.  双击启动PyQt.bat（或进入gui文件夹双击app_pyqt.py）启动
   启动时自动检查：Python版本够不够、核心依赖缺不缺，缺了弹中文提示，不黑窗口闪退。
+  ⚠️ 如果要把浏览器功能一起分发，记得连 data/browsers 一起拷（约 705 MB）；
+     只拷代码的话浏览器功能不可用，其余功能不受影响。
+
+八、本次更新明细（2026-10-13）
+────────────────────────────────────────
+【新增能力】
+  1. 浏览器自动化修活（此前代码写了但跑不起来：chromium 未下载 + 无人调用）
+     → 现在能 DOM 级读页面/填表/点击，实测 13/13 通过
+  2. 文件工具三件套：fs_read / fs_search / fs_edit（实测 24/24 通过）
+  3. UI 元素树：ui_windows / ui_find / ui_dump / ui_click / ui_type
+     （实测 24/24 通过；从此 GUI 操作可按控件名，不再只会点坐标）
+  4. 命令执行 shell：28 条白名单 + 默认关闭 + 每条确认 + 拒绝串联
+     （实测：非法命令在弹确认之前就被拦，确认回调调用次数 0）
+【修掉的问题】
+  5. 「复制 a.txt 到 b.txt」曾被解析成"改剪贴板"，还回一句"已复制到剪贴板"
+     ——看起来像成功了，实际没复制文件。根因：剪贴板正则贪婪且排在文件复制之前，
+     导致 copy_file 规则永远不可达。现按路径特征区分两者。
+  6. 文件操作只认绝对路径（"新建文件 test.txt" 不认），现支持相对路径
+  7. restart 没被标记为危险操作（dangerous 表里写的是 reboot，匹配不到 restart）
+  8. 「打开百度」会去找一个叫"百度"的程序，现在按网址打开
+  9. 自我反思：LLM 挂了会静默记一个"5 分"，和真实评分混在一起
+     （实测 50 条里 48 条是这种假分，平均分被灌成 5.08）
+     → 现在评不上如实留空并写明原因，统计只算真评分（平均分 7.0）
+  10. 规则引擎 E 组 10 条规则此前**零处被读取**（等于摆设），
+      现接通其中 4 条且默认值等于原有行为：
+        联网.反爬应对   → deep_search 的 UA 轮换与节流（可关）
+        学习.自主选方向  → learning_loop 的方向轮换（可关，关掉固定第一个方向）
+        自主.升级      → auto_updater 的部署环节（关掉则只分析不落地）
+        联网.默认放开   → 是否靠时效词自动联网（关掉只认"明确要求搜"）
+  11. 「检测本地模型」按钮会卡界面 3 秒（urlopen 跑在主线程）→ 已线程化（0.001 秒）
+  12. 模型管理对话框在子线程里操作 Qt 控件（会随机崩溃）→ 改为信号回主线程
+  13. 后处理（记忆沉淀/技能捕获/后台整理）失败只写日志，界面上完全无感
+      → 现在状态栏 + 日志双写
+  14. 懒加载探针（19 处 call(模块,"__no__")）被当成"调用失败"刷 WARN 日志 → 已静音
+  15. 26 个按钮文字被裁（全局样式表 padding 吃掉固定高度按钮的空间）→ 已修
+  16. 登录门禁此前是阻塞 while，窗口要等登录完才显示 → 改为窗口先显示
+  17. 模块星图曾有 83 条悬空边 + 952 条装饰性边（占 91%），
+      现改为 AST 扫描真实 trunk.call 调用边
+【架构调整】
+  18. trunk.py 从 1827 行瘦身到 1086 行：
+      _deep_check → core/self_check.py；_reply_legacy → core/pipeline/legacy_reply.py；
+      事件总线已删除（无人使用）；105 个死 import 清理（未使用 import 从 219 降到 12）
+  19. 插件市场仓库 modules_repo 与 modules/installed 重新同步（此前 47 个文件里
+      41 个不一致，是一份陈旧快照），并全部重新 RSA 签名
+
+九、已知边界与注意事项
+────────────────────────────────────────
+  · 关机/重启默认禁用（规则「电脑控制.允许关机」= false），要用需显式开启
+  · 命令执行默认禁用（规则「电脑控制.允许命令」= false）
+  · 电脑控制的鼠标键盘作用于**真实桌面**，执行时会占用你的鼠标键盘；
+    与豆包"虚拟桌面"不同，做不到"不干扰你当前操作"
+  · 浏览器是 headless（无界面）运行，你看不到过程；需要看过程可改 headless=False
+  · 子智能体（编程小匠/分析官/策划师）目前是**无记忆**的，每次问答都是全新对话
+    （data/agents_*_mem.json 里有 86 轮历史，但当前代码不读不写）
+  · E 组规则里 `联网.AI反馈收集`、`安全.研究放开` 尚无对应实现，属于未启用的设计；
+    完整规格见 docs/自主规则_未启用.md
 ══════════════════════════════════════════════════════════════════════
-文档结束，当前代码为最终稳定版，可直接分发使用。
-
-
-
+文档结束，当前代码为可用版本，可直接分发使用。
