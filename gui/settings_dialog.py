@@ -280,8 +280,9 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
     l3.addWidget(_open_btn("🎙️", "语音对话",
                            "语音实时对话：静音自动断句、可随时打断、连续多轮"))
     l3.addWidget(_open_btn("📅", "日历待办", "日历 + 待办 + 笔记"))
-    l3.addWidget(_open_btn("🧰", "实用工具",
-                           "图片识别 / 记忆整理 / 统计报表 / 一键迁移 / 群聊辩论 等"))
+    l3.addWidget(_open_btn("⌘", "命令面板 (Ctrl+K)",
+                           "一个搜索框找所有能力和面板 —— 图片识别 / 记忆整理 / "
+                           "统计报表 / 一键迁移 / 群聊辩论 等都在里面"))
     l3.addWidget(_open_btn("🕸️", "模块星图",
                            "全部模块的星型拓扑图（用系统浏览器打开，实时刷新）"))
     l3.addStretch(1)

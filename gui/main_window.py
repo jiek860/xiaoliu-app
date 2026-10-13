@@ -5,9 +5,9 @@ import json
 import time
 import threading
 import traceback
-from PyQt5.QtWidgets import QMainWindow, QMessageBox, QApplication
-from PyQt5.QtCore import pyqtSignal, QTimer
-from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import (QMainWindow, QMessageBox, QApplication, QShortcut)
+from PyQt5.QtCore import pyqtSignal, QTimer, Qt
+from PyQt5.QtGui import QIcon, QKeySequence
 from core.trunk import Trunk
 from gui.mixins import (
     ChatMixin, DialogMixin, VoiceMixin, SystemMixin, LifecycleMixin,
@@ -136,6 +136,17 @@ class JarvisWindow(
         self._status_timer = QTimer(self)
         self._status_timer.timeout.connect(self._update_status)
         self._status_timer.start(3 * 60 * 1000)
+
+        # 14. 命令面板快捷键 Ctrl+K
+        #     这是"撤按钮"的配套：能力不再各配一个常驻按钮，改成按需搜索。
+        #     用 ApplicationShortcut 让它在任何子窗口聚焦时也能唤起。
+        try:
+            sc = QShortcut(QKeySequence("Ctrl+K"), self)
+            sc.setContext(Qt.ApplicationShortcut)
+            sc.activated.connect(self.command_palette)
+            self._cmd_shortcut = sc          # 留引用，否则会被回收
+        except Exception:
+            pass
 
     def _do_login_flow(self):
         """窗口显示后再走登录门禁（原来在 __init__ 里阻塞，窗口得等登录完才出现）"""

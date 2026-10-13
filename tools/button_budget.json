@@ -7,6 +7,7 @@
     "gui/bot_dialog.py": 3,
     "gui/build_ui.py": 11,
     "gui/code_editor_dialog.py": 2,
+    "gui/command_palette.py": 1,
     "gui/components_dialog.py": 3,
     "gui/computer_dialog.py": 8,
     "gui/feedback_dialog.py": 2,
@@ -19,7 +20,6 @@
     "gui/memory_view_dialog.py": 5,
     "gui/mobile_dialog.py": 2,
     "gui/model_manager_dialog.py": 2,
-    "gui/module_tools_dialog.py": 1,
     "gui/onboarding_wizard.py": 4,
     "gui/plugin_dialog.py": 6,
     "gui/search_dialog.py": 2,
@@ -30,5 +30,8 @@
     "gui/tutorial_dialog.py": 3,
     "gui/update_dialog.py": 2,
     "gui/voice_chat_dialog.py": 3
-  }
+  },
+  "table_rows": 0,
+  "tables": {},
+  "_widgets": 114
 }

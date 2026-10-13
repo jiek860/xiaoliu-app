@@ -82,29 +82,7 @@ class DialogMixin:
             getattr(self, "ai_name", "小6"),
             getattr(self, "model_btn", None), getattr(self, "_status_local", None), getattr(self, "_status_cloud", None),
             getattr(self, "chat", None), getattr(self, "input", None),
-            {
-                "电脑控制":     getattr(self, "computer_dialog", None),
-                "机器人":       getattr(self, "bot_dialog", None),
-                "插件":         getattr(self, "plugin_dialog", None),
-                "MCP":          getattr(self, "mcp_dialog", None),
-                "历史记录":     getattr(self, "history_dialog", None),
-                "日志":         getattr(self, "log_dialog", None),
-                "系统":         getattr(self, "sys_dialog", None),
-                "首次设置向导": getattr(self, "onboarding_dialog", None),
-                # 下面这批原来是没有入口的孤儿窗口，现已接入
-                "模型管理":     getattr(self, "model_manager_dialog", None),
-                "语音对话":     getattr(self, "voice_chat_dialog", None),
-                "记忆可视化":   getattr(self, "memory_view_dialog", None),
-                "数据统计":     getattr(self, "stats_dialog", None),
-                "日历待办":     getattr(self, "tools_dialog", None),
-                "搜索聊天":     getattr(self, "search_dialog", None),
-                "手机远程":     getattr(self, "mobile_dialog", None),
-                "检查更新":     getattr(self, "update_dialog", None),
-                "桌宠":         getattr(self, "pet_dialog", None),
-                # 一批后台模块的统一入口（原来登记了却全项目没人调用）
-                "实用工具":     getattr(self, "module_tools_dialog", None),
-                "模块星图":     getattr(self, "module_map_dialog", None),
-            },
+            self._panel_commands(),
         )
 
     # center_dialog() 已移除：它那 8 个入口全部并入上面的设置窗口，
@@ -178,13 +156,56 @@ class DialogMixin:
         """检查更新 / 回滚 / 更新历史"""
         return self._open_simple_dialog("update_dialog", "UpdateDialog")
 
-    def module_tools_dialog(self):
-        """🧰 实用工具 —— 一批后台模块的统一入口
+    def _panel_commands(self):
+        """主窗口能打开的面板 —— 命令面板和设置窗口共用这一份，避免两处各写一份"""
+        return {
+            "电脑控制":     getattr(self, "computer_dialog", None),
+            "机器人":       getattr(self, "bot_dialog", None),
+            "插件市场":     getattr(self, "plugin_dialog", None),
+            "MCP市场":      getattr(self, "mcp_dialog", None),
+            "历史记录":     getattr(self, "history_dialog", None),
+            "日志中心":     getattr(self, "log_dialog", None),
+            "系统自检":     getattr(self, "sys_dialog", None),
+            "首次设置向导": getattr(self, "onboarding_dialog", None),
+            "模型管理":     getattr(self, "model_manager_dialog", None),
+            "语音对话":     getattr(self, "voice_chat_dialog", None),
+            "记忆可视化":   getattr(self, "memory_view_dialog", None),
+            "数据统计":     getattr(self, "stats_dialog", None),
+            "日历待办":     getattr(self, "tools_dialog", None),
+            "搜索聊天":     getattr(self, "search_dialog", None),
+            "手机远程":     getattr(self, "mobile_dialog", None),
+            "检查更新":     getattr(self, "update_dialog", None),
+            "桌宠":         getattr(self, "pet_dialog", None),
+            "模块星图":     getattr(self, "module_map_dialog", None),
+            "设置":         getattr(self, "set_dialog", None),
+            # 命令面板自己也在表里（设置里那个 ⌘ 按钮就是靠它开）
+            "命令面板 (Ctrl+K)": getattr(self, "command_palette", None),
+            "实用工具（旧按钮面板）": getattr(self, "module_tools_dialog", None),
+        }
 
-        这些模块（图片识别/记忆整理/数据清洗/统计报表/一键迁移/群聊辩论…）
-        原来都登记在 LAZY_MAP 里，却全项目没有一处调用它们。
-        它们不是对话框类而是功能类，所以统一收进这一个面板：
-        左边按分组点，右边看结果，全部在后台线程跑。
+    def command_palette(self):
+        """⌘ 命令面板（Ctrl+K）—— 能力/面板/工具的统一搜索入口
+
+        它**取代**了原"实用工具"面板那 24 个按钮：那 24 条能力里 23 条"说一句"
+        就能用，做成常驻按钮既占地方（一个人占了 GUI 114 处控件里的 24 处）
+        又要手工维护（手写 ACTIONS 表，模块改了不会自动跟）。
+        现在数据来自 core/module_caps 能力注册表 —— 模块声明 TOOLS 就自动进来。
+
+        回滚：git revert 这次提交即可（旧实现完整留在 git 历史里），
+        ACTIONS 那 24 条也没丢，已全部变成注册表里的能力声明。
+        """
+        try:
+            from gui.command_palette import show_command_palette
+            return show_command_palette(self.trunk, self._panel_commands(), self)
+        except Exception as e:
+            QMessageBox.warning(self, "命令面板", "打不开：" + str(e)[:120])
+            return None
+
+    def module_tools_dialog(self):
+        """🧰 实用工具 —— 兼容旧入口，现在转发到命令面板
+
+        保留这个方法是因为设置里可能还有旧按钮指向它；
+        它内部不再创建任何按钮（见 gui/module_tools_dialog.py 的说明）。
         """
         try:
             from gui.module_tools_dialog import ModuleToolsDialog
