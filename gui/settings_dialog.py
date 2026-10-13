@@ -64,28 +64,67 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
     m.setCurrentText("云端模型" if "云端" in str(_cur_mode) else "本地路由")
     l1.addWidget(m)
 
-    def check_local():
-        try:
-            ollama_url = trunk.config.get("ollama_url", "http://localhost:11434")
-            req = urllib.request.Request(ollama_url + "/api/tags")
-            data = json.loads(urllib.request.urlopen(req, timeout=3).read())
-            models = [mm["name"] for mm in data.get("models", [])]
-            d2 = QDialog(d)
-            d2.setWindowTitle("选择本地模型")
-            d2.setFixedSize(350, 300)
-            l2 = QVBoxLayout(d2)
-            l2.addWidget(QLabel("检测到 %d 个模型：" % len(models)))
-            def _pick_local(x):
-                trunk.config["local_model"] = x
-                trunk.save_config()
-                d2.accept()
-                QMessageBox.information(d, "成功", "已选择: " + x)
-            for mm in models:
-                l2.addWidget(QPushButton(mm, clicked=lambda checked, x=mm: _pick_local(x)))
-            d2.exec_()
-        except:
+    # 「检测本地模型」：网络请求必须放子线程。
+    # 原来 check_local 是直接连到 clicked 上的，里面 urlopen(timeout=3) 在 UI 线程
+    # 上跑 —— Ollama 不在线时（比如 ollama_url 指向局域网里没开的机器）
+    # 点一下界面就冻满 3 秒。下面这段跟 _probe_ollama 用同一套写法。
+    class _ModelsReady(QObject):
+        done = pyqtSignal(object, str)          # (models, err)
+
+    _mr = _ModelsReady(d)
+    d._model_probe = _mr        # 必须留住引用，否则被回收后信号没人接
+
+    _check_btn = QPushButton("检测本地模型")
+    l1.addWidget(_check_btn)
+
+    def _show_model_picker(models):
+        d2 = QDialog(d)
+        d2.setWindowTitle("选择本地模型")
+        d2.setFixedSize(350, 300)
+        l2 = QVBoxLayout(d2)
+        l2.addWidget(QLabel("检测到 %d 个模型：" % len(models)))
+
+        def _pick_local(x):
+            trunk.config["local_model"] = x
+            trunk.save_config()
+            d2.accept()
+            QMessageBox.information(d, "成功", "已选择: " + x)
+        for mm in models:
+            l2.addWidget(QPushButton(mm, clicked=lambda checked, x=mm: _pick_local(x)))
+        d2.exec_()
+
+    def _on_models(models, err):
+        """子线程取完回到 GUI 线程：这里才能碰控件"""
+        _check_btn.setEnabled(True)
+        _check_btn.setText("检测本地模型")
+        if err:
             QMessageBox.warning(d, "错误", "Ollama未启动\n请先打开Ollama")
-    l1.addWidget(QPushButton("检测本地模型", clicked=check_local))
+            return
+        _show_model_picker(models)
+
+    _mr.done.connect(_on_models)
+
+    def check_local():
+        _check_btn.setEnabled(False)
+        _check_btn.setText("检测中…")
+
+        def work():
+            try:
+                ollama_url = trunk.config.get("ollama_url", "http://localhost:11434")
+                req = urllib.request.Request(ollama_url + "/api/tags")
+                data = json.loads(urllib.request.urlopen(req, timeout=3).read())
+                models, err = [mm["name"] for mm in data.get("models", [])], ""
+            except Exception as e:
+                models, err = [], str(e)[:60]
+            try:
+                _mr.done.emit(models, err)      # 信号排队回 GUI 线程
+            except Exception:
+                pass
+
+        threading.Thread(target=work, daemon=True,
+                         name="settings-model-probe").start()
+
+    _check_btn.clicked.connect(check_local)
 
     # Ollama 探测放后台做。
     # 原来是在**构建对话框的过程中**直接发请求（timeout=3），

@@ -52,6 +52,11 @@ staging/
 dist/
 build/
 *.spec.bak
+# 程序自己改代码时留下的备份（patch_utils / 自动更新 / 性能优化轮）
+# 形如 xxx.py.bak_perf / xxx.py.bak_ui / xxx.py.bak_appfix，都是本机产物，不入库
+*.bak_*
+# 手写的 .bak 也别入库
+*.bak
 __pycache__/
 *.py[cod]
 *$py.class
