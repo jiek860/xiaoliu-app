@@ -239,10 +239,48 @@ class ToolCaller(BaseModule):
                     "说明": "这个能力比较慢，已转后台执行，你可以继续聊；"
                             "完成后会写进日志（data/logs/trunk.log）"}
 
-        return self._invoke(info, args, query)
+        return self._invoke(info, args, query, tool_name)
 
-    def _invoke(self, info, args, query):
+    def _invoke(self, info, args, query, tool_name=None):
         """真正执行（同步路径与后台路径共用同一份传参逻辑）"""
+        r = self._call_module(info, args, query)
+        return self._explain_none(info, r, tool_name)
+
+    def _explain_none(self, info, r, tool_name=None):
+        """结果若是 None，区分"真没结果"和"被 @safe 吞掉的错误"
+
+        为什么需要：被 @safe 包住的方法出错时返回 None，调用方**无法区分**
+        这和"这方法本来就返回空"。实测吃过亏 —— ocr_available() 被多传了一个
+        参数，TypeError 变成 None，现象上就是"这功能没反应"，查了很久。
+
+        @safe 那边按函数名/限定名记下最近一次错误（core/safe.py:last_error），
+        这里问一句就知道是不是刚出错了。是的话给模型一个明确的失败信息，
+        而不是让它以为"没结果"。
+        """
+        if r is not None:
+            return r
+        label = tool_name or info.get("method") or "?"
+        try:
+            from core import safe as _safe
+            # 优先用限定名（Todo.stats），避免 stats/run 这类同名方法串台
+            m = self.trunk.modules.get(info.get("mod"))
+            fn = getattr(m, info.get("method"), None) if m else None
+            keys = []
+            inner = getattr(fn, "__func__", fn) if fn is not None else None
+            q = getattr(inner, "__qualname__", None)
+            if q:
+                keys.append(q)
+            keys.append(info.get("method"))
+            err = next((e for e in (_safe.last_error(k) for k in keys if k)), None)
+        except Exception:
+            err = None
+        if not err:
+            return r                      # 真没结果，保持原样
+        return {"ok": False,
+                "错误": "「%s」执行出错：%s" % (label, err)}
+
+    def _call_module(self, info, args, query):
+        """按签名决定怎么传参（三条兼容路径见下面注释）"""
         method = info["method"]
         m = self.trunk.modules.get(info["mod"])
         fn = getattr(m, method, None) if m is not None else None
@@ -287,7 +325,7 @@ class ToolCaller(BaseModule):
 
         def _work():
             try:
-                r = self._invoke(info, args, query)
+                r = self._invoke(info, args, query, label)
                 self.trunk._log("后台能力完成: %s -> %s"
                                 % (label, str(r)[:160]))
                 # 通知界面（状态栏回调内部自己保证线程安全，失败就算了）
