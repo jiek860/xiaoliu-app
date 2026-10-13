@@ -194,6 +194,11 @@ class RuleEngine:
         self.register("定时.热检间隔秒", D, "参数", "热更新检测间隔(秒)", 300)
         self.register("学习.连续间隔秒", D, "参数", "连续学习轮间冷却(秒)", 60)
         self.register("电脑控制.允许关机", D, "参数", "是否允许关机/重启（默认禁用，防误触发）", False)
+        # 命令执行：默认关闭。code_runner 用黑名单挡危险代码，那套既能被绕过
+        # （getattr(os,"sys"+"tem")）又会误伤正常代码（open("a.txt") 直接被杀）；
+        # 这里改成白名单 + 默认关 + 每条都弹窗确认，见 computer_controller.shell()
+        self.register("电脑控制.允许命令", D, "参数",
+                      "是否允许执行白名单内的命令（默认禁用）", False)
         # ===== 记忆卡规则（v2 规则级参数，可调） =====
         B2 = "B-代码已有"
         self.register("记忆卡.min_rounds", B2, "参数", "最少几轮强制总结", 5)

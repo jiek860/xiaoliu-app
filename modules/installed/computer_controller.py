@@ -239,6 +239,282 @@ class ComputerController(BaseModule):
             return ["（没有找到可见窗口）"]
         return [t for t, _ in wins]
 
+    # ---------- UI 元素树（uiautomation）----------
+    #
+    # 为什么需要它：没有元素树时，GUI 操作只能"盲点坐标" ——
+    # 要事先知道按钮在 (500, 300)，窗口一挪位置就失效，也没法说
+    # "点那个叫『确定』的按钮"。接上 UI Automation 之后就能按**控件名/类型**
+    # 定位，这是"详细操作程序"和"碰运气点坐标"的分界。
+    #
+    # 实测（本机 uiautomation 2.0.29）：
+    #   GetRootControl()            0.29s
+    #   枚举顶层窗口                 0.10s
+    #   按类型找控件 searchDepth=6   0.04s
+    # 所以每次调用都很快，但**深度搜索要限深限量**，否则在大程序里会慢。
+
+    _UI_MAX = 40          # 单次最多返回多少个控件
+
+    def _uia(self):
+        """取 uiautomation 模块；没装就给出可操作的提示"""
+        try:
+            import uiautomation as auto
+            return auto
+        except Exception as e:
+            return RuntimeError("没装 uiautomation（pip install uiautomation）: "
+                                + str(e)[:50])
+
+    def ui_available(self):
+        a = self._uia()
+        return not isinstance(a, Exception)
+
+    def ui_windows(self):
+        """列出顶层窗口（名字 / 控件类型 / 位置）—— 比 pygetwindow 版更准"""
+        a = self._uia()
+        if isinstance(a, Exception):
+            return {"ok": False, "错误": str(a)}
+        out = []
+        try:
+            root = a.GetRootControl()
+            for w in root.GetChildren():
+                try:
+                    nm = (w.Name or "").strip()
+                    if not nm:
+                        continue
+                    r = w.BoundingRectangle
+                    out.append({"名称": nm, "类型": w.ControlTypeName,
+                                "位置": [r.left, r.top, r.right, r.bottom]})
+                except Exception:
+                    continue
+                if len(out) >= self._UI_MAX:
+                    break
+        except Exception as e:
+            return {"ok": False, "错误": "枚举窗口失败: " + str(e)[:60]}
+        self._log("ui_windows", "%d 个" % len(out))
+        return {"ok": True, "窗口数": len(out), "窗口": out}
+
+    def ui_find(self, name=None, control_type=None, window=None, depth=6):
+        """按名字/类型找控件（不点击，只定位）
+
+        name         控件名（支持子串匹配，不区分大小写）
+        control_type ButtonControl / EditControl / ListItemControl ...
+        window       限定在哪个窗口里找（窗口名子串）；不填则全桌面找
+        depth        搜索深度，默认 6（越深越慢）
+        """
+        a = self._uia()
+        if isinstance(a, Exception):
+            return {"ok": False, "错误": str(a)}
+        if not name and not control_type:
+            return {"ok": False, "错误": "至少要给 name 或 control_type"}
+        try:
+            depth = max(1, min(12, int(depth)))
+        except Exception:
+            depth = 6
+
+        root = None
+        if window:
+            root = self._ui_window(window, a)
+            if root is None:
+                return {"ok": False, "错误": "没找到窗口: " + str(window)}
+        else:
+            try:
+                root = a.GetRootControl()
+            except Exception as e:
+                return {"ok": False, "错误": str(e)[:60]}
+
+        want = str(name or "").strip().lower()
+        ctype = str(control_type or "").strip()
+        found = []
+        try:
+            for c in root.GetChildren():
+                self._ui_walk(c, want, ctype, found, depth)
+                if len(found) >= self._UI_MAX:
+                    break
+        except Exception as e:
+            return {"ok": False, "错误": "搜索失败: " + str(e)[:60]}
+        self._log("ui_find", "name=%s type=%s -> %d" % (name, control_type, len(found)))
+        return {"ok": True, "找到": len(found), "控件": found}
+
+    def _ui_walk(self, ctrl, want, ctype, found, depth):
+        """深度优先遍历控件树（限深限量）"""
+        if depth <= 0 or len(found) >= self._UI_MAX:
+            return
+        try:
+            nm = (ctrl.Name or "")
+            tn = ctrl.ControlTypeName or ""
+            if want and want not in nm.lower():
+                pass
+            elif ctype and ctype.lower() != tn.lower():
+                pass
+            else:
+                r = ctrl.BoundingRectangle
+                found.append({"名称": nm[:60], "类型": tn,
+                              "位置": [r.left, r.top, r.right, r.bottom]})
+        except Exception:
+            pass
+        try:
+            for c in ctrl.GetChildren():
+                self._ui_walk(c, want, ctype, found, depth - 1)
+                if len(found) >= self._UI_MAX:
+                    return
+        except Exception:
+            pass
+
+    def _ui_window(self, title, a):
+        """按名字子串找顶层窗口，返回窗口控件"""
+        want = str(title or "").strip().lower()
+        try:
+            for w in a.GetRootControl().GetChildren():
+                try:
+                    if want in (w.Name or "").lower():
+                        return w
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return None
+
+    def ui_dump(self, window=None, depth=3):
+        """把一个窗口的控件树打印成缩进文本 —— 让 AI"看见"程序的结构
+
+        这是"盲点坐标"升级的关键：原来只能截图让视觉模型猜，
+        现在能直接拿到「窗口 > 面板 > 按钮『确定』」这样的层级。
+        """
+        a = self._uia()
+        if isinstance(a, Exception):
+            return {"ok": False, "错误": str(a)}
+        root = self._ui_window(window, a) if window else None
+        if window and root is None:
+            return {"ok": False, "错误": "没找到窗口: " + str(window)}
+        if root is None:
+            try:
+                root = a.GetRootControl()
+            except Exception as e:
+                return {"ok": False, "错误": str(e)[:60]}
+        try:
+            depth = max(1, min(8, int(depth)))
+        except Exception:
+            depth = 3
+        lines = []
+
+        def walk(c, d):
+            if d > depth or len(lines) >= self._UI_MAX * 4:
+                return
+            try:
+                nm = (c.Name or "").strip()
+                tn = c.ControlTypeName or "?"
+                r = c.BoundingRectangle
+                lines.append("%s%s%s  @(%d,%d,%dx%d)"
+                             % ("  " * d, tn,
+                                ("  「%s」" % nm[:40]) if nm else "",
+                                r.left, r.top, r.right - r.left, r.bottom - r.top))
+            except Exception:
+                return
+            try:
+                for ch in c.GetChildren():
+                    walk(ch, d + 1)
+            except Exception:
+                pass
+
+        walk(root, 0)
+        self._log("ui_dump", "window=%s depth=%d -> %d 行" % (window, depth, len(lines)))
+        return {"ok": True, "窗口": str(window or "(桌面根)"),
+                "行数": len(lines), "结构": "\n".join(lines)}
+
+    def ui_click(self, name, control_type=None, window=None, depth=6):
+        """按控件名点击 —— 不依赖坐标，窗口挪了也不怕"""
+        a = self._uia()
+        if isinstance(a, Exception):
+            return {"ok": False, "错误": str(a)}
+        root = self._ui_window(window, a) if window else None
+        if window and root is None:
+            return {"ok": False, "错误": "没找到窗口: " + str(window)}
+        hit = None
+        want = str(name or "").strip().lower()
+        ctype = str(control_type or "").strip().lower()
+
+        def walk(c, d):
+            nonlocal hit
+            if hit is not None or d <= 0:
+                return
+            try:
+                nm = (c.Name or "").lower()
+                tn = (c.ControlTypeName or "").lower()
+                if want and want in nm and (not ctype or ctype == tn):
+                    hit = c
+                    return
+            except Exception:
+                pass
+            try:
+                for ch in c.GetChildren():
+                    walk(ch, d - 1)
+                    if hit is not None:
+                        return
+            except Exception:
+                pass
+
+        try:
+            base = root if root is not None else a.GetRootControl()
+            walk(base, max(1, min(12, int(depth))))
+        except Exception as e:
+            return {"ok": False, "错误": "搜索失败: " + str(e)[:60]}
+        if hit is None:
+            return {"ok": False, "错误": "没找到控件「%s」%s"
+                    % (name, ("（限在窗口 %s 内）" % window) if window else "")}
+        if not self._confirm("按控件名点击", "「%s」" % name):
+            return {"ok": False, "错误": "已取消"}
+        try:
+            hit.Click(simulateMove=False)
+            self._log("ui_click", str(name))
+            return {"ok": True, "已点击": str(name)[:50],
+                    "类型": hit.ControlTypeName}
+        except Exception as e:
+            return {"ok": False, "错误": "点击失败: " + str(e)[:60]}
+
+    def ui_type(self, name, text, window=None, depth=6):
+        """往指定控件里输入文字（优先用 ValuePattern，退化为键盘输入）"""
+        a = self._uia()
+        if isinstance(a, Exception):
+            return {"ok": False, "错误": str(a)}
+        root = self._ui_window(window, a) if window else None
+        hit = None
+        want = str(name or "").strip().lower()
+
+        def walk(c, d):
+            nonlocal hit
+            if hit is not None or d <= 0:
+                return
+            try:
+                if want and want in (c.Name or "").lower():
+                    hit = c
+                    return
+            except Exception:
+                pass
+            try:
+                for ch in c.GetChildren():
+                    walk(ch, d - 1)
+                    if hit is not None:
+                        return
+            except Exception:
+                pass
+
+        try:
+            base = root if root is not None else a.GetRootControl()
+            walk(base, max(1, min(12, int(depth))))
+        except Exception as e:
+            return {"ok": False, "错误": "搜索失败: " + str(e)[:60]}
+        if hit is None:
+            return {"ok": False, "错误": "没找到控件「%s」" % name}
+        try:
+            try:
+                hit.GetValuePattern().SetValue(str(text))
+            except Exception:
+                hit.SetFocus()
+                self.type_text(str(text))
+            self._log("ui_type", "%s <= %s" % (name, str(text)[:30]))
+            return {"ok": True, "控件": str(name)[:40], "文字": str(text)[:40]}
+        except Exception as e:
+            return {"ok": False, "错误": "输入失败: " + str(e)[:60]}
+
     def _activate_hwnd(self, hwnd):
         g, con, api = self._win()
         if isinstance(g, Exception):
@@ -846,6 +1122,38 @@ class ComputerController(BaseModule):
             return None
         t = text.strip()
         tl = t.lower()
+        # ============ UI 元素树指令（先于坐标类，因为"按名字点"比"点坐标"精确）============
+        # 「点击名为确定的按钮」/「点击确定按钮」——按控件名点，不依赖坐标
+        m = re.search(r"(?:点击|点一下|单击|按下)\s*(?:名为|名叫|叫做)?\s*[「\"']?"
+                      r"([^」\"'，。]{1,24}?)[」\"']?\s*的?\s*"
+                      r"(按钮|链接|菜单|选项|标签|输入框|控件)", t)
+        if m:
+            nm = m.group(1).strip()
+            ct = {"按钮": "ButtonControl", "链接": "HyperlinkControl",
+                  "菜单": "MenuItemControl", "选项": "ListItemControl",
+                  "标签": "TabItemControl", "输入框": "EditControl",
+                  "控件": ""}.get(m.group(2), "")
+            return ("ui_click", {"name": nm, "control_type": ct or None})
+        # 「看看记事本的控件」/「列出窗口结构」
+        m = re.search(r"(?:看看|查看|列出|dump|显示)\s*[「\"']?([^」\"'，。]{1,24})[」\"']?\s*的?\s*"
+                      r"(?:控件|界面结构|元素树|结构)", t)
+        if m:
+            return ("ui_dump", {"window": m.group(1).strip(), "depth": 3})
+        if re.search(r"(界面结构|元素树|控件树|窗口结构)", t):
+            return ("ui_dump", {"depth": 2})
+        # 找控件 / 列出窗口（元素树版）
+        m = re.search(r"(?:列出?|看看|查看)\s*(?:当前)?\s*(?:所有)?\s*窗口", t)
+        if m:
+            return ("ui_windows", {})
+        # 「在搜索框里输入 你好」——按控件名输入
+        m = re.search(r"(?:在|往)\s*[「\"']?([^」\"'，。]{1,24}?)[」\"']?\s*(?:框|控件)?\s*"
+                      r"(?:里|中)?\s*(?:输入|填|打)\s*(.+)$", t)
+        if m:
+            return ("ui_type", {"name": m.group(1).strip(), "text": m.group(2).strip()})
+        # 执行命令：「执行 git status」/「运行命令 dir」
+        m = re.search(r"(?:执行命令|运行命令|跑命令|cmd|shell)\s*[：:]?\s*(.+)$", t, re.I)
+        if m:
+            return ("shell", {"cmd": m.group(1).strip()})
         # 打开网址/网站
         m = re.search(r"(?:打开|访问|去|上)\s*(?:网址|网站|网页)\s*[：: ]?\s*([\w\.\-:/]{4,80})", t)
         if m:
@@ -989,6 +1297,80 @@ class ComputerController(BaseModule):
         # 文件操作已上移到剪贴板之前（原来放这儿会被"复制…"的剪贴板规则截胡，
         # 且只认 [A-Za-z]:\ 绝对路径）。见本方法开头的 _looks_path 那段。
         return None
+
+    # ---------- 命令执行（严格白名单，默认关闭）----------
+    #
+    # 设计取舍：code_runner 那边用"黑名单"挡危险代码
+    #   dangerous = ["os.system", "subprocess", "shutil.rmtree", "open(", "eval(", "exec("]
+    # 那套有两个毛病：① 字符串黑名单本身可绕过（getattr(os,"sys"+"tem")）；
+    # ② 会误伤正常代码（open("a.txt").read() 直接被杀）。
+    # 所以这里反过来做**白名单**，并且：
+    #   · 默认关闭（规则「电脑控制.允许命令」默认 False，要用得显式打开）
+    #   · 每条命令都要弹窗确认，和删文件同一级别
+    #   · 拒绝一切串联/重定向（&& || | ; > < & ` $( ），只允许单条命令
+    #   · 完整日志：命令 + 退出码 + 输出前若干字
+    _SHELL_ALLOW = (
+        # —— 只读/查询类 ——
+        "dir", "type", "where", "tasklist", "whoami", "hostname", "ver",
+        "ipconfig", "systeminfo", "tree", "findstr", "more", "fc",
+        "python", "py", "git", "pip", "node", "npm", "pytest", "ruff",
+        "ffmpeg", "curl", "ping", "nslookup", "netstat", "wmic", "reg",
+    )
+    # 任何串联/重定向/替换符一律拒绝 —— 单条命令是可控的前提
+    _SHELL_META = ("&&", "||", "|", ";", ">", "<", "&", "`", "$(", "%(", "\n", "\r")
+
+    def _shell_enabled(self):
+        """命令执行总开关（规则引擎，默认关闭）"""
+        try:
+            if self.trunk:
+                return bool(self.trunk.rule("电脑控制.允许命令", False))
+        except Exception:
+            pass
+        return False
+
+    def shell(self, cmd):
+        """执行一条白名单内的命令
+
+        默认**关闭**。要开启：data/rules/rules.json 里把
+        「电脑控制.允许命令」的 value 改成 true（或在规则界面里开）。
+        """
+        c = str(cmd or "").strip()
+        if not c:
+            return {"ok": False, "错误": "没给命令"}
+        if not self._shell_enabled():
+            return {"ok": False,
+                    "错误": "命令执行已禁用（规则引擎：电脑控制.允许命令 = false）",
+                    "怎么开": "data/rules/rules.json 里把该规则 value 设为 true"}
+        for meta in self._SHELL_META:
+            if meta in c:
+                return {"ok": False,
+                        "错误": "不允许串联/重定向（检测到 %r）；一次只跑一条命令" % meta}
+        first = re.split(r"\s+", c, 1)[0].lower()
+        first = os.path.basename(first)
+        if first.endswith(".exe"):
+            first = first[:-4]
+        if first not in self._SHELL_ALLOW:
+            return {"ok": False,
+                    "错误": "命令 %r 不在白名单内" % first,
+                    "白名单": list(self._SHELL_ALLOW)}
+        if not self._confirm("执行命令", c[:200]):
+            return {"ok": False, "错误": "已取消"}
+        t0 = time.time()
+        try:
+            r = subprocess.run(c, shell=True, capture_output=True, text=True,
+                               timeout=60, cwd=self.base,
+                               encoding="utf-8", errors="replace")
+        except subprocess.TimeoutExpired:
+            self._log("shell", "%s -> 超时" % c[:80], True)
+            return {"ok": False, "错误": "命令超过 60 秒未结束，已放弃"}
+        except Exception as e:
+            self._log("shell", "%s -> %s" % (c[:80], str(e)[:40]), True)
+            return {"ok": False, "错误": str(e)[:80]}
+        out = ((r.stdout or "") + (("\n[stderr]\n" + r.stderr) if r.stderr else ""))[:4000]
+        self._log("shell", "%s -> exit=%s" % (c[:80], r.returncode), True,
+                  "确认执行" if r.returncode == 0 else "非零退出")
+        return {"ok": r.returncode == 0, "命令": c, "退出码": r.returncode,
+                "耗时": round(time.time() - t0, 2), "输出": out}
 
     def _danger_enabled(self, action):
         """关机/重启默认禁用，规则引擎可开启（电脑控制.允许关机）"""

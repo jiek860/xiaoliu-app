@@ -75,6 +75,30 @@ class ToolCaller(BaseModule):
                 "mod": "computer_controller", "method": "edit_text",
                 "args": {"spec": 'JSON: {"path":"a.py","old":"原文","new":"新文"}'},
             },
+            # UI 元素树：按控件名操作，不依赖坐标（需 uiautomation）
+            "ui_find": {
+                "desc": "按控件名/类型在窗口里找控件（只定位，不点击）",
+                "mod": "computer_controller", "method": "ui_find",
+                "args": {"name": "控件名，如：确定"},
+            },
+            "ui_click": {
+                "desc": "按控件名点击按钮/链接（比点坐标可靠）",
+                "mod": "computer_controller", "method": "ui_click",
+                "args": {"name": "控件名，如：确定"},
+            },
+            "ui_dump": {
+                "desc": "打印某窗口的控件树，用于看清程序界面结构",
+                "mod": "computer_controller", "method": "ui_dump",
+                "args": {"window": "窗口名，如：记事本"},
+            },
+            # 命令执行：默认关闭（规则「电脑控制.允许命令」= false），
+            # 开启后也只放白名单命令且每条要弹窗确认。列在这里是为了
+            # 开启后 LLM 能调用它 —— 防线是"规则 + 确认"，不是把它藏起来。
+            "shell": {
+                "desc": "执行一条白名单内的命令（默认禁用，需规则开启）",
+                "mod": "computer_controller", "method": "shell",
+                "args": {"cmd": "如：git status（不允许 && | > 等串联）"},
+            },
         }
         self._merge_mcp_tools()
 
