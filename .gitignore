@@ -52,6 +52,10 @@ staging/
 dist/
 build/
 *.spec.bak
+# playwright 下载的浏览器（约 705 MB，本机产物）。
+# 其实上面 `data/` 那条已经覆盖了它，这里单独列出来是为了写明意图：
+# 放到程序文件夹是为了打包时自带浏览器，绝不进版本库。
+data/browsers/
 # 程序自己改代码时留下的备份（patch_utils / 自动更新 / 性能优化轮）
 # 形如 xxx.py.bak_perf / xxx.py.bak_ui / xxx.py.bak_appfix，都是本机产物，不入库
 *.bak_*

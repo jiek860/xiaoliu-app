@@ -49,6 +49,15 @@ class ToolCaller(BaseModule):
                 "mod": "computer_controller", "method": "try_handle",
                 "args": {"action": "操作"},
             },
+            # 浏览器（Playwright，DOM 选择器级，headless）。
+            # 入口是 browser.run/1 个文本参数 —— 注意 tool_caller 分发时只传
+            # list(args.values())[0]，多参数传不过去，所以这里只声明 1 个参数，
+            # 由 browser.try_handle 自己解析（和上面的 computer 同一形状）。
+            "browser": {
+                "desc": "浏览器：打开网页/读页面文字/点击/输入/截图（DOM级）",
+                "mod": "browser", "method": "run",
+                "args": {"action": "如：打开 https://example.com 并读取页面文字"},
+            },
         }
         self._merge_mcp_tools()
 
