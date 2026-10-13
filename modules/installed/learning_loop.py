@@ -9,6 +9,18 @@ import os, time, json, re, threading
 class LearningPipeline(BaseModule):
     NAME = "learning_loop"
     VERSION = "1.0"
+
+    TOOLS = [
+        {"name": "learn_topic", "method": "run",
+         "desc": "学一个网址/主题：搜资料→提炼→存进知识库和向量库",
+         "args": {"topic": "网址或学习主题，如 https://docs.python.org 或 异步编程"},
+         "hints": ["学习", "学一下", "了解一下", "查资料学", "深入研究"]},
+        {"name": "learn_status", "method": "status",
+         "desc": "看学习闭环的状态和累计轮次",
+         "args": {},
+         "readonly": True,
+         "hints": ["学习状态", "学了什么", "学习进度"]},
+    ]
     """学习闭环编排者：只当指挥，具体活 trunk.call 给各模块"""
 
     # 多方向学习库：自动学习按 方向→主题 轮换

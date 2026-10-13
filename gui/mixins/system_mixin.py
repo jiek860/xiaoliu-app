@@ -22,44 +22,12 @@ class SystemMixin:
         except Exception:
             pass
 
-    def export_logs(self):
-        try:
-            desk = os.path.join(os.environ.get("USERPROFILE", "."), "Desktop")
-            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            out = os.path.join(desk, f"小6日志_{ts}.zip")
-            data = os.path.join(self.base, "data")
-            n = 0
-            with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-                logs = os.path.join(data, "logs")
-                if os.path.isdir(logs):
-                    for f in os.listdir(logs):
-                        p = os.path.join(logs, f)
-                        if os.path.isfile(p):
-                            z.write(p, "logs/" + f)
-                            n += 1
-            QMessageBox.information(self, "导出成功",
-                                    "已打包 %d 个文件到:\n%s" % (n, out))
-        except Exception as e:
-            QMessageBox.warning(self, "导出失败", str(e))
-
-    def export_data(self):
-        try:
-            desk = os.path.join(os.environ.get("USERPROFILE", "."), "Desktop")
-            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            out = os.path.join(desk, f"小6数据备份_{ts}.zip")
-            data = os.path.join(self.base, "data")
-            n = 0
-            with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-                for root, _, files in os.walk(data):
-                    for f in files:
-                        fp = os.path.join(root, f)
-                        arc = os.path.relpath(fp, self.base)
-                        z.write(fp, arc)
-                        n += 1
-            QMessageBox.information(self, "导出成功",
-                                    "已备份 %d 个文件到：\n%s" % (n, out))
-        except Exception as e:
-            QMessageBox.warning(self, "导出失败", str(e))
+    # export_logs() / export_data() 已删除 —— 它们是**重复实现**：
+    # 同一件事能力注册表里各有一份，而且那份更完整：
+    #     crash_export   打包日志+配置+系统信息，密钥自动脱敏
+    #     migrate_export 把整份数据打包，换电脑时用
+    # 这两份本地实现原来只被「日志中心」的两个按钮用，按钮撤掉后就没有调用者了。
+    # 留着只会让同一件事有两个真相（改了一份忘另一份）。
 
     def import_data(self):
         try:

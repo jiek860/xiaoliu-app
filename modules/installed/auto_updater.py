@@ -14,6 +14,14 @@ import os, shutil, subprocess, sys, time, json, re, hashlib, py_compile, threadi
 class AutoUpdater(BaseModule):
     NAME = "auto_updater"
     VERSION = "1.0"
+
+    TOOLS = [
+        {"name": "auto_update", "method": "run_auto_update",
+         "desc": "自更新闭环：取问题→生成建议→编程小匠打补丁→沙盒验证→弹窗确认→部署",
+         "args": {},
+         "confirm": True,
+         "hints": ["自动更新", "自我更新", "升级自己", "自更新", "改自己代码"]},
+    ]
     def __init__(self, trunk=None):
         super().__init__(trunk)
         self.trunk = trunk

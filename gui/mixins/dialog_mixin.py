@@ -42,8 +42,11 @@ class DialogMixin:
 
     def log_dialog(self):
         from gui.log_dialog import show_log_dialog
-        show_log_dialog(self, self._dlg, self.base,
-                        self.export_logs, self.export_data, self.import_data)
+        # export_logs / export_data 两个参数已去掉 —— 那两个按钮撤了
+        # （它们是重复入口，能力已归到注册表的 crash_export / migrate_export，
+        #  命令面板搜"导出"就能找到）。这里不再传自己的那份实现，
+        # 免得同一件事有两个真相。
+        show_log_dialog(self, self._dlg, self.base, self.import_data)
 
     def plugin_dialog(self):
         from gui.plugin_dialog import show_plugin_dialog

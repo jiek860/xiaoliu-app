@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """系统窗口 v2.0 - 标签页卡片式（仿设置窗口）"""
-from PyQt5.QtWidgets import QVBoxLayout, QLabel, QLineEdit, QPushButton, QTextBrowser, QTextEdit, QGroupBox, QTabWidget, QWidget
+from PyQt5.QtWidgets import QVBoxLayout, QLabel, QPushButton, QTextBrowser, QGroupBox, QTabWidget, QWidget
 
 
 BTN_STYLE = """
@@ -149,79 +149,41 @@ def show_system_dialog(self):
     btn4 = QPushButton("📤 导出备份(加密)")
     btn4.clicked.connect(lambda: self._export_backup_ui(result))
     l3a.addWidget(btn4)
-    btn5 = QPushButton("🔁 自动更新闭环")
-    btn5.clicked.connect(lambda: self._run_auto_update_ui(result))
-    l3a.addWidget(btn5)
+    # 「🔁 自动更新闭环」按钮已撤：这条能力现在声明成了 auto_update，
+    # 在命令面板（Ctrl+K）里搜"自动更新"就能跑，也能直接对聊天说。
+    # 撤按钮不是删功能 —— 是让同一个能力有统一入口，不用人记着去哪个面板点。
     l3.addWidget(box3)
     tabs.addTab(tab2, "💾 备份与更新")
 
     # ===== 标签3: 学习与任务 =====
+    #
+    # 这一组按钮原来有 4 个（采纳建议 / 开始学习 / 编程项目实战 / 任务闭环），
+    # 其中 3 个已撤，理由分别是：
+    #   「✅ 采纳建议（学第一条）」—— **一直是坏的**：它读的是 sug 文本框的第一行，
+    #       而那个框全项目只有一处 setPlainText("🤔 正在生成建议...")，
+    #       之后再没人填过内容 —— 所以它每次都拿这句占位符去网上搜。
+    #   「🚀 开始学习」—— 能力已声明成 learn_topic（learning_loop.run），
+    #       命令面板里搜"学习"就能跑，也能直接说「学一下 xxx」。
+    #   「🎯 任务闭环」—— 能力已声明成 task_goal（task_loop.run），同上。
+    # 撤按钮 = 把同一能力收进统一入口，不是删功能。
     tab3 = QWidget()
     l4 = QVBoxLayout(tab3)
 
-    def _learn_topic(topic):
-        """让学习闭环去学一个网址/主题：先搜资料，再提炼入库。
-
-        原来是 trunk.call("proactive_learner", "learn", ...) ——
-        proactive_learner 这个模块早已改名成 active_learning，而 active_learning
-        也没有 learn 方法，所以「开始学习」「采纳建议」两个按钮一直是坏的。
-        现在直接走 learning_loop 的 fetch + store（本来就是这套流程的两步）。
-        """
-        topic = (topic or "").strip()
-        if not topic:
-            return "请先输入网址或主题"
-        ll = self.trunk.modules.get("learning_loop") or self.trunk._load_lazy("learning_loop")
-        if not ll:
-            return "学习闭环模块没加载起来"
-        try:
-            items = ll.fetch(topic)
-        except Exception as e:
-            return "搜索失败: %s" % str(e)[:80]
-        if not items:
-            return "没搜到关于「%s」的资料（检查联网开关 / deep_search）" % topic[:40]
-        try:
-            ll.store("手动指定", topic, items)
-        except Exception as e:
-            return "已搜到 %d 条，但入库失败: %s" % (len(items), str(e)[:60])
-        return "已学习「%s」：搜到 %d 条，已提炼入库" % (topic[:40], len(items))
-
-    box4 = QGroupBox("🎯 学习建议")
+    box4 = QGroupBox("🎯 学习与任务")
     l4a = QVBoxLayout(box4)
-    l4a.addWidget(QLabel("💡 根据聊天生成的学习建议:"))
-    sug = QTextEdit()
-    sug.setFixedHeight(80)
-    sug.setPlainText("🤔 正在生成建议...")
-    l4a.addWidget(sug)
-    btn6 = QPushButton("✅ 采纳建议（学第一条）")
-    def _adopt_suggestion():
-        first = sug.toPlainText().split("\n")[0].strip()
-        result.setPlainText("开始学习: " + first[:50])
-        result.setPlainText(_learn_topic(first))
-    btn6.clicked.connect(_adopt_suggestion)
-    l4a.addWidget(btn6)
+    l4a.addWidget(QLabel(
+        "学习、任务闭环、自动更新这些都改成统一入口了：\n"
+        "· 按 Ctrl+K 打开命令面板搜「学习」「任务闭环」「自动更新」\n"
+        "· 或者直接对聊天说：「学一下 异步编程」「帮我写一个计算器脚本」"))
     l4.addWidget(box4)
-
-    box5 = QGroupBox("🌐 网址 / 主题学习")
-    l5a = QVBoxLayout(box5)
-    url = QLineEdit()
-    url.setPlaceholderText("输入网址或学习主题，点开始学习")
-    l5a.addWidget(url)
-    def _sys_start_learn():
-        result.setPlainText(_learn_topic(url.text()))
-    btn7 = QPushButton("🚀 开始学习")
-    btn7.setObjectName("primary")
-    btn7.clicked.connect(_sys_start_learn)
-    l5a.addWidget(btn7)
-    l4.addWidget(box5)
 
     box6 = QGroupBox("🎯 任务闭环")
     l6a = QVBoxLayout(box6)
     btn8 = QPushButton("🚀 编程项目实战")
     btn8.clicked.connect(lambda: self._run_learn_one(result))
     l6a.addWidget(btn8)
-    btn9 = QPushButton("🎯 任务闭环（拆解执行目标）")
-    btn9.clicked.connect(lambda: self._run_task_goal(result))
-    l6a.addWidget(btn9)
+    # 「🎯 任务闭环（拆解执行目标）」按钮已撤：能力声明成了 task_goal
+    # （task_loop.run），命令面板搜"任务闭环"或直接说目标都能跑。
     l4.addWidget(box6)
 
     tabs.addTab(tab3, "🎯 学习与任务")

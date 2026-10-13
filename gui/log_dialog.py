@@ -4,8 +4,15 @@ import os, subprocess
 from PyQt5.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTextBrowser, QTabWidget
 
 
-def show_log_dialog(parent, dlg, base, export_logs, export_data, import_data):
-    """日志中心窗口"""
+def show_log_dialog(parent, dlg, base, import_data):
+    """日志中心窗口
+
+    原来还收 export_logs / export_data 两个回调（对应「导出日志包」「导出数据」
+    两个按钮）。那两个按钮已撤 —— 它们是**重复入口**，同一能力已经在能力注册表里：
+        crash_export   打包日志+配置+系统信息（密钥自动脱敏）
+        migrate_export 把整份数据打包，换电脑时用
+    命令面板（Ctrl+K）搜"导出"就能找到，而且那边是唯一实现。
+    """
     d, l = dlg("📋 日志中心", w=720, h=560)
 
     head = QHBoxLayout()
@@ -130,15 +137,15 @@ def show_log_dialog(parent, dlg, base, export_logs, export_data, import_data):
         except Exception as e:
             info.setText("打开失败: " + str(e)[:50])
     open_btn.clicked.connect(_open_dir)
-    export_btn = QPushButton("📦 导出日志包")
-    export_btn.clicked.connect(export_logs)
-    data_exp = QPushButton("💾 导出数据")
-    data_exp.clicked.connect(export_data)
+    # 「📦 导出日志包」和「💾 导出数据」两个按钮已撤 —— 它们是**重复入口**：
+    # 同一能力已经在能力注册表里，命令面板（Ctrl+K）搜"导出"就能找到：
+    #     导出日志包  -> crash_export（打包日志+配置+系统信息，密钥自动脱敏）
+    #     导出数据    -> migrate_export（把整份数据打包，换电脑时用）
+    # 而且它们这里走的是本文件里的 export_logs / export_data 两个局部函数，
+    # 和注册表那份实现是两套 —— 留着只会让同一件事有两个真相。
     data_imp = QPushButton("📂 导入数据")
     data_imp.clicked.connect(import_data)
     bot.addWidget(clear_btn)
-    bot.addWidget(export_btn)
-    bot.addWidget(data_exp)
     bot.addWidget(data_imp)
     bot.addWidget(open_btn)
     bot.addStretch(1)

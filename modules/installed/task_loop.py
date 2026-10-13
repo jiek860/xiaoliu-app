@@ -8,6 +8,13 @@ from modules.base import BaseModule
 class TaskPipeline(BaseModule):
     NAME = "task_loop"
     VERSION = "1.0"
+
+    TOOLS = [
+        {"name": "task_goal", "method": "run",
+         "desc": "任务闭环：把一个目标拆成步骤→派子智能体执行→沙盒验证→评分",
+         "args": {"goal": "要完成的目标，如 写一个计算器脚本"},
+         "hints": ["任务闭环", "拆解目标", "帮我完成", "分步做", "执行目标"]},
+    ]
     AGENTS = {
         "代码": "agent_coder",
         "编程": "agent_coder",
