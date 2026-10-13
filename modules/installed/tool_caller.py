@@ -58,6 +58,23 @@ class ToolCaller(BaseModule):
                 "mod": "browser", "method": "run",
                 "args": {"action": "如：打开 https://example.com 并读取页面文字"},
             },
+            # 开发者文件工具。同样只声明 1 个参数（tool_caller 只传第一个），
+            # fs_edit 的参数是一段 JSON 文本。
+            "fs_read": {
+                "desc": "读文件内容（带行号）",
+                "mod": "computer_controller", "method": "read_text",
+                "args": {"path": "文件路径"},
+            },
+            "fs_search": {
+                "desc": "在项目目录里搜文件内容",
+                "mod": "computer_controller", "method": "search_text",
+                "args": {"keyword": "关键词或正则"},
+            },
+            "fs_edit": {
+                "desc": "精确替换文件内容（原文须唯一，改前自动备份）",
+                "mod": "computer_controller", "method": "edit_text",
+                "args": {"spec": 'JSON: {"path":"a.py","old":"原文","new":"新文"}'},
+            },
         }
         self._merge_mcp_tools()
 
