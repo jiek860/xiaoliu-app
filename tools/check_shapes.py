@@ -380,7 +380,10 @@ def check_module_attrs(api, roots=None):
 
 # 纳入结构快照的数据存储（代码定义的、结构稳定的那些）
 # 不含 logs / 截图 / 导出物这类会随手增减的东西
-DATA_STORES = ("config.json", "memory.json", "graph.json", "self_eval.json",
+#
+# self_eval.json 已移出：全项目没有写入方（曾经是 quick_eval 的目标，
+# 但 quick_eval 实际写的是 reflect_history.json），给它做结构快照没有意义。
+DATA_STORES = ("config.json", "memory.json", "graph.json",
                "chats.db", "vectors.db")
 
 # 这几个文件的主键是用户名 —— 属于用户数据，只记值的形状，

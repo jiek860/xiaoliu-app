@@ -101,17 +101,6 @@
       "kind": "list"
     }
   },
-  "data.self_eval.json": {
-    "item_keys": [
-      "time",
-      "分",
-      "问"
-    ],
-    "item_kinds": [
-      "dict"
-    ],
-    "kind": "list"
-  },
   "data.vectors.db": {
     "kind": "sqlite",
     "tables": {
