@@ -80,7 +80,15 @@ class MemoryOrganizer:
         if not os.path.exists(self.cards_path):
             return {"冲突数": 0}
         cards = []
-        for ln in open(self.cards_path, encoding="utf-8")[-200:]:
+        # 原来写的是 open(...)[-200:] —— 文件对象**不支持切片**，
+        # 必然抛 TypeError: '_io.TextIOWrapper' object is not subscriptable，
+        # 也就是这个功能从来没成功过一次。作者本意是"读最后 200 行"。
+        try:
+            with open(self.cards_path, encoding="utf-8") as f:
+                lines = f.read().splitlines()[-200:]
+        except Exception as e:
+            return {"冲突数": 0, "错误": str(e)[:60]}
+        for ln in lines:
             try:
                 cards.append(json.loads(ln))
             except Exception:
