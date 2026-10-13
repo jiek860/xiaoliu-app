@@ -288,6 +288,14 @@ class AutoUpdater(BaseModule):
         if confirm and not self.ask_confirm(plan):
             return {"ok": False, "日志": log, "原因": "用户取消", "取消": True}
         step("⑤ 用户已确认")
+        # ⑤.5 「自主.升级」规则：决定允不允许真的落地部署
+        #     这条规则（E 组）原本零引用 —— 也就是说自更新一直在无条件执行。
+        #     默认 True = 现状不变；关掉它则只做分析+补丁+沙盒验证（都已完成），
+        #     但不改文件、不热重载。危险操作本来就还要过上面那道弹窗确认。
+        if not self._allow_self_upgrade():
+            step("⏸ 「自主.升级」已关闭：分析已完成，但不部署")
+            return {"ok": False, "日志": log, "原因": "自主.升级 已关闭（规则引擎 E 组）",
+                    "已分析": True, "目标": target_file}
         # ⑥ 备份 + 部署 + 热重载（失败回滚）
         bk = self.backup_current()
         step("⑥ 备份: %s" % os.path.basename(bk))
@@ -298,6 +306,15 @@ class AutoUpdater(BaseModule):
         step("✔ 部署完成并热重载")
         step("▶ 自更新闭环结束")
         return {"ok": True, "日志": log, "备份": bk, "目标": target_file}
+
+    def _allow_self_upgrade(self):
+        """「自主.升级」规则，默认开（等于改动前的无条件执行）"""
+        try:
+            if self.trunk:
+                return bool(self.trunk.rule("自主.升级", True))
+        except Exception:
+            pass
+        return True
 
     # ============ ⓪ 远端更新：检查 / 下载安装（强制验签）============
     @staticmethod

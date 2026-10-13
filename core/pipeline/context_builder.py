@@ -27,11 +27,16 @@ class ContextBuilder:
     # "有哪些" "推荐" "对比" "区别" —— 这些在日常对话里太常见，
     # 结果「这个怎么用」也会去联网，每次白等几秒还往提示词里塞一堆无关网页。
     # 现在分两档，都要求"用户确实在问外部/时效性的事实"：
-    _NET_STRONG = (
-        # 明确要求去搜
+    #
+    # 「明确要求去搜」单独拆出来 —— 关掉 E 组规则「联网.默认放开」时只认这一档。
+    # 原来它和下面那批时效词混在一张表里，于是"关掉自动联网"对"今天天气怎么样"
+    # 这种时效提问无效（因为"天气"也在强信号表里）。
+    _NET_EXPLICIT = (
         "搜一下", "搜下", "搜索", "查一下", "查下", "帮我查", "帮我搜",
         "百度", "谷歌", "必应", "bing",
-        # 明确的时效信号
+    )
+    _NET_STRONG = _NET_EXPLICIT + (
+        # 明确的时效信号（关掉「联网.默认放开」后不再自动联网）
         "最新", "实时", "现在几点", "今天几号", "股价", "汇率", "油价",
         "天气", "气温", "下雨", "几度", "预报", "新闻", "热点",
         # 明确要外部资源
@@ -42,6 +47,21 @@ class ContextBuilder:
     _NET_FACT = ("天气", "新闻", "价格", "股价", "汇率", "赛事", "票房",
                  "版本", "发布会", "政策", "规定", "行情", "温度")
 
+    def _auto_web(self):
+        """「联网.默认放开」规则：默认允许自动联网抓取（默认开 = 原来的行为）
+
+        E 组那条规则写着"默认可联网抓取，无需每次询问"。实际现状是：联网确实
+        从来不问用户，但**触发很保守**（只有明确要查外部信息才搜）。所以
+        True 时保持现状；关掉它就只认"明确要求搜"那一档（_NET_EXPLICIT），
+        "天气/新闻/股价"这类时效词不再自动触发联网。
+        """
+        try:
+            if self.trunk:
+                return bool(self.trunk.rule("联网.默认放开", True))
+        except Exception:
+            pass
+        return True
+
     def needs_web(self, user_input: str) -> bool:
         """这次要不要联网。宁可少搜 —— 搜错了不仅慢，还会污染上下文。"""
         try:
@@ -49,6 +69,11 @@ class ContextBuilder:
                 return False
             q = user_input.strip()
             if not q or len(q) > 100:      # 长文多半是让我分析/写作，不是查事实
+                return False
+            if any(w in q for w in self._NET_EXPLICIT):
+                return True                # 用户明确要求搜 —— 这条始终认
+            if not self._auto_web():
+                # 关掉「联网.默认放开」：时效词与"时间+事实"弱信号都不再自动联网
                 return False
             if any(w in q for w in self._NET_STRONG):
                 return True

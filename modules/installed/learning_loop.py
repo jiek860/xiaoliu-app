@@ -92,12 +92,24 @@ class LearningPipeline(BaseModule):
     def collect_gap(self):
         self.state.setdefault("dir_idx", 0)
         self.state.setdefault("topic_idx", {})
-        d = self.DIR_ORDER[self.state["dir_idx"] % len(self.DIR_ORDER)]
+        # 「学习.自主选方向」规则（默认开 = 原来的轮换行为）。
+        # 这条原本也是硬编码的：规则引擎 E 组登记着「自主决定学什么」，
+        # 但没人读。关掉规则就固定学第一个方向，不自己换方向。
+        auto_dir = True
+        try:
+            if self.trunk:
+                auto_dir = bool(self.trunk.rule("学习.自主选方向", True))
+        except Exception:
+            pass
+        if auto_dir:
+            d = self.DIR_ORDER[self.state["dir_idx"] % len(self.DIR_ORDER)]
+            self.state["dir_idx"] += 1
+        else:
+            d = self.DIR_ORDER[0]
         topics = self.DIRS[d]
         i = self.state["topic_idx"].get(d, 0) % len(topics)
         topic = topics[i]
         self.state["topic_idx"][d] = i + 1
-        self.state["dir_idx"] += 1
         self._save()
         return d, topic
 

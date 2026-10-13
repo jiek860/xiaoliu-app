@@ -36,12 +36,29 @@ class DeepSearch(BaseModule):
         "Sec-Fetch-User": "?1",
     }
 
+    def _anti_crawl(self):
+        """「联网.反爬应对」规则：UA 轮换 + 节流（默认开，等于原来的行为）
+
+        原来这件事是硬编码的 —— 规则引擎里 E 组那条「UA轮换/多源并行/失败自动换源」
+        早就注册着，但没人读它。现在真正接上：关掉规则就固定一个 UA 直连、不做节流
+        （调试时想看原始请求用），默认 True 与改动前完全一致。
+        """
+        try:
+            if self.trunk:
+                return bool(self.trunk.rule("联网.反爬应对", True))
+        except Exception:
+            pass
+        return True
+
     def _get(self, url, timeout=8):
+        anti = self._anti_crawl()
         self._req_count += 1
-        if self._req_count % 3 == 0:
+        if anti and self._req_count % 3 == 0:
             time.sleep(random.uniform(0.5, 1.5))
         last = None
-        for ua in random.sample(self._UA_POOL, min(3, len(self._UA_POOL))):
+        uas = (random.sample(self._UA_POOL, min(3, len(self._UA_POOL)))
+               if anti else [self._UA_POOL[0]])
+        for ua in uas:
             try:
                 headers = dict(self._HEADERS_TEMPLATE)
                 headers["User-Agent"] = ua
