@@ -736,7 +736,11 @@ class Trunk:
         self._last_use[name] = time.time()
         fn = getattr(mod, method, None)
         if not fn:
-            self._log("调用失败: %s 没有 %s 方法" % (name, method), "WARN")
+            # "__no__" 是懒加载探针惯用法：全项目 19 处故意写这个不存在的方法名，
+            # 只为触发上面那次 _load_lazy 而不真的调用。它不是故障，别刷日志
+            # （WARN 还会 print 到控制台，一轮后台巡检能刷好几条）。
+            if method != "__no__":
+                self._log("调用失败: %s 没有 %s 方法" % (name, method), "WARN")
             return {"ok": False,
                     "error": "「%s」没有「%s」这个功能（功能不可用，版本可能不一致）"
                              % (self._disp(name), method)}
