@@ -637,6 +637,31 @@ class ComputerController(BaseModule):
         }
 
     # ---------- 自然语言命令解析 ----------
+    # 常见站点中文名 -> 域名。「打开百度」原来会走 open_app 去找一个叫"百度"的程序。
+    _SITE_ALIAS = {
+        "百度": "baidu.com", "谷歌": "google.com", "必应": "bing.com",
+        "淘宝": "taobao.com", "京东": "jd.com", "知乎": "zhihu.com",
+        "微博": "weibo.com", "哔哩哔哩": "bilibili.com", "b站": "bilibili.com",
+        "贴吧": "tieba.baidu.com", "豆瓣": "douban.com", "网易": "163.com",
+        "腾讯": "qq.com", "github": "github.com", "csdn": "csdn.net",
+    }
+
+    @staticmethod
+    def _looks_path(s):
+        """判断一段文字是不是"路径/文件名"而不是"要复制的文本"
+
+        用在"复制 X 到 Y"的歧义上：
+            「复制 D:\\a.txt 到 D:\\b.txt」 -> 路径 -> copy_file
+            「复制 你好 到 剪贴板」        -> 不是路径 -> clipboard_set
+        判据：含路径分隔符，或看起来有扩展名（.txt / .py / .png …）。
+        """
+        s = str(s or "").strip().strip("\"'")
+        if not s:
+            return False
+        if re.search(r"[\\/]", s):
+            return True
+        return bool(re.search(r"\.[A-Za-z0-9]{1,6}$", s))
+
     def parse(self, text):
         """把用户的话解析成 (action, kwargs)；不匹配返回 None"""
         if not text:
@@ -650,6 +675,19 @@ class ComputerController(BaseModule):
         m = re.search(r"https?://[^\s，。]+", t)
         if m:
             return ("open_url", {"url": m.group(0).strip()})
+        # 「打开 某网站」——原来只认带 http:// 的、"打开网站 X"这两种说法，
+        # 于是「打开百度」「打开 github.com」都掉进下面的 open_app 分支，
+        # 去找一个叫"百度"的程序（必然找不到）。这里补两条：
+        #   域名形态（x.y.zz）直接按网址开；常见站点中文名走别名表。
+        m = re.search(r"(?:打开|访问|去|上)\s*((?:[\w\-]+\.)+[A-Za-z]{2,6}(?:/[^\s，。]*)?)", t)
+        if m:
+            return ("open_url", {"url": m.group(1).strip()})
+        m = re.search(r"(?:打开|访问|去|上)\s*(百度|谷歌|必应|淘宝|京东|知乎|微博|"
+                      r"哔哩哔哩|b站|贴吧|豆瓣|网易|腾讯|github|csdn)", t, re.I)
+        if m:
+            k = m.group(1)
+            return ("open_url", {"url": self._SITE_ALIAS.get(k)
+                                 or self._SITE_ALIAS.get(k.lower()) or k})
         # 打开/查看 文件路径（先于应用，避免 "打开 E:\x" 被当成应用名）
         m = re.search(r"(?:打开|看看|浏览|查看|列出).{0,8}([A-Za-z]:\\[^\s，。]*)", t)
         if m:
@@ -720,10 +758,41 @@ class ComputerController(BaseModule):
                    "空格": "space", "tab": "tab", "方向键上": "up", "方向键下": "down",
                    "方向键左": "left", "方向键右": "right"}[m.group(1)]
             return ("press_key", {"key": key})
-        # 剪贴板
+        # ============ 文件操作（必须排在剪贴板之前）============
+        #
+        # 原来顺序是反的：clipboard_set 的规则 `(?:复制|拷贝)\s*(.+?)\s*(?:到剪贴板)?$`
+        # 贪婪匹配任何含"复制"的话，而且排在 copy_file 前面，于是
+        #     「复制 a.txt 到 b.txt」-> clipboard_set({'text': 'a.txt 到 b.txt'})
+        # 即：想复制文件，结果只改了剪贴板，还回一句"已复制到剪贴板: a.txt 到 b.txt"，
+        # 看起来像成功了。copy_file 因此永远不可达（死规则）。
+        # 另外这几条原本都要求 [A-Za-z]:\\ 盘符，相对路径/裸文件名一律不认。
+        #
+        # 现在：文件和剪贴板用 _looks_path 区分 —— 两端都像路径才是文件操作，
+        # 目标是"剪贴板"或不像路径就还是剪贴板。
+        m = re.search(r"(?:复制|拷贝)\s*[：:]?\s*(.+?)\s*(?:到|至)\s*(.+?)\s*$", t)
+        if m:
+            src, dst = m.group(1).strip(), m.group(2).strip()
+            if dst in ("剪贴板", "粘贴板", "clipboard"):
+                return ("clipboard_set", {"text": src})
+            if self._looks_path(src) and self._looks_path(dst):
+                return ("copy_file", {"src": src, "dst": dst})
+        m = re.search(r"(?:移动|剪切)\s*[：:]?\s*(.+?)\s*(?:到|至)\s*(.+?)\s*$", t)
+        if m:
+            src, dst = m.group(1).strip(), m.group(2).strip()
+            if self._looks_path(src) and self._looks_path(dst):
+                return ("move_file", {"src": src, "dst": dst})
+        m = re.search(r"(?:创建|新建)\s*(?:一个)?\s*文件\s*[：:]?\s*([^\s，。]+)"
+                      r"\s*(?:内容[：:]?\s*(.+))?$", t)
+        if m:
+            return ("create_file", {"path": m.group(1).strip(),
+                                    "content": (m.group(2) or "").strip()})
+        m = re.search(r"(?:删除|删掉)\s*(?:文件|文档)?\s*[：:]?\s*([^\s，。]+)", t)
+        if m and self._looks_path(m.group(1)):
+            return ("delete_file", {"path": m.group(1).strip()})
+        # 剪贴板（放在文件操作之后，只兜"把这段文字复制起来"这类）
         if re.search(r"剪贴板.*(?:有什么|内容|是什么)", t):
             return ("clipboard_get", {})
-        m = re.search(r"(?:复制|拷贝)\s*[：:]?\s*(.+?)\s*(?:到剪贴板)?\s*$", t)
+        m = re.search(r"(?:复制|拷贝|复制一下)\s*[：:]?\s*(.+?)\s*(?:到剪贴板)?\s*$", t)
         if m:
             return ("clipboard_set", {"text": m.group(1).strip()})
         # 系统信息
@@ -739,19 +808,8 @@ class ComputerController(BaseModule):
         if re.search(r"重启", t):
             m = re.search(r"重启\s*(\d+)?", t)
             return ("restart", {"delay": int(m.group(1)) if m and m.group(1) else 30})
-        # 文件
-        m = re.search(r"(?:创建|新建)\s*文件\s*([A-Za-z]:\\[^\s，。]*)\s*(?:内容[：:]?\s*(.+))?$", t)
-        if m:
-            return ("create_file", {"path": m.group(1).strip(), "content": (m.group(2) or "").strip()})
-        m = re.search(r"删除\s*文件\s*([A-Za-z]:\\[^\s，。]*)", t)
-        if m:
-            return ("delete_file", {"path": m.group(1).strip()})
-        m = re.search(r"复制\s*([A-Za-z]:\\[^\s，。]*)\s*(?:到|至)\s*([A-Za-z]:\\[^\s，。]*)", t)
-        if m:
-            return ("copy_file", {"src": m.group(1).strip(), "dst": m.group(2).strip()})
-        m = re.search(r"移动\s*([A-Za-z]:\\[^\s，。]*)\s*(?:到|至)\s*([A-Za-z]:\\[^\s，。]*)", t)
-        if m:
-            return ("move_file", {"src": m.group(1).strip(), "dst": m.group(2).strip()})
+        # 文件操作已上移到剪贴板之前（原来放这儿会被"复制…"的剪贴板规则截胡，
+        # 且只认 [A-Za-z]:\ 绝对路径）。见本方法开头的 _looks_path 那段。
         return None
 
     def _danger_enabled(self, action):
@@ -814,7 +872,10 @@ class ComputerController(BaseModule):
 
     def safety_check(self, action):
         """安全边界：防止AI误删文件/误操作"""
-        dangerous = ["delete", "remove", "format", "shutdown", "reboot", "rmtree"]
+        # 原来这张表里有 "shutdown" 和 "reboot"，但重启的方法是 restart ——
+        # "reboot" in "restart" 是 False，于是 restart 一直被漏判成"不危险"。
+        dangerous = ["delete", "remove", "format", "shutdown", "reboot",
+                     "restart", "rmtree"]
         for d in dangerous:
             if d in str(action).lower():
                 return {"危险": True, "操作": action, "提示": "这个操作很危险，需要确认"}
