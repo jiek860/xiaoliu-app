@@ -710,6 +710,16 @@ class Trunk:
         """读配置带默认值（公共方法）"""
         return self.config.get(key, default)
 
+    def _disp(self, name):
+        """模块的中文显示名（LAZY_MAP 第 3 个字段），没有就用英文键名。
+
+        报错时给用户看「图片识别」，比看 "image_ocr" 有用得多。
+        """
+        e = self._lazy.get(name) if hasattr(self, "_lazy") else None
+        if isinstance(e, (list, tuple)) and len(e) >= 3 and e[2]:
+            return str(e[2])
+        return name
+
     def call(self, name: str, method: str, *args, **kwargs) -> any:
         if name in self._aliases:
             name = self._aliases[name]
@@ -717,16 +727,25 @@ class Trunk:
             self._load_lazy(name)
         mod = self.modules.get(name)
         if not mod:
-            return {"ok": False, "error": "这个功能还没装好，请联系开发者"}
+            # 原来只说"这个功能还没装好，请联系开发者" —— 不说哪个功能，也不说下一步。
+            # 末尾的「功能不可用」是稳定标记，_FAIL_MARKS 靠它识别失败回复。
+            self._log("调用失败: %s 未加载" % name, "WARN")
+            return {"ok": False,
+                    "error": "「%s」没装好（功能不可用）。"
+                             "到 设置 → 扩展 → 插件市场 看看是否已安装" % self._disp(name)}
         self._last_use[name] = time.time()
         fn = getattr(mod, method, None)
         if not fn:
-            return {"ok": False, "error": "这个功能还没做好，请稍后再试"}
+            self._log("调用失败: %s 没有 %s 方法" % (name, method), "WARN")
+            return {"ok": False,
+                    "error": "「%s」没有「%s」这个功能（功能不可用，版本可能不一致）"
+                             % (self._disp(name), method)}
         try:
             return fn(*args, **kwargs)
         except Exception as e:
             self._log("错误: %s.%s - %s" % (name, method, str(e)[:50]))
-            return {"ok": False, "error": str(e)[:100]}
+            return {"ok": False,
+                    "error": "「%s」的「%s」出错了：%s" % (self._disp(name), method, str(e)[:80])}
 
     def get_stats(self):
         return self.stats
@@ -1040,7 +1059,9 @@ class Trunk:
             pass
 
     # 这些是"其实没答出来"的占位串，用来判断要不要走端侧兜底
-    _FAIL_MARKS = ("（抱歉", "回复时出了点问题", "这个功能还没做好",
+    # 「功能不可用」是 trunk.call 失败时的稳定标记（见 call()），
+    # 改了那边的文案记得同步这里。
+    _FAIL_MARKS = ("（抱歉", "回复时出了点问题", "功能不可用",
                    "Pipeline 不可用", "服务不可用")
 
     def _looks_failed(self, answer):
