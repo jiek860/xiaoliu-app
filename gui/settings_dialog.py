@@ -24,18 +24,32 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
     d, l = dlg("设置", 620, 640)
     CMD = commands or {}
 
-    def _open_btn(icon, name, desc):
+    def _open_btn(icon, name, desc, key=None):
         """生成一个"打开某个功能窗口"的按钮。
 
         行为和原来的功能中心一致：先关掉设置窗口，再打开目标窗口。
+
+        ⚠️ name 是**显示**用的；key 是去 CMD 里**查**的（不传就用 name）。
+        为什么要分开：以前两者是同一个字符串，于是"把查表的键名改得
+        更清楚一点"就会**悄悄弄坏按钮** —— 实测踩到过：
+        gui/mixins/dialog_mixin.py 的 _panel_commands 把
+            "系统" -> "系统自检"、"插件" -> "插件市场"、
+            "日志" -> "日志中心"、"MCP" -> "MCP市场"
+        结果设置里这 4 个按钮全部查不到、被静默置灰：
+        用户点不动，界面上**没有任何报错**，也没有日志。
+        分开之后，改键名不会再影响显示文案。
+
+        另外失败时把"缺的是哪个键"写进 tooltip —— 以前只写
+        "这个功能在当前版本不可用"，出了问题根本不知道是哪出了问题。
         """
         b = QPushButton("%s  %s" % (icon, name))
         b.setToolTip(desc)
         b.setMinimumHeight(34)
-        fn = CMD.get(name)
+        want = key if key is not None else name
+        fn = CMD.get(want)
         if not callable(fn):
             b.setEnabled(False)
-            b.setToolTip("这个功能在当前版本不可用")
+            b.setToolTip("这个功能在当前版本不可用（没找到入口：%s）" % want)
             return b
 
         def _go(_checked=False, f=fn, n=name):
@@ -292,11 +306,13 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
     tab4 = QWidget()
     l4 = QVBoxLayout(tab4)
     l4.addWidget(QLabel("🧩 扩展"))
-    l4.addWidget(_open_btn("🧩", "插件", "安装 / 卸载 / 热加载模块"))
+    l4.addWidget(_open_btn("🧩", "插件", "安装 / 卸载 / 热加载模块",
+                           key="插件市场"))
     # MCP 的所有东西都在 mcp_dialog 那一页里（服务器管理 / 预置服务器 / 配置参考）。
     # 这里原来还有个"MCP服务器地址 + 保存并重连"，写的是 config["mcp_url"] ——
     # 全项目没有任何代码读那个键，是个死设置；真正生效的是 config["mcp_servers"]。
-    l4.addWidget(_open_btn("🔌", "MCP", "服务器管理 / 预置服务器 / 配置参考"))
+    l4.addWidget(_open_btn("🔌", "MCP", "服务器管理 / 预置服务器 / 配置参考",
+                           key="MCP市场"))
     l4.addStretch(1)
     tabs.addTab(tab4, "🧩 扩展")
 
@@ -305,7 +321,8 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
     l5 = QVBoxLayout(tab5)
     l5.addWidget(QLabel("📜 记录"))
     l5.addWidget(_open_btn("📜", "历史记录", "分页 / 搜索 / 导出全部聊天记录"))
-    l5.addWidget(_open_btn("📋", "日志", "运行日志 / 错误 / 操作记录"))
+    l5.addWidget(_open_btn("📋", "日志", "运行日志 / 错误 / 操作记录",
+                           key="日志中心"))
     l5.addWidget(_open_btn("🔍", "搜索聊天", "全局搜索所有会话里的消息"))
     l5.addWidget(_open_btn("🧠", "记忆可视化", "记忆时间线 / 图谱 / 搜索 / 编辑"))
     l5.addWidget(_open_btn("📊", "数据统计", "用量与数据的统计报表"))
@@ -316,7 +333,8 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
     tab6 = QWidget()
     l6 = QVBoxLayout(tab6)
     l6.addWidget(QLabel("⚙️ 系统"))
-    l6.addWidget(_open_btn("⚙️", "系统", "深度自检 / 备份 / 训练"))
+    l6.addWidget(_open_btn("⚙️", "系统", "深度自检 / 备份 / 训练",
+                           key="系统自检"))
     l6.addWidget(_open_btn("🧭", "首次设置向导", "模型没配好、它不回话时打开这个"))
     l6.addWidget(_open_btn("📱", "手机远程", "手机连上这台电脑使用"))
     l6.addWidget(_open_btn("🔄", "检查更新", "检查新版本 / 回滚 / 更新历史"))
