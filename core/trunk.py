@@ -749,8 +749,15 @@ class Trunk:
             return fn(*args, **kwargs)
         except Exception as e:
             self._log("错误: %s.%s - %s" % (name, method, str(e)[:50]))
-            return {"ok": False,
-                    "error": "「%s」的「%s」出错了：%s" % (self._disp(name), method, str(e)[:80])}
+            # 翻译成人话 + 下一步（原来只扔一句原始异常，用户看不懂也不知道做什么）。
+            # 技术细节仍然保留在括号里，排查时要用。
+            try:
+                from core.error_text import describe
+                msg = describe(e, subject="%s.%s" % (self._disp(name), method))
+            except Exception:
+                msg = "「%s」的「%s」出错了：%s" % (self._disp(name), method,
+                                                   str(e)[:80])
+            return {"ok": False, "error": msg, "技术细节": str(e)[:200]}
 
     def get_stats(self):
         return self.stats

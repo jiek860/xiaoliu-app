@@ -276,8 +276,15 @@ class ToolCaller(BaseModule):
             err = None
         if not err:
             return r                      # 真没结果，保持原样
-        return {"ok": False,
-                "错误": "「%s」执行出错：%s" % (label, err)}
+        # 翻译成人话 + 下一步（原来是"「x」执行出错：TypeError: ..."，
+        # 用户看不懂也不知道该做什么）。技术细节仍附在后面供排查。
+        try:
+            from core.error_text import describe
+            return {"ok": False,
+                    "错误": describe(err, subject=label)}
+        except Exception:
+            return {"ok": False,
+                    "错误": "「%s」执行出错：%s" % (label, err)}
 
     def _call_module(self, info, args, query):
         """按签名决定怎么传参（三条兼容路径见下面注释）"""

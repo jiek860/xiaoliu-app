@@ -1,4 +1,50 @@
 # 版本变更记录
+## v25.2.3 - 2026-10-13
+### 产品级加固（方向 2 + 3，功能冻结）
+- **逐个判断"自己吞异常"的能力方法**（审计出 10 条，该报的报、该忍的忍）
+  🔴 **最重的一条是真·数据丢失**：memory_organizer.auto_organize
+     读记忆卡时 `except: pass` 跳过解析失败的行，写回却是
+     `open(path, "w")` **全量覆盖** —— 那几行被**永久删除**。
+     更隐蔽的是返回值：`"原始": len(cards)` 报的是**解析成功的条数**，
+     不是文件行数。于是 {"原始": 5, "保留": 5} 看起来"一条没丢"，
+     文件里却可能有 8 行 —— **数据丢了，报告还说没事。**
+     修法：坏行**原样保留**、报出坏行数与明细、"原始"改为文件真实行数、
+     写回改成临时文件 + os.replace。
+  🔴 **第二条比"静默"更糟**：startup_optimizer.precompile
+     `py_compile.compile(f, doraise=False)` **根本不抛异常**（把 SyntaxError
+     打到 stderr 就返回 None），于是 `except` 永不触发、`count += 1`
+     **把编不过的文件也算成成功**（实测：正常文件+语法错文件 -> {'预编译文件': 2}）。
+     改成 doraise=True 才真的能捕获并报告。
+  另 5 处（growth_report / check_conflicts / dream_system / mood_report /
+  knowledge_qa 两处）：跳过坏行本身是对的，**不报跳过数是错的** ——
+  用户看到"最近 7 天 0 条记录"分不清"真的没有"还是"全被跳过了"。
+  2 处经审计判定**该忍**并写明理由（防止以后被误当 bug 改掉）：
+  gpu_detector.detect（没有 N 卡是正常结果）、crash_export 写提示文件
+  （尽力而为，信息已在返回值里）。
+- **错误信息面向用户化**（新增 core/error_text.py）
+  原来报错长这样：
+     「识别图片文字」执行出错：TypeError: OCR.available() takes 1 positional
+     argument but 2 were given
+  对开发者有用，对用户没用 —— 既不知道发生了什么，也不知道该做什么。
+  现在翻译成"**人话 + 下一步**"，原文不丢：
+     「识别图片文字」这个功能和当前版本对不上（内部接口不一致）
+     下一步：多半是模块版本旧了 —— 到插件市场看看有没有更新
+     （技术细节：TypeError: OCR.available() takes 1 positional ...）
+  覆盖 20 类常见错误：缺组件/连不上/超时/找不到文件/没权限/数据坏了/
+  接口不一致/内存不足/证书/限流等。
+  **拿不准的不许瞎猜** —— 没见过的错误保留原文，不编造建议。
+  接进两处：trunk.call 的异常分支、能力分发的失败信息。
+### 修复
+- core/version.py 的 __build_date__ 之前被我误写成 2026-10-14
+  （系统时间是 10-13）。原因是 PowerShell 测试里的 `git checkout --`
+  把索引里的旧内容恢复回来、覆盖了日期修正 —— 已改回并核对三处一致。
+### 测试
+  253 -> **285** 个用例，全通过
+  新增 tests/test_memory_safety.py（8，数据安全回归）、
+  tests/test_silent_data.py（7，"跳过坏数据要报数"）、
+  tests/test_error_text.py（14，错误翻译）
+  三个文件都做了负向测试：去掉修复后对应用例立刻失败
+
 ## v25.2.2 - 2026-10-13
 ### 产品级加固（功能冻结：不加功能、不减功能，只提高可靠性与可验证性）
 - **新增能力冒烟测试**（tests/test_capabilities.py，85 个用例）
