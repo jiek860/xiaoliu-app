@@ -70,11 +70,19 @@ def test_safe_does_not_touch_record_on_normal_none():
 
 
 def test_last_error_expires():
-    """过期错误不能算到下一次调用头上"""
+    """过期错误不能算到下一次调用头上
+
+    用 **负数窗口** 而不是 0：within=0 的判定是 `elapsed > 0`，
+    如果记录和查询发生在同一个时钟刻度里，elapsed 正好是 0.0，
+    `0 > 0` 为假 -> 判定成"没过期" -> 用例偶发失败。
+    （实测踩到过：全量跑时它挂了一次，单跑又通过 —— 典型的脆弱测试。）
+    负数窗口下 elapsed >= 0 > -1 恒成立，结果确定。
+    """
     _safe.clear_errors()
     _Boom().do_it()
     assert _safe.last_error("_Boom.do_it") is not None
-    assert _safe.last_error("_Boom.do_it", within=0) is None
+    assert _safe.last_error("_Boom.do_it", within=-1) is None, \
+        "负窗口也该算过期，说明窗口判断没生效"
 
 
 def test_explain_none_reports_error_instead_of_silent_none():

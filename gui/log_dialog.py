@@ -28,19 +28,34 @@ def show_log_dialog(parent, dlg, base, import_data):
     l.addWidget(tabs, stretch=1)
 
     def _read_file(path, tail=300):
+        """读日志尾部 N 行，并返回文件总行数
+
+        为什么要改成"读尾部"而不是 readlines() 全读：
+            `lines = f.readlines()` 会把**整个文件**读进内存再切片，
+            即使只显示最后 300 行。trunk.log 以前没有轮转（已修），
+            但即便有轮转、阈值 10MB，全读也是 10MB 进内存 + 一次全文解码；
+            如果日志被别的东西撑到几百 MB，打开日志中心就会卡住甚至爆内存。
+        现在用 deque(maxlen=tail) 边读边丢，内存恒定只有 tail 行。
+        总行数仍然数（用户要看"日志多少行"），但只做计数不存内容。
+        """
+        import collections
         try:
-            if os.path.exists(path):
-                for enc in ("utf-8", "gbk"):
-                    try:
-                        with open(path, encoding=enc) as f:
-                            lines = f.readlines()
-                        return "".join(lines[-tail:]), len(lines)
-                    except (UnicodeDecodeError, LookupError):
-                        continue
-                with open(path, encoding="utf-8", errors="replace") as f:
-                    lines = f.readlines()
-                return "".join(lines[-tail:]), len(lines)
-            return "（文件不存在: %s）" % path, 0
+            if not os.path.exists(path):
+                return "（文件不存在: %s）" % path, 0
+            for enc in ("utf-8", "gbk", None):
+                try:
+                    kw = {"encoding": enc} if enc else \
+                        {"encoding": "utf-8", "errors": "replace"}
+                    buf = collections.deque(maxlen=tail)
+                    total = 0
+                    with open(path, **kw) as f:
+                        for line in f:
+                            buf.append(line)
+                            total += 1
+                    return "".join(buf), total
+                except (UnicodeDecodeError, LookupError):
+                    continue
+            return "读取失败: 编码不认识", 0
         except Exception as e:
             return "读取失败: " + str(e)[:80], 0
 

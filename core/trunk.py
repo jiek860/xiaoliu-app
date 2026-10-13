@@ -518,9 +518,16 @@ class Trunk:
         line = "[%s][%s] %s" % (datetime.now().strftime("%H:%M:%S"), level, msg)
         if level in ("WARN", "ERROR"):
             print(line)
+        # 走带轮转的公共写入（core.logger.append_line）。
+        #
+        # 原来这里是 `with open(self.log_path, "a") as f: f.write(...)` ——
+        # 直接追加，**没有任何大小上限**。实测 trunk.log 已经 914 KB 且一直长，
+        # 而 gui/log_dialog.py 打开日志中心时是 `f.readlines()` 读整个文件 ——
+        # 跑久了会越来越慢，最后打不开。
+        # 项目里两条日志路（app.log 有轮转、trunk.log 没有），这次统一。
         try:
-            with open(self.log_path, "a", encoding="utf-8") as f:
-                f.write(line + "\n")
+            from core.logger import append_line
+            append_line(self.log_path, line)
         except Exception:
             pass
 

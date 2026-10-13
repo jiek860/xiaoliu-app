@@ -167,3 +167,67 @@ def get_logger():
     if not _global_logger:
         _global_logger = Logger()
     return _global_logger
+
+
+# 默认轮转阈值：10MB，与 Logger.max_size 保持一致
+DEFAULT_MAX_SIZE = 10 * 1024 * 1024
+
+
+def rotate_if_needed(path, max_size=DEFAULT_MAX_SIZE, keep=1):
+    """日志文件超限就转成 .old（保留 keep 代）
+
+    抽成公共函数的原因：项目里**有两条写日志的路** ——
+        core/logger.py  写 app.log，本来就有轮转 ✅
+        core/trunk.py   写 trunk.log，直接 open(path,"a") 追加 ❌
+    同一件事两个实现，其中一个漏了。实测 trunk.log 已经 914 KB 且无限增长，
+    而 gui/log_dialog.py 打开日志中心时用 `f.readlines()` **读整个文件** ——
+    跑久了自己都打不开日志中心。
+
+    保留 keep 代（默认只留 1 个 .old）：日志是排查用的，留一代足够，
+    再多只会占地方。
+
+    ⚠️ 这里踩过一个自己写的 bug（测试"连续转两次"时抓到的）：
+       第一版把"后移各代"写成了一个循环 `for i in range(keep, 0, -1)`，
+       而 keep=1 时这个循环里 src 和 dst **是同一个路径**（都是 .old）——
+       于是先 os.remove(dst) 删掉它，再 os.replace(src, dst) 找不到源，
+       必然抛异常被外层吞掉。
+       后果：**每隔一次轮转就失败一次，并且把上一代日志删掉**。
+       连续写入时看起来"正常"，只是因为它在"成功/失败"交替 ——
+       不写"连着转两次"的测试根本发现不了。
+    """
+    try:
+        if not os.path.exists(path):
+            return False
+        if os.path.getsize(path) <= max_size:
+            return False
+        old = path + ".old"
+        if keep <= 1:
+            # 只留一代：直接覆盖（os.replace 会替换已存在的目标，不用先删）
+            os.replace(path, old)
+            return True
+        # 多代：最老的丢掉，其余依次后移，最后把当前文件变成第 1 代
+        oldest = "%s.old.%d" % (path, keep)
+        if os.path.exists(oldest):
+            os.remove(oldest)
+        for i in range(keep - 1, 0, -1):
+            src = old if i == 1 else "%s.old.%d" % (path, i)
+            dst = "%s.old.%d" % (path, i + 1)
+            if os.path.exists(src):
+                os.replace(src, dst)
+        os.replace(path, old)
+        return True
+    except Exception:
+        # 轮转失败不能影响"写日志"这件事本身
+        return False
+
+
+def append_line(path, line, max_size=DEFAULT_MAX_SIZE):
+    """追加一行到日志文件（带轮转）。写失败也不抛 —— 日志不能反过来搞挂程序。"""
+    try:
+        rotate_if_needed(path, max_size)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line if line.endswith("\n") else line + "\n")
+        return True
+    except Exception:
+        return False
