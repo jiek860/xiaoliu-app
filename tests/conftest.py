@@ -24,6 +24,20 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE not in sys.path:
     sys.path.insert(0, BASE)
 
+# ── 崩溃现场捕获（对整个测试会话生效）──
+# 为什么装在测试里：2026-10-13 那次 access violation **就是跑全量测试时出的**
+# （退出码 3221225477），之后怎么跑都不复现。没有现场就永远定不了位。
+#
+# pytest 自己的报告抓不到 C 层崩溃 —— 进程直接死，连 teardown 都跑不到。
+# faulthandler 能在死之前把所有线程的 Python 栈写进：
+#     data/logs/faulthandler.log
+# 下次再崩，第一件事就是去看那个文件的末尾。
+try:
+    from core.crash_guard import enable as _enable_crash_guard
+    _enable_crash_guard()
+except Exception:
+    pass
+
 # 需要屏蔽掉的后台入口（Trunk.__init__ 里是用 Thread 起它们的）
 _BACKGROUND = (
     "_start_background",     # 定时任务 / 热更新 / 模块服务器 / 手机远程 / MCP / 预热

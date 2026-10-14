@@ -1,4 +1,107 @@
 # 版本变更记录
+## v25.2.15 - 2026-10-14
+### 完善工程化方案：把"猜的"换成"实测的"，并落地 P0
+用户给了一份《小6工程化风险解决方案》，让"完善可行落地"。
+核实之后发现**方向全对，但 3 处前提/数字和实际不符** ——
+照抄会白干几天。这一版全部改成实测值，并把最该做的 P0 做掉。
+
+**核实结果**（每条都跑了命令）：
+    初版说                      实测                        判定
+    ───────────────────────────────────────────────────────────────
+    覆盖率 0.24，补 11 个        **真实覆盖率 41.7%**        口径用错了
+    用例涨到 0.4                 （0.24 是"测试行数:生产
+                                  行数"，不是覆盖率；
+                                  到 40% 反而已经过了）
+    crypto/backup/vector        **48.9% / 61.3% / 32.8%**   前提不准
+    "没测"                      —— 三个都已有测试
+    "加崩溃捕获"                sys.excepthook 早有、       已做一半
+                                crashes.log 早有，
+                                缺的是 **faulthandler**（0 处）
+    "文档不足，写 3 页"         已有 967 行架构说明 +       前提不成立
+                                224 行小白版 + 796 行
+                                CHANGELOG
+    CI "20 分钟"                **仓库没有 remote**，       严重低估
+                                且 libs/ modules_repo/
+                                data/ 都不在 git 里
+                                （git 只跟踪 341 个文件）
+
+### P0 已落地：崩溃现场捕获（`core/crash_guard.py`）
+  2026-10-13 那次 access violation **没现场、没定位**，根因是：
+      `sys.excepthook` 只能接住 **Python 层**异常；
+      access violation 是 **C 层**内存错误 —— 进程当场死，
+      解释器根本没机会跑到 excepthook。
+      （证据：那次崩溃时 `crashes.log` 里**什么都没有**）
+  `faulthandler` 把 dump 做在信号/异常层，能在死之前写下所有线程的栈。
+  - 新增 `core/crash_guard.py`：`enable()` / `dump_now()` / `status()` /
+    `recent_crashes()`
+  - `run.py` **模块顶层**第一个装（不是 main 里）—— 也覆盖"导入阶段就崩"
+  - `tests/conftest.py` 也装 —— **那次崩溃就出在全量测试里**
+  - `dump_now()` 给卡死用：卡死往往比崩溃更难查（没有崩溃点，只有"不动"）
+  - 日志 `data/logs/faulthandler.log`：启动标记（时间/pid/python/工作目录）
+    + 全线程栈 + 线程数（v25.2.10 定位到"线程数暴涨"是诱因）
+  - ⚠️ **写清了局限**：faulthandler **看不到原生子帧**（numpy/Qt/torch 的
+    C 层调用）。要定位 DLL 级崩溃还得配 procdump 或 WER 本地 dump ——
+    具体命令写在 `crash_guard.WER_HINT` 里。**只靠 faulthandler 会以为
+    信息够了。**
+  - 取舍：`enable()` 失败**返回空串、不抛异常** —— 它是保护措施不是功能，
+    装不上就退化成"和以前一样没有现场"，但不能因为它打不开程序。
+
+### 新增 `tools/measure_coverage.py`：先测量，再定计划
+  那份方案最大的问题是**没测量就下结论**（所以才会把行数比当覆盖率）。
+  做成工具，一键出真实数据：
+      py -3 tools\measure_coverage.py            全量（约 2 分钟）
+      py -3 tools\measure_coverage.py --quick    只验证工具能跑
+  报告按"**语句多 × 覆盖低**"排序给最该补的清单 —— 不是单纯覆盖低
+  （补一个 20 语句的小文件到 100% 没有意义）。
+
+### 实测基线（本次全量 578 用例跑出来的）
+    总覆盖率 **41.7%**（18,920 语句，未覆盖 11,036）
+      gui                 5,174 语句   53.2%   ← 最高（和直觉相反）
+      core                7,215 语句   43.5%
+      modules/installed   6,531 语句   30.5%   ← 最低
+
+  **真正的短板是 0% 或极低的大文件**：
+      0.0%  core/self_check.py            383 语句 ← 用户会点的"深度自检"
+      0.0%  core/realtime/engine.py       184 语句
+      0.0%  core/module_server.py         155 语句
+      0.0%  modules/installed/voice.py    135 语句
+     13.7%  modules/installed/auto_updater.py  366 语句 ← 更新是危险操作
+     15.5%  modules/installed/personality.py   549 语句 ← 最大的文件
+     32.8%  core/vector_store.py         247 语句
+
+  修正后的补测试目标（按"语句多 × 覆盖低"）：
+      self_check 383→70% / personality 549→50% / auto_updater 366→60%
+      vector_store 247→70% / realtime/engine 184→60% / module_server 155→60%
+  ⚠️ **不建议**为数字补 GUI 点击细节 —— gui 已经 53.2%，是全项目最高的，
+     那类手动验证更划算。
+  ⚠️ **验收标准不是"到多少个百分点"**，而是"每个会改用户数据的函数，
+     都有测试证明它改对了、改坏能回滚"。覆盖率是结果，不是目标。
+
+### CI 那条改成 6 步（初版估 20 分钟，实际约半天）
+  ① 建远程仓库并首次推送（`E:\xiaoliu` **没有 remote**）
+  ② `pip install -r requirements.txt -i 清华源`
+  ③ 补 `data/_schema.json` 和 `data/agreement.json`
+     （干净机器实测 426 passed / **11 failed**，失败全是缺这些文件）
+  ④ 处理 `modules_repo` 不在 git 里的问题（`check_repo_sync` 会失败）
+  ⑤ 必须 **windows-latest** runner（不是 ubuntu —— 用了 Win32 API）
+  ⑥ 设 `QT_QPA_PLATFORM=offscreen`
+
+### 方案文档已重写（`小6工程化风险解决方案.txt` v2）
+  在原文上加"修订说明"一节，把 3 处错误逐条列出来（不藏着），
+  并把验收标准、落地清单、P0 实施记录都补进去。
+  **保留初版两个正确判断**：faulthandler 的方向、纯本地日志不上云的隐私立场。
+### 测试（新增 `tests/test_crash_guard.py`，14 个用例）
+  · enable 建日志、写启动标记、可重复调用、默认路径
+  · **坏路径不抛异常**（保护措施不该拦住程序启动）
+  · dump_now 真的写出栈 + 记录原因 + 记线程数
+  · **接线检查**：crash_guard 必须在 `run.py` 里**早于任何 Qt 导入**；
+    `tests/conftest.py` 也必须装
+  · `WER_HINT` 里必须有 procdump / LocalDumps / "原生" 字样
+    （局限必须写在代码里，否则下次有人拿到栈会以为信息够了）
+  ⚠️ 一个测试自己发现的问题：`reset_for_test()` 会清掉**会话级**的开启状态，
+     导致后续用例假失败、**而且真崩了就没现场了**。已用 autouse fixture 恢复。
+测试 564 → **578 个用例**，全通过；8 个守卫 + 插件仓库一致性全 0。
+
 ## v25.2.14 - 2026-10-14
 ### 修：打包目录里混着 modules_repo\.git（461 文件 + 私有仓库地址）
 做体检时数了一下打包源的文件数，发现**对不上**：

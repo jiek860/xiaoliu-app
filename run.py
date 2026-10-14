@@ -2,6 +2,27 @@
 """小6智能体 - 启动入口"""
 import sys, os
 
+# ⚠️ 崩溃捕获要**第一个装**，必须在任何 Qt / 重型库之前。
+# 原因：2026-10-13 出现过一次 access violation —— 进程直接死，
+# **没现场、没定位**，只能在 CHANGELOG 里记一句"没查出来"。
+#
+# 为什么 sys.excepthook 不够（run.py 下面那个 _install_excepthook）：
+#   它只能接住 **Python 层**没处理的异常；
+#   access violation 是 **C 层**内存错误，进程当场死，
+#   解释器根本没机会跑到 excepthook。
+# faulthandler 把 dump 做在信号/异常处理层，能在死之前
+# 把**所有线程**的 Python 栈写进文件。
+#
+# 放在模块顶层（而不是 main 里）是为了也覆盖"导入阶段就崩"的情况。
+try:
+    from core.crash_guard import enable as _enable_crash_guard
+    _enable_crash_guard()
+# 静默是故意的：崩溃捕获是**保护措施**，不是功能。
+# 它自己装不上（缺模块/没权限建目录）就退化成"和以前一样没有现场"，
+# 但**绝不能因为它而打不开程序**。crash_guard.enable() 内部也做了同样取舍。
+except Exception:
+    pass
+
 # 依赖目录：
 #   libs/           核心随包库（numpy / requests 等），必须有
 #   optional_libs/  可选功能库（torch / cv2 / faster-whisper 等），按需安装；
