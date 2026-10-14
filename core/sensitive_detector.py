@@ -21,25 +21,53 @@ PATTERNS = {
 
 class SensitiveDetector:
     """敏感信息检测与脱敏"""
+
     def __init__(self, trunk=None):
         self.trunk = trunk
 
     def detect(self, text):
-        """检测敏感信息"""
+        """检测敏感信息
+
+        ⚠️ **返回结果里不带敏感内容本身**（2026-10-13 改）
+        原来返回的是 {"value": m.group()[:20] + "..."} ——
+        也就是把密钥的**前 20 个字符**原样带出来。对 API 密钥来说，
+        前 20 位往往已经是可用的密钥片段。这个结果一旦进日志、发给模型、
+        或显示在界面上，"检测敏感信息"这个动作本身就变成了泄露渠道。
+
+        现在只返回：类型、长度、在文本里的位置（偏移）。
+        用户拿位置就能找到是哪一段，但结果本身**不可还原**。
+        """
         found = []
         for name, pat in PATTERNS.items():
             for m in re.finditer(pat, text):
-                found.append({"type": name, "value": m.group()[:20] + "..."})
+                found.append({
+                    "type": name,
+                    "length": len(m.group()),
+                    "pos": m.start(),          # 用位置代替内容
+                })
         return found
 
     def mask(self, text):
-        """自动脱敏"""
-        for name, pat in PATTERNS.items():
-            def _mask(m):
-                s = m.group()
-                if len(s) <= 6:
-                    return "***"
-                return s[:3] + "*" * (len(s) - 6) + s[-3:]
+        """自动脱敏
+
+        脱敏粒度按字符串长度走（2026-10-13 改）：
+            原来统一是 s[:3] + "*"*(len-6) + s[-3:]，
+            对 7~8 位的串几乎等于没遮（7 位里露 6 位）。
+            现在：
+                <= 4 位      -> 全遮
+                <= 8 位      -> 只留第 1 位
+                更长         -> 留前 3 后 2（业界常用做法，保留可辨识性）
+        """
+        def _mask(m):
+            s = m.group()
+            n = len(s)
+            if n <= 4:
+                return "*" * n
+            if n <= 8:
+                return s[0] + "*" * (n - 1)
+            return s[:3] + "*" * (n - 5) + s[-2:]
+
+        for _name, pat in PATTERNS.items():
             text = re.sub(pat, _mask, text)
         return text
 
