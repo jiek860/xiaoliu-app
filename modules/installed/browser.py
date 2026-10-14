@@ -41,9 +41,71 @@ class Browser(BaseModule):
             os.environ["PLAYWRIGHT_BROWSERS_PATH"] = p
         return os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or ""
 
+    def chromium_info(self):
+        """chromium 装了没 / 缺什么 / 怎么装（#7：第一次用才提示下载）
+
+        为什么要这个
+        ------------
+        以前没装 chromium 时，用户看到的是 playwright 那句原始报错被截到 80 字：
+
+            Executable doesn't exist at ...\\data\\browsers\\chromium-1243\\chrome-w
+
+        既看不出是"浏览器没下载"，也不知道该怎么办。
+        实际这个浏览器有 700 MB，**本来就不该随程序分发** ——
+        对方需要浏览器功能时再下就行。所以缺它属于**正常状态**，
+        不该报成错误，而该给一句能照着做的提示。
+
+        判定方式：看 data/browsers 下有没有 chromium-* 目录
+        （playwright 把版本号编在目录名里，所以用前缀匹配）。
+        """
+        import glob as _g
+        d = os.path.join(self.base, "data", "browsers")
+
+        def _size(p):
+            n = sz = 0
+            for r, _ds, fs in os.walk(p):
+                for f in fs:
+                    try:
+                        sz += os.path.getsize(os.path.join(r, f))
+                        n += 1
+                    # 静默是故意的：统计体积时跳过读不到的单个文件，
+                    # 少算一个不影响"大概多大"
+                    except Exception:
+                        pass
+            return n, round(sz / 1024.0 / 1024, 1)
+
+        dirs = _g.glob(os.path.join(d, "chromium-*"))
+        dirs = [x for x in dirs if "headless" not in os.path.basename(x)]
+        if dirs:
+            n, mb = _size(dirs[0])
+            return {"已装": True, "路径": dirs[0], "文件数": n, "MB": mb}
+
+        return {
+            "已装": False,
+            "路径": d,
+            "说明": "浏览器内核（Chromium）还没下载 —— 这是正常的：它约 700 MB，"
+                    "不随程序分发，**第一次要用浏览器功能时再下**。",
+            "怎么装": "py -3 -m playwright install chromium",
+            "注意": "必须让 PLAYWRIGHT_BROWSERS_PATH 指向 %s "
+                    "（本模块已自动设置；手动装时也要指同一个目录，"
+                    "否则它会装到 %%LOCALAPPDATA%%\\ms-playwright，"
+                    "而运行时找不到）" % d,
+            "大小": "约 700 MB（含 headless shell 与 ffmpeg）",
+            "装完": "回到「电脑控制 → 浏览器」重试即可",
+        }
+
     def _start(self, headless=True):
         """启动 playwright + chromium（只启一次，之后复用同一个 page）"""
         self._ensure_browser_path()
+        # 先查内核在不在，给一句能照着做的提示，而不是甩 playwright 的原始报错
+        info = self.chromium_info()
+        if not info.get("已装"):
+            # 命令放最前面 —— open() 会把错误截到 80 字，
+            # 原来写"浏览器内核没下载（约 700 MB…）。装法：py -3 -m playwright
+            # install chromium" 时，命令正好被切掉，用户没法复制。
+            raise RuntimeError(
+                "先运行：py -3 -m playwright install chromium"
+                "（浏览器内核约 700 MB，未随程序分发）")
         from playwright.sync_api import sync_playwright
         if not self._page:
             self._pw = sync_playwright().start()
