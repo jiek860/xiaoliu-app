@@ -81,3 +81,5 @@ Thumbs.db
 cov.json
 htmlcov/
 _cov_tmp.json
+data/tools/
+data/dumps/

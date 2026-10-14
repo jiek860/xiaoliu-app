@@ -30,6 +30,17 @@ class VectorStore:
         self._cache_timer = time.time()
         self._lock = threading.Lock()
         self._last_embed = 0.0
+        # ⚠️ 这一行原来**漏了**，后果很严重（2026-10-14 补）：
+        #    `_embed()` 的**成功路径**里有 `if self._embed_retry_at != 0:`
+        #    （用于"恢复了就提示一下"），但 __init__ 从没初始化它
+        #    -> 第一次嵌入必然抛 AttributeError
+        #    -> 被自己的 except 当成"嵌入失败"
+        #    -> 设下 300 秒冷却
+        #    **结果：每次启动后 5 分钟内语义检索完全不可用，
+        #      一直静默走关键词降级。**
+        #    冷却判断那处用的是 getattr(..., 0) 兜住了，成功路径没有 ——
+        #    所以这个 bug 只在"嵌入真的能用"时才暴露，很难碰到。
+        self._embed_retry_at = 0
 
         # 规则引擎参数
         try:
@@ -59,6 +70,10 @@ class VectorStore:
             self._use_chroma = False
 
         # 初始化SQLite
+        # ⚠️ 顺序不能反：先验文件是否可用，再建表。
+        #    `_conn()` 里的 PRAGMA 在坏文件上自己就抛，所以
+        #    "先连接、抛了再补救"是走不通的（补救时还是要连接）。
+        self._ensure_db_ok()
         self._init_db()
         # 从SQLite加载所有数据到内存
         self._load_from_db()
@@ -70,8 +85,72 @@ class VectorStore:
         c.execute("PRAGMA journal_mode=WAL")
         return c
 
+    def _ensure_db_ok(self):
+        """开库**之前**先验这个文件是不是可用的 SQLite；坏了就挪走重建
+
+        ⚠️ 为什么必须在开库前做（2026-10-14）：
+            `_conn()` 里那句 `PRAGMA journal_mode=WAL` 在损坏文件上
+            **自己就会抛** `DatabaseError`。所以"先连接、抛了再补救"
+            这条路走不通 —— 补救的时候还是要 `_conn()`，还是抛。
+            实测踩到：加了 except 之后**依然崩**，因为恢复路径里
+            重新 `_conn()` 又抛了一次。
+
+            vectors.db 是**长期积累**的文件，被强杀/断电/磁盘问题时真会坏。
+            坏了就打不开程序，而用户**完全猜不到**是向量库的问题。
+
+        取舍：宁可丢掉向量库（记忆的"索引"），也要让程序能起来 ——
+        记忆正文在 memory.json，那个另有保护。
+        坏文件改名留证，不直接删（万一还能人工抢救）。
+        """
+        if not os.path.exists(self.db_path):
+            return
+        try:
+            c = sqlite3.connect(self.db_path, timeout=5)
+            try:
+                c.execute("PRAGMA journal_mode=WAL")
+                c.execute("SELECT count(*) FROM sqlite_master")
+            finally:
+                c.close()
+            return                                  # 是好的
+        # 静默是故意的：这里"坏"是**预期内**的分支 ——
+        # 判断依据是紧接着的改名/重建动作，不需要额外报错
+        except sqlite3.DatabaseError:
+            pass
+        except Exception:
+            return
+        bad = self.db_path + ".corrupt"
+        try:
+            if os.path.exists(bad):
+                os.remove(bad)
+            os.replace(self.db_path, bad)
+            note = "已改名为 %s 并重建" % os.path.basename(bad)
+        except Exception:
+            # 静默是故意的：改名失败（文件被占用）就退到"直接删"，
+            # 下面那一层会处理；两层都失败才放弃（放弃也是静默返回，
+            # 因为"修不了坏库"不该拦住程序启动 —— 见本函数开头的取舍）
+            try:
+                os.remove(self.db_path)
+                note = "已删除并重建"
+            except Exception:
+                # 静默是故意的：同上 —— 连删都删不掉就放弃修复。
+                # 接下来 _init_db() 会照常尝试，真起不来时错误会从那里冒出来，
+                # 比在这里吞掉更容易定位
+                return
+        try:
+            if self.trunk:
+                self.trunk._log("向量库损坏，%s（记忆正文在 memory.json，"
+                                "不受影响）" % note)
+        # 静默是故意的：连"记一条日志"都失败就没别的办法了，
+        # 而这件事本身不影响修复结果（库已经改名/删掉了）
+        except Exception:
+            pass
+
     def _init_db(self):
-        """初始化表"""
+        """初始化表
+
+        （损坏处理已挪到 `_ensure_db_ok()` —— 那必须在**开库前**做，
+          原因见那个函数的说明。）
+        """
         c = self._conn()
         try:
             c.execute("""CREATE TABLE IF NOT EXISTS vectors(
@@ -87,9 +166,23 @@ class VectorStore:
             c.close()
 
     def _load_from_db(self):
-        """从SQLite加载所有数据到内存"""
+        """从SQLite加载所有数据到内存
+
+        ⚠️ 整体兜住 DatabaseError（2026-10-14 补）：`_init_db()` 那边
+        已经能"改名重建"坏库了，但**这里也会开库** —— 如果重建也失败
+        （磁盘满、目录只读），异常会从这儿再抛出去，程序照样起不来。
+        栽在最后一步最不值：前面已经做对了"宁可丢向量库也要能启动"，
+        不能因为读回内存这一下前功尽弃。
+
+        读不出来就当空库 —— 记忆的正文在 memory.json，那个另有保护。
+        """
         import numpy as np
-        c = self._conn()
+        try:
+            c = self._conn()
+        except sqlite3.DatabaseError:
+            self.data = []
+            self._emb_mat = None
+            return
         try:
             rows = c.execute("SELECT * FROM vectors ORDER BY id DESC LIMIT ?",
                            (self.max_items,)).fetchall()
@@ -109,6 +202,19 @@ class VectorStore:
                     emb_list.append(emb)
             if emb_list:
                 self._emb_mat = np.array(emb_list, dtype=np.float32)
+        except sqlite3.DatabaseError as e:
+            # 读的过程中坏了（建表成功但内容是垃圾）—— 当空库
+            self.data = []
+            self._emb_mat = None
+            try:
+                if self.trunk:
+                    self.trunk._log("向量库读取失败（%s），本次按空库启动"
+                                    % str(e)[:50])
+            # 静默是故意的：连"记一条日志"都失败就没别的办法了。
+            # 关键动作（把 data/_emb_mat 置空）已经在上面做完了，
+            # 所以这里吞掉不影响"按空库启动"这个结果
+            except Exception:
+                pass
         finally:
             c.close()
         # ===== P1-06步骤1：向量库一致性检查（只加不改） =====
@@ -304,13 +410,23 @@ class VectorStore:
             words = [w for w in re.split(r"[\s\W]+", query) if len(w) >= 2]
             scored = []
             for item in self.data:
-                s = sum(1 for w in words if w in item.get("text", ""))
+                # ⚠️ `or ""` 不能省：data 是从 SQLite 读回来的，
+                #    text 列可能是 NULL（`{"text": None}`）。
+                #    原来直接 `w in item.get("text", "")` —— get 的默认值
+                #    只在**键不存在**时生效，键存在但值是 None 时照样返回 None，
+                #    于是 `"x" in None` -> TypeError -> **整个检索崩掉**。
+                #    一份长期积累的库里出现几行脏数据是很正常的事，
+                #    不能因此让"回忆"这个功能整个不可用。
+                _text = item.get("text") or ""
+                s = sum(1 for w in words if w in _text)
                 if s:
                     scored.append((s, item))
             scored.sort(key=lambda x: -x[0])
             if not scored:
-                return [{"text": x["text"], "score": 0} for x in self.data[:top_k]]
-            return [{"text": s["text"], "score": round(sc, 3)} for sc, s in scored[:top_k]]
+                return [{"text": (x.get("text") or ""), "score": 0}
+                        for x in self.data[:top_k]]
+            return [{"text": (s.get("text") or ""), "score": round(sc, 3)}
+                    for sc, s in scored[:top_k]]
         # numpy矩阵检索
         scored = []
         now = time.time()

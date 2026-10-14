@@ -50,10 +50,16 @@ def check_cloud(trunk):
 
 
 def health_score(trunk):
+    """健康分（0~100）：Ollama 不可用 -20，云端未配 -10
+
+    ⚠️ 用 .get() 而不是 [] —— 和 deep_check 里那两处是同一类问题。
+    实测：`_check_ollama()` 返回 `{}`（没有 ok 键）时原代码直接
+    KeyError。健康分是**自检报告的最后一行**，它崩了整份报告就没了。
+    """
     score = 100
-    if not trunk._check_ollama()["ok"]:
+    if not (trunk._check_ollama() or {}).get("ok"):
         score -= 20
-    if not trunk._check_cloud()["ok"]:
+    if not (trunk._check_cloud() or {}).get("ok"):
         score -= 10
     return score
 
@@ -159,16 +165,26 @@ def deep_check(trunk):
         errors.append("懒加载对账失败: %s" % str(e)[:40])
 
     # 4. Ollama
-    o = trunk._check_ollama()
-    log("🤖 Ollama: %s" % ("✅ %d个模型" % len(o["models"]) if o["ok"] else "❌ " + o["error"]))
-    if not o["ok"]:
-        errors.append("Ollama: " + o["error"])
+    #    ⚠️ 用 .get() 而不是 [] —— 这两个函数**返回的 dict 形状不一定全**。
+    #    实测：给一个 {"ok": False}（没有 error 键）就会 KeyError，
+    #    把整个自检打挂。而"自检本身崩掉"比"自检报出问题"糟得多 ——
+    #    用户点它就是为了知道哪儿坏了，结果它自己先死了。
+    o = trunk._check_ollama() or {}
+    if o.get("ok"):
+        log("🤖 Ollama: ✅ %d个模型" % len(o.get("models") or []))
+    else:
+        _e = str(o.get("error") or "未响应（服务没启动？）")[:60]
+        log("🤖 Ollama: ❌ %s" % _e)
+        errors.append("Ollama: " + _e)
 
     # 5. 云端
-    c = trunk._check_cloud()
-    log("☁️ 云端: %s" % ("✅ 已配置" if c["ok"] else "❌ " + c["error"]))
-    if not c["ok"]:
-        errors.append("云端: " + c["error"])
+    c = trunk._check_cloud() or {}
+    if c.get("ok"):
+        log("☁️ 云端: ✅ 已配置")
+    else:
+        _e = str(c.get("error") or "未配置")[:60]
+        log("☁️ 云端: ❌ %s" % _e)
+        errors.append("云端: " + _e)
 
     # 6. 错误库状态
     #    这里原来叫「自愈闭环」，检的是 self_heal 模块在不在。
