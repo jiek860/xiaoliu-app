@@ -684,16 +684,44 @@ check.bat 双击就跑，依次做 7 件事，任何一步失败就停并说明�
   · 顺带更正 v25.2.9 里一处说法：当时记的"可能是析构顺序问题"
     **方向不对**，实际是线程数量。
 
-【分发：从 3.2 GB 压到约 66 MB 起步】（v25.2.5 / #6 #7）
-  实测结论（本机 2026-10-13）：
+【分发：从 3.3 GB 压到约 216 MB 起步】（v25.2.5 / #6 #7）
+  ⚠️ **这张表更正过一次，原来说的"66 MB"是错的。**
+     那个数只是**把体积相加**算出来的，从没验证过 libs/ 里到底有没有
+     跑起来需要的包。后来实测（干净 venv + 只用项目的 libs/）：
 
-      源码 + modules_repo            约 5.8 MB
-      libs（必需依赖）               60.0 MB
-      ------------------------------------------
-      最小可运行                     约 66 MB
-      optional_libs（可选依赖）      1050.7 MB  ← **不必分发**
-      data/browsers（chromium）      705.6 MB   ← **不必分发**
-      backups（自动备份）            1422.0 MB  ← 再生资源
+         numpy OK / requests OK / **PyQt5 缺** / cryptography 缺 / psutil 缺
+         gui.main_window 导入失败：ModuleNotFoundError No module named 'PyQt5'
+
+     **所以 66 MB 跑不起来** —— libs/ 只 vendored 了 numpy + requests，
+     不含 PyQt5。真实起步体积要把 PyQt5 等核心依赖算进去。
+
+  实测账（本机 2026-10-13）：
+
+      ── 必须随包带 ──
+        core + gui + modules        3.2 MB
+        modules_repo（签名清单）     2.8 MB
+        libs（已 vendored 的）      60.0 MB
+        ------------------------------------
+        小计                        65.9 MB
+      核心依赖（libs 里缺的）       约 150 MB  ← 从 pip 装，或补进 libs
+        ================================
+        **真实起步                 约 216 MB**
+
+      ── 可以不分发（用到再装）合计 1756.3 MB ──
+        optional_libs（可选依赖）  1050.7 MB
+        data/browsers（chromium）   705.6 MB
+
+      ── 可再生（用户随时可删）──
+        backups（自动备份）        1421.0 MB
+        data/logs                     2.9 MB
+
+      现在整个文件夹             约 3295 MB
+      轻量版                     约 216 MB（省约 3079 MB / 93%）
+
+  ⚠️ 那 150 MB 的 PyQt5 **不是"打包没优化"，是 GUI 框架的固有成本** ——
+     任何 PyQt 程序都躲不掉（对比：Electron 应用动辄 200+ MB 起步）。
+     真正属于"一堆打包"的是那 1756 MB（可选依赖 + 浏览器内核），
+     那部分确实可以按需下载。
 
   可选依赖"按需知道"这一步由 core/optional_deps.py + tools/optional_deps.py
   承担（DSH runtime.json 的对应物）：
