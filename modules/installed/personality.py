@@ -40,7 +40,13 @@ class PersonalityEngine(BaseModule):
 
     # ========== 1. 心境系统 ==========
     def update_emotion(self, user_text=""):
-        """统一情绪引擎：一次算清你的情绪 + 小6的心情 + 联动"""
+        """统一情绪引擎：一次算清你的情绪 + 小6的心情 + 联动
+
+        ⚠️ None 当空串 —— 见 full_hint 的说明。
+        这里是 `full_hint` 的**第一个**下游调用，不兜的话后面全都到不了。
+        """
+        if not isinstance(user_text, str):
+            user_text = "" if user_text is None else str(user_text)
         now = time.time()
         hours = (now - self.data["last_active"]) / 3600
         h = datetime.now().hour
@@ -139,6 +145,9 @@ class PersonalityEngine(BaseModule):
 
     # ========== 4. 人名 ==========
     def learn_people(self, text):
+        # None 当空串 —— 见 full_hint 的说明
+        if not isinstance(text, str):
+            text = "" if text is None else str(text)
         patterns = [
             r'(?:朋友|同事|同学)\s*([\u4e00-\u9fa5]{2,3})',
             r'我(妈|爸|哥|姐|弟|妹|老公|老婆|对象)',
@@ -339,7 +348,23 @@ class PersonalityEngine(BaseModule):
 
     # ========== 主入口：生成全部提示 ==========
     def full_hint(self, user_text=""):
-        """精简版人格提示（500字以内，提速）"""
+        """精简版人格提示（500字以内，提速）
+
+        ⚠️ `user_text` 一律按**字符串**处理，None 当空串（2026-10-14）。
+        为什么必须兜：这个函数被 3 处调用
+            core/llm_client.py:242
+            core/pipeline/legacy_reply.py:159
+            core/pipeline/prompt_assembler.py:39
+        而输入来自 `_extract_user_text(msgs)` —— 它**可能返回 None**
+        （消息里没有 user 角色、或者内容是空的）。
+        传进来是 None 的话，下面 `update_emotion`/`short_reply_hint`/
+        `repeat_hint` 都会 `TypeError: object of type 'NoneType' has no len()`。
+        后果不是"崩一下" —— 调用处外面包着 try/except，所以是
+        **人格提示静默失效**：那一轮小6 突然变得没性格，
+        而日志里什么都看不到，极难归因。
+        """
+        if not isinstance(user_text, str):
+            user_text = "" if user_text is None else str(user_text)
         hints = []
         # 1. 用户自定义人格（最重要）
         try:
@@ -372,6 +397,9 @@ class PersonalityEngine(BaseModule):
 
     # ========== ② 短回应对短回 ==========
     def short_reply_hint(self, user_text):
+        # None 当空串 —— 见 full_hint 的说明（同样喂的是用户原话）
+        if not isinstance(user_text, str):
+            user_text = "" if user_text is None else str(user_text)
         if len(user_text) <= 5:
             return "【他就说了几个字】你也短回，别展开，一两个字或一句就行，别写三段"
         return ""
@@ -398,6 +426,9 @@ class PersonalityEngine(BaseModule):
 
     # ========== ④ 小脾气：重复问题 ==========
     def repeat_hint(self, user_text):
+        # None 当空串 —— 见 full_hint 的说明
+        if not isinstance(user_text, str):
+            user_text = "" if user_text is None else str(user_text)
         recent = self.data.get("recent_user_msgs", [])
         key = user_text[:8]
         sim = [u for u in recent if u and key and key in u and len(user_text) > 6]

@@ -1,4 +1,67 @@
 # 版本变更记录
+## v25.2.20 - 2026-10-14
+### 落地 P1-f：`modules/installed/personality.py` **15.5% → 60%**（104 个用例）
+它是**全项目最大的文件**（559 条语句），做的是"让小6 像个人"：
+心境、口头禅、称呼、主动搭话、天气/节日/深夜这些情境提示。
+
+它的结构是**四十多个小 `*_hint`**，每个往提示词里塞一句话。
+这种代码最容易出的问题是：**某一个 hint 抛异常 → 整段人格提示拼不出来
+→ 它突然变得很生硬**（用户感觉是"它今天怪怪的"，
+根本想不到是某个 hint 崩了）。所以本文件分两块：
+  · **批量**：40 个 hint 逐个调（含空串 / None / 超长 / emoji / 控制字符）
+  · **重点**：`full_hint`（拼装入口）、`update_emotion`（心境状态机）、
+    `_load`（坏文件兜底）
+
+**🔴 抓到 4 个真 bug（同一类：`None` 输入直接崩）**
+    `full_hint(None)`          TypeError: object of type 'NoneType' has no len()
+    `update_emotion(None)`     同上
+    `short_reply_hint(None)`   同上
+    `repeat_hint(None)`        TypeError: 'NoneType' object is not subscriptable
+    `learn_people(None)`       同上
+
+  **为什么 None 是真会来的**：`full_hint(user_text)` 有 3 个调用点
+      core/llm_client.py:242
+      core/pipeline/legacy_reply.py:159
+      core/pipeline/prompt_assembler.py:39
+  输入来自 `_extract_user_text(msgs)` —— 消息里没有 user 角色、
+  或者内容是空的时候它**返回 None**。
+
+  **后果不是"崩一下"**：调用处外面包着 try/except，所以是
+  **人格提示静默失效** —— 那一轮小6 突然没性格，
+  而日志里什么都看不到，极难归因。
+  已在 5 个入口统一把 None 当空串（`if not isinstance(x, str)`）。
+
+**坏文件兜底逐项验**：`personality.json` 是
+  · 不存在 → 用默认值
+  · JSON 坏了 → 退回默认
+  · 空文件 / 内容是数组 / 字符串 / 数字 / null → 都退回 dict
+这个文件是用户长期积累的（心境、称呼、纪念日），被强杀/断电时真会写坏。
+坏了至少程序要能起来 —— 用户的感觉该是"它性格重置了"，
+而不是"程序打不开了"。
+
+**⚠️ 两条测试自己的错：**
+  · 断言 `personality_growth(txt)` 能收参数 —— 跑出来
+    `TypeError: takes 1 positional argument but 2 were given`。
+    是我照"其他方法都收 user_text"的规律**猜的，没看签名**。
+  · 查"流水线有没有引用 personality"时查的是 `context_builder.py`，
+    那里根本没有 —— 真正调 `full_hint` 的是另外三处。
+    改成查**真实存在的那三个调用点**，而且反过来要求
+    "每个调用点都真的调到了 full_hint"（改了名字它们会静默失效）。
+
+**记录了 `ask_confirm` 取向之外的另一个既有选择：**
+  `full_hint` 里那个 `except: pass`（用户自定义人格读取失败时静默跳过）
+  是合理的 —— 读不到自定义性格只是少一条提示，不该让整段拼不出来。
+
+### 覆盖率进展（P1 全部完成）
+    core/self_check.py                 0.0%  →  74%
+    core/vector_store.py              32.8%  →  76%
+    core/realtime/engine.py            0.0%  →  76%
+    core/module_server.py              0.0%  →  85%
+    modules/installed/auto_updater.py 13.7%  →  83%
+    modules/installed/personality.py  15.5%  →  60%
+测试 786 → **890 个用例**，全通过；8 个守卫 + 插件仓库一致性全 0
+（改了 personality.py，已重签 43 条）。
+
 ## v25.2.19 - 2026-10-14
 ### 落地 P1-e：`modules/installed/auto_updater.py` **13.7% → 83%**（64 个用例）
 这是**全项目最危险的一段代码**：
