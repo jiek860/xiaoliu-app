@@ -1,7 +1,7 @@
 {
   "_说明": "GUI 控件预算。加按钮会导致 check_buttons.py 失败，请先说明为什么「说一句」替代不了它。批次 6 撤完按钮后，把 total 和各文件额度一起下调。",
   "_口径": "统计 QPushButton/QToolButton/QRadioButton/QCheckBox/QCommandLinkButton/QAction 的创建次数",
-  "total": 111,
+  "total": 112,
   "per_file": {
     "gui/agreement_dialog.py": 4,
     "gui/bot_dialog.py": 3,
@@ -20,7 +20,7 @@
     "gui/memory_view_dialog.py": 5,
     "gui/mobile_dialog.py": 2,
     "gui/model_manager_dialog.py": 2,
-    "gui/onboarding_wizard.py": 6,
+    "gui/onboarding_wizard.py": 7,
     "gui/plugin_dialog.py": 6,
     "gui/search_dialog.py": 2,
     "gui/settings_dialog.py": 11,
@@ -33,5 +33,5 @@
   },
   "table_rows": 0,
   "tables": {},
-  "_widgets": 111
+  "_widgets": 112
 }

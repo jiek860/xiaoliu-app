@@ -83,6 +83,10 @@ class OnboardingWizard(QWizard):
     dl_msg = pyqtSignal(str)
     # 下载结束（成功/取消/失败）
     dl_done = pyqtSignal(dict)
+    # 模型拉取进度：状态文字 / 已下MB / 总MB / 百分比 / 速度
+    pull_prog = pyqtSignal(str, float, float, int, float)
+    # 模型拉取结束
+    pull_done = pyqtSignal(dict)
 
     def __init__(self, trunk, parent=None):
         super().__init__(parent)
@@ -97,9 +101,12 @@ class OnboardingWizard(QWizard):
         self.dl_prog.connect(self._on_dl_progress)
         self.dl_msg.connect(lambda m: self.lbl_dl.setText(m))
         self.dl_done.connect(self._on_dl_done)
+        self.pull_prog.connect(self._on_pull_progress)
+        self.pull_done.connect(self._on_pull_done)
         self._dl_busy = False
         self._dl_stop = False
         self._dl_ready_path = None
+        self._dl_kind = ""
 
     # ---------------- 页面 ----------------
     def _build_pages(self):
@@ -207,7 +214,22 @@ class OnboardingWizard(QWizard):
             "也可以手动输入自己的模型名")
         hl2.addWidget(self.ed_local_model, 1)
         gl.addLayout(hl2)
-        gl.addWidget(QPushButton("🔄 重新检测", clicked=self._recheck))
+        hr = QHBoxLayout()
+        hr.addWidget(QPushButton("🔄 重新检测", clicked=self._recheck))
+        # 「⬇️ 下载模型」—— 原来这一步要用户自己开 cmd 跑
+        # `ollama run qwen2.5:3b`：要会开命令行、会粘命令、看着黑窗口，
+        # 还得自己判断什么时候算下完。对比同类程序，它们把这一步也做成了
+        # 程序内一键完成。
+        # 复用上面那套进度条和取消按钮（两种下载互斥，不会同时进行），
+        # 所以这里**只多一个按钮**。
+        self.btn_pull = QPushButton("⬇️ 下载模型")
+        self.btn_pull.setToolTip(
+            "从 Ollama 拉取「模型」框里那个模型（约 2GB），带进度和取消。\n"
+            "不用自己开命令行跑 ollama run 了。")
+        self.btn_pull.clicked.connect(self._start_pull)
+        hr.addWidget(self.btn_pull)
+        hr.addStretch(1)
+        gl.addLayout(hr)
         l2.addWidget(self.grp_local)
 
         # 方式二：云端 API
@@ -385,9 +407,10 @@ class OnboardingWizard(QWizard):
     def _download_steps(self):
         """没装/没模型时给**能照着做**的步骤
 
-        有了「⬇️ 一键下载」之后，第一步从"去官网找"变成了"点上面的按钮" ——
-        对比同类程序，它们最实用的一条就是这个（不要用户自己开浏览器找）。
-        后面几步仍然要写清楚：装完在哪、跑什么命令、多大、回来点哪。
+        对比同类程序后两步都改成程序内一键完成了：
+        装 Ollama 不用自己开浏览器找，下模型不用自己开命令行跑
+        `ollama run xxx`（要会开 cmd、会粘命令、看着黑窗口、
+        还得自己判断什么时候算下完）。
         """
         return (
             "按这个顺序来：<br>"
@@ -397,15 +420,87 @@ class OnboardingWizard(QWizard):
             "按弹出的安装向导点完（装到哪可以自己选）<br>"
             "&nbsp;&nbsp;<b>3.</b> 装完 Ollama 会自己在后台运行"
             "（右下角托盘有个小羊驼图标）<br>"
-            "&nbsp;&nbsp;<b>4.</b> 按 <code>Win+R</code> 输入 <code>cmd</code> 回车，"
-            "粘贴这一行下载模型：<br>"
-            "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<code>ollama run %s</code><br>"
-            "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;（模型约 2GB，窗口里会有进度条，走完就行）<br>"
-            "&nbsp;&nbsp;<b>5.</b> 回到这里点「🔄 重新检测」，"
-            "模型会自动出现在上面的下拉框里<br><br>"
-            "下载不动的备选：去 <a href='%s'>%s</a> 用浏览器手动下。"
-            % (ollama_installer.APPROX_MB, model_setup.RECOMMENDED_LOCAL_MODEL,
-               model_setup.OLLAMA_DOWNLOAD, model_setup.OLLAMA_DOWNLOAD))
+            "&nbsp;&nbsp;<b>4.</b> 回到这里点 <b>🔄 重新检测</b>，"
+            "连上以后点 <b>⬇️ 下载模型</b>（模型约 2GB，带进度条，可以取消）<br>"
+            "&nbsp;&nbsp;<b>5.</b> 下完模型会自动出现在下拉框里，"
+            "选中它，再点「💾 保存并检测」<br><br>"
+            "下载不动的备选：去 <a href='%s'>%s</a> 用浏览器手动下安装包。"
+            % (ollama_installer.APPROX_MB, model_setup.OLLAMA_DOWNLOAD,
+               model_setup.OLLAMA_DOWNLOAD))
+
+    # ---------------- 模型下载（复用同一套进度条/取消） ----------------
+    def _start_pull(self):
+        """从 Ollama 拉「模型」框里那个模型"""
+        if getattr(self, "_dl_busy", False):
+            return
+        model = _model_text(self.ed_local_model) or \
+            model_setup.RECOMMENDED_LOCAL_MODEL
+        url = self.ed_ollama.text().strip() or model_setup.DEFAULT_OLLAMA
+
+        self._dl_busy = True
+        self._dl_stop = False
+        self._dl_kind = "model"
+        self.btn_dl.setEnabled(False)
+        self.btn_pull.setEnabled(False)
+        self.btn_cancel_dl.setVisible(True)
+        self.bar_dl.setVisible(True)
+        self.bar_dl.setValue(0)
+        self.lbl_dl.setVisible(True)
+        self.lbl_dl.setText("正在从 Ollama 拉取「%s」…（约 2GB）" % model)
+        self.lbl_dl.setStyleSheet("color:#475569;")
+
+        def _work():
+            try:
+                r = ollama_installer.pull_model(
+                    url, model,
+                    progress=lambda st, g, t, pct, sp:
+                        self.pull_prog.emit(st, g, t, pct, sp),
+                    should_stop=lambda: self._dl_stop)
+                r["模型"] = r.get("模型") or model
+                self.pull_done.emit(r)
+            except Exception as e:
+                self.pull_done.emit({"ok": False,
+                                     "错误": "%s: %s" % (type(e).__name__,
+                                                         str(e)[:80])})
+
+        threading.Thread(target=_work, daemon=True,
+                         name="onboarding-pull").start()
+
+    def _on_pull_progress(self, status, got, total, pct, sp):
+        self.bar_dl.setValue(pct)
+        if total:
+            self.lbl_dl.setText(
+                "%s　已下 %.0f / %.0f MB　%.1f MB/s"
+                % (status, got, total, sp))
+        else:
+            self.lbl_dl.setText(status)
+
+    def _on_pull_done(self, r):
+        self._dl_busy = False
+        self.btn_dl.setEnabled(True)
+        self.btn_pull.setEnabled(True)
+        self.btn_cancel_dl.setVisible(False)
+        if r.get("ok"):
+            self.bar_dl.setValue(100)
+            self.lbl_dl.setText(
+                "✅ 模型「%s」下载完成（%.0f MB，用了 %.0f 秒）—— "
+                "点「🔄 重新检测」刷新列表"
+                % (r.get("模型", ""), r.get("MB", 0), r.get("耗时秒", 0)))
+            self.lbl_dl.setStyleSheet("color:#16a34a;")
+            # 下完自动刷一次列表，用户不用再点
+            self._refresh_local_status()
+        elif r.get("取消"):
+            self.bar_dl.setVisible(False)
+            self.lbl_dl.setText(
+                "已取消。已经下好的部分**不会白费** —— Ollama 留着缓存，"
+                "下次拉同一个模型会接着用。")
+            self.lbl_dl.setStyleSheet("color:#64748b;")
+        else:
+            self.bar_dl.setVisible(False)
+            self.lbl_dl.setText(
+                "❌ 下载失败：%s\n（Ollama 没启动的话先把它打开，"
+                "再点「🔄 重新检测」）" % r.get("错误", "")[:90])
+            self.lbl_dl.setStyleSheet("color:#dc2626;")
 
     def _recheck(self):
         self._refresh_local_status()
@@ -486,6 +581,7 @@ class OnboardingWizard(QWizard):
                          name="onboarding-download").start()
 
     def _cancel_download(self):
+        """取消当前正在进行的下载（安装包 或 模型，两种共用这个按钮）"""
         self._dl_stop = True
         self.lbl_dl.setText("正在取消…")
 

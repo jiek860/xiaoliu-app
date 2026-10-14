@@ -196,20 +196,29 @@ def test_selected_model_survives_refresh(wiz):
 
 
 def test_missing_ollama_gives_actionable_steps(wiz):
-    """连不上 Ollama 时，要给**能照着做**的步骤，不是一句"去装个 Ollama"
+    """连不上 Ollama 时，要给**能照着做**的步骤
 
-    对比同类程序：它们把下载做成程序内一键完成。
-    小6 这边还是引导用户自己去官网 —— 那至少要把
-    "下载地址 / 跑什么命令 / 多大 / 装完回哪一步" 写清楚。
+    两步都已经改成程序内一键完成了（对标同类程序）：
+      · 装 Ollama：点按钮下载，不用自己开浏览器找
+      · 下模型：点按钮拉取，不用自己开命令行跑 `ollama run xxx`
+        （那一步要求用户会开 cmd、会粘命令、看着黑窗口、
+          还得自己判断什么时候算下完 —— 同样劝退）
+    这条守着"每一步都得说清点哪、多大、装完回哪一步"。
     """
     wiz._apply_local_status(
         {"reachable": False, "models": [], "error": "测试"}, "http://x")
     _app.processEvents()
     txt = wiz.lbl_local_howto.text()
-    assert "ollama.com/download" in txt or "下载" in txt, "没给下载地址：%s" % txt
-    assert "ollama run" in txt, "没给要跑的命令：%s" % txt
-    assert "重新检测" in txt, "没说装完回哪一步：%s" % txt
-    assert "2GB" in txt or "进度" in txt, "没说明要等多久/多大：%s" % txt
+    assert "下载 Ollama" in txt or "一键下载" in txt, \
+        "没告诉用户装 Ollama 要点哪：%s" % txt[:80]
+    assert "立即安装" in txt, "没说下完怎么装"
+    assert "重新检测" in txt, "没说装完回哪一步"
+    assert "下载模型" in txt, \
+        "没说模型怎么下（现在是程序内一键，不该再让用户开命令行）：%s" % txt[:80]
+    assert "1509" in txt, "没说明安装包多大"
+    assert "2GB" in txt or "进度" in txt, "没说明模型多大/要等多久"
+    # 官网兜底链接还是要留着（一键下载失败时用户得有出路）
+    assert "ollama.com" in txt, "没留手动下载的兜底链接"
 
 
 def test_status_label_has_no_truncation_marker(wiz):

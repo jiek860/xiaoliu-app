@@ -234,6 +234,120 @@ def detect_installed():
     return {"已装": False, "来源": ""}
 
 
+# ══════════════════════════════════════════════════════════════
+# 模型下载（Ollama 的 /api/pull 流式接口）
+# ══════════════════════════════════════════════════════════════
+# 不用让用户开命令行跑 `ollama run xxx` 了 —— 那一步同样劝退：
+# 要开 cmd、粘命令、看着黑窗口、还得知道什么时候算下完。
+#
+# 接口是 NDJSON（一行一个 JSON），官方文档的格式：
+#     {"status":"pulling manifest"}
+#     {"status":"downloading","digest":"sha256:…","total":N,"completed":M}
+#     {"status":"verifying sha256 digest"}
+#     {"status":"writing manifest"}
+#     {"status":"success"}
+# 出错时是 {"error":"…"}。
+#
+# ⚠️ 本地没有 Ollama 可测，所以这条路的验证靠**模拟服务**：
+#    tests/test_ollama_install.py 里起了一个本地 HTTP 服务，
+#    按上面这个格式吐 NDJSON，验的是"解析和进度对不对"。
+#    格式依据是官方文档 + 社区实现，不是猜的。
+
+PULL_STATUS_CN = {
+    "pulling manifest": "正在读取清单…",
+    # ⚠️ "downloading" 这条是测试逼出来的：不加的话进度条上会直接显示
+    #    英文 "downloading"（其余几条都翻译了，就这条漏了）。
+    "downloading": "正在下载…",
+    "verifying sha256 digest": "正在校验文件…",
+    "writing manifest": "正在写入…",
+    "removing any unused layers": "正在清理旧层…",
+    "success": "下载完成",
+}
+
+
+def pull_model(url, model, progress=None, should_stop=None, timeout=30):
+    """从 Ollama 拉模型（带进度）
+
+    progress(状态文字, 已下MB, 总MB, 百分比, 速度MBps)
+        —— 只有 download 阶段才有 total/completed，
+           其余阶段（校验/写清单）total 为 0，用状态文字表达。
+    should_stop() 返回 True 就中断（用户点了取消）。
+
+    ⚠️ 中断时**不删已下好的层** —— Ollama 自己管理 blob 缓存，
+       下次拉同一个模型会接着用，删了反而要重下。
+    """
+    import json as _json
+    url = (url or DEFAULT_OLLAMA).rstrip("/") + "/api/pull"
+    body = _json.dumps({"name": model, "stream": True}).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=body, method="POST",
+        headers={"Content-Type": "application/json", "User-Agent": _UA})
+
+    t0 = time.time()
+    last = 0.0
+    last_status = None
+    got_mb = tot_mb = 0.0
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            for raw in r:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                if should_stop and should_stop():
+                    return {"ok": False, "取消": True, "错误": "已取消下载"}
+                try:
+                    d = _json.loads(raw.decode("utf-8", "replace"))
+                # 静默是故意的：NDJSON 流里夹半行/坏行是正常的（网络分片），
+                # 跳过它继续读下一行 —— 为一行坏数据中断 2GB 的下载最亏
+                except Exception:
+                    continue                      # 半行/坏行跳过，不中断
+                # ⚠️ 解析成功不代表是字典：合法 JSON 也可能是字符串/数字/数组
+                #    （测试用 "这不是 JSON" 这个字符串逼出来的 ——
+                #      json.dumps 之后它是个合法的 JSON 字符串，
+                #      下面 d.get() 直接 AttributeError 崩掉整次下载）。
+                if not isinstance(d, dict):
+                    continue
+                if d.get("error"):
+                    return {"ok": False, "错误": str(d["error"])[:120]}
+                st = str(d.get("status") or "")
+                total = int(d.get("total") or 0)
+                done = int(d.get("completed") or 0)
+                if total:
+                    got_mb = done / 1048576.0
+                    tot_mb = total / 1048576.0
+                pct = int(done * 100 / total) if total else 0
+                now = time.time()
+                # ⚠️ 节流规则是测试逼出来的：
+                #    原来写的是"有 total 就报，没 total 要等 0.4 秒"，
+                #    结果 "正在校验文件…" / "正在写入…" 这两帧
+                #    **永远不显示** —— 它们没有 total，又瞬间就过去了，
+                #    每次都被 0.4 秒的窗口吃掉。用户看到的是进度条
+                #    卡在 99% 然后突然完成。
+                #    正确做法：**状态一变就报**，只对同一状态内部节流。
+                changed = (st != last_status)
+                if progress and (changed or total or now - last > 0.4):
+                    last = now
+                    last_status = st
+                    dt = max(now - t0, 0.001)
+                    sp = done / 1048576.0 / dt if done else 0.0
+                    try:
+                        progress(PULL_STATUS_CN.get(st, st), got_mb, tot_mb,
+                                 pct, sp)
+                    # 静默是故意的：和 installer 那边同理 ——
+                    # 界面回调失败不该中断 2GB 的下载
+                    except Exception:
+                        pass
+                if st == "success" or d.get("status") == "success":
+                    return {"ok": True, "模型": model,
+                            "MB": round(tot_mb or got_mb, 1),
+                            "耗时秒": round(time.time() - t0, 1)}
+        return {"ok": True, "模型": model, "MB": round(tot_mb or got_mb, 1),
+                "耗时秒": round(time.time() - t0, 1),
+                "提示": "流结束了但没收到 success 状态，建议点「重新检测」确认"}
+    except Exception as e:
+        return {"ok": False, "错误": "%s: %s" % (type(e).__name__, str(e)[:90])}
+
+
 def info():
     """给界面用的一句话说明（含真实体积与源列表）"""
     return {
