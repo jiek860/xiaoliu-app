@@ -68,8 +68,18 @@ def load_config(path):
     if changed and os.path.exists(path):
         try:
             save_config(path, cfg)
-        except Exception:
-            pass
+        # 这里**该报**，不是静默（2026-10-13 按"用户路径"审计时改）。
+        # 配置迁移补了默认值却写不回去，下次启动又是旧的 —— 用户看到的现象是
+        # "改了设置、重启就没了"，而日志里什么都没有，根本查不出原因。
+        except Exception as e:
+            try:
+                from core.logger import get_logger
+                get_logger().warn("配置迁移后回写失败（本次仍用内存里的值，"
+                                  "下次启动会退回旧配置）: %s: %s"
+                                  % (type(e).__name__, str(e)[:70]))
+            # 静默是故意的：连日志都写不进去时无处可报
+            except Exception:
+                pass
     return cfg
 
 

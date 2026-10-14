@@ -1,6 +1,6 @@
 {
   "_说明": "静默失败存量基线（棘轮）。新增应当先说明理由，确属故意的在这处 except 上方写『静默是故意的：…』或行尾加 # noqa: silent。",
-  "total": 357,
+  "total": 354,
   "per_file": {
     "core/action_recorder.py": 1,
     "core/agreement.py": 4,
@@ -8,7 +8,6 @@
     "core/backup.py": 2,
     "core/cache.py": 1,
     "core/chat_store.py": 1,
-    "core/config.py": 1,
     "core/config_healer.py": 2,
     "core/crypto.py": 1,
     "core/data_cleaner.py": 1,
@@ -17,7 +16,6 @@
     "core/llm_client.py": 10,
     "core/logger.py": 4,
     "core/mcp_stdio.py": 5,
-    "core/memory_crypto.py": 1,
     "core/memory_optimizer.py": 1,
     "core/module_caps.py": 1,
     "core/module_health.py": 2,
@@ -29,7 +27,7 @@
     "core/self_check.py": 19,
     "core/tool_presets.py": 2,
     "core/trunk.py": 18,
-    "core/vector_store.py": 5,
+    "core/vector_store.py": 4,
     "core/pipeline/context_builder.py": 4,
     "core/pipeline/legacy_reply.py": 8,
     "core/pipeline/prompt_assembler.py": 1,

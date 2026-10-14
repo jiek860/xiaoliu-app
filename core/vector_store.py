@@ -221,8 +221,32 @@ class VectorStore:
                     metadatas=[{"tag": tag, "time": time.time()}],
                     ids=["v_" + str(int(time.time() * 1000))]
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                # 这里原来是一句 pass（2026-10-13 按"用户路径"审计时改的）。
+                #
+                # 判定：**数据不会丢** —— 上面 SQLite 那条是真持久化，
+                # 而 Chroma 只是可选的二级索引。所以不该当成致命错误。
+                #
+                # 但完全静默是错的：Chroma 同步一直失败的话，
+                # **向量检索会悄悄退化成关键词检索**，用户只觉得"搜得不准了"，
+                # 完全不知道是索引坏了。
+                # 所以：记一次日志（不刷屏）+ 首次失败时状态栏提示一次。
+                if not getattr(self, "_chroma_warned", False):
+                    self._chroma_warned = True
+                    try:
+                        self.trunk._log("Chroma 同步失败（数据已存 SQLite，"
+                                        "只影响向量索引；后续同类失败不再重复记）: %s"
+                                        % str(e)[:70], "WARN")
+                    # 静默是故意的：这是"报告失败的手段本身失败了"，
+                    # 报不出去也没别的办法，再套一层只会无限递归
+                    except Exception:
+                        pass
+                    try:
+                        self.trunk._set_status(
+                            "⚠ 向量索引同步失败，搜索可能变弱（数据本身没丢）")
+                    # 静默是故意的：同上 —— 状态栏设置失败无处可报
+                    except Exception:
+                        pass
 
         # 4. 截断
         if len(self.data) > self.max_items:
