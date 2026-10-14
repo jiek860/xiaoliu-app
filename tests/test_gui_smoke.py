@@ -35,7 +35,8 @@ sys.path.insert(0, os.path.join(BASE, "optional_libs"))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtWidgets import (QApplication, QWidget, QDialog, QMainWindow,  # noqa: E402
-                             QMessageBox, QWizard)
+                             QMessageBox, QWizard, QPushButton, QComboBox,
+                             QLineEdit)
 from PyQt5.QtCore import QThread, QObject  # noqa: E402
 from PyQt5.QtGui import QTextDocument  # noqa: E402
 
@@ -408,3 +409,402 @@ def test_main_window_assembles():
             w.close()
         except Exception:
             pass
+
+
+# ======================================================================
+# 以下从 tests/test_onboarding_layout.py 并入
+# （那个文件在全量跑时会间歇性崩溃，见它原来的说明；
+#   这些用例本身没问题，只是需要一个稳定的执行位置）
+# ======================================================================
+
+
+# 输入框窄于这个宽度就算不可用（文字会被截断）
+MIN_OK = 100
+
+_ONB_FIELDS = [
+    ("本地地址", "ed_ollama"), ("本地模型", "ed_local_model"),
+    ("服务商", "cb_provider"), ("云端地址", "ed_cloud_url"),
+    ("云端模型", "ed_cloud_model"), ("云端Key", "ed_cloud_key"),
+]
+
+_ONB_LABELS = ("lbl_local_status", "lbl_local_howto", "lbl_provider_tip", "lbl_dl")
+
+import os
+import sys
+
+
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BASE)
+sys.path.insert(0, os.path.join(BASE, "libs"))
+sys.path.insert(0, os.path.join(BASE, "optional_libs"))
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+
+# 阈值：低于这个宽度就属于"文字会被截断、没法核对"的不可用状态
+MIN_OK = 100
+
+_ONB_FIELDS = [("本地地址", "ed_ollama"), ("本地模型", "ed_local_model"),
+          ("云端地址", "ed_cloud_url"), ("云端模型", "ed_cloud_model"),
+          ("云端Key", "ed_cloud_key")]
+
+_w = None
+
+
+@pytest.fixture(scope="module")
+def wiz():
+    """**整个模块只建一次**向导，用完销毁
+
+    ⚠️ 为什么必须是 module 作用域（这里是崩溃的真凶）
+    ------------------------------------------------
+    曾经写成 scope="function" —— 20 个用例就建 20 个向导。
+    而每个向导都配一个 `make_trunk()` 造的 Trunk，**而 make_trunk 并不屏蔽
+    Trunk.__init__ 里无条件启动的 `_bg_loop` / `_idle_worker` 两个后台线程**。
+    20 个用例 = 20 个 Trunk = **40 个后台线程**。
+
+    后果：全量跑时间歇性踩到 **Windows fatal exception: access violation**
+    （退出码 0xC0000005 / 3221225477），而且：
+        · 单独跑本文件也崩（合并进来之后）
+        · 二分定位到它是**累积**效应：前缀 18 个文件时没事，
+          加到第 19 个（test_mcp_stdio.py）就开始崩
+    线程数暴涨正是"累积"的来源。
+
+    改成 module 作用域后：1 个 Trunk / 2 个线程，量级降回正常。
+    """
+    global _w
+    import gui.onboarding_wizard as ow
+    orig = ow.OnboardingWizard._refresh_local_status
+    # 把"异步"强制走同步分支 —— 不起探测线程
+    ow.OnboardingWizard._refresh_local_status = (
+        lambda self, async_=True: orig(self, async_=False))
+    try:
+        _w = ow.OnboardingWizard(make_trunk())
+        _w.resize(760, 640)
+        _w.show()
+        _app.processEvents()
+        for i in range(_w.pageIds().__len__()):
+            if "模型" in (_w.page(i).title() or ""):
+                _w.setStartId(i)
+                break
+        _w.restart()
+        _app.processEvents()
+        yield _w
+    finally:
+        ow.OnboardingWizard._refresh_local_status = orig
+        try:
+            _w.close()
+            _w.deleteLater()
+        except Exception:
+            pass
+        _w = None
+        for _ in range(6):
+            _app.processEvents()
+
+
+@pytest.fixture(scope="module")
+def wiz():
+    """建一次向导，并**切到第 2 页（模型配置）**
+
+    ⚠️ 两个坑，都踩过：
+    ① 不切页的话第 2 页的控件根本没被布局，测得的位置全是默认值 ——
+       第一版 y 坐标两边都是 39，看着像"在同一行"，其实只是没布局。
+    ② **必须把异步探测改成同步**：向导 `_prefill()` 会起一个
+       `onboarding-probe` 线程去 urllib 请求 Ollama。测试跑完时这个
+       daemon 线程可能还在跑，解释器拆除阶段撞上它 -> 整个 pytest
+       进程硬崩（Windows fatal exception: access violation，
+       退出码 0xC0000005，连是哪个用例都打不出来）。
+       实测就是这么挂的：跑到 63% 直接没输出。
+    """
+    global _w
+    if _w is None:
+        import gui.onboarding_wizard as ow
+        orig = ow.OnboardingWizard._refresh_local_status
+        # 把"异步"强制走同步分支 —— 不起线程，也就没有拆除期崩溃
+        ow.OnboardingWizard._refresh_local_status = (
+            lambda self, async_=True: orig(self, async_=False))
+        try:
+            _w = ow.OnboardingWizard(make_trunk())
+            _w.resize(760, 640)
+            _w.show()
+            _app.processEvents()
+            for i in range(_w.pageIds().__len__()):
+                if "模型" in (_w.page(i).title() or ""):
+                    _w.setStartId(i)
+                    break
+            _w.restart()
+            _app.processEvents()
+            _app.processEvents()
+        finally:
+            ow.OnboardingWizard._refresh_local_status = orig
+    return _w
+
+
+def test_we_are_on_the_model_page(wiz):
+    """先确认测的确实是那一页 —— 否则下面全是假通过"""
+    assert "模型" in (wiz.currentPage().title() or ""), \
+        "没切到模型配置页，测的是：%s" % wiz.currentPage().title()
+
+
+@pytest.mark.parametrize("size", [(660, 520), (760, 560), (900, 640)])
+def test_fields_are_wide_enough(wiz, size):
+    """每个输入框在任何窗口尺寸下都不能被压成条
+
+    这条就是抓用户截图里那个问题。
+    """
+    wiz.resize(*size)
+    _app.processEvents()
+    narrow = []
+    for label, attr in _ONB_FIELDS:
+        w = getattr(wiz, attr).width()
+        if w < MIN_OK:
+            narrow.append("%s 只有 %d px" % (label, w))
+    assert not narrow, (
+        "窗口 %dx%d 时这些输入框被压扁了（文字会被截断）：%s\n"
+        "改法：别把多个可拉伸输入框塞进同一行 —— 拆成各占一行，"
+        "并给每个设 setMinimumWidth。"
+        % (size[0], size[1], "；".join(narrow)))
+
+
+def test_minimum_width_is_set_as_defense(wiz):
+    """输入框要设最小宽度（防"窗口被拖窄"时的第二层保护）
+
+    为什么要单独测这个：拆成两行之后，正常尺寸下输入框本来就占满整行，
+    所以 `setMinimumWidth` 在当前窗口尺寸范围内**测不出差别** ——
+    负向测试把这几行删掉，660~900 的用例全都照样通过（这是真的，
+    不是测试写得不好；它就是一层冗余防御）。
+
+    但它管的是真实场景里会遇到的两种窄：
+        · 用户把窗口拖到很小
+        · 系统字体放大，导致布局需求变宽
+    没有它，输入框会退化成没法核对的一条。
+
+    这条**只读属性**，不改窗口（第一版我在这里折腾 resize/setFixedWidth，
+    结果把控件状态搞乱，基线自己就挂了）。
+    """
+    for label, attr in _ONB_FIELDS:
+        w = getattr(wiz, attr).minimumWidth()
+        assert w >= MIN_OK, (
+            "%s 的最小宽度是 %d px（应 >= %d）—— 窗口拖窄时它会退化成条。\n"
+            "改法：给每个输入框加 setMinimumWidth(240)。"
+            % (label, w, MIN_OK))
+
+
+def test_local_row_is_split_not_crowded(wiz):
+    """本地那行不能又是"4 个控件挤一行"
+
+    结构检查（比逐尺寸量宽度更早发现问题）：地址和模型必须**各占一行**，
+    也就是它们的 y 坐标不能相同。
+    """
+    y_addr = wiz.ed_ollama.mapTo(wiz, wiz.ed_ollama.rect().topLeft()).y()
+    y_model = wiz.ed_local_model.mapTo(wiz, wiz.ed_local_model.rect().topLeft()).y()
+    assert y_addr != y_model, \
+        "地址和模型还在同一行（y 都是 %d）—— 窄窗口下必然被压" % y_addr
+
+
+def test_cloud_model_and_key_are_on_separate_rows(wiz):
+    """云端的模型和 Key 也要各占一行"""
+    y_m = wiz.ed_cloud_model.mapTo(wiz, wiz.ed_cloud_model.rect().topLeft()).y()
+    y_k = wiz.ed_cloud_key.mapTo(wiz, wiz.ed_cloud_key.rect().topLeft()).y()
+    assert y_m != y_k, "云端模型和 Key 还在同一行（y 都是 %d）" % y_m
+
+
+def test_local_model_is_a_editable_combobox(wiz):
+    """模型框要是可编辑下拉框 —— 检测到就自动列出来，不用手打
+
+    手打模型名错一个字符，表现就是"发消息没反应"，用户很难自己查出来。
+    同类程序的做法是检测到模型后自动刷进下拉框。
+    """
+    assert isinstance(wiz.ed_local_model, QComboBox), \
+        "模型框不是下拉框（用户只能手打模型名）"
+    assert wiz.ed_local_model.isEditable(), \
+        "下拉框不可编辑 —— 自己训的模型名就填不进去了"
+
+
+def test_detected_models_are_filled_in(wiz):
+    """检测到 Ollama 里的模型后，要自动出现在下拉框里"""
+    from core import model_setup
+    url = wiz.ed_ollama.text().strip() or model_setup.DEFAULT_OLLAMA
+    info = model_setup.probe_ollama(url, timeout=3)
+    if not info.get("reachable") or not info.get("models"):
+        pytest.skip("本机 Ollama 没在跑或没有模型，跳过")
+    wiz._apply_local_status(info, url)
+    _app.processEvents()
+    got = [wiz.ed_local_model.itemText(i)
+           for i in range(wiz.ed_local_model.count())]
+    missing = [m for m in info["models"] if m not in got]
+    assert not missing, "检测到的模型没进下拉框：%s" % missing
+
+
+def test_selected_model_survives_refresh(wiz):
+    """已经选好的模型，重新检测后不能被冲掉
+
+    （每次刷新都把用户的选择重置成第一项，是很烦人的体验。）
+    """
+    if wiz.ed_local_model.count() < 2:
+        pytest.skip("候选不足 2 个，跳过")
+    target = wiz.ed_local_model.itemText(1)
+    wiz.ed_local_model.setCurrentText(target)
+    from core import model_setup
+    info = model_setup.probe_ollama(
+        wiz.ed_ollama.text().strip() or model_setup.DEFAULT_OLLAMA, timeout=3)
+    if not info.get("reachable"):
+        pytest.skip("Ollama 没在跑")
+    wiz._apply_local_status(info, info.get("url", ""))
+    assert wiz.ed_local_model.currentText() == target, \
+        "重新检测把用户选的模型冲掉了"
+
+
+def test_missing_ollama_gives_actionable_steps(wiz):
+    """连不上 Ollama 时，要给**能照着做**的步骤
+
+    两步都已经改成程序内一键完成了（对标同类程序）：
+      · 装 Ollama：点按钮下载，不用自己开浏览器找
+      · 下模型：点按钮拉取，不用自己开命令行跑 `ollama run xxx`
+        （那一步要求用户会开 cmd、会粘命令、看着黑窗口、
+          还得自己判断什么时候算下完 —— 同样劝退）
+    这条守着"每一步都得说清点哪、多大、装完回哪一步"。
+    """
+    wiz._apply_local_status(
+        {"reachable": False, "models": [], "error": "测试"}, "http://x")
+    _app.processEvents()
+    txt = wiz.lbl_local_howto.text()
+    assert "下载 Ollama" in txt or "一键下载" in txt, \
+        "没告诉用户装 Ollama 要点哪：%s" % txt[:80]
+    assert "立即安装" in txt, "没说下完怎么装"
+    assert "重新检测" in txt, "没说装完回哪一步"
+    assert "下载模型" in txt, \
+        "没说模型怎么下（现在是程序内一键，不该再让用户开命令行）：%s" % txt[:80]
+    assert "1509" in txt, "没说明安装包多大"
+    assert "2GB" in txt or "进度" in txt, "没说明模型多大/要等多久"
+    # 官网兜底链接还是要留着（一键下载失败时用户得有出路）
+    assert "ollama.com" in txt, "没留手动下载的兜底链接"
+
+
+def test_status_label_has_no_truncation_marker(wiz):
+    """状态栏文字里不该出现被截断的省略号残影（那种"看起来就是坏的"）"""
+    wiz._apply_local_status(
+        {"reachable": False, "models": [], "error": "x"}, "http://localhost")
+    txt = wiz.lbl_local_status.text()
+    assert "http://localhost" in txt, \
+        "连不上时没把地址说出来（用户没法核对填的对不对）：%s" % txt
+
+
+# ══════════════════════════════════════════════════════════════
+# 窗口尺寸必须按内容算 —— 用户截图报的"内容被裁 + 滚动条"
+# ══════════════════════════════════════════════════════════════
+# 原来写的是 setMinimumSize(660, 520)，一个**手写的猜测值**。
+# 实测「配置模型」页内容需要 620x628、外壳另占 22x99，
+# 所以窗口至少要 642x727 —— 520 的高度差了 207px。
+# 后果：内容被裁 → 底部横向滚动条 + 右侧纵向滚动条 → 文字截断。
+
+_ONB_LABELS = ("lbl_local_status", "lbl_local_howto", "lbl_provider_tip", "lbl_dl")
+
+
+def _problems(w):
+    """当前尺寸下有什么问题：滚动条 / 太窄的输入框 / 被切的文字"""
+    from PyQt5.QtWidgets import QScrollArea
+    for _ in range(3):
+        _app.processEvents()
+    bars = []
+    for s in w.findChildren(QScrollArea):
+        if s.verticalScrollBar().maximum() > 0:
+            bars.append("纵向滚动条")
+        if s.horizontalScrollBar().maximum() > 0:
+            bars.append("横向滚动条")
+    narrow = ["%s=%dpx" % (n, getattr(w, at).width()) for n, at in _ONB_FIELDS
+              if getattr(w, at).width() < MIN_OK]
+    cut = []
+    for n in _ONB_LABELS:
+        lb = getattr(w, n, None)
+        if lb is None or not lb.text():
+            continue
+        # ⚠️ 自动换行的 QLabel 必须用 heightForWidth(实际宽度) 判断有没有被切。
+        #    sizeHint().height() 给的是"首选宽度下的高度"，会**误报**
+        #    （第一版就用它误报了 lbl_provider_tip，白排查一轮）。
+        hfw = lb.heightForWidth(lb.width()) if lb.wordWrap() else 0
+        need = hfw if hfw > 0 else lb.sizeHint().height()
+        if need > lb.height() + 2:
+            cut.append("%s(要%dpx 只有%dpx)" % (n, need, lb.height()))
+    return bars, narrow, cut
+
+
+def test_window_size_is_computed_from_content(wiz):
+    """窗口最小尺寸必须**按内容算出来**，不能是手写的猜测值"""
+    wiz.resize(900, 900)
+    _app.processEvents()
+    need_w = need_h = 0
+    for i in range(wiz.pageIds().__len__()):
+        sh = wiz.page(i).sizeHint()
+        need_w = max(need_w, sh.width())
+        need_h = max(need_h, sh.height())
+    mn = wiz.minimumSize()
+    assert mn.width() >= need_w, \
+        "最小宽 %d 小于内容需要 %d —— 必然出现横向滚动条" % (mn.width(), need_w)
+    assert mn.height() >= need_h, \
+        "最小高 %d 小于内容需要 %d —— 文字会被裁掉" % (mn.height(), need_h)
+
+
+@pytest.mark.parametrize("state", ["连上且有模型", "没装Ollama", "没模型",
+                                   "下载中", "下完"])
+def test_no_clipping_in_every_state(wiz, state):
+    """**每种状态下**、缩到最小尺寸，都不能有滚动条/窄框/被切的文字
+
+    这条是抓用户截图那个问题的正主：状态一变文字长短就变，
+    窗口不跟着调整就会被裁。
+    """
+    if state == "连上且有模型":
+        wiz._apply_local_status({"reachable": True,
+                                 "models": ["a:1b", "b:2b"], "url": "x"}, "x")
+    elif state == "没装Ollama":
+        wiz._apply_local_status({"reachable": False, "models": [],
+                                 "error": "t"}, "http://localhost:11434")
+    elif state == "没模型":
+        wiz._apply_local_status({"reachable": True, "models": [],
+                                 "url": "x"}, "x")
+    elif state == "下载中":
+        wiz._on_pull_progress("正在下载…", 320.0, 1509.0, 21, 18.2)
+    elif state == "下完":
+        wiz._on_dl_done({"ok": True, "MB": 1509, "源": "gh-proxy.com",
+                         "耗时秒": 84})
+
+    wiz.resize(wiz.minimumSize())
+    bars, narrow, cut = _problems(wiz)
+    assert not bars, "「%s」状态下出现滚动条：%s" % (state, bars)
+    assert not narrow, "「%s」状态下输入框太窄：%s" % (state, narrow)
+    assert not cut, "「%s」状态下文字被裁：%s" % (state, cut)
+
+
+def test_growing_text_resizes_the_window(wiz):
+    """说明文字从一句变成四步时，窗口要跟着变高
+
+    （不跟着变的话，新加的那几行直接看不见 —— 而这四步正是
+      "没装 Ollama 怎么办"的全部指引。）
+    """
+    wiz._apply_local_status({"reachable": True,
+                             "models": ["a:1b"], "url": "x"}, "x")
+    wiz.resize(wiz.minimumSize())
+    _app.processEvents()
+    short_min = wiz.minimumSize().height()
+
+    wiz._apply_local_status({"reachable": False, "models": [],
+                             "error": "t"}, "http://localhost:11434")
+    wiz.resize(wiz.minimumSize())
+    _app.processEvents()
+    tall_min = wiz.minimumSize().height()
+
+    assert tall_min > short_min, \
+        "四步说明比一句话长，最小高度却没变（%d -> %d）—— 新加的行会被裁" \
+        % (short_min, tall_min)
+
+
+def test_window_never_shrinks_back(wiz):
+    """用户拉大过窗口后，一次文字更新不该把它缩回去"""
+    wiz.resize(1000, 950)
+    _app.processEvents()
+    before = (wiz.width(), wiz.height())
+    wiz._apply_local_status({"reachable": True, "models": ["a:1b"],
+                             "url": "x"}, "x")
+    _app.processEvents()
+    after = (wiz.width(), wiz.height())
+    assert after[0] >= before[0] and after[1] >= before[1], \
+        "窗口被缩回去了：%s -> %s" % (before, after)

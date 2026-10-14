@@ -21,7 +21,7 @@
 import os
 import threading
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import pyqtSignal, QTimer
 from PyQt5.QtWidgets import QWizard, QWizardPage, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QGroupBox, QRadioButton, QComboBox, QProgressBar
 
 from core import model_setup, ollama_installer
@@ -72,7 +72,26 @@ def mark_done(trunk):
 
 
 class OnboardingWizard(QWizard):
-    """首次运行引导向导"""
+    """首次运行引导向导
+
+    ⚠️ 窗口尺寸是**量出来的，不是猜的**
+    ----------------------------------
+    原来写的是 setMinimumSize(660, 520) —— 一个手写的猜测值。
+    实测「配置模型」页的内容需要 **620 x 628**，而向导外壳
+    （标题栏 + 页标题 + 底部按钮栏）另占 **22 x 99**。
+    所以窗口至少要 **642 x 727**，而 520 的高度差了 207 px。
+
+    后果（用户截图报的）：内容被裁 → 底部出现横向滚动条 →
+    右侧出现纵向滚动条 → 说明文字和输入框被截断，
+    "看着就是坏的"。
+
+    现在改成按各页 sizeHint 现算，并且**状态文字变长后重算一次**
+    （"没装 Ollama"那四步说明会让页面明显变高）。
+    """
+
+    # 外壳开销：实测值（向导自己的标题/页标题/按钮栏/边距）
+    CHROME_W = 24
+    CHROME_H = 102
 
     # 后台探测 Ollama 完成后，用它把结果送回主线程
     # （Qt 控件只能在主线程碰，工作线程只负责发信号）
@@ -92,10 +111,11 @@ class OnboardingWizard(QWizard):
         super().__init__(parent)
         self.trunk = trunk
         self.setWindowTitle("欢迎使用小6智能体 · 先花一分钟配好模型")
-        self.setMinimumSize(660, 520)
         self.setWizardStyle(QWizard.ClassicStyle)
         self.setOption(QWizard.NoBackButtonOnStartPage, True)
         self._build_pages()
+        # 尺寸按内容算（别再手写猜测值 —— 见类文档里那段实测数据）
+        self.fit_to_content(grow=True)
         self.currentIdChanged.connect(self._on_page_changed)
         self.probe_done.connect(self._apply_local_status)
         self.dl_prog.connect(self._on_dl_progress)
@@ -107,6 +127,21 @@ class OnboardingWizard(QWizard):
         self._dl_stop = False
         self._dl_ready_path = None
         self._dl_kind = ""
+        # ⚠️ 延时重算尺寸用**挂在 self 上的 QTimer**，不用 QTimer.singleShot
+        # ------------------------------------------------------------------
+        # 必须延时：刚 setText 完，页面 sizeHint 还是**旧文字**的尺寸，
+        # 那一刻算出来的最小尺寸不够（实测：四步说明需要 811px 高，
+        # 但立刻算只得 690px，文字被裁 67px）。
+        #
+        # 但不能用 QTimer.singleShot —— 它创建的定时器**没有父对象**，
+        # 活得比控件久：控件销毁后回调才触发，去碰已析构的 C++ 对象，
+        # **整个进程硬崩**（Windows fatal exception: access violation，
+        # 退出码 0xC0000005，pytest 跑到 59% 直接没输出，连是哪个用例都打不出来）。
+        #
+        # 挂在 self 上的 QTimer 会随控件一起销毁，回调不可能打到死对象。
+        self._fit_timer = QTimer(self)
+        self._fit_timer.setSingleShot(True)
+        self._fit_timer.timeout.connect(lambda: self.fit_to_content(grow=True))
 
     # ---------------- 页面 ----------------
     def _build_pages(self):
@@ -404,6 +439,30 @@ class OnboardingWizard(QWizard):
             self.lbl_local_howto.setText(self._download_steps())
             self.lbl_local_howto.setStyleSheet("color:#475569;")
 
+        # 说明文字从一句变成四步、或者反过来，页面高度会变 —— 重算一次，
+        # 不然新加的那几行会被窗口裁掉。
+        #
+        # ⚠️ 必须先让布局算完再量：刚 setText 完就调 fit_to_content 的话，
+        #    QLabel 的 sizeHint 还是**旧文字**的尺寸，算出来的窗口高度不够，
+        #    四步说明照样被切（实测：宽 580 时那段文字需要 280px，只给了 80px）。
+        #    activate() 强制立刻重排；再补一个 0 延时的兜底，
+        #    因为有些平台下 activate() 之后还要等一轮事件循环才准。
+        try:
+            self.currentPage().layout().activate()
+        # 静默是故意的：强制重排只是为了让下面的尺寸量得准 ——
+        # 它失败顶多量得偏小、退回上一步的尺寸，不该因此拦住用户配模型
+        except Exception:
+            pass
+        self.fit_to_content(grow=True)
+        # 再排一次延时重算：activate() 之后页面 sizeHint 有时还没跟上
+        # （Qt 要等一轮事件循环）。用挂在 self 上的定时器，见 __init__ 里的说明。
+        try:
+            self._fit_timer.start(0)
+        # 静默是故意的：这只是"再排一次重算"，起不来也不影响
+        # 本次已经算好的尺寸
+        except Exception:
+            pass
+
     def _download_steps(self):
         """没装/没模型时给**能照着做**的步骤
 
@@ -504,6 +563,56 @@ class OnboardingWizard(QWizard):
 
     def _recheck(self):
         self._refresh_local_status()
+
+    # ---------------- 尺寸 ----------------
+    def fit_to_content(self, grow=False):
+        """按各页**实际需要的尺寸**定窗口大小
+
+        ⚠️ 关键是高度要用 heightForWidth(需要的宽度) 算，不能直接用 sizeHint()
+        ------------------------------------------------------------------
+        sizeHint() 给的是"在**当前**宽度下的高度"。而这里要设的是**最小宽度** ——
+        窗口缩到那个宽度后，文字换行会更多、需要的高度比 sizeHint 报的更大。
+
+        实测踩到的：宽 580 时那段"没装 Ollama"的四步说明需要 280px 高，
+        而按 sizeHint 算出来的最小尺寸只给了 80px —— 差 200px，
+        说明文字被裁掉（而这几行正是全部指引）。
+
+        正确做法：
+            宽度 = 各页 sizeHint 的首选宽（在那个宽度下不用额外换行）
+            高度 = heightForWidth(那个宽度)（**在那个宽度下**真正需要的高度）
+
+        grow=True 时，如果算出来比当前尺寸还大就跟着长大
+        （状态文字从一句变成四步说明时，页面会明显变高）。
+
+        **只增不减**：用户自己拉大过窗口的话，不该因为一次
+        文字更新就被缩回去。
+        """
+        try:
+            self.ensurePolished()
+            need_w = need_h = 0
+            for i in range(self.pageIds().__len__()):
+                page = self.page(i)
+                sh = page.sizeHint()
+                w = max(sh.width(), page.minimumSizeHint().width())
+                # 在那个宽度下真正需要的高度
+                h = page.heightForWidth(w) if w > 0 else 0
+                if h <= 0:
+                    h = sh.height()          # 不支持 heightForWidth 就退回 sizeHint
+                need_w = max(need_w, w)
+                need_h = max(need_h, h)
+            if need_w <= 0 or need_h <= 0:
+                return
+            min_w = need_w + self.CHROME_W
+            min_h = need_h + self.CHROME_H
+            self.setMinimumSize(min_w, min_h)
+            if grow:
+                # 初始给一点富余，别卡在"刚好装下"
+                self.resize(max(self.width(), min_w + 70),
+                            max(self.height(), min_h + 10))
+        # 静默是故意的：尺寸算不出来不该拦住用户配模型 ——
+        # 退化成 Qt 的默认尺寸，向导照样能用
+        except Exception:
+            pass
 
     # ---------------- 云端服务商预设 ----------------
     def _apply_provider(self, name, fill=True):
