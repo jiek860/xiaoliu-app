@@ -89,13 +89,25 @@ def test_conftest_still_patches_all_background_entries():
 
 
 def test_new_test_files_use_the_helper():
-    """本仓库约定：新测试文件用 make_trunk / quiet_trunk"""
+    """本仓库约定：新测试文件用 make_trunk / quiet_trunk
+
+    ⚠️ 判断"有没有建真 Trunk"必须用**正则**，不能用 `"Trunk()" in src`。
+    踩过的坑（2026-10-14）：`tests/test_realtime_engine.py` 里定义了
+    `class FakeTrunk`，用的时候写 `FakeTrunk()` —— 那里面**含有**
+    子串 `Trunk()`，于是被误报成"建了真 Trunk 却没走 make_trunk"。
+
+    真的 `Trunk()` 前面不该有字母/下划线（`FakeTrunk()` / `MyTrunk()`
+    这类假件不算）。
+    """
+    import re
+    # \b 在 FakeTrunk() 上也成立（d 和 T 之间不是词边界），所以用负向断言
+    REAL_TRUNK = re.compile(r"(?<![A-Za-z_])Trunk\s*\(\s*\)")
     for p in _test_files():
         name = os.path.basename(p)
         if name in ("conftest.py", "test_test_hygiene.py"):
             continue
         src = open(p, encoding="utf-8", errors="ignore").read()
-        if "Trunk()" not in src:
+        if not REAL_TRUNK.search(src):
             continue
         ok = any(s in src for s in SAFE_CALL) or \
             ("_start_background" in src and "_warmup" in src)

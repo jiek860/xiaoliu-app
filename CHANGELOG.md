@@ -1,4 +1,56 @@
 # 版本变更记录
+## v25.2.17 - 2026-10-14
+### 落地 P1-c：`core/realtime/engine.py` **0% → 76%**（32 个用例）
+实时对话的总调度：采集 → VAD → ASR → LLM → TTS → 播放，五个线程靠事件
+总线串起来。它强依赖外部世界（麦克风、pyaudio、语音模型），所以原来没测 ——
+但这恰恰最该测：**缺依赖时的话对不对、状态机会不会卡住、停止会不会留垃圾**，
+这些都不需要真麦克风。
+
+- **🔴 抓到一个很隐蔽的真 bug：ASR 一抛异常，线程直接死**
+      def _asr_llm_loop(self):
+          while self._running:
+              try: buf = self._asr_q.get(timeout=0.3)
+              except queue.Empty: continue
+              self._handle_round(buf)          # ← 这里没包 try
+  而 `_handle_round` 里的 `try:` 是**从 LLM 那一段才开始的** ——
+  `asr.transcribe_frames()` 在 try **外面**。
+  后果：ASR 抛一次异常 → 穿出 `_handle_round` → 穿出循环 →
+  **线程直接死掉**。用户看到的是"实时对话突然不应答了"，
+  **没有任何报错**，界面还显示 LISTENING，只能关掉重开。
+- **顺着查出另外三个循环有同类隐患**（AST 逐个查的）：
+      _capture_loop   只有 stream.read 在 try 里，
+                      VAD / numpy / emit / 状态切换全裸着
+      _tts_loop       队列取之后到 synthesize 之前那几行裸着
+      _idle_loop      **一行 try 都没有**
+  都修成"**循环体整体包住**"。原则：**工作线程绝不该被未处理异常杀死** ——
+  它跑在后台，死了没人知道，而且它是常开的（实时对话的本意）。
+- `_handle_round` 里 ASR 那一段**单独兜住 + 回监听态**：光靠外层循环
+  能"线程不死"，但状态会卡在 THINKING（界面显示"正在思考"，
+  其实是识别炸了）。
+- 新增结构守卫：**AST 检查每个 `*_loop` 的 while 体必须整体在 try 里**。
+  这条比任何单个用例都值钱 —— 它管的是"将来有人又加了裸代码"。
+- 另外验证了：缺 pyaudio 的提示**带国内源**（v25.2.11 定的规矩，
+  这次把它纳入测试）；麦克风打不开要**明确报出来**且不把 running
+  设成 True；`idle_stop_sec=0` 时不该起这个常驻线程；
+  播完要清轮次表（不清会随对话一直涨，表现为"用久了变卡"）；
+  并发改状态 / 并发清轮次不崩。
+
+### ⚠️ 顺手修了 `test_test_hygiene.py` 的一处误报
+它判断"有没有建真 Trunk"用的是 `"Trunk()" in src` —— 而我在
+`test_realtime_engine.py` 里定义了 `class FakeTrunk`，用的时候写
+`FakeTrunk()`，**里面含有子串 `Trunk()`**，于是被误报成
+"建了真 Trunk 却没走 make_trunk"。
+改成负向断言的正则 `(?<![A-Za-z_])Trunk\s*\(\s*\)`，并逐个核对过 9 种
+写法（`FakeTrunk()` / `make_trunk()` / `Trunk(base)` 都不算，
+`self.trunk = Trunk()` 算）。
+
+### 覆盖率进展（累计）
+    core/self_check.py       0.0%  →  74%
+    core/vector_store.py    32.8%  →  76%
+    core/realtime/engine.py  0.0%  →  76%
+    **总计 41.7% → 45%**
+测试 666 → **698 个用例**，全通过；8 个守卫 + 插件仓库一致性全 0。
+
 ## v25.2.16 - 2026-10-14
 ### 落地 P0+：崩溃转储配置（`tools/setup_crash_dumps.py`）
 faulthandler 只能 dump **Python 层**栈，**看不到 numpy/Qt/torch 的原生

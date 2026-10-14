@@ -113,39 +113,95 @@ class RealtimeEngine:
             self._emit("error", {"msg": "打开麦克风失败: %s" % str(e)[:60]})
             self._running = False; return
         while self._running:
-            try: data = self._stream.read(self.frame_size, exception_on_overflow=False)
-            except: time.sleep(0.05); continue
-            if self.emit_volume:
-                self._vol_tick += 1
-                if self._vol_tick >= 3:
-                    self._vol_tick = 0
-                    x = np.frombuffer(data, dtype=np.int16).astype(np.float32)
-                    rms = float(np.sqrt(np.mean(x*x))) if len(x) else 0
-                    self._emit("volume", {"level": min(1.0, rms/4000.0), "rms": rms})
-            st = self.state()
-            self.vad.boost_threshold(self.speak_boost if st == "SPEAKING" else 1.0)
-            ev = self.vad.process(data)
-            if ev == "start":
-                if st == "SPEAKING":
-                    self.player.bump_gen(); self._emit("interrupted", {})
-                with self._rec_lock: self._rec_buf = [data]
-                self._set_state("RECORDING"); self._emit("user_start", {})
-            elif ev == "continue":
-                with self._rec_lock: self._rec_buf.append(data)
-            elif ev == "end":
-                with self._rec_lock:
-                    buf = self._rec_buf; self._rec_buf = []
-                if buf:
-                    self._set_state("THINKING"); self._asr_q.put(buf)
+            # ⚠️ 整个循环体包住（2026-10-14）。原来只有 stream.read 那一步
+            # 在 try 里，后面的 VAD / numpy / emit / 状态切换都裸着。
+            # 其中 `self.vad.process()` 和 `self._emit()`（会调用户的
+            # on_event 回调）都可能抛 —— 一抛线程就死，用户看到的是
+            # "麦克风灯还亮着但没反应了"，**没有任何提示**。
+            try:
+                try:
+                    data = self._stream.read(self.frame_size,
+                                             exception_on_overflow=False)
+                except Exception:
+                    time.sleep(0.05)
+                    continue
+                if self.emit_volume:
+                    self._vol_tick += 1
+                    if self._vol_tick >= 3:
+                        self._vol_tick = 0
+                        x = np.frombuffer(data,
+                                          dtype=np.int16).astype(np.float32)
+                        rms = float(np.sqrt(np.mean(x*x))) if len(x) else 0
+                        self._emit("volume", {"level": min(1.0, rms/4000.0),
+                                              "rms": rms})
+                st = self.state()
+                self.vad.boost_threshold(
+                    self.speak_boost if st == "SPEAKING" else 1.0)
+                ev = self.vad.process(data)
+                if ev == "start":
+                    if st == "SPEAKING":
+                        self.player.bump_gen(); self._emit("interrupted", {})
+                    with self._rec_lock: self._rec_buf = [data]
+                    self._set_state("RECORDING"); self._emit("user_start", {})
+                elif ev == "continue":
+                    with self._rec_lock: self._rec_buf.append(data)
+                elif ev == "end":
+                    with self._rec_lock:
+                        buf = self._rec_buf; self._rec_buf = []
+                    if buf:
+                        self._set_state("THINKING"); self._asr_q.put(buf)
+            # 静默是故意的：最后一道网，只负责"别让采集线程死掉" ——
+            # 它一死整个实时对话就废了，而麦克风还在采（用户以为在听）
+            except Exception:
+                continue
 
     def _asr_llm_loop(self):
+        """ASR + LLM 线程
+
+        ⚠️ 循环体**必须整体包住**（2026-10-14 修）。
+        原来是这样：
+            while self._running:
+                try: buf = self._asr_q.get(timeout=0.3)
+                except queue.Empty: continue
+                self._handle_round(buf)          # ← 没包
+        而 `_handle_round` 里的 try 是**从 LLM 那一段才开始的**，
+        `asr.transcribe_frames()` 在 try **外面**。
+
+        后果：ASR 抛一次异常 → 穿出 _handle_round → 穿出循环
+        → **线程直接死掉**。用户看到的是"实时对话突然不应答了"，
+        **没有任何报错**，界面还显示 LISTENING，只能关掉重开。
+
+        原则：**工作线程绝不该被未处理异常杀死。**
+        它跑在后台，死了没人知道，而且它是常开的（实时对话的本意）。
+        """
         while self._running:
-            try: buf = self._asr_q.get(timeout=0.3)
-            except queue.Empty: continue
-            self._handle_round(buf)
+            try:
+                try:
+                    buf = self._asr_q.get(timeout=0.3)
+                except queue.Empty:
+                    continue
+                self._handle_round(buf)
+            # 静默是故意的：这里是**最后一道网** —— 具体错误已经由
+            # _handle_round 内部各自 emit("error") 报给界面了，
+            # 这一层只负责"别让线程死掉"，再报一次是重复的
+            except Exception:
+                continue
 
     def _handle_round(self, frames):
-        r = self.asr.transcribe_frames(frames, sr=self.sr)
+        # ⚠️ ASR 那一段也要自己兜住（2026-10-14）。
+        #    原来 148 行裸着，异常会直接穿出去（见 _asr_llm_loop 的说明）。
+        #    识别失败是**很常见**的事：模型文件损坏、音频格式不对、
+        #    内存不够 —— 任何一种都不该让整个实时对话停摆。
+        try:
+            r = self.asr.transcribe_frames(frames, sr=self.sr)
+        except Exception as e:
+            self._emit("error", {"msg": "识别失败: %s" % str(e)[:60]})
+            self._set_state("LISTENING")       # 回监听态，别卡在处理中
+            return
+        if not isinstance(r, dict):
+            # 识别件返回了奇怪的东西（None / list）也要扛住
+            self._set_state("LISTENING")
+            return
         text = (r.get("text") or "").strip()
         if not text: self._set_state("LISTENING"); return
         self._last_active_t = time.time()
@@ -176,19 +232,44 @@ class RealtimeEngine:
             self._set_state("LISTENING")
 
     def _tts_loop(self):
-        while self._running:
-            try: rid, sent = self._tts_q.get(timeout=0.3)
-            except queue.Empty: continue
+        """TTS 线程
+
+        ⚠️ 和 `_asr_llm_loop` 一样，循环体要**整体**包住（2026-10-14）。
+        原来只有"合成"那一步在 try 里，而中间那几行不在：
             with self._rounds_lock: rr = self._rounds.get(rid)
-            if not rr: continue
             if self.player.current_gen() != rr["gen"]: continue
-            if sent is None:
-                self.player.end_round(rr["gen"]); continue
+        这几行本身不容易抛，但**TTS 是走网络的**（edge-tts）——
+        网络抖动、服务端改协议、代理拦截都可能让 synthesize 之外
+        的环节出问题。线程一死，用户看到的是"它不回话了"，
+        而且**不会有任何提示**。
+
+        原则同 _asr_llm_loop：工作线程不该被未处理异常杀死。
+        """
+        while self._running:
             try:
-                p = self.tts.synthesize(sent, tag=str(rid))
-                if p: self.player.play(rr["gen"], p)
-            except Exception as e:
-                self._emit("error", {"msg": "TTS失败: %s" % str(e)[:60]})
+                try:
+                    rid, sent = self._tts_q.get(timeout=0.3)
+                except queue.Empty:
+                    continue
+                with self._rounds_lock:
+                    rr = self._rounds.get(rid)
+                if not rr:
+                    continue
+                if self.player.current_gen() != rr["gen"]:
+                    continue
+                if sent is None:
+                    self.player.end_round(rr["gen"])
+                    continue
+                try:
+                    p = self.tts.synthesize(sent, tag=str(rid))
+                    if p:
+                        self.player.play(rr["gen"], p)
+                except Exception as e:
+                    self._emit("error", {"msg": "TTS失败: %s" % str(e)[:60]})
+            # 静默是故意的：最后一道网，只负责"别让线程死掉"。
+            # 具体的 TTS 错误上面已经 emit("error") 报给界面了
+            except Exception:
+                continue
 
     def _on_play_start(self, gen, path):
         self._set_state("SPEAKING")
@@ -201,13 +282,26 @@ class RealtimeEngine:
         self._emit("play_end", {"gen": gen})
 
     def _idle_loop(self):
+        """空闲自动停止
+
+        ⚠️ 也包住了（2026-10-14）。原来循环体一行 try 都没有：
+        它虽然只做时间比较，但 `self.state()` 会拿锁、
+        `self._emit()` 会调**用户回调**（`on_event`）——
+        回调里抛异常（界面已经关了、控件被销毁）同样会把线程弄死。
+        """
         if self.idle_stop_sec <= 0: return
         while self._running:
-            time.sleep(5)
-            if self.state() != "LISTENING":
-                self._last_active_t = time.time(); continue
-            if time.time() - self._last_active_t >= self.idle_stop_sec:
-                self._emit("idle_timeout", {"idle_sec": self.idle_stop_sec})
+            try:
+                time.sleep(5)
+                if self.state() != "LISTENING":
+                    self._last_active_t = time.time(); continue
+                if time.time() - self._last_active_t >= self.idle_stop_sec:
+                    self._emit("idle_timeout",
+                               {"idle_sec": self.idle_stop_sec})
+            # 静默是故意的：同 _asr_llm_loop —— 最后一道网，
+            # 只负责别让线程死掉
+            except Exception:
+                continue
 
     def set_voice(self, v): self.tts.voice = v
     def cleanup(self): shutil.rmtree(self._tmp, ignore_errors=True)
