@@ -116,6 +116,89 @@ def check_safety(dst):
     return problems
 
 
+def _rmtree_force(p):
+    """删目录树，遇到**只读文件**也删得掉
+
+    ⚠️ 为什么不能只用 shutil.rmtree(p, ignore_errors=True)：
+        git 的 objects/ 里是**只读文件**，Windows 上 rmtree 删不掉它们。
+        而 ignore_errors=True 会**把失败吞掉** —— 于是函数"成功返回"、
+        调用方以为清干净了，实际文件还在。
+
+        实测踩到：同步报告"清掉了 modules_repo/.git"，可它一直在，
+        461 个文件里有 433 个还留着（全是 objects/ 下的只读对象）。
+        测试 `test_real_package_has_no_nested_git` 才把它揪出来。
+
+    做法：用 onerror 先把只读属性去掉再删；删完**检查是否真的没了**，
+    没删掉就如实返回 False（不假装成功）。
+    """
+    import stat
+
+    def _onerror(func, path, _exc):
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        # 静默是故意的：这是 rmtree 的重试回调 —— 它失败会被忽略，
+        # 但**删除结果由调用方检查**（下面 `os.path.exists` 那一句），
+        # 所以不会像第一版 ignore_errors 那样"看着成功其实没删掉"
+        except Exception:
+            pass
+
+    if not os.path.exists(p):
+        return True
+    try:
+        shutil.rmtree(p, onerror=_onerror)
+    # 静默是故意的：同上 —— 这里吞掉异常是为了走到下面那句检查，
+    # 由它如实返回 True/False，调用方会据此报"没删掉"
+    except Exception:
+        pass
+    return not os.path.exists(p)          # 真的没了才算成功
+
+
+def purge_forbidden(dst):
+    """把目标目录里**不该有的东西**强制清掉
+
+    ⚠️ 为什么需要这一步（踩过的坑）：
+        同步用的是 copytree(dirs_exist_ok=True) —— 它**只增不删**。
+        而"要删除"清单是靠 plan() 比出来的，plan() 又会**跳过** .git
+        这类目录（walk() 里 ds[:] 把它们滤掉了）。
+        两个一叠加：目标里如果**早先就混进了 .git**（比如手动 robocopy
+        带进去的），同步永远清不掉它。
+
+        实测踩到：打包源里留着 modules_repo\\.git（461 文件 / 1.79 MB），
+        里面有**私有 gitee 仓库地址**（https://gitee.com/cloud-drift/liuyun.git）。
+        没有凭据泄漏（git 默认不把 token 写进 config），但仓库地址和
+        git 历史（objects/ 里可能有已删文件）都不该跟着安装包发出去。
+
+        所以：复制之后**无条件扫一遍目标目录**，见到就删，不依赖差异比对。
+
+    返回 (清掉的清单, 没删掉的清单) —— 删不掉要如实报出来，
+    不能像第一版那样被 ignore_errors 吞掉、看着像成功。
+    """
+    removed, failed = [], []
+    for r, ds, _fs in os.walk(dst, topdown=True):
+        for d in list(ds):
+            if d in SKIP or d.startswith("backup_"):
+                p = os.path.join(r, d)
+                rel = os.path.relpath(p, dst).replace("\\", "/")
+                if _rmtree_force(p):
+                    removed.append(rel)
+                else:
+                    failed.append(rel)
+                ds.remove(d)
+    for r, _ds, fs in os.walk(dst):
+        for f in fs:
+            if f.endswith((".pyc", ".pyo", ".log", ".tmp", ".bak")):
+                p = os.path.join(r, f)
+                rel = os.path.relpath(p, dst).replace("\\", "/")
+                try:
+                    os.chmod(p, 0o666)
+                    os.remove(p)
+                    removed.append(rel)
+                except Exception:
+                    failed.append(rel)
+    return removed, failed
+
+
 def du(p):
     n = s = 0
     for r, ds, fs in os.walk(p):
@@ -156,7 +239,19 @@ def main():
         if len(arr) > 8:
             print("    ... %s 还有 %d 个" % (tag, len(arr) - 8))
 
-    if not (add or upd or dele):
+    # ⚠️ 有没有"早先混进来的"不该有的东西 —— 这也算差异！
+    #    第一版把"已经一致就提前返回"写在清理之前，结果：
+    #    目标里残留着 .git（plan 比不出来，因为 walk 会跳过它），
+    #    于是同步说"已经一致，不用动"，**清理那一步永远跑不到**。
+    stash = [os.path.relpath(os.path.join(r, d), dst).replace("\\", "/")
+             for r, ds, _fs in os.walk(dst) for d in ds
+             if d in SKIP or d.startswith("backup_")]
+    if stash:
+        print("  目标里有 %d 个不该有的目录（早先混进来的）：" % len(stash))
+        for k in stash[:6]:
+            print("    清理 %s" % k)
+
+    if not (add or upd or dele or stash):
         print()
         print("  ✅ 已经一致，不用动")
         return 0
@@ -189,6 +284,22 @@ def main():
         # 不该中断整次同步 —— 后面的一致性校验会把残留报出来
         except Exception:
             pass
+    # 无条件清掉不该有的（.git / __pycache__ / 日志 …）
+    # 不能只靠上面那个 dele 清单 —— 它比不出"早先就混进来的"东西
+    purged, failed = purge_forbidden(dst)
+    if purged:
+        print()
+        print("  清掉了 %d 个不该有的目录/文件（早先混进来的）：" % len(purged))
+        for k in purged[:6]:
+            print("    %s" % k)
+        if len(purged) > 6:
+            print("    ... 还有 %d 个" % (len(purged) - 6))
+    if failed:
+        print()
+        print("  ❌ **有 %d 个没删掉**（多半是只读文件被占用）：" % len(failed))
+        for k in failed[:6]:
+            print("    %s" % k)
+        print("  这些会跟着安装包发出去 —— 先手工删掉再打包。")
     # 清掉可能产生的 __pycache__
     for r, ds, _fs in os.walk(dst):
         for d in list(ds):
