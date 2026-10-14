@@ -45,6 +45,20 @@ import struct
 import sys
 import uuid
 
+
+# ── 缺依赖时给用户的安装提示（统一走 core.error_text，别各写各的）──
+# 为什么改：实测全项目 17 处 "pip install" 提示里**只有 1 处**带国内镜像，
+# 其余都让用户直接跑 `pip install xxx` —— 那会走 PyPI 官方源，
+# 国内经常慢到以为卡死。现在统一从这里出。
+def _ih(pkg):
+    try:
+        from core.error_text import install_hint
+        return install_hint(pkg)
+    except Exception:
+        return ("py -3 -m pip install --target optional_libs %s "
+                "-i https://pypi.tuna.tsinghua.edu.cn/simple" % pkg)
+
+
 PREFIX = "X6AI-"
 SECRET_FILE = "密钥.key"
 PRIV_FILE = "私钥.pem"
@@ -143,7 +157,8 @@ def load_or_create_keypair(priv_path: str | None = None) -> object:
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.hazmat.primitives import serialization
     except ImportError:
-        raise RuntimeError("RSA 模式需要 cryptography 库，请先安装（pip install cryptography）")
+        raise RuntimeError("RSA 模式需要 cryptography 库。\n"
+                               + _ih("cryptography"))
     if priv_path is None:
         priv_path = os.path.join(vault_dir(), PRIV_FILE)
     pub_path = os.path.join(os.path.dirname(priv_path), PUB_FILE)

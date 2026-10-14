@@ -109,6 +109,27 @@ def _version(pkg):
         return ""
 
 
+def _hint(missing):
+    """缺依赖时给用户的安装提示（走统一入口，带国内源）
+
+    为什么要有这个：原来这里写的是
+        "py -3 -m pip install --target optional_libs %s" % " ".join(missing)
+    —— **不带国内源**，用户照着跑会走 PyPI 官方源，国内经常慢到以为卡死。
+    全项目 17 处 pip 提示里只有 1 处带了镜像，这就是其中漏掉的一处。
+    """
+    if not missing:
+        return ""
+    pkgs = " ".join(missing)
+    try:
+        from core.error_text import install_cmd
+        return install_cmd(pkgs)
+    # 静默是故意的：只是"生成一句提示"失败，退回手写命令即可 ——
+    # 不该因为拼提示失败就让整个状态查询挂掉
+    except Exception:
+        return ("py -3 -m pip install --target optional_libs %s "
+                "-i https://pypi.tuna.tsinghua.edu.cn/simple" % pkgs)
+
+
 def scan(base=None, with_version=True):
     """扫描每个功能当前是否可用
 
@@ -133,8 +154,7 @@ def scan(base=None, with_version=True):
             "缺": missing,
             "位置": where,
             "版本": vers,
-            "装法": "py -3 -m pip install --target optional_libs %s"
-                    % " ".join(missing) if missing else "",
+            "装法": _hint(missing),
         }
     return out
 
@@ -221,7 +241,10 @@ def distribution_hint(base=None):
     return {
         "建议": "**分发时不要拷 optional_libs/**（%.1f MB）—— 对方需要哪些功能，"
                 "在自己机器上跑 scripts\\install_optional.bat 或"
-                " `pip install --target optional_libs -r requirements-optional.txt`"
+                " `pip install --target optional_libs "
+                "-r requirements-optional.txt "
+                "-i https://pypi.tuna.tsinghua.edu.cn/simple`"
+                "（⚠️ 最后那个 -i 别省 —— 不带会走 PyPI 官方源，国内很慢）"
                 % o.get("MB", 0),
         "可省": "%.1f MB" % o.get("MB", 0),
         "另需注意": "data/browsers（chromium）同样可省，第一次用浏览器时再装",

@@ -3,6 +3,16 @@
 import os, time, wave, threading
 from modules.base import BaseModule
 
+
+def _ih(pkg):
+    """缺依赖时给用户的安装提示（统一走 core.error_text，带国内源）"""
+    try:
+        from core.error_text import install_hint
+        return install_hint(pkg)
+    except Exception:
+        return ("py -3 -m pip install --target optional_libs %s "
+                "-i https://pypi.tuna.tsinghua.edu.cn/simple" % pkg)
+
 class _BackendFasterWhisper:
     name = "faster-whisper"
     def __init__(self, model_name="base", device="cpu", compute_type="int8"):
@@ -69,7 +79,9 @@ class Voice(BaseModule):
         with self._model_lock:
             if self._backend is not None: return self._backend
             kind = _detect_backend()
-            if not kind: raise RuntimeError("未检测到whisper后端，请pip install faster-whisper")
+            if not kind:
+                raise RuntimeError("未检测到语音识别后端。\n"
+                                   + _ih("faster-whisper"))
             device = self._pick_device()
             if kind == "faster-whisper":
                 self._backend = _BackendFasterWhisper(self.model_name, device=device, compute_type=self.compute_type)

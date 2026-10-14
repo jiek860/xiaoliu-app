@@ -5,6 +5,20 @@ from core.safe import safe
 from modules.base import BaseModule
 
 
+# ── 缺依赖时给用户的安装提示（统一走 core.error_text，别各写各的）──
+# 为什么改：实测全项目 17 处 "pip install" 提示里**只有 1 处**带国内镜像，
+# 其余都让用户直接跑 `pip install xxx` —— 那会走 PyPI 官方源，
+# 国内经常慢到以为卡死。现在统一从这里出。
+def _ih(pkg):
+    try:
+        from core.error_text import install_hint
+        return install_hint(pkg)
+    except Exception:
+        return ("py -3 -m pip install --target optional_libs %s "
+                "-i https://pypi.tuna.tsinghua.edu.cn/simple" % pkg)
+
+
+
 class Multimodal(BaseModule):
     NAME = "multimodal"
     VERSION = "1.0"
@@ -60,7 +74,7 @@ class Multimodal(BaseModule):
         try:
             import whisper
         except ImportError:
-            return {"错误": "需要装whisper: pip install openai-whisper"}
+            return {"错误": "需要装 whisper。\n" + _ih("openai-whisper")}
         try:
             model = whisper.load_model("base")
             result = model.transcribe(audio_path)
@@ -98,7 +112,7 @@ class Multimodal(BaseModule):
         try:
             import cv2
         except ImportError:
-            return {"错误": "需要装opencv: pip install opencv-python"}
+            return {"错误": "需要装 opencv。\n" + _ih("opencv-python")}
         try:
             cap = cv2.VideoCapture(video_path)
             frames = []
@@ -142,7 +156,7 @@ class Multimodal(BaseModule):
         try:
             import cv2
         except ImportError:
-            return {"错误": "需要装opencv: pip install opencv-python"}
+            return {"错误": "需要装 opencv。\n" + _ih("opencv-python")}
         try:
             cap = cv2.VideoCapture(0)
             ret, frame = cap.read()

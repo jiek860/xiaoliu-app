@@ -80,7 +80,11 @@ def main():
         print()
         print("  缺依赖的功能装法（装进项目目录，不污染系统 Python）：")
         print("     scripts\\install_optional.bat")
-        print("     或 py -3 -m pip install --target optional_libs -r requirements-optional.txt")
+        print("     或 py -3 -m pip install --target optional_libs "
+              "-r requirements-optional.txt \\")
+        print("          -i https://pypi.tuna.tsinghua.edu.cn/simple")
+        print("     ⚠️ 一定要带 -i 走国内源 —— 不带会走 PyPI 官方源，")
+        print("        国内经常慢到以为卡死（PyQt5 / torch 那种大包尤其明显）。")
     print()
     print("  提示：这些包可以在新机器上重新装 —— 分发时**不必拷 optional_libs/**")
     print("        （实测可省 %s）。详见 py -3 tools\\optional_deps.py --dist"

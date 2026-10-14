@@ -1,4 +1,58 @@
 # 版本变更记录
+## v25.2.11 - 2026-10-13
+### 缺依赖的提示统一带上国内镜像（原来 17 处里 16 处没带）
+用户问"缺依赖会提示吗、会附带国内下载地址吗" —— 去实测，发现做得**很差**：
+
+    含 "pip install" 的用户提示共 17 处
+    其中**带国内镜像的：1 处**
+    **不带镜像的：16 处**
+
+用户按那些提示跑，会走 PyPI 官方源 —— 国内经常慢到以为卡死
+（实测官网直链下 Ollama 只有 0.05 MB/s，PyPI 大包同理）。
+用户分不清"慢"和"卡住"，最后就是不装了、功能不用了。
+**"最后一公里"就差这一步。**
+
+- **统一入口 `core/error_text.py`**
+  · `PIP_MIRROR` 常量（清华源，pip 官方文档推荐的国内镜像之一）
+  · `install_cmd(pkg, target="optional_libs")` —— 生成一条**能直接粘**的命令
+  · `install_hint(pkg)` —— 上面那条 + **图形界面替代路径**
+    （不想碰命令行的人走「设置 → 扩展 → 功能扩展组件」）
+  默认 `--target optional_libs`，装进项目目录不污染系统 Python
+  （和 install_optional.bat 同一约定：卸载程序时不给系统留一堆包）。
+- **改了 9 处硬编码提示**，都改成走统一入口：
+  · `modules/multimodal.py`（whisper / opencv ×3）
+  · `modules/computer_controller.py`（uiautomation）
+  · `modules/voice.py`（faster-whisper）
+  · `modules/error_lib.py`（E005 依赖缺失的错误码知识库）
+  · `core/realtime/engine.py`（pyaudio）
+  · `core/license_core.py`（cryptography）
+  · `core/optional_deps.py`（登记表里的"装法"字段）
+  · `tools/optional_deps.py`（命令行输出）
+- 现在用户看到的提示长这样：
+      「识别图片文字」缺一个可选组件（opencv-python），当前没装
+      下一步：
+          装上它（走国内源，快）：
+              py -3 -m pip install --target optional_libs opencv-python \
+                  -i https://pypi.tuna.tsinghua.edu.cn/simple
+          不想用命令行的话：设置 → 扩展 → 功能扩展组件，找到它点「安装」
+### 测试（新增 tests/test_dep_hints.py，13 个用例）
+  · `install_cmd` / `install_hint` 必须带镜像、默认装到 optional_libs
+  · 常用 6 个可选包逐个验翻译结果带镜像
+  · **全项目扫描**：不许再有"面向用户但不带国内源的 pip 提示"（防回弹）
+  ⚠️ 扫描器第一版有**两类误报**，都修了：
+    ① `core/error_text.py` 的**函数文档里**举了
+       `todo = "装上它试试：pip install pyautogui"` 作例子，被当成真提示
+       → 改为逐行跟踪三引号状态跳过 docstring
+    ② 多行字符串里镜像在**下一行**（辅助函数写法），只看单行会误报
+       → 改为拼接后 3 行一起判
+  ⚠️ 还抓出我自己批处理脚本的一个 bug：改 `optional_deps.py` 时
+     引用了一个**没定义的 `_hint`**（脚本加的辅助叫 `_ih`）。
+     跑全量测试才发现（6 个 NameError）。
+### 插件仓库已同步重签
+  改了 4 个模块文件 -> rebuild_modules_repo（43 个）-> sign_modules（43 条）
+  -> check_repo_sync 通过
+测试 483 -> **496 个用例**，全通过；8 个守卫 + 插件仓库一致性全 0。
+
 ## v25.2.10 - 2026-10-13
 ### 定位并修掉测试套件的间歇性进程崩溃 —— 真凶是线程数暴涨
 上一版留下一个已知问题：全量跑 pytest 时**约 1/3~3/5 概率整个进程硬崩**

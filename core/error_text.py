@@ -26,12 +26,53 @@
 """
 import re
 
+# ── 装依赖的命令统一从这里出 ──
+# 为什么单独抽出来：实测全项目 17 处 "pip install" 提示里
+# **只有 1 处**带国内镜像，其余 16 处都让用户直接跑 `pip install xxx` ——
+# 那会走 PyPI 官方源，国内经常慢到以为卡死（PyQt5 那种大包尤其明显）。
+#
+# 清华源实测可用，是 pip 官方文档推荐的国内镜像之一。
+PIP_MIRROR = "https://pypi.tuna.tsinghua.edu.cn/simple"
+
+
+def install_cmd(pkg, target="optional_libs"):
+    """生成一条**能直接粘**的安装命令（带国内源）
+
+    target 默认指向项目的 optional_libs —— 装进项目目录而不是系统 Python，
+    这样卸载程序时不会在系统里留一堆包（install_optional.bat 也是这个约定）。
+    传 None 就装到当前环境。
+    """
+    pkg = str(pkg).strip() if pkg else ""
+    if not pkg or pkg == "None":
+        return ""
+    parts = ["py", "-3", "-m", "pip", "install"]
+    if target:
+        parts += ["--target", target]
+    parts += [pkg, "-i", PIP_MIRROR]
+    return " ".join(parts)
+
+
+def install_hint(pkg):
+    """给用户看的一句话安装提示（命令 + 图形界面的替代路径）
+
+    两条路都给：
+        · 命令行 —— 复制粘贴就能用
+        · 图形界面 —— 不想碰命令行的人走「设置 → 扩展 → 功能扩展组件」
+    """
+    cmd = install_cmd(pkg)
+    if not cmd:
+        return "到「设置 → 扩展 → 功能扩展组件」里找找"
+    return ("装上它（走国内源，快）：\n    %s\n"
+            "不想用命令行的话：设置 → 扩展 → 功能扩展组件，找到它点「安装」"
+            % cmd)
+
+
 # (正则, 人话, 下一步)  —— 按顺序匹配，第一个命中的生效
 _RULES = [
     # ── 缺组件 ──
     (r"No module named ['\"]?([\w\-.]+)",
      "这个功能依赖一个可选组件（%s），当前没装",
-     "装上它试试：pip install %s"),
+     install_hint("%s")),
     (r"cannot import name ['\"]?(\w+)",
      "组件版本可能不对（装的是旧版或缺少 %s）",
      "升级相关组件，或到「设置 → 扩展」看看"),

@@ -11,6 +11,20 @@ from .asr import ASR
 from .tts import TTS
 from .player import Player
 
+
+# ── 缺依赖时给用户的安装提示（统一走 core.error_text，别各写各的）──
+# 为什么改：实测全项目 17 处 "pip install" 提示里**只有 1 处**带国内镜像，
+# 其余都让用户直接跑 `pip install xxx` —— 那会走 PyPI 官方源，
+# 国内经常慢到以为卡死。现在统一从这里出。
+def _ih(pkg):
+    try:
+        from core.error_text import install_hint
+        return install_hint(pkg)
+    except Exception:
+        return ("py -3 -m pip install --target optional_libs %s "
+                "-i https://pypi.tuna.tsinghua.edu.cn/simple" % pkg)
+
+
 class RealtimeEngine:
     def __init__(self, trunk, on_event=None, sample_rate=16000, frame_ms=30,
                  vad_mult=3.0, start_frames=5, end_frames=15,
@@ -63,7 +77,9 @@ class RealtimeEngine:
             import pyaudio
             self._pa = pyaudio.PyAudio()
         except ImportError:
-            return {"ok": False, "msg": "缺少pyaudio，请pip install pyaudio pygame"}
+            return {"ok": False,
+                "msg": "缺少 pyaudio（语音输入要用）。\n"
+                       + _ih("pyaudio pyinstaller")}
         self._running = True
         self.vad.reset()
         self.player.start()
