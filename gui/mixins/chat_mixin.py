@@ -24,6 +24,8 @@ class ChatMixin:
                 QMessageBox.warning(self, "未登录",
                     "请先登录已激活的账号再发送消息")
                 return
+        # 静默是故意的：这只是个便利提示（问用户要不要装组件）——
+        # 它出任何问题都不该影响聊天本身
         except Exception:
             pass
         
@@ -103,6 +105,53 @@ class ChatMixin:
             from core.logger import get_logger
             get_logger().error("渲染回复失败: %s" % e)
             self.chat.append("回复渲染失败: " + str(e)[:100])
+
+        # 回复里如果出现了"缺依赖"，弹一个"要不要现在装"的框
+        # （改之前只留一句让用户自己复制命令的文字，很多人到这就放弃了，
+        #   那个功能就白做了）
+        self._maybe_offer_install(a)
+
+    def _maybe_offer_install(self, reply_text):
+        """回复里提示了"缺某个组件"时，问用户要不要现在就装
+
+        ⚠️ 三条约束，都是为了别让它变成骚扰：
+          ① 同一个包**只问一次**（问过就记在 self._dep_asked 里）
+          ② 用户选过"不再问我这个组件"就永久跳过（存进 config）
+          ③ 任何异常都吞掉 —— 这只是个便利提示，不该影响聊天
+        """
+        try:
+            from core.error_text import missing_package
+            pkg = missing_package(reply_text)
+            if not pkg:
+                return
+            asked = getattr(self, "_dep_asked", None)
+            if asked is None:
+                asked = set(self.trunk.config.get("dep_never_ask", []) or [])
+                self._dep_asked = asked
+            if pkg in asked:
+                return
+            asked.add(pkg)
+
+            from gui.dep_dialog import show_dep_dialog
+            choice = show_dep_dialog(self, pkg, feature="刚才那个功能",
+                                     base=getattr(self.trunk, "base", None))
+            if choice == "never":
+                try:
+                    cur = list(self.trunk.config.get("dep_never_ask", []) or [])
+                    if pkg not in cur:
+                        cur.append(pkg)
+                        self.trunk.config["dep_never_ask"] = cur
+                        self.trunk.save_config()
+                # 静默是故意的：记"不再问"失败只是下次可能再问一遍，
+                # 不该因此打断聊天
+                except Exception:
+                    pass
+            if choice == "installed":
+                self.chat.append(
+                    "<div style='color:#16a34a'>✅ 组件装好了，"
+                    "再试一次刚才那个功能就行。</div>")
+        except Exception:
+            pass
 
     def _persona_opening(self):
         try:

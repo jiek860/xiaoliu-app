@@ -67,6 +67,96 @@ def install_hint(pkg):
             % cmd)
 
 
+# ── 从错误文本里认出"缺的是哪个包" ──
+# import 名和 pip 名不一致的那些（反过来用：文本里出现 import 名 -> 换成 pip 名）
+# 和 core/optional_deps.py 里那张表是同一份对应关系，这里反着写一遍 ——
+# 那边是"要装的时候按 pip 名装"，这边是"报错里给的是 import 名，得换回 pip 名"。
+_IMPORT_TO_PIP = {
+    "PIL": "Pillow",
+    "win32api": "pywin32",
+    "edge_tts": "edge-tts",
+    "faster_whisper": "faster-whisper",
+    "cv2": "opencv-python",
+    "huggingface_hub": "huggingface-hub",
+    "pyaudio": "pyaudio",
+    "pyautogui": "pyautogui",
+    "playwright": "playwright",
+    "uiautomation": "uiautomation",
+    "comtypes": "comtypes",
+    "jedi": "jedi",
+    "pyperclip": "pyperclip",
+    "cryptography": "cryptography",
+    "psutil": "psutil",
+    "requests": "requests",
+    "numpy": "numpy",
+    "pywin32": "pywin32",
+}
+
+# 出现这些词说明**可能**是"依赖没装"（只在兜底那一步用）
+_MISSING_SIGNALS = (
+    "No module named",
+    "ModuleNotFoundError",
+    "缺一个可选组件",
+    "依赖缺失",
+    "需要装",
+    "需要",          # 覆盖"需要 cryptography 库"这种没带"装"字的
+    "没装",
+    "未装",
+    "未检测到",      # 覆盖"未检测到语音识别后端"
+    "缺少",
+    "not installed",
+    "No module",
+)
+
+
+def missing_package(text):
+    """从一段错误文本里认出**缺的是哪个 pip 包**；认不出返回 ""
+
+    用途：聊天里出现了"缺依赖"的错误时，好弹一个框问用户
+    "要不要现在装" —— 而不是只留一句让你自己复制命令的文字。
+
+    ⚠️ 认不出就返回空字符串，**不猜** —— 猜错会让用户装一个不相干的包，
+    比不提示更糟（这条和 friendly() 的"拿不准就不猜"是同一个原则）。
+
+    ⚠️ **顺序很重要**（第一版写错过）：明确模式要**先**匹配，
+    "信号词闸门"只留给最后的兜底那一步。
+    第一版把闸门放在最前面，结果
+        "未检测到语音识别后端。py -3 -m pip install ... faster-whisper"
+    被挡掉了 —— 明明**明写了 pip 命令**，却因为句子里没有闸门认得的词
+    而返回空。明写的命令本身就是最强的信号，不该再过闸门。
+    """
+    s = _text_of(text) if not isinstance(text, str) else str(text)
+    if not s:
+        return ""
+
+    # ① 最可靠：No module named 'xxx'
+    m = re.search(r"No module named ['\"]?([\w\-.]+)", s)
+    if m:
+        return _IMPORT_TO_PIP.get(m.group(1), m.group(1))
+
+    # ② describe() 产出的人话：「xxx」缺一个可选组件（pkg），当前没装
+    m = re.search(r"缺一个可选组件（([\w\-.]+)）", s)
+    if m:
+        return _IMPORT_TO_PIP.get(m.group(1), m.group(1))
+
+    # ③ 提示里的 pip install 命令（自己生成的提示就长这样）
+    #    这一条不需要任何信号词 —— 出现 pip install 就是装了才用的东西
+    m = re.search(r"pip\s+install\s+(?:--target\s+\S+\s+)?([\w\-.]+)", s)
+    if m:
+        pkg = m.group(1)
+        if pkg not in ("install", "run", "-r", "upgrade", "list"):
+            return _IMPORT_TO_PIP.get(pkg, pkg)
+
+    # ④ 兜底：**先过信号词闸门**，再找常见包名 ——
+    #    这一步容易误报（"缺少参数"也会命中"缺少"），所以要闸门压着
+    if not any(k in s for k in _MISSING_SIGNALS):
+        return ""
+    for imp, pip in _IMPORT_TO_PIP.items():
+        if re.search(r"\b%s\b" % re.escape(imp), s):
+            return pip
+    return ""
+
+
 # (正则, 人话, 下一步)  —— 按顺序匹配，第一个命中的生效
 _RULES = [
     # ── 缺组件 ──
