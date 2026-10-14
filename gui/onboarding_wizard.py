@@ -22,9 +22,23 @@ import os
 import threading
 
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QWizard, QWizardPage, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QGroupBox, QRadioButton
+from PyQt5.QtWidgets import QWizard, QWizardPage, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QGroupBox, QRadioButton, QComboBox
 
 from core import model_setup
+
+
+def _model_text(w):
+    """从"可能是 QLineEdit、也可能是可编辑 QComboBox"的控件里取值"""
+    return (w.currentText() if hasattr(w, "currentText") else w.text()).strip()
+
+
+def _set_model_text(w, s):
+    """往上面那种控件里填值"""
+    s = str(s or "")
+    if hasattr(w, "setEditText"):
+        w.setEditText(s)
+    else:
+        w.setText(s)
 
 
 def marker_path(trunk):
@@ -91,6 +105,16 @@ class OnboardingWizard(QWizard):
             "· 也可以填自己的云端 API（效果更好，按量付费）")
         tip.setStyleSheet("color:#475569;line-height:170%;")
         l1.addWidget(tip)
+        # 指向那份面向用户的小白说明。
+        # 项目里原本只有 700 行的《架构与功能说明》—— 那是给改代码的人看的，
+        # 用户没法从里面查到"怎么配模型""某个功能在哪个菜单"。
+        doc = QLabel(
+            "📖 更完整的用法（怎么用、功能在哪、出问题怎么查）见项目里的 "
+            "<b>使用说明-小白版.txt</b>，"
+            "也可以从「设置 → 系统 → 使用说明（小白版）」直接打开。")
+        doc.setWordWrap(True)
+        doc.setStyleSheet("color:#64748b;line-height:170%;")
+        l1.addWidget(doc)
         l1.addStretch(1)
         self.addPage(p1)
 
@@ -108,20 +132,38 @@ class OnboardingWizard(QWizard):
         self.lbl_local_status = QLabel()
         self.lbl_local_status.setWordWrap(True)
         gl.addWidget(self.lbl_local_status)
-        gl.addWidget(QLabel(
-            "没装的话：<a href='%s'>下载 Ollama</a>，装完在命令行执行 "
-            "<code>ollama run %s</code>（会把模型下下来，约 2GB）"
-            % (model_setup.OLLAMA_DOWNLOAD, model_setup.RECOMMENDED_LOCAL_MODEL)))
+        self.lbl_local_howto = QLabel()
+        self.lbl_local_howto.setWordWrap(True)
+        self.lbl_local_howto.setOpenExternalLinks(True)
+        gl.addWidget(self.lbl_local_howto)
+
+        # ⚠️ 地址和模型**必须各占一行**。
+        #    原来是一行塞 4 个控件（地址：|输入框|模型：|输入框），
+        #    两个输入框都设了 stretch=1，窗口一窄就被压成几十像素 ——
+        #    用户看到的是 "http://localhost:..." 和 "qwen2.5-coder..." 两条
+        #    截断的残影，根本没法核对和修改（用户截图报的就是这个）。
+        #    云端那边本来就是拆两行的，本地这边是漏了。
         hl = QHBoxLayout()
         hl.addWidget(QLabel("地址："))
         self.ed_ollama = QLineEdit()
         self.ed_ollama.setPlaceholderText(model_setup.DEFAULT_OLLAMA)
+        self.ed_ollama.setMinimumWidth(240)      # 下限，防被压成条
         hl.addWidget(self.ed_ollama, 1)
-        hl.addWidget(QLabel("模型："))
-        self.ed_local_model = QLineEdit()
-        self.ed_local_model.setPlaceholderText(model_setup.RECOMMENDED_LOCAL_MODEL)
-        hl.addWidget(self.ed_local_model, 1)
         gl.addLayout(hl)
+
+        hl2 = QHBoxLayout()
+        hl2.addWidget(QLabel("模型："))
+        # 用**可编辑下拉框**：检测到 Ollama 里有哪些模型就自动填进去，
+        # 用户点一下就能选，不用照着文档手打模型名（打错了就是"没反应"）。
+        # 仍然可编辑 —— 自己训的模型名照样能填。
+        self.ed_local_model = QComboBox()
+        self.ed_local_model.setEditable(True)
+        self.ed_local_model.setMinimumWidth(240)
+        self.ed_local_model.setToolTip(
+            "检测到本地已有模型时会自动列出来，点一下即可选中；"
+            "也可以手动输入自己的模型名")
+        hl2.addWidget(self.ed_local_model, 1)
+        gl.addLayout(hl2)
         gl.addWidget(QPushButton("🔄 重新检测", clicked=self._recheck))
         l2.addWidget(self.grp_local)
 
@@ -135,18 +177,25 @@ class OnboardingWizard(QWizard):
         hc = QHBoxLayout()
         hc.addWidget(QLabel("地址："))
         self.ed_cloud_url = QLineEdit()
+        self.ed_cloud_url.setMinimumWidth(240)
         hc.addWidget(self.ed_cloud_url, 1)
         gc.addLayout(hc)
+        # 同样拆行：模型和 Key 各占一行，不然窄窗口下两个都会被压扁
         hc2 = QHBoxLayout()
         hc2.addWidget(QLabel("模型："))
         self.ed_cloud_model = QLineEdit()
         self.ed_cloud_model.setPlaceholderText("glm-4-flash")
+        self.ed_cloud_model.setMinimumWidth(240)
         hc2.addWidget(self.ed_cloud_model, 1)
-        hc2.addWidget(QLabel("Key："))
+        gc.addLayout(hc2)
+        hc3 = QHBoxLayout()
+        hc3.addWidget(QLabel("Key："))
         self.ed_cloud_key = QLineEdit()
         self.ed_cloud_key.setEchoMode(QLineEdit.Password)
-        hc2.addWidget(self.ed_cloud_key, 1)
-        gc.addLayout(hc2)
+        self.ed_cloud_key.setMinimumWidth(240)
+        self.ed_cloud_key.setPlaceholderText("在服务商后台申请，形如 xxxxxxxx.xxxxxxxx")
+        hc3.addWidget(self.ed_cloud_key, 1)
+        gc.addLayout(hc3)
         l2.addWidget(self.grp_cloud)
 
         l2.addWidget(QPushButton("💾 保存并检测", clicked=self._save_and_check))
@@ -172,7 +221,8 @@ class OnboardingWizard(QWizard):
     def _prefill(self):
         cfg = self.trunk.config or {}
         self.ed_ollama.setText(str(cfg.get("ollama_url", "") or ""))
-        self.ed_local_model.setText(str(cfg.get("local_model", "") or ""))
+        _set_model_text(self.ed_local_model,
+                        str(cfg.get("local_model", "") or ""))
         self.ed_cloud_url.setText(str(cfg.get("cloud_url", "") or ""))
         self.ed_cloud_model.setText(str(cfg.get("cloud_model", "") or ""))
         if str(cfg.get("model_mode", "")).find("云端") >= 0:
@@ -208,6 +258,26 @@ class OnboardingWizard(QWizard):
                          name="onboarding-probe").start()
 
     def _apply_local_status(self, info, url):
+        # 检测到的模型自动刷进下拉框 —— 用户点一下就能选，不用照着文档手打。
+        # （手打模型名打错一个字符，表现就是"发了消息没反应"，很难自己查出来。）
+        if info.get("reachable"):
+            models = [m for m in (info.get("models") or []) if m]
+            cur = _model_text(self.ed_local_model)
+            if models:
+                self.ed_local_model.blockSignals(True)
+                self.ed_local_model.clear()
+                self.ed_local_model.addItems(models)
+                # 优先保留用户/配置里已经选好的那个
+                if cur and cur in models:
+                    self.ed_local_model.setCurrentText(cur)
+                elif model_setup.RECOMMENDED_LOCAL_MODEL in models:
+                    self.ed_local_model.setCurrentText(
+                        model_setup.RECOMMENDED_LOCAL_MODEL)
+                else:
+                    # 没指定就用第一个可用的 —— 比让用户自己猜强
+                    self.ed_local_model.setCurrentIndex(0)
+                self.ed_local_model.blockSignals(False)
+
         if info["reachable"]:
             n = len(info["models"])
             if n:
@@ -215,17 +285,41 @@ class OnboardingWizard(QWizard):
                     "✅ 连上了，已装 %d 个模型：%s"
                     % (n, "、".join(info["models"][:5])))
                 self.lbl_local_status.setStyleSheet("color:#16a34a;")
+                self.lbl_local_howto.setText(
+                    "下面「模型」一栏已经自动列出上面这些，选一个就行 → "
+                    "然后点「保存并检测」。")
+                self.lbl_local_howto.setStyleSheet("color:#16a34a;")
             else:
                 self.lbl_local_status.setText(
-                    "⚠️ Ollama 在跑，但还没有任何模型。执行 "
-                    "<code>ollama run %s</code> 下载一个。"
-                    % model_setup.RECOMMENDED_LOCAL_MODEL)
+                    "⚠️ Ollama 在跑，但还没有任何模型。")
                 self.lbl_local_status.setStyleSheet("color:#d97706;")
+                self.lbl_local_howto.setText(self._download_steps())
+                self.lbl_local_howto.setStyleSheet("color:#475569;")
         else:
-            self.lbl_local_status.setText(
-                "❌ 连不上 %s。没装 Ollama 就点上面的下载链接；装好了但没启动，"
-                "就启动它再点「重新检测」。" % url)
+            self.lbl_local_status.setText("❌ 连不上 %s" % url)
             self.lbl_local_status.setStyleSheet("color:#dc2626;")
+            self.lbl_local_howto.setText(self._download_steps())
+            self.lbl_local_howto.setStyleSheet("color:#475569;")
+
+    def _download_steps(self):
+        """没装/没模型时给**能照着做**的步骤
+
+        对比同类程序的做法：它们把 Ollama 的下载和模型下载都做成了
+        程序内一键完成（带进度条、装完自动刷进下拉框）。小6 这边暂时
+        还是引导用户自己去官网装 —— 那就至少把步骤写清楚：
+        点哪、粘什么、大约多大、装完回到哪一步。
+        含糊的"去装个 Ollama"是这一环最劝退的地方。
+        """
+        return (
+            "要装的话按这个顺序来：<br>"
+            "&nbsp;&nbsp;1. 打开 <a href='%s'>%s</a>，下载 Windows 版并安装<br>"
+            "&nbsp;&nbsp;2. 装完 Ollama 会自己在后台运行（托盘会有个小图标）<br>"
+            "&nbsp;&nbsp;3. 按 <code>Win+R</code> 输入 <code>cmd</code> 回车，粘贴这一行：<br>"
+            "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<code>ollama run %s</code><br>"
+            "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;（约 2GB，下载时窗口里会有进度条，走完就行）<br>"
+            "&nbsp;&nbsp;4. 回到这里点「🔄 重新检测」，模型会自动出现在上面的下拉框里"
+            % (model_setup.OLLAMA_DOWNLOAD, model_setup.OLLAMA_DOWNLOAD,
+               model_setup.RECOMMENDED_LOCAL_MODEL))
 
     def _recheck(self):
         self._refresh_local_status()
@@ -242,7 +336,7 @@ class OnboardingWizard(QWizard):
                 model_setup.apply_local(
                     self.trunk,
                     url=self.ed_ollama.text().strip() or model_setup.DEFAULT_OLLAMA,
-                    model=self.ed_local_model.text().strip()
+                    model=_model_text(self.ed_local_model)
                     or model_setup.RECOMMENDED_LOCAL_MODEL)
         except Exception as e:
             QMessageBox.warning(self, "保存失败", str(e)[:120])

@@ -132,6 +132,32 @@ def show_system_dialog(self):
     btn2.clicked.connect(lambda: self._bg_call(
         result, lambda: self.trunk.call("error_lib", "clear_all"), "清空错误库"))
     l2.addWidget(btn2)
+
+    # 小白使用说明 —— 之前项目里只有 700 行的架构文档，没有一份
+    # "点哪个按钮会发生什么"的说明，用户遇到问题只能来问。
+    btn_doc = QPushButton("📖 使用说明（小白版）")
+    btn_doc.setToolTip("打开 使用说明-小白版.txt：怎么配模型、"
+                       "各个功能在哪、常见问题怎么查")
+
+    def _open_doc():
+        import os as _os
+        import subprocess as _sp
+        p = _os.path.join(getattr(self.trunk, "base", ".") or ".",
+                          "使用说明-小白版.txt")
+        if not _os.path.exists(p):
+            result.setText("找不到说明文件：%s" % p)
+            return
+        try:
+            # Windows 下用系统默认程序打开（记事本能正确显示 UTF-8）
+            _os.startfile(p)
+            result.setText("已打开 %s" % _os.path.basename(p))
+        # 静默是故意的？—— 不是。打不开要如实说，并给出路径让用户自己开
+        except Exception as e:
+            result.setText("打不开（%s）。文件在这里，手动打开即可：\n%s"
+                           % (str(e)[:60], p))
+
+    btn_doc.clicked.connect(_open_doc)
+    l2.addWidget(btn_doc)
     l1.addWidget(box2)
 
     l1.addWidget(QLabel("运行结果:"))
