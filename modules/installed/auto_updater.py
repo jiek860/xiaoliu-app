@@ -77,9 +77,25 @@ class AutoUpdater(BaseModule):
             txt = llm.chat(prompt) or ""
             mod = re.search(r"目标模块[:：]\s*([^\n]+)", txt)
             sug = re.search(r"建议[:：]\s*([^\n]+)", txt)
+            # ⚠️ 解析不出目标模块时**必须返回空串**，不能返回 ".py"（2026-10-14 修）
+            #
+            # 原来写的是：
+            #     (mod.group(1).strip() if mod else "").strip(".py") + ".py"
+            # 模型没按格式回时 mod 是 None -> "" .strip(".py") -> ""
+            # -> 再 + ".py" -> **".py"**。
+            #
+            # 而调用方的守卫是 `if not target_file: return "LLM未给出目标模块"`
+            # —— `".py"` 是**真值**，守卫形同虚设。闭环会拿着一个
+            # 垃圾目标名继续往下走（打补丁写进 `.py`、再去部署），
+            # 直到最后报一句很难懂的错。
+            #
+            # 现在：拿不到就返回空串，让那道守卫真正生效。
+            _t = (mod.group(1).strip() if mod else "").strip()
+            if _t.endswith(".py"):
+                _t = _t[:-3].strip()
             return {
                 "建议": sug.group(1).strip() if sug else txt[:80],
-                "目标模块": (mod.group(1).strip() if mod else "").strip(".py") + ".py",
+                "目标模块": (_t + ".py") if _t else "",
                 "原始": txt[:200],
             }
         except Exception as e:
@@ -168,9 +184,28 @@ class AutoUpdater(BaseModule):
         with open(tf, "w", encoding="utf-8") as f:
             f.write(test_code)
         try:
-            r = subprocess.run([sys.executable, tf], capture_output=True, timeout=15)
+            r = subprocess.run([sys.executable, tf], capture_output=True,
+                               timeout=15)
             out = r.stdout.decode("utf-8", errors="replace")
-            return r.returncode == 0 and "OK" in out, out[-100:]
+            if r.returncode == 0 and "OK" in out:
+                return True, out[-100:]
+            # ⚠️ 失败时要说清**为什么**（2026-10-14 修）
+            #
+            # 原来只返回 stdout 的尾巴 —— 而 Python 的报错是走 **stderr** 的，
+            # 于是用户看到的是"沙盒验证失败: "后面**什么都没有**。
+            # 实测踩到：补丁只有两行注解语句，import 时求值报 NameError，
+            # 报错全在 stderr，stdout 空的 —— 界面上就一句空话。
+            #
+            # 现在：优先给 stderr 的最后一两行（那才是真正的错因），
+            # 都没有才退回 stdout。
+            err = r.stderr.decode("utf-8", errors="replace").strip()
+            detail = ""
+            if err:
+                lines = [x for x in err.splitlines() if x.strip()]
+                detail = " | ".join(lines[-2:])[:160]
+            if not detail:
+                detail = out.strip()[-160:] or "（补丁没能加载，但没有输出）"
+            return False, detail
         except Exception as e:
             return False, "超时或执行错误: " + str(e)[:50]
         finally:
