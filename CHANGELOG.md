@@ -1,4 +1,53 @@
 # 版本变更记录
+## v25.2.13 - 2026-10-14
+### 修：自动备份把 700 MB 浏览器内核当用户数据备份（backups/ 涨到 1.4 GB）
+用户让清理 `backups/` 的 1.4 GB。去看里面是什么，发现**根因是个真 bug**：
+
+    每个备份 **708.3 MB**，其中 **705.6 MB 是 Chromium 内核**
+    （data/browsers 的 .pak×446 / .hyb×104 / .dll×14）
+    而 data/ 根目录下 70 个文件（真正的用户状态）合计才 **1.8 MB**
+
+    **备份本该只有 2.7 MB —— 膨胀了 262 倍。**
+
+- **根因**：`core/backup.py` 的 `EXCLUDE_DIRS` 里有 `browser_sessions`
+  （小），**没有 `browsers`**（705.6 MB）。
+  它上面那行注释写着"实测 data 目录 37.9MB，其中只有 2.2MB 是真正需要
+  备份的状态" —— **那句话写的时候 `data/browsers` 还不存在**，
+  是浏览器功能加进来之后才把它漏进备份范围的。
+- **修法**：`EXCLUDE_DIRS` 加上 `browsers`。
+  判断标准写进注释了：**能重新下载/重新生成的东西不进备份。**
+- **清理**（顺序很重要：**先做正确的小备份 → 验证 → 再删大的**，
+  反过来万一备份失败用户就没有安全网了）：
+      清理前  backups/  1421.0 MB（2 份 × 708.3 MB）
+      先备一份正确的    2.7 MB，逐个核对 chats.db / memory.json /
+                        config.json / graph.json / vectors.db /
+                        personality.json / episodic_memory.json 都在
+      再删旧的          实际释放 **1414.3 MB**
+      清理后  backups/     6.7 MB
+  **项目总占用 3285.8 MB → 1874.3 MB。**
+### 新增：打包源同步工具（`tools/sync_package.py` + `同步打包目录.bat`）
+  打包流程是「开发目录 → 复制一份干净的 → 对那份打包」。
+  这一步**每次改完代码都要重做** —— 忘了就会把旧代码打进安装包，
+  而且**装出来照样能跑**，只是行为是旧的，很难发现。
+  比"忘同步"更严重的是**把不该带的带进去**（data/config.json 里是你的
+  API Key，进了安装包就是隐私事故）。
+  所以做成工具：
+      py -3 tools\sync_package.py            同步（先显示要改什么）
+      py -3 tools\sync_package.py --dry-run  只看差异
+      双击 同步打包目录.bat                    一步到位（带确认）
+  每次同步都会跑安全检查：不许有 data/ backups/ optional_libs/
+  tests/ tools/ .git/，`config.default.json` 里不许有填好的 Key。
+### 测试（新增 2 个文件，33 个用例）
+  · `tests/test_backup_scope.py`（13）：大而可再生的目录必须在排除名单；
+    **反过来也要防"排除过头"**（users/rules/skills/knowledge 这些
+    用户状态不许被排除）；真实项目上算一遍备份体积必须 <50 MB。
+  · `tests/test_package_sync.py`（20）：同步清单里不许有 data/ tools/
+    等；`config.default.json` 不许有真 Key；`check_safety()` 和 `plan()`
+    要真的能查出问题（不是走过场）；真实打包目录必须干净。
+  · 负向测试 3 项全抓到：拿掉 browsers 的排除 / 把 users 也排掉 /
+    让 `_skip_dir` 不认 `EXCLUDE_DIRS`。
+测试 524 → **557 个用例**，全通过；8 个守卫 + 插件仓库一致性全 0。
+
 ## v25.2.12 - 2026-10-13
 ### 缺依赖时弹框问"要不要现在装"（不用再自己开命令行了）
 上一版把提示统一带上了国内源，但用户还是得**自己开命令行、复制粘贴**。

@@ -9,12 +9,25 @@ class Backup:
     #   2. 本身就是备份 —— backup_*(自动备份)、plugin_backups、config_backup…
     #      不跳的话会"备份套备份"，越滚越大
     #   3. 体积大又不影响恢复 —— recordings、uploads、browser_sessions、logs
-    # 实测：data 目录 37.9MB，其中只有 2.2MB 是真正需要备份的状态。
+    #   4. **browsers** —— Chromium 内核，705.6 MB
+    #
+    # ⚠️ 上面第 4 条是 2026-10-14 补的，之前漏了它，代价很大：
+    #    实测每个备份 **708.3 MB**，其中 705.6 MB 全是 Chromium 的
+    #    .pak/.hyb/.dll —— 备份本该系统只占约 2.7 MB，**膨胀了 260 倍**。
+    #    backups/ 因此堆到 1.4 GB（两份，隔 12 分钟）。
+    #
+    #    原始注释写的是"实测 data 目录 37.9MB，其中只有 2.2MB 是真正需要
+    #    备份的状态" —— 那句话写的时候 data/browsers 还不存在，
+    #    是浏览器功能加进来之后才把它"漏"进备份范围的。
+    #
+    #    判断标准：**能重新下载/重新生成的东西不进备份**。
+    #    用户真正怕丢的是记忆、聊天、配置、人格 —— 那些都不大。
     EXCLUDE_DIRS = {
         "datasets", "cache", "__pycache__", ".pytest_cache", ".ruff_cache",
         "recordings", "uploads", "browser_sessions",
         "backups", "plugin_backups", "pathfix_backup", "config_backup",
         "archive", "staging", "_deprecated", "logs",
+        "browsers",          # Chromium 内核 705.6 MB，能重新下载
     }
 
     def __init__(self, trunk=None):
