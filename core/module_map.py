@@ -259,17 +259,19 @@ def _real_calls(trunk, valid):
                     and node.func.attr == "call" and len(node.args) >= 2):
                 a0, a1 = node.args[0], node.args[1]
                 meth = (a1.value if isinstance(a1, ast.Constant)
-                        and isinstance(a1.value, str) else "?")
+                        and isinstance(a1.value, str) else None)
                 # "__no__" 是懒加载探针惯用法（故意写错方法名只为触发加载）
                 if meth == "__no__":
-                    pass
-                elif isinstance(a0, ast.Constant) and isinstance(a0.value, str):
-                    if meth != "__no__":
-                        add(a0.value, meth)                  # ① 字面量
+                    continue
+                if isinstance(a0, ast.Constant) and isinstance(a0.value, str):
+                    add(a0.value, meth or "按变量分发")        # ① 字面量
                 else:
-                    # ② 映射表驱动：目标就是本文件表里的那些模块名
+                    # ② 表驱动：目标就是本文件表里的那些模块名。
+                    #    方法名也可能是变量（如 tool_caller 的 info["method"]）——
+                    #    以前标成 "?"，图上完全看不出是怎么调的；
+                    #    现在标"按表分发"，至少说明"目标来自本文件的表"。
                     for t in tstr:
-                        add(t, meth or "按映射表调用")
+                        add(t, meth or "按表分发")
 
         for t in import_targets(tree):                        # ③ 直接 import
             add(t, "直接 import")
