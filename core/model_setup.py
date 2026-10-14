@@ -18,6 +18,49 @@ DEFAULT_OLLAMA = "http://localhost:11434"
 RECOMMENDED_LOCAL_MODEL = "qwen2.5:3b"
 OLLAMA_DOWNLOAD = "https://ollama.com/download"
 
+# 常见云端服务商预设 —— 点一下就自动填好"地址 + 模型名"，
+# 不用用户自己去文档里抄 URL（抄错一个字符就是 404，很难查）。
+#
+# ⚠️ 每个地址都是**实测过的**（2026-10-13）：向它发一个不带 Key 的请求，
+#    返回 401 = 地址有效且需要鉴权。返回 404 的一律没收进来。
+#
+# "国内直连"这一列如实标注：OpenAI 实测**连接超时**（国内网络到不了），
+#    所以没放进列表 —— 收了它只会让用户白填一次再失败。
+CLOUD_PROVIDERS = [
+    {"名字": "智谱 GLM", "地址": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+     "模型": "glm-4-flash", "申请": "https://open.bigmodel.cn",
+     "备注": "有免费额度，国内直连"},
+    {"名字": "DeepSeek",
+     "地址": "https://api.deepseek.com/chat/completions",
+     "模型": "deepseek-chat", "申请": "https://platform.deepseek.com",
+     "备注": "便宜，国内直连"},
+    {"名字": "通义千问",
+     "地址": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+     "模型": "qwen-plus", "申请": "https://dashscope.console.aliyun.com",
+     "备注": "阿里，国内直连"},
+    {"名字": "月之暗面 Kimi",
+     "地址": "https://api.moonshot.cn/v1/chat/completions",
+     "模型": "moonshot-v1-8k", "申请": "https://platform.moonshot.cn",
+     "备注": "长文本，国内直连"},
+    {"名字": "硅基流动",
+     "地址": "https://api.siliconflow.cn/v1/chat/completions",
+     "模型": "Qwen/Qwen2.5-7B-Instruct", "申请": "https://cloud.siliconflow.cn",
+     "备注": "开源模型聚合，国内直连"},
+]
+
+
+def provider_names():
+    """给下拉框用的名字列表（"自定义"排在最后，表示不预设）"""
+    return [p["名字"] for p in CLOUD_PROVIDERS] + ["自定义（自己填）"]
+
+
+def find_provider(name):
+    """按名字找预设；找不到返回 None"""
+    for p in CLOUD_PROVIDERS:
+        if p["名字"] == name:
+            return p
+    return None
+
 
 def probe_ollama(url=None, timeout=3):
     """探测 Ollama 是否在跑、装了哪些模型。不抛异常，失败也返回结构化结果。"""

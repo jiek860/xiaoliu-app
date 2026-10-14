@@ -22,9 +22,9 @@ import os
 import threading
 
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QWizard, QWizardPage, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QGroupBox, QRadioButton, QComboBox
+from PyQt5.QtWidgets import QWizard, QWizardPage, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QGroupBox, QRadioButton, QComboBox, QProgressBar
 
-from core import model_setup
+from core import model_setup, ollama_installer
 
 
 def _model_text(w):
@@ -77,6 +77,12 @@ class OnboardingWizard(QWizard):
     # 后台探测 Ollama 完成后，用它把结果送回主线程
     # （Qt 控件只能在主线程碰，工作线程只负责发信号）
     probe_done = pyqtSignal(dict, str)
+    # 下载进度：已下字节 / 总字节 / 速度MBps / 剩余秒
+    dl_prog = pyqtSignal(float, float, float, float)
+    # 下载过程中的文字提示（挑源、换源…）
+    dl_msg = pyqtSignal(str)
+    # 下载结束（成功/取消/失败）
+    dl_done = pyqtSignal(dict)
 
     def __init__(self, trunk, parent=None):
         super().__init__(parent)
@@ -88,6 +94,12 @@ class OnboardingWizard(QWizard):
         self._build_pages()
         self.currentIdChanged.connect(self._on_page_changed)
         self.probe_done.connect(self._apply_local_status)
+        self.dl_prog.connect(self._on_dl_progress)
+        self.dl_msg.connect(lambda m: self.lbl_dl.setText(m))
+        self.dl_done.connect(self._on_dl_done)
+        self._dl_busy = False
+        self._dl_stop = False
+        self._dl_ready_path = None
 
     # ---------------- 页面 ----------------
     def _build_pages(self):
@@ -137,6 +149,37 @@ class OnboardingWizard(QWizard):
         self.lbl_local_howto.setOpenExternalLinks(True)
         gl.addWidget(self.lbl_local_howto)
 
+        # ── 一键下载 Ollama 安装包（带进度）──
+        # 对比同类程序后补上的：它们把这一步做成了程序内一键完成。
+        # 小6 原来只给一句"去官网下载"，用户得自己开浏览器找、
+        # 下 1.5GB、再开命令行 —— 这是最劝退的一环。
+        # 进度条就放在向导里，不开新窗口。
+        self.lbl_dl = QLabel()
+        self.lbl_dl.setWordWrap(True)
+        self.lbl_dl.setVisible(False)
+        gl.addWidget(self.lbl_dl)
+        self.bar_dl = QProgressBar()
+        self.bar_dl.setRange(0, 100)
+        self.bar_dl.setVisible(False)
+        gl.addWidget(self.bar_dl)
+        hdl = QHBoxLayout()
+        # 只放两个按钮：一个是"下载/安装"（同一个按钮按状态换动作），
+        # 一个是"取消"（1.5GB 的下载不给取消说不过去）。
+        # 原来做成三个（下载/安装/取消），下载完再冒出一个"安装"——
+        # 多一个按钮多一分犹豫，而且"下完了当然就该装"。
+        self.btn_dl = QPushButton("⬇️ 一键下载 Ollama 安装包")
+        self.btn_dl.setToolTip(
+            "约 %d MB。自动选国内加速源（实测比官网快 100 倍以上），"
+            "下完这个按钮会变成「📦 立即安装」。" % ollama_installer.APPROX_MB)
+        self.btn_dl.clicked.connect(self._on_dl_button)
+        hdl.addWidget(self.btn_dl)
+        self.btn_cancel_dl = QPushButton("取消下载")
+        self.btn_cancel_dl.setVisible(False)
+        self.btn_cancel_dl.clicked.connect(self._cancel_download)
+        hdl.addWidget(self.btn_cancel_dl)
+        hdl.addStretch(1)
+        gl.addLayout(hdl)
+
         # ⚠️ 地址和模型**必须各占一行**。
         #    原来是一行塞 4 个控件（地址：|输入框|模型：|输入框），
         #    两个输入框都设了 stretch=1，窗口一窄就被压成几十像素 ——
@@ -172,8 +215,27 @@ class OnboardingWizard(QWizard):
         gc = QVBoxLayout(self.grp_cloud)
         self.rb_cloud = QRadioButton("用云端 API")
         gc.addWidget(self.rb_cloud)
-        gc.addWidget(QLabel("以智谱 GLM 为例，地址填："
-                            "https://open.bigmodel.cn/api/paas/v4/chat/completions"))
+
+        # ── 常见服务商预设：选一个就自动填好"地址 + 模型名"──
+        # 原来只有一句"以智谱 GLM 为例，地址填：https://…"，
+        # 用户得自己把 URL 抄进输入框（抄错一个字符就是 404，很难查）。
+        # 这里列的每一家地址都**实测过**（发不带 Key 的请求返回 401 = 地址有效）。
+        hp = QHBoxLayout()
+        hp.addWidget(QLabel("服务商："))
+        self.cb_provider = QComboBox()
+        self.cb_provider.addItems(model_setup.provider_names())
+        self.cb_provider.setMinimumWidth(240)
+        self.cb_provider.setToolTip("选一个，下面的地址和模型名会自动填好；"
+                                    "也可以选「自定义」自己填")
+        self.cb_provider.currentTextChanged.connect(self._apply_provider)
+        hp.addWidget(self.cb_provider, 1)
+        gc.addLayout(hp)
+
+        self.lbl_provider_tip = QLabel()
+        self.lbl_provider_tip.setWordWrap(True)
+        self.lbl_provider_tip.setOpenExternalLinks(True)
+        gc.addWidget(self.lbl_provider_tip)
+
         hc = QHBoxLayout()
         hc.addWidget(QLabel("地址："))
         self.ed_cloud_url = QLineEdit()
@@ -223,12 +285,31 @@ class OnboardingWizard(QWizard):
         self.ed_ollama.setText(str(cfg.get("ollama_url", "") or ""))
         _set_model_text(self.ed_local_model,
                         str(cfg.get("local_model", "") or ""))
-        self.ed_cloud_url.setText(str(cfg.get("cloud_url", "") or ""))
+        cloud_url = str(cfg.get("cloud_url", "") or "")
+        self.ed_cloud_url.setText(cloud_url)
         self.ed_cloud_model.setText(str(cfg.get("cloud_model", "") or ""))
         if str(cfg.get("model_mode", "")).find("云端") >= 0:
             self.rb_cloud.setChecked(True)
         else:
             self.rb_local.setChecked(True)
+
+        # ⚠️ 把「服务商」下拉框同步成**已保存地址对应的那一家**。
+        #    不这么做的话，下拉框会停在默认的第一项（智谱 GLM），
+        #    而下面的地址可能是别家的 —— 界面自相矛盾，用户会以为
+        #    "我明明选的是智谱，怎么地址不对"。
+        #    反查不到就落到「自定义」，并把已填内容原样留着。
+        #    （踩过的坑：setCurrentText 选**同一个值**不会触发信号，
+        #      所以不能指望 _apply_provider 帮忙同步。）
+        match = "自定义（自己填）"
+        for p in model_setup.CLOUD_PROVIDERS:
+            if cloud_url and p["地址"] == cloud_url:
+                match = p["名字"]
+                break
+        self.cb_provider.blockSignals(True)
+        self.cb_provider.setCurrentText(match)
+        self.cb_provider.blockSignals(False)
+        self._apply_provider(match, fill=False)
+
         self._refresh_local_status()
 
     def _refresh_local_status(self, async_=True):
@@ -304,25 +385,154 @@ class OnboardingWizard(QWizard):
     def _download_steps(self):
         """没装/没模型时给**能照着做**的步骤
 
-        对比同类程序的做法：它们把 Ollama 的下载和模型下载都做成了
-        程序内一键完成（带进度条、装完自动刷进下拉框）。小6 这边暂时
-        还是引导用户自己去官网装 —— 那就至少把步骤写清楚：
-        点哪、粘什么、大约多大、装完回到哪一步。
-        含糊的"去装个 Ollama"是这一环最劝退的地方。
+        有了「⬇️ 一键下载」之后，第一步从"去官网找"变成了"点上面的按钮" ——
+        对比同类程序，它们最实用的一条就是这个（不要用户自己开浏览器找）。
+        后面几步仍然要写清楚：装完在哪、跑什么命令、多大、回来点哪。
         """
         return (
-            "要装的话按这个顺序来：<br>"
-            "&nbsp;&nbsp;1. 打开 <a href='%s'>%s</a>，下载 Windows 版并安装<br>"
-            "&nbsp;&nbsp;2. 装完 Ollama 会自己在后台运行（托盘会有个小图标）<br>"
-            "&nbsp;&nbsp;3. 按 <code>Win+R</code> 输入 <code>cmd</code> 回车，粘贴这一行：<br>"
+            "按这个顺序来：<br>"
+            "&nbsp;&nbsp;<b>1.</b> 点上面的 <b>⬇️ 一键下载 Ollama 安装包</b>"
+            "（约 %d MB，自动走国内加速源）<br>"
+            "&nbsp;&nbsp;<b>2.</b> 下完点 <b>📦 立即安装</b>，"
+            "按弹出的安装向导点完（装到哪可以自己选）<br>"
+            "&nbsp;&nbsp;<b>3.</b> 装完 Ollama 会自己在后台运行"
+            "（右下角托盘有个小羊驼图标）<br>"
+            "&nbsp;&nbsp;<b>4.</b> 按 <code>Win+R</code> 输入 <code>cmd</code> 回车，"
+            "粘贴这一行下载模型：<br>"
             "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<code>ollama run %s</code><br>"
-            "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;（约 2GB，下载时窗口里会有进度条，走完就行）<br>"
-            "&nbsp;&nbsp;4. 回到这里点「🔄 重新检测」，模型会自动出现在上面的下拉框里"
-            % (model_setup.OLLAMA_DOWNLOAD, model_setup.OLLAMA_DOWNLOAD,
-               model_setup.RECOMMENDED_LOCAL_MODEL))
+            "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;（模型约 2GB，窗口里会有进度条，走完就行）<br>"
+            "&nbsp;&nbsp;<b>5.</b> 回到这里点「🔄 重新检测」，"
+            "模型会自动出现在上面的下拉框里<br><br>"
+            "下载不动的备选：去 <a href='%s'>%s</a> 用浏览器手动下。"
+            % (ollama_installer.APPROX_MB, model_setup.RECOMMENDED_LOCAL_MODEL,
+               model_setup.OLLAMA_DOWNLOAD, model_setup.OLLAMA_DOWNLOAD))
 
     def _recheck(self):
         self._refresh_local_status()
+
+    # ---------------- 云端服务商预设 ----------------
+    def _apply_provider(self, name, fill=True):
+        """选服务商 -> 自动填地址和模型名
+
+        fill=False 时**只更新提示文字，不动已经填好的输入框** ——
+        `_prefill()` 同步下拉框时会用到：那一步的目的只是让
+        "下拉框显示的那家"和"已保存的地址"对上，不该把用户
+        自己改过的地址/模型名覆盖掉。
+        """
+        p = model_setup.find_provider(name)
+        if not p:
+            # 「自定义（自己填）」：不动用户已经填好的内容
+            self.lbl_provider_tip.setText(
+                "自己填的话：地址用服务商文档里的 <b>chat/completions</b> 完整地址，"
+                "模型名一个字符都不能错。")
+            self.lbl_provider_tip.setStyleSheet("color:#64748b;")
+            return
+        if fill:
+            self.ed_cloud_url.setText(p["地址"])
+            self.ed_cloud_model.setText(p["模型"])
+        self.lbl_provider_tip.setText(
+            "%s · %s —— Key 去 <a href='%s'>%s</a> 申请"
+            % (p["名字"], p["备注"], p["申请"], p["申请"]))
+        self.lbl_provider_tip.setStyleSheet("color:#16a34a;")
+
+    # ---------------- Ollama 一键下载 ----------------
+    def _on_dl_button(self):
+        """同一个按钮按状态换动作：还没下完 -> 下载；下好了 -> 安装"""
+        if getattr(self, "_dl_ready_path", None):
+            self._run_installer()
+        else:
+            self._start_download()
+
+    def _start_download(self):
+        """起线程下载，进度通过信号回主线程（Qt 控件只能在主线程碰）"""
+        if getattr(self, "_dl_busy", False):
+            return
+        self._dl_busy = True
+        self._dl_stop = False
+        self._dl_ready_path = None
+        self.btn_dl.setEnabled(False)
+        self.btn_cancel_dl.setVisible(True)
+        self.bar_dl.setVisible(True)
+        self.bar_dl.setValue(0)
+        self.lbl_dl.setVisible(True)
+        self.lbl_dl.setText("正在挑下载源…")
+        self.lbl_dl.setStyleSheet("color:#475569;")
+
+        def _work():
+            try:
+                best = ollama_installer.pick_best(
+                    progress=lambda m: self.dl_msg.emit(m))
+                if not best:
+                    self.dl_done.emit({"ok": False,
+                                       "错误": "所有下载源都连不上（可能是断网）"})
+                    return
+                self.dl_msg.emit("用「%s」下载中 —— 实测 %s"
+                                 % (best["名字"], best.get("实测", "")))
+
+                def prog(got, total, sp, eta):
+                    self.dl_prog.emit(got, total or 0, sp, eta)
+
+                r = ollama_installer.download(
+                    best["url"], progress=prog,
+                    should_stop=lambda: self._dl_stop)
+                r["源"] = best["名字"]
+                self.dl_done.emit(r)
+            except Exception as e:
+                self.dl_done.emit({"ok": False,
+                                   "错误": "%s: %s" % (type(e).__name__,
+                                                       str(e)[:80])})
+
+        threading.Thread(target=_work, daemon=True,
+                         name="onboarding-download").start()
+
+    def _cancel_download(self):
+        self._dl_stop = True
+        self.lbl_dl.setText("正在取消…")
+
+    def _on_dl_progress(self, got, total, sp, eta):
+        if total:
+            self.bar_dl.setValue(int(got * 100 / total))
+            self.lbl_dl.setText(
+                "已下 %.0f / %.0f MB　%.1f MB/s　剩余约 %d 秒"
+                % (got / 1048576, total / 1048576, sp, int(eta)))
+        else:
+            self.lbl_dl.setText("已下 %.0f MB　%.1f MB/s"
+                                % (got / 1048576, sp))
+
+    def _on_dl_done(self, r):
+        self._dl_busy = False
+        self.btn_dl.setEnabled(True)
+        self.btn_cancel_dl.setVisible(False)
+        if r.get("ok"):
+            self._dl_ready_path = r.get("路径") or ollama_installer.default_path()
+            self.bar_dl.setValue(100)
+            self.lbl_dl.setText(
+                "✅ 下载完成：%.0f MB（%s，用了 %.0f 秒）—— 点下面的按钮安装"
+                % (r.get("MB", 0), r.get("源", ""), r.get("耗时秒", 0)))
+            self.lbl_dl.setStyleSheet("color:#16a34a;")
+            self.btn_dl.setText("📦 立即安装")
+        elif r.get("取消"):
+            self.bar_dl.setVisible(False)
+            self.lbl_dl.setText("已取消下载（没留下半个文件）")
+            self.lbl_dl.setStyleSheet("color:#64748b;")
+        else:
+            self.bar_dl.setVisible(False)
+            self.lbl_dl.setText(
+                "❌ 下载失败：%s\n可以点上面的下载链接用浏览器手动下，"
+                "或稍后重试。" % r.get("错误", "")[:90])
+            self.lbl_dl.setStyleSheet("color:#dc2626;")
+
+    def _run_installer(self):
+        r = ollama_installer.run_installer(
+            getattr(self, "_dl_ready_path", None))
+        if r.get("ok"):
+            self.lbl_dl.setText("📦 %s" % r["提示"])
+            self.lbl_dl.setStyleSheet("color:#16a34a;")
+            self._dl_ready_path = None
+            self.btn_dl.setText("⬇️ 重新下载安装包")
+        else:
+            self.lbl_dl.setText("❌ %s" % r.get("错误", ""))
+            self.lbl_dl.setStyleSheet("color:#dc2626;")
 
     def _save_and_check(self):
         try:
