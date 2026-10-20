@@ -113,6 +113,8 @@ def test_plugin_download_rejects_path_traversal():
     os.makedirs(os.path.join(base, "modules", "installed"))
     t = _FakeTrunk(base)
     t.config["online_repo_url"] = "https://example.invalid/repo"
+    t.config["plugin_remote_install"] = True
+    t.config["plugin_repo_allowlist"] = ["example.invalid"]
     pm = PluginMarket(t)
     payload = b"print('x')\n"
     pm._verify_meta = lambda data, meta: (True, "mocked")

@@ -11,7 +11,7 @@
   "small_model": "qwen2.5:3b",
   "vl_model": "qwen3-vl:8b",
   "mcp_servers": [],
-  "online_repo_url": "https://gitee.com/cloud-drift/liuyun/raw/master",
+  "online_repo_url": "",
   "mcp_url": "http://localhost:3742",
   "font_size": "12px",
   "wecom_webhook": "",
@@ -64,5 +64,14 @@
   "ui_mode": "simple",
   "ui_mode_ever_switched": false,
   "show_advanced_entries": false,
-  "shortcut_command_palette": "Ctrl+K"
+  "shortcut_command_palette": "Ctrl+K",
+  "plugin_remote_install": false,
+  "plugin_repo_allowlist": [
+    "gitee.com",
+    "raw.githubusercontent.com"
+  ],
+  "plugin_repo_urls": [
+    "https://gitee.com/cloud-drift/liuyun/raw/master",
+    "https://raw.githubusercontent.com/jiek860/xiaoliu-app/main/modules_repo"
+  ]
 }

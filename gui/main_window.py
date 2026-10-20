@@ -209,6 +209,8 @@ class JarvisWindow(
 
     def _do_login_flow(self):
         """窗口显示后再走登录门禁（原来在 __init__ 里阻塞，窗口得等登录完才出现）"""
+        if os.environ.get("X6_DISABLE_LOGIN_PROMPT") == "1":
+            return
         try:
             while not self.account.current_username():
                 try:

@@ -49,8 +49,21 @@ Python worker 内仍可能存在解释器层面的逃逸路径；因此：
 
 | 配置 | 默认 | 说明 |
 |---|---|---|
-| `allow_unsigned_plugins` | false | 允许无签名插件，仅开发/兼容 |
+| `allow_unsigned_plugins` | false | 允许本地无签名插件，仅开发/兼容 |
 | `allow_inprocess_plugins` | false | 进程内插件安装，不安全，仅开发调试 |
+| `plugin_remote_install` | false | 远程插件下载总开关，默认关闭 |
+| `plugin_repo_urls` | 官方 Gitee + GitHub 地址 | 按顺序尝试的插件仓库 HTTPS 源 |
+| `plugin_repo_allowlist` | 官方两个 host | 远程插件仓库主机白名单，必须显式匹配 |
 | `mcp_allow_dangerous_tools` | false | 允许 MCP 暴露高风险工具 |
 | `mcp_allow_remote` | false | 允许 MCP 监听非环回地址 |
 | `security.network_mode` | standard | `off/learning/standard` 由 NetGuard 使用 |
+
+
+## 远程插件双源策略
+
+- 默认 `plugin_remote_install=false`，不会访问任何远程插件仓库。
+- 显式启用后，按 `plugin_repo_urls` 顺序尝试 Gitee / GitHub 等 HTTPS 源。
+- 每个源都必须通过 `plugin_repo_allowlist` 主机校验。
+- 任一 URL 非 HTTPS、带内嵌凭据或主机不在白名单，整组源拒绝使用。
+- 所有源下载到的内容都必须通过同一 RSA 签名校验；验签失败不会落盘。
+- 远程下载不存在 `allow_unsigned_plugins` 放行路径。

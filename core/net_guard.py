@@ -26,7 +26,7 @@ _DEFAULT_ALLOW = {
     "open.bigmodel.cn", "api.deepseek.com", "dashscope.aliyuncs.com",
     "api.moonshot.cn", "api.siliconflow.cn", "gitee.com", "github.com",
     "ollama.com", "cn.bing.com", "www.sogou.com", "html.duckduckgo.com",
-    "api.github.com", "huggingface.co", "hf-mirror.com",
+    "api.github.com", "raw.githubusercontent.com", "huggingface.co", "hf-mirror.com",
     "open.feishu.cn", "qyapi.weixin.qq.com", "oapi.dingtalk.com",
     "gh-proxy.com", "ghproxy.net", "ghfast.top", "wttr.in",
 }
