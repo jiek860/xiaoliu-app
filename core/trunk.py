@@ -133,30 +133,7 @@ class Trunk(
         threading.Thread(target=self._auto_backup, daemon=True).start()
         # 性能优化：Ollama 预热 + 向量库预加载
         threading.Thread(target=self._warmup, daemon=True).start()
-        # 尝试初始化 pipeline；初始化就失败的话只能一直走 legacy
-        self._use_pipeline = True
-        # pipeline 出错后的冷却重试状态（见 _reply_inner / _pipeline_failed）
-        self._pipeline_fail_count = 0     # 连续失败次数，成功一次就清零
-        self._pipeline_retry_at = 0.0     # 早于这个时间点不重试 pipeline
-        try:
-            from core.pipeline import ReplyPipeline
-            self._pipeline = ReplyPipeline(self)
-            self._log("Pipeline 初始化成功")
-        except Exception as e:
-            self._use_pipeline = False
-            self._pipeline = None
-            self._log(f"Pipeline 初始化失败，使用旧流程: {e}")
-        # 后台自我改进组件（全try包裹，坏了不影响主程序）
-        try:
-            from core.config_healer import ConfigHealer
-            fixes = ConfigHealer(self).check_and_heal()
-            if fixes: self._log(f"配置自愈完成，修复{len(fixes)}项")
-        except Exception as e:
-            _x6_swallowed(__name__, e, "best-effort fallback")
-        try:
-            from core.module_health import ModuleHealth
-            disabled = ModuleHealth(self).disabled_modules()
-            if disabled: self._log(f"已自动禁用坏模块: {disabled}")
-        except Exception as e:
-            _x6_swallowed(__name__, e)
-        self._log("躯干启动")
+        # 被延迟的 LLM 看门狗/预热在这里补启动（LLMClient 构造时没启）
+        self._start_llm_workers_later()
+        # 回复管道（原来是 __init__ 里的一大段，现在统一收在 background mixin）
+        self._init_pipeline()

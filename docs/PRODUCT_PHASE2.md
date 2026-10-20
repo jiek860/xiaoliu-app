@@ -79,3 +79,49 @@
 CHANGELOG、FAQ.txt、使用说明-小白版.txt、模型教程.txt、检测手册.txt、
 部署步骤.md、开发者须知-密钥与发版.md、gui/tutorial_dialog.py 已同步。
 打包源通过 `tools/sync_package.py` 更新。
+
+## 2026-10-20 启动提速（秒开界面 + 看门狗同时启动）
+
+### 问题
+
+实测（offscreen，本机 Windows 11 / Python 3.12）：
+
+    QApplication 就绪        118 ms
+    骨架未拆分时窗口显示    2501 ms
+    其中 Trunk.__init__     约 1850 ms
+      ├─ 核心模块注册        约 530~700 ms（其中 llm_client 导入 306 ms）
+      ├─ vector_store 初始化  约 120 ms
+      └─ 模块星图 AST 遍历    约 300~1100 ms
+
+### 改法
+
+1. 新增 `core/startup.py`：纯 stdlib 的启动打点（mark / report / log_summary），
+   每个阶段写入 `data/logs/trunk.log` 的一行 `[启动耗时] …`。
+2. `run.py` 打点顺序：进程启动 → 依赖路径 → MSVC 预载 → **看门狗拉起** → GUI 导入。
+   看门狗（`core/crash_watchdog.spawn`）在主线程还没进 Qt 之前就已经是独立进程，
+   所以界面再慢，它也已经跑起来了。
+3. `gui/main_window.py` 支持 `boot_signal=False`：只建窗口骨架（标题/图标/样式/占位页）
+   立刻显示，`trunk` 置 None 等后台补。
+4. 新增 `gui/boot_controller.py`：`QTimer` 把 Trunk 创建排到事件循环之后，
+   完成/失败都通过信号回到 GUI 线程；失败自动重试一次，仍失败弹窗说明。
+5. `core/trunk_registry.py`：模块星图导出改后台线程（纯展示用途）。
+6. `core/llm_client.py`：新增 `defer_warmup=True` 与幂等的 `start_background_workers()`；
+   Trunk 启动完成后延迟 1 秒再补启 LLM 看门狗和模型预热，避免和首帧抢 CPU。
+7. 可用 `X6_BLOCKING_BOOT=1` 退回"全部就绪才显示"的旧行为（排查用）。
+
+### 结果
+
+| 指标 | 优化前 | 优化后 |
+|---|---:|---:|
+| 界面可见 | 2501 ms | **155~197 ms** |
+| 全功能就绪 | 2510 ms | 约 990~1220 ms |
+| 看门狗 | Qt 之后（约 2.5 s） | 进程启动后约 0.3 s，独立进程 |
+| 全量测试 | — | 1298 passed / 2 skipped |
+| 覆盖率 | — | 约 60.2% |
+
+### 验收
+
+    python -m pytest tests/test_startup_speed.py tests/test_gui_smoke.py tests/test_trunk_facade.py -q
+    python run.py        # 看 trunk.log 里的 [启动耗时] 一行
+
+新增测试：`tests/test_startup_speed.py`（打点单调性、看门狗快启、骨架不建 Trunk）。

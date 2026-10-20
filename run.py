@@ -8,6 +8,14 @@ except ImportError:
 
 import sys, os
 
+# 启动计时：从进程开始到界面可见的每个阶段都会记录（见 core/startup.py）
+# 放在最前面，这样连"导入跑不起来"的那几毫秒也算得进去。
+try:
+    from core import startup as _startup
+    _startup.mark("进程启动")
+except Exception:
+    _startup = None
+
 # 看门狗模式（--watchdog <pid>）必须**最先**处理：
 # 它只等主进程退出并补发日志，不加载 Qt / Trunk，也不装 crash_guard
 # （否则两个进程会同时往 faulthandler.log 里写）。
@@ -54,6 +62,8 @@ for _d in (os.path.join(_base_dir, "optional_libs"), os.path.join(_base_dir, "li
         sys.path.insert(0, _d)
 if _base_dir not in sys.path:
     sys.path.insert(0, _base_dir)
+if _startup is not None:
+    _startup.mark("依赖路径就绪")
 
 # ⚠️ 必须在任何 Qt 导入之前：PyQt5 自带旧版 MSVCP140.dll，会挡住 torch 的 c10.dll
 # （WinError 1114）。详见 core/win_dll_fix.py
@@ -63,6 +73,8 @@ try:
 except Exception as e:
     _x6_swallowed(__name__, e)
     pass
+if _startup is not None:
+    _startup.mark("MSVC 运行库预载")
 
 # HuggingFace 直连在部分网络下会超时（实测本机直连不通、镜像可达）。
 # 语音识别首次使用要从 HF 下载模型，而 huggingface_hub 是在 import 时读取
@@ -123,9 +135,13 @@ if __name__ == "__main__":
     _validate_config()
 
     # 崩溃 / 闪退自动上报：Python 层异常当场发；原生崩溃下次启动补发
+    # auto_report.start() 内部会立刻 spawn 看门狗子进程，所以这一步必须
+    # 排在 Qt 之前 —— 界面再怎么慢，看门狗已经独立跑起来了。
     try:
         from core import auto_report
         auto_report.start(os.path.dirname(os.path.abspath(__file__)))
+        if _startup is not None:
+            _startup.mark("看门狗已拉起")
     except Exception as e:
         print("自动上报初始化失败: %s" % str(e)[:80])
 
@@ -168,6 +184,8 @@ if __name__ == "__main__":
     atexit.register(_cleanup)
 
 
+    if _startup is not None:
+        _startup.mark("准备导入 GUI")
     from gui.app_pyqt import run_pyqt
-    run_pyqt()
+    run_pyqt(startup=_startup)
     

@@ -35,6 +35,12 @@ class TrunkRegistryMixin:
             try:
                 mod = __import__(mod_path, fromlist=[cls_name])
                 cls = getattr(mod, cls_name)
+                # LLMClient 的看门狗/模型预热延后到后台，避免启动阶段抢 CPU
+                if name == "llm":
+                    try:
+                        return name, cls(self, defer_warmup=True), None
+                    except TypeError:
+                        return name, cls(self), None
                 return name, cls(self), None
             except Exception as e:
                 return name, None, str(e)
@@ -48,6 +54,11 @@ class TrunkRegistryMixin:
                 else:
                     self.register(name, inst)
 
+        try:
+            from core import startup as _startup
+            _startup.mark("核心模块注册完成")
+        except Exception as e:
+            _x6_swallowed(__name__, e, "best-effort fallback")
         self._log("核心模块注册完成，共%d个（其他%d个懒加载，并行启动）" % (len(self.modules), len(self._lazy)))
         # 数据迁移已在load_config里自动完成
         # 启动健康自检（P2-05）
@@ -58,10 +69,21 @@ class TrunkRegistryMixin:
         except Exception as e:
             _x6_swallowed(__name__, e)
             pass
-        try:
-            self.export_module_map()
-        except Exception as e:
-            self._log("模块星图导出失败: %s" % e)
+        # 模块星图是纯展示用途，代价却是遍历全部源码做 AST（实测 300~1100ms）。
+        # 以前同步跑在 __init__ 里，直接拖慢启动；现在丢后台线程。
+        def _export_map_bg():
+            try:
+                self.export_module_map()
+                try:
+                    from core import startup as _startup
+                    _startup.mark("模块星图导出完成")
+                except Exception:  # 静默是故意的
+                    pass
+            except Exception as e:
+                self._log("模块星图导出失败: %s" % e)
+
+        threading.Thread(target=_export_map_bg, daemon=True,
+                         name="module-map-export").start()
 
     def export_module_map(self):
         """把模块星图写到 data/modules_map.js（实现在 core/module_map.py）
