@@ -36,6 +36,14 @@ a = Analysis(
         'PIL',
         'scipy',
         'pandas',
+        # Keep only the Qt families the desktop UI actually imports.
+        'PyQt5.QtWebEngineWidgets', 'PyQt5.QtWebEngineCore',
+        'PyQt5.QtWebEngine', 'PyQt5.QtQml', 'PyQt5.QtQuick',
+        'PyQt5.QtSql', 'PyQt5.QtTest', 'PyQt5.QtXml',
+        'PyQt5.QtDesigner', 'PyQt5.QtHelp', 'PyQt5.QtBluetooth',
+        'PyQt5.QtNfc', 'PyQt5.QtPositioning', 'PyQt5.QtSerialPort',
+        'PyQt5.QtSensors', 'PyQt5.QtWebSockets', 'PyQt5.QtOpenGL',
+        'PyQt5.QtPrintSupport', 'PyQt5.QtSvg',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -49,10 +57,9 @@ a.datas += Tree('modules/installed', prefix='modules/installed',
                 excludes=['__pycache__', '*.pyc', '*.pyo'])
 a.datas += Tree('modules_repo', prefix='modules_repo',
                 excludes=['.git', '.githooks', '__pycache__', '*.pyc', '*.pyo'])
-a.datas += Tree('gui', prefix='gui',
-                excludes=['__pycache__', '*.pyc', '*.pyo'])
-a.datas += Tree('core', prefix='core',
-                excludes=['__pycache__', '*.pyc', '*.pyo'])
+# GUI/core Python modules are already embedded in the PYZ. Only the one
+# source file that plugin uninstall edits at runtime is shipped as data.
+a.datas.append(('core/lazy_config.py', 'core/lazy_config.py', 'DATA'))
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
