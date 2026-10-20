@@ -20,9 +20,12 @@ class LLMUsageMixin:
             text = self._extract_user_text(messages)
             tin = max(1, len(str(text)) // 4)
             tout = max(1, len(str(answer)) // 4)
+            from core.model_pricing import estimate_cost
+            cost = estimate_cost(model, tin, tout,
+                                 (self.config or {}).get("model_prices"))
             UsageTracker(self.base).record(
                 kind=kind, name="chat", model=str(model),
-                tokens_in=tin, tokens_out=tout,
+                tokens_in=tin, tokens_out=tout, cost=cost,
                 elapsed=float(elapsed or 0), success=success)
         except Exception as e:
             _x6_swallowed(__name__, e)

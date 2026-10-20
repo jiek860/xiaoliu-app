@@ -31,3 +31,31 @@ def test_team_dialog_constructs_and_lists_owner(tmp_path, qapp):
         assert d.table.item(0, 2).text() == "owner"
     finally:
         d.close()
+
+
+def test_cloud_provider_dialog_reports_capabilities(tmp_path, qapp):
+    from gui.cloud_provider_dialog import CloudProviderDialog
+    class T:
+        base = str(tmp_path)
+        config = {"cloud_provider": "openai", "cloud_model": "gpt-4o-mini",
+                  "cloud_url": "https://api.openai.com/v1", "cloud_key": "k"}
+        def save_config(self):
+            self.saved = dict(self.config)
+    t = T()
+    d = CloudProviderDialog(None, t)
+    try:
+        assert d.values()["cloud_provider"] == "openai"
+        d.provider.setCurrentIndex(d.provider.findData("anthropic"))
+        assert d.values()["cloud_provider"] == "anthropic"
+        assert "tools=" in d.capability.text()
+    finally:
+        d.close()
+
+
+def test_usage_dialog_constructs(tmp_path, qapp):
+    from gui.usage_dialog import UsageDialog
+    d = UsageDialog(_Trunk(tmp_path))
+    try:
+        assert "最近 7 天" in d.summary.text()
+    finally:
+        d.close()

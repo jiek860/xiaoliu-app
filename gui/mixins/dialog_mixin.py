@@ -44,6 +44,10 @@ class DialogMixin:
         from gui.team_dialog import show_team_dialog
         show_team_dialog(self.trunk, self)
 
+    def usage_dialog(self):
+        from gui.usage_dialog import show_usage_dialog
+        show_usage_dialog(self.trunk, self)
+
     def sys_dialog(self):
         from gui.system_dialog import show_system_dialog
         show_system_dialog(self)
@@ -208,6 +212,8 @@ class DialogMixin:
             "RAG管理":      getattr(self, "rag_dialog", None),
             "团队管理":     getattr(self, "team_dialog", None),
             "多用户":       getattr(self, "team_dialog", None),
+            "用量成本":     getattr(self, "usage_dialog", None),
+            "模型用量":     getattr(self, "usage_dialog", None),
             "资料中心":     getattr(self, "kb_dialog", None),
             "检查更新":     getattr(self, "update_dialog", None),
             "桌宠":         getattr(self, "pet_dialog", None),

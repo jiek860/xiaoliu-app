@@ -162,67 +162,9 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         lay.addWidget(cloud_btn)
 
         def cloud_set():
-            from core.llm_providers import provider_names, provider_spec
-            cd = QDialog(d)
-            cd.setWindowTitle("云端模型")
-            cl = QVBoxLayout(cd)
-            cl.addWidget(QLabel("服务商:"))
-            pc = QComboBox()
-            pc.addItem("自定义 / OpenAI 兼容", "")
-            for _name in provider_names():
-                pc.addItem(provider_spec(_name).get("label", _name), _name)
-            _cur_provider = str(trunk.config.get("cloud_provider") or "")
-            _idx = pc.findData(_cur_provider)
-            if _idx >= 0:
-                pc.setCurrentIndex(_idx)
-            cl.addWidget(pc)
-            cl.addWidget(QLabel("云端模型 / Azure deployment:"))
-            cc = QComboBox()
-            cc.setEditable(True)
-            cc.addItems([
-                "glm-4-flash", "glm-4", "glm-4v-flash",
-                "qwen-turbo", "qwen-plus", "qwen-max", "qwen-vl-plus",
-                "deepseek-chat", "deepseek-reasoner",
-                "ernie-3.5-8k", "ernie-4.0-8k",
-                "hunyuan-lite", "hunyuan-pro",
-                "yi-lightning", "yi-large", "moonshot-v1-8k",
-            ])
-            cc.setCurrentText(trunk.config.get("cloud_model", "qwen-turbo"))
-            cl.addWidget(cc)
-            cl.addWidget(QLabel("API 地址:"))
-            uu = QLineEdit(trunk.config.get(
-                "cloud_url",
-                "https://open.bigmodel.cn/api/paas/v4/chat/completions"))
-            cl.addWidget(uu)
-            cl.addWidget(QLabel("API Key:"))
-            kk = QLineEdit(trunk.config.get("cloud_key", ""))
-            kk.setEchoMode(QLineEdit.Password)
-            cl.addWidget(kk)
+            from gui.cloud_provider_dialog import configure_cloud_provider
+            configure_cloud_provider(d, trunk)
 
-            def _provider_selected():
-                spec = provider_spec(pc.currentData()) if pc.currentData() else {}
-                if not spec:
-                    return
-                base = str(spec.get("base_url") or "")
-                if base:
-                    uu.setText(base)
-                if spec.get("default_model"):
-                    cc.setCurrentText(str(spec["default_model"]))
-                if spec.get("local"):
-                    kk.setPlaceholderText("本地服务通常不需要 Key")
-                else:
-                    kk.setPlaceholderText("API Key")
-            pc.currentIndexChanged.connect(lambda _i: _provider_selected())
-            def save_cloud():
-                trunk.config["cloud_provider"] = str(pc.currentData() or "")
-                trunk.config["cloud_model"] = cc.currentText().strip()
-                trunk.config["cloud_url"] = uu.text().strip()
-                trunk.config["cloud_key"] = kk.text().strip()
-                trunk.save_config()
-                cd.accept()
-                QMessageBox.information(d, "成功", "云端模型配置已保存")
-            cl.addWidget(QPushButton("保存", clicked=save_cloud))
-            cd.exec_()
         cloud_btn.clicked.connect(cloud_set)
         lay.addWidget(QLabel(
             "本地：先安装 Ollama；云端：填 API 地址和 Key。"))
