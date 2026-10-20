@@ -24,6 +24,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: 生成插件清单
+        run: python tools/rebuild_modules_repo.py --apply
       - name: Python 语法检查
         run: |
           python -m compileall -q core modules gui tools
