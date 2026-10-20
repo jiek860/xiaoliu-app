@@ -106,6 +106,33 @@
 ╔══════════════════════════════════════════════════════════╗
 ║ 第二部分：启动检测（10 项）                              ║
 ╚══════════════════════════════════════════════════════════╝
+【1.8 模型服务商与路由检查（开发者/发布）】
+命令：py -3 -m pytest tests\test_llm_providers.py tests\test_model_router.py tests\test_llm_cloud_provider.py -q
+预期：全部通过。检查 8 类 provider 请求/响应、能力路由、本地失败云端兜底。
+界面：设置 → 模型 → 配置云端模型，选择服务商后地址/模型应自动带出；
+Azure 应显示 deployment（模型框）和 API version 输入。
+
+【1.9 RAG / 团队 / 插件更新检查（开发者/发布）】
+命令：py -3 -m pytest tests\test_rag_pipeline.py tests\test_team_policy.py tests\test_plugin_registry.py tests\test_plugin_market_extra.py -q
+预期：全部通过。覆盖增量索引、ACL、引用、RBAC、集中配置、审计、插件更新和回滚备份。
+命令面板：Ctrl+K 搜「RAG管理」「团队管理」「用量成本」应能打开窗口。
+
+【1.10 插件仓库与签名检查（发布必跑）】
+命令：
+  py -3 tools\check_plugin_repo.py
+  py -3 tools\check_plugin_api.py
+预期：42/42 签名文件验证通过；42/42 插件 API 契约通过。
+远程插件默认开关：data\config.json 中 plugin_remote_install=false。
+开启后仍必须 HTTPS、主机白名单和 RSA 签名。
+
+【1.11 打包体积与 diff 覆盖率检查（发布必跑）】
+命令：
+  py -3 tools\check_diff_coverage.py --coverage coverage.json --base origin/main
+  py -3 tools\check_pyinstaller_warnings.py --warn build\xiao6\warn-xiao6.txt
+预期：changed-lines coverage >= 70%；missing-module 全部已分类。
+当前本地参考：1292 passed / 2 skipped；总覆盖率约 60.36%；
+PyInstaller 约 370 文件 / 148.6 MB。
+
 【2.1 双击启动】
 操作：双击 启动小6.bat
 预期：黑窗出现，然后主窗口弹出。

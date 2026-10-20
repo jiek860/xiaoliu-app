@@ -1,6 +1,6 @@
 # docs 文档索引
 
-更新日期：2026-10-20  
+更新日期：2026-10-20（第二阶段文档/教程同步）  
 适用版本：v25.2.23
 
 ## 一、主文档（优先阅读）
@@ -15,6 +15,12 @@
 | `50_产品体验与Agent能力提升方案.md` | 使用体验、代码 Agent、电脑操作 Harness、路线图和验收指标 | 方案调整或阶段完成后更新 |
 | `70_兼容性与数据迁移.md` | Windows/Python 兼容矩阵、v0→v1→v2 数据迁移、插件 API v1.0 边界与验收命令 | 兼容性、数据版本或插件 API 变化时更新 |
 | `80_程序质量检测报告_2026-10-20.md` | 全量检测结果、覆盖率、安全扫描、打包实测、问题优先级与发布结论 | 每次发布前复核 |
+| `PRODUCT_PHASE2.md` | 第二阶段模型/RAG/GUI Agent/插件/团队能力、状态、验收命令 | 能力或状态变化时更新 |
+| `PLUGIN_SDK.md` | 隔离插件 SDK、能力声明、信任等级、版本兼容和发布流程 | 插件 API 或安全边界变化时更新 |
+| `SECURITY_ARCHITECTURE.md` | 权限、网络、沙箱、MCP、插件、Prompt 注入防线 | 安全边界变化时更新 |
+| `CI_RELEASE_GATES.md` | CI 必需检查、分支保护、发布门禁 | workflow/门禁变化时更新 |
+| `RELEASE_VALIDATION.md` | 发布验收清单和证据记录 | 发版流程变化时更新 |
+| `examples/plugins/` | 隔离插件 SDK 示例 | 插件 SDK 变化时更新 |
 
 ## 二、运行时文件
 
@@ -75,9 +81,19 @@
    ```powershell
    py -3 -m pytest tests/test_docs_consistency.py tests/test_user_docs_intact.py -q
    py -3 tools/check_version.py
+   py -3 tools/check_plugin_repo.py
    py -3 tools/check_plugin_api.py
+   py -3 tools/check_diff_coverage.py --coverage coverage.json --base origin/main
+   py -3 tools/sync_package.py --dry-run
    py -3 tools/sync_package.py
    ```
+7. 文档/教程同步范围：
+   - 根目录 `README.md` / `README_EN.md` / `ARCHITECTURE.md` / `CHANGELOG.md`
+   - 用户文档 `使用说明-小白版.txt` / `FAQ.txt` / `模型教程.txt` /
+     `检测手册.txt` / `部署步骤.md` / `开发者须知-密钥与发版.md`
+   - 程序内教程 `gui/tutorial_dialog.py` / `gui/onboarding_wizard.py`
+   - `docs/00/10/20/30/50/70/80` 与 `docs/PRODUCT_PHASE2.md` / `docs/PLUGIN_SDK.md`
+   - 打包源由 `tools/sync_package.py` 同步到 `E:\xiao6-package`
 
 
 ## 五、Agent 闭环方案

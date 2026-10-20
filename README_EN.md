@@ -48,3 +48,18 @@ python run.py
 - `docs/PRODUCT_PHASE2.md` - product capability roadmap and status
 - `docs/PLUGIN_SDK.md` - isolated plugin SDK
 - `docs/30_模块规则与API参考.md` - module API reference
+
+
+## Phase-2 capabilities (2026-10-20)
+
+- Provider adapters: OpenAI, Anthropic, Gemini, OpenRouter, Azure OpenAI,
+  LM Studio, llama.cpp, vLLM and custom OpenAI-compatible endpoints.
+- Capability routing: tool calling, JSON mode, vision, context window,
+  with local-to-cloud fallback.
+- Incremental ACL-aware RAG with page/offset citations and hybrid rerank.
+- Team RBAC, login binding, per-user directories, central config and audit export.
+- Plugin version/trust/compatibility checks, update and rollback ledger.
+- UIA + OCR/vision GUI agent with verification, retries and DPI/IME handling.
+- Usage and estimated-cost dashboard.
+
+See `docs/PRODUCT_PHASE2.md` and `docs/PLUGIN_SDK.md`.

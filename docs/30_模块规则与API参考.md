@@ -984,3 +984,46 @@ SQLite 事务 + `x6_meta`；失败不覆盖原文件。
 
 详见 `docs/70_兼容性与数据迁移.md`。
 
+
+## 2026-10-20 第二阶段新增核心 API
+
+这些是 core 层能力，不改变 LAZY_MAP 模块数和工具注册数：
+
+### 模型
+
+- `core.llm_providers.build_chat_request(provider, model, messages, ...)`
+- `core.llm_providers.parse_chat_response(provider, data)`
+- `core.model_router.route_model(...)`
+- `core.model_router.capability_report(provider, model, ...)`
+- `LLMClient.route_request(requirements=None, local_failed=None)`
+
+### RAG
+
+- `core.rag_pipeline.KnowledgeBase.ingest_file(path, acl_roles=...)`
+- `KnowledgeBase.ingest_directory(...)`
+- `KnowledgeBase.search(query, role=..., top_k=...)`
+- `KnowledgeBase.delete_source(source)`
+- `KnowledgeBase.stats()`
+
+### 插件
+
+- `core.plugin_registry.manifest_product_info(meta, ...)`
+- `core.plugin_registry.select_update(current, candidates, ...)`
+- `core.plugin_registry.InstallLedger(base)`
+- `core.plugin_installer.apply_update(pm, meta)`
+- `plugin_market.check_updates(online=None)`
+
+### 团队
+
+- `core.team_policy.TeamStore(base)`
+- `TeamStore.check(user, permission)`
+- `TeamStore.set_central_config(values, requester=...)`
+- `TeamStore.export_audit(out_path, requester=...)`
+- `Auth.login(...)` 返回角色，`Auth.has_permission(permission)`
+
+### GUI Agent / 用量
+
+- `core.gui_agent_quality.DualChannelLocator`
+- `verify_snapshot(before, after, expectation)`
+- `repair_strategy(action, result, attempt=0)`
+- `core.model_pricing.estimate_cost(model, tokens_in, tokens_out, ...)`

@@ -286,3 +286,25 @@ py -3 -m pytest -q
 py -3 tools/run_eval.py
 py -3 tools/make_sbom.py
 ```
+
+
+## 十一、第二阶段新增模块（2026-10-20）
+
+| 文件 | 职责 |
+|---|---|
+| `core/llm_providers.py` | 8 类模型服务商请求/响应适配 |
+| `core/model_router.py` | 能力矩阵与本地/云端路由 |
+| `core/rag_pipeline.py` | 增量 RAG、ACL、引用、混合检索、rerank |
+| `core/gui_agent_quality.py` | 双通道定位、验证、修复、DPI/IME |
+| `core/plugin_registry.py` | 插件 SemVer、兼容、信任等级、更新选择 |
+| `core/plugin_installer.py` | 更新前备份、热加载、安装账本 |
+| `core/team_policy.py` | RBAC、用户隔离、集中配置、审计 |
+| `core/model_pricing.py` | Token 价格估算 |
+| `gui/cloud_provider_dialog.py` | 模型服务商配置 |
+| `gui/rag_dialog.py` | RAG 管理窗口 |
+| `gui/team_dialog.py` | 团队管理窗口 |
+| `gui/usage_dialog.py` | 用量成本窗口 |
+| `gui/panel_registry.py` | 命令面板/设置共享入口表 |
+
+入口统一从 `gui/panel_registry.py` 注册，命令面板 Ctrl+K 可打开
+「RAG管理」「团队管理」「用量成本」「模型用量」。

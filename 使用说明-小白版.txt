@@ -69,22 +69,23 @@
        （比如 qwen2.5:7b），再点「下载模型」
 
 【路线B：云端 API（效果更好，按量付费）】
-  1. 在向导的「方式二」里，先选「服务商」下拉框
-     —— 地址和模型名会**自动填好**，不用自己抄 URL
-  2. 去对应服务商后台申请一个 API Key：
-         智谱 GLM      https://open.bigmodel.cn          （有免费额度）
-         DeepSeek      https://platform.deepseek.com     （便宜）
-         通义千问      https://dashscope.console.aliyun.com
-         月之暗面 Kimi  https://platform.moonshot.cn      （长文本）
-         硅基流动      https://cloud.siliconflow.cn
-     ⚠️ 这几家的地址都是**实测过**的（能连通、需要鉴权）。
-        OpenAI 国内直连不通，所以没放进预设。
-  3. 把 Key 粘进「Key」框
-  4. 点「💾 保存并检测」
+  1. 设置 → 模型 → 配置云端模型，先选「服务商」
+     地址和模型名会自动填好，不用自己抄 URL
+  2. 当前内置 8 类接入：
+         OpenAI / Anthropic / Gemini / OpenRouter
+         Azure OpenAI / LM Studio / llama.cpp server / vLLM
+         以及「自定义 / OpenAI 兼容」
+     国内常用：智谱 GLM、DeepSeek、通义千问、Kimi、硅基流动
+     （仍可选「自定义」填它们的 OpenAI 兼容地址）
+  3. Azure OpenAI 还需要填 deployment（模型框）和 API version
+  4. 把 Key 粘进「Key」框；本地 LM Studio/llama.cpp/vLLM 通常不需要 Key
+  5. 点「保存」
 
   ⚠️ Key 是密码，别发到群里。填错了会报 401。
   ⚠️ 想用别家的模型：服务商选「自定义（自己填）」，
      地址要填**完整的 chat/completions 地址**（只填域名会 404）。
+  ⚠️ 模型能力和预估成本：Ctrl+K 搜「用量成本」；价格可写在
+     data\config.json 的 model_prices 里覆盖。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 四、界面怎么看
@@ -184,6 +185,40 @@
      要改就改源码目录，然后跑 tools\rebuild_modules_repo.py。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+九点五、RAG、团队、成本和插件更新（2026-10-20 新增）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【RAG 知识库】Ctrl+K 搜「RAG管理」
+  · 导入单个文件或整个目录
+  · 角色框填 admin,editor,viewer，留空表示公开
+  · 搜索结果显示来源、页码、offset 和引用位置
+  · 可删除某个来源的索引
+  · 底层使用增量索引：文件 sha256 没变不会重复入库
+
+【团队 / 多用户】Ctrl+K 搜「团队管理」或「多用户」
+  · 角色：owner / admin / editor / viewer / auditor
+  · 登录账号会自动绑定团队角色
+  · 管理员禁用账号后，该账号无法登录
+  · 集中配置保存在 data\team\central_config.json，会覆盖用户本地配置
+  · 审计可导出为 JSON（自动脱敏）
+
+【模型用量与成本】Ctrl+K 搜「用量成本」或「模型用量」
+  · 最近 7 天调用次数、Token、估算成本、P50/P95 延迟
+  · 按模型分组
+  · 未知模型显示 $0，不伪造费用
+
+【插件更新与回滚】设置 → 扩展 → 插件市场
+  · 点「检查更新」，只列出宿主版本和插件 API 兼容的版本
+  · 可一键应用全部兼容更新
+  · 更新前自动把旧文件放到 data\plugin_backups\
+  · 单个插件卡片上可回滚
+  · 插件卡片显示发布者、信任等级、版本、签名、API、能力和风险
+  · 远程插件下载默认关闭（plugin_remote_install=false），
+    开启后仍要求 HTTPS + 主机白名单 + RSA 签名
+
+【电脑 Agent 失败修复】
+  · 重试时会显示修复计划：刷新界面、滚动、切换定位源、等待、请求用户
+  · 每一步都有动作、验证结果、重试次数和修复原因
+
 十、出问题了怎么查（重要）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ★ 第一招：设置 → 系统 → 深度自检

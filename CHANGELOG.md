@@ -1,5 +1,24 @@
 # 版本变更记录
 
+### 第二阶段产品能力 + 文档/教程同步（2026-10-20）
+
+- 新增 8 类模型服务商适配：OpenAI、Anthropic、Gemini、OpenRouter、
+  Azure OpenAI、LM Studio、llama.cpp、vLLM，以及自定义 OpenAI 兼容。
+- 新增 `core/model_router.py`：tool calling / JSON / vision / context 路由，
+  本地失败或能力不足自动云端兜底。
+- 新增增量 ACL-aware RAG：页码/offset 引用、混合检索、轻量 rerank。
+- 新增 GUI Agent 质量层：UIA+OCR/视觉双通道、动作验证、重试修复、
+  DPI/多显示器/IME 输入策略。
+- 新增插件版本/信任/兼容检查、检查更新、更新前备份、回滚账本。
+- 新增团队 RBAC、登录绑定、用户隔离、集中配置和脱敏审计导出。
+- 新增模型用量/成本面板与价格估算。
+- 新增 GUI：cloud_provider_dialog、rag_dialog、team_dialog、usage_dialog、
+  panel_registry。
+- PyInstaller 不再重复打包 gui/core 源码树，产物约 370 文件 / 148.6MB。
+- 本地全量测试：1292 passed / 2 skipped；覆盖率约 60.36%。
+- 同步 README、ARCHITECTURE、docs/00/10/20/50/70/80、FAQ、使用说明、
+  模型教程、检测手册、部署步骤、开发者须知和程序内新手教程。
+
 ### P1/P2 工程收口（2026-10-20）
 
 - 新增 `core/command_policy.py`；应用启动、关机/重启、代码测试命令全部去掉
