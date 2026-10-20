@@ -1,0 +1,30 @@
+{
+  "mood": "开心",
+  "energy": 90,
+  "birth_time": "<dynamic>",
+  "schema_version": 2,
+  "last_active": "<dynamic>",
+  "catchphrases": [],
+  "people": {},
+  "plans": [],
+  "narrative": [],
+  "milestones": [
+    {
+      "name": "认识",
+      "count": 0,
+      "last_show": 0
+    }
+  ],
+  "relation_stage": 0,
+  "user_name": "",
+  "user_style": "正常",
+  "hobbies": [
+    "听音乐",
+    "讲故事",
+    "想你"
+  ],
+  "new_words": [],
+  "guilt": [],
+  "last_proactive_date": "",
+  "last_user_feeling": "中性"
+}

@@ -1,0 +1,2 @@
+{"facts": ["喜欢咖啡"], "time": "<dynamic>", "schema_version": 2, "feelings": "", "follow_up": "", "trigger": "legacy"}
+{"fact": "喜欢猫", "time": "<dynamic>", "facts": ["喜欢猫"], "schema_version": 2, "feelings": "", "follow_up": "", "trigger": "legacy"}

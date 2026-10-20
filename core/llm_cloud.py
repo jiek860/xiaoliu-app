@@ -36,7 +36,8 @@ class LLMCloudMixin:
                 pass
             else:
                 raise PermissionError("网络策略检查失败: %s" % str(e)[:60]) from e
-        return requests.post(url, **kwargs)
+        kwargs.setdefault("timeout", 60)
+        return requests.post(url, **kwargs)  # nosec B113
 
     def _chat_cloud_only(self, message):
         """模式②：只连云端，失败重试1次"""

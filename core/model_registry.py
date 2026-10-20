@@ -6,6 +6,7 @@ except ImportError:
     def _x6_swallowed(component, error, context=""):
         return None
 
+from core.safe_http import open_url as safe_open_url
 import json
 import os
 import time
@@ -124,7 +125,7 @@ class ModelRegistry:
                 url, module="model_registry", purpose="local_model")
             if not d.get("allow"):
                 return {"ok": False, "error": d.get("reason")}
-            data = json.loads(urllib.request.urlopen(url, timeout=3).read())
+            data = json.loads(safe_open_url(url, timeout=3).read())
             names = [x.get("name") for x in data.get("models", [])]
             return {"ok": name in names, "models": names}
         except Exception as e:

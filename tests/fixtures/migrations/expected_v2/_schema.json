@@ -1,0 +1,12 @@
+{
+  "data_schema": 2,
+  "files": {
+    "memory_cards.jsonl": 2,
+    "dreams.jsonl": 2,
+    "personality.json": 2,
+    "config.json": 2,
+    "chats.db": 2,
+    "memory.json": 2
+  },
+  "updated": "2026-10-20 14:25:51"
+}

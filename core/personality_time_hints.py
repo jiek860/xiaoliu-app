@@ -2,6 +2,8 @@
 """人格时间/天气/节日/梦境提示词。"""
 from __future__ import annotations
 
+from core.safe_http import open_url as safe_open_url
+
 import json
 import os
 import random
@@ -41,7 +43,7 @@ class PersonalityTimeHintsMixin:
         hint = ""
         try:
             import urllib.request
-            raw = urllib.request.urlopen("https://wttr.in/Chongqing?format=%C+%t&lang=zh", timeout=3).read().decode("utf-8", "ignore").strip()
+            raw = safe_open_url("https://wttr.in/Chongqing?format=%C+%t&lang=zh", timeout=3).read().decode("utf-8", "ignore").strip()
             if any(k in raw for k in ["雨", "rain", "Rain", "阵雨"]):
                 hint = "【重庆今天%s】可以提醒他带伞" % raw[:20]
             elif any(k in raw for k in ["雪", "Snow", "snow"]):

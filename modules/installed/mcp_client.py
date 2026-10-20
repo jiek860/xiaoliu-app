@@ -6,7 +6,8 @@ except ImportError:
     def _x6_swallowed(component, error, context=""):
         return None
 
-import json, urllib.parse, urllib.request, time, threading
+from core.safe_http import open_url as safe_open_url
+import json, os, urllib.parse, urllib.request, time, threading
 from core.safe import safe
 from modules.base import BaseModule
 
@@ -68,6 +69,7 @@ class MCPClient(BaseModule):
         self.conn_errors = []    # 连接失败的诊断，给界面看
         self._stopped = False    # 退出时置位，防止"正在连接的"在 stop 之后才落地
         self._lock = threading.RLock()   # 并行连接时保护 tools / stdio / conn_errors
+        self._session_trusted = set()
         self.reload_servers()
 
     def reload_servers(self):
@@ -107,7 +109,10 @@ class MCPClient(BaseModule):
             url = str(s.get("url") or "").strip()
             if cmd:
                 entry = {"name": str(s.get("name") or cmd[:30]),
-                         "command": cmd, "transport": "stdio"}
+                         "command": cmd, "transport": "stdio",
+                         "cwd": str(s.get("cwd") or ""),
+                         "env": dict(s.get("env") or {}),
+                         "risk": str(s.get("risk") or "")}
             elif url:
                 entry = {"name": str(s.get("name") or url),
                          "url": url, "transport": "http",
@@ -183,7 +188,7 @@ class MCPClient(BaseModule):
             req = urllib.request.Request(
                 srv["url"] + "/tools",
                 headers=self._auth_headers(srv.get("url"), srv))
-            r = urllib.request.urlopen(req, timeout=3)
+            r = safe_open_url(req, timeout=3)
             data = json.loads(r.read().decode())
             if isinstance(data, list):
                 found = []
@@ -193,12 +198,76 @@ class MCPClient(BaseModule):
                     t = dict(t)
                     t["_server"] = srv["name"]
                     t["_transport"] = "http"
+                    from core.mcp_sandbox import classify_tool
+                    t["_risk"] = classify_tool(t)
                     found.append(t)
                 with self._lock:
                     self.tools.extend(found)
         except Exception as e:
             with self._lock:
                 self.conn_errors.append("%s (HTTP): %s" % (srv["name"], str(e)[:90]))
+
+    def _trust_path(self):
+        base = getattr(self.trunk, "base", None) or "."
+        return os.path.join(base, "data", "security", "mcp_trust.json")
+
+    def _trusted_commands(self):
+        try:
+            data = json.load(open(self._trust_path(), encoding="utf-8"))
+            return set(data.get("trusted_commands") or [])
+        except Exception:
+            return set()
+
+    def _save_trusted_command(self, command_hash):
+        try:
+            path = self._trust_path()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            commands = self._trusted_commands()
+            commands.add(str(command_hash))
+            json.dump({"trusted_commands": sorted(commands)},
+                      open(path, "w", encoding="utf-8"),
+                      ensure_ascii=False, indent=2)
+        except Exception as e:  # 静默是故意的 - 信任写入失败不影响本次确认
+            _x6_swallowed(__name__, e)
+
+    def _confirm_startup(self, srv, cwd):
+        cb = getattr(self.trunk, "confirm_cb", None)
+        if not cb:
+            return True
+        try:
+            from core.mcp_sandbox import startup_manifest
+            m = startup_manifest(dict(srv, cwd=cwd))
+            command_hash = m["command_sha256"]
+            if command_hash in self._trusted_commands() or                     command_hash in self._session_trusted:
+                return True
+            detail = ("命令: %s\ncwd: %s\n环境变量: %s\n风险: %s" % (
+                m["command"], m["cwd"], ",".join(m["env_keys"]) or "(最小白名单)",
+                m["risk"]))
+            scope_cb = getattr(self.trunk, "confirm_scope_cb", None)
+            scope = scope_cb("启动 MCP 服务器 %s" % srv.get("name"), detail)                 if callable(scope_cb) else None
+            if scope in ("once", "session", "always"):
+                if scope == "always":
+                    self._save_trusted_command(command_hash)
+                elif scope == "session":
+                    self._session_trusted.add(command_hash)
+                self._audit({"subject": "mcp:trust:" + str(srv.get("name")),
+                             "decision": "allow", "result": scope,
+                             "reason": command_hash})
+                return True
+            if scope_cb:
+                return False
+            return bool(cb("启动 MCP 服务器 %s" % srv.get("name"), detail))
+        except Exception:
+            return False
+
+    def _audit(self, event):
+        try:
+            from core.audit_log import AuditLog
+            base = getattr(self.trunk, "base", None)
+            if base:
+                AuditLog(base).append(event)
+        except Exception:  # 静默是故意的
+            pass
 
     def _connect_stdio(self, srv):
         """启动 stdio 子进程并拉工具列表"""
@@ -218,8 +287,27 @@ class MCPClient(BaseModule):
             except Exception as e:
                 _x6_swallowed(__name__, e)
                 pass
-        s = StdioMCPServer(srv["name"], srv["command"], log=self._log)
+        try:
+            from core.child_process import sandbox_cwd
+            base = getattr(self.trunk, "base", None) or "."
+            cwd = sandbox_cwd(base, srv["name"], srv.get("cwd") or None)
+        except Exception as e:
+            with self._lock:
+                self.conn_errors.append("%s (stdio): 工作目录被拒绝 %s"
+                                        % (srv["name"], str(e)[:80]))
+            return
+        if not self._confirm_startup(srv, cwd):
+            with self._lock:
+                self.conn_errors.append("%s (stdio): 用户取消启动" % srv["name"])
+            return
+        s = StdioMCPServer(srv["name"], srv["command"], cwd=cwd,
+                           log=self._log,
+                           base=getattr(self.trunk, "base", None),
+                           env_extra=srv.get("env") or {})
         if s.start():
+            self._audit({"subject": "mcp:start:" + str(srv["name"]),
+                         "decision": "allow", "result": "started",
+                         "reason": "cwd=%s" % cwd})
             # 竞态保护：如果这期间程序已经在退出了（stop() 已经跑过），
             # 这个刚起来的进程没人会再收，直接就地收掉，
             # 否则会留下一个孤儿 npx/node（实测能复现）。
@@ -230,6 +318,9 @@ class MCPClient(BaseModule):
                     _x6_swallowed(__name__, e)
                     pass
                 return
+            from core.mcp_sandbox import classify_tool
+            for tool in s.tools:
+                tool["_risk"] = classify_tool(tool)
             with self._lock:
                 self.stdio[srv["name"]] = s
                 self.tools.extend(s.tools)
@@ -306,7 +397,7 @@ class MCPClient(BaseModule):
             self._check_url(url + "/tools")
             req = urllib.request.Request(
                 url + "/tools", headers=self._auth_headers(url))
-            r = urllib.request.urlopen(req, timeout=3)
+            r = safe_open_url(req, timeout=3)
             return {"ok": True, "状态": "可连接"}
         except Exception as e:
             return {"ok": False, "错误": str(e)[:50]}
@@ -339,7 +430,7 @@ class MCPClient(BaseModule):
                 headers.update(self._auth_headers(srv.get("url"), srv))
                 req = urllib.request.Request(
                     srv["url"] + "/call", data=data, headers=headers)
-                r = urllib.request.urlopen(req, timeout=10)
+                r = safe_open_url(req, timeout=10)
                 result = json.loads(r.read().decode())
                 self._record(tool_name)
                 return result
@@ -349,6 +440,8 @@ class MCPClient(BaseModule):
 
     def _record(self, tool_name):
         self.call_count += 1
+        self._audit({"subject": "mcp:tool:" + str(tool_name),
+                     "decision": "allow", "result": "called"})
         self.history.append({"工具": tool_name,
                              "时间": time.strftime("%H:%M:%S")})
         if len(self.history) > 20:
@@ -360,7 +453,9 @@ class MCPClient(BaseModule):
                 "工具数": len(self.tools),
                 "工具": [t.get("name") for t in self.tools],
                 "明细": [{"名称": t.get("name"), "服务器": t.get("_server"),
-                          "传输": t.get("_transport")} for t in self.tools]}
+                          "传输": t.get("_transport"),
+                          "风险": (t.get("_risk") or {}).get("level", "unknown")}
+                         for t in self.tools]}
 
     @safe
     def get_history(self, count=10):

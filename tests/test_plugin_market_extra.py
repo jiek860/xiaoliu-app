@@ -30,6 +30,7 @@ class _Trunk:
         self.base = str(base)
         self.config = {
             "allow_unsigned_plugins": True,
+            "allow_inprocess_plugins": True,
             "online_repo_url": "https://example.test/repo",
         }
         self.modules = {}

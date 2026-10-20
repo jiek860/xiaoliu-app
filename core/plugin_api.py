@@ -28,6 +28,8 @@ except ImportError:
     def _x6_swallowed(component, error, context=""):
         return None
 
+from core.plugin_capabilities import capability_summary, validate_capabilities
+
 PLUGIN_API_VERSION = "1.0"
 SUPPORTED_PLUGIN_API = {"1.0"}
 
@@ -208,8 +210,10 @@ def validate_plugin_manifest(meta, source=None, *, strict=None,
     if strict is None:
         strict = not first_party
     mv = manifest_api_version(meta)
-    errors = list(mv.get("errors") or [])
-    warnings = list(mv.get("warnings") or [])
+    cap = validate_capabilities(
+        meta, plugin_name=meta.get("name") or meta.get("file"))
+    errors = list(mv.get("errors") or []) + list(cap.get("errors") or [])
+    warnings = list(mv.get("warnings") or []) + list(cap.get("warnings") or [])
     source_result = None
     if source is not None:
         source_result = validate_plugin_source(
@@ -218,7 +222,13 @@ def validate_plugin_manifest(meta, source=None, *, strict=None,
         warnings.extend(source_result.get("warnings") or [])
     return {"ok": not errors,
             "api_version": mv.get("api_version") or PLUGIN_API_VERSION,
-            "legacy": bool(mv.get("legacy")),
+            "legacy": bool(mv.get("legacy") or cap.get("legacy")),
             "strict": bool(strict), "first_party": bool(first_party),
             "errors": errors[:30], "warnings": warnings[:30],
-            "source": source_result}
+            "source": source_result,
+            "capabilities": cap.get("capabilities"),
+            "capability_schema_version": cap.get("schema_version"),
+            "capability_legacy": bool(cap.get("legacy")),
+            "risk_level": cap.get("risk_level"),
+            "risk_reasons": cap.get("risk_reasons"),
+            "capability_summary": capability_summary(cap)}

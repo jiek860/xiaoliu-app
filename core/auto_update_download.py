@@ -2,6 +2,8 @@
 """自动更新：检查、下载、安装和模块重载。"""
 from __future__ import annotations
 
+from core.safe_http import open_url as safe_open_url
+
 import hashlib
 import json
 import os
@@ -44,7 +46,7 @@ class AutoUpdateDownloadMixin:
                 raise PermissionError(d.get("reason") or "网络请求被拒绝")
             req = urllib.request.Request(manifest_url,
                                          headers={"Cache-Control": "no-cache"})
-            raw = urllib.request.urlopen(req, timeout=timeout).read()
+            raw = safe_open_url(req, timeout=timeout).read()
             # utf-8-sig：兼容被记事本/PowerShell 存成带 BOM 的清单
             manifest = json.loads(raw.decode("utf-8-sig"))
         except Exception as e:
@@ -122,7 +124,7 @@ class AutoUpdateDownloadMixin:
                 if not d.get("allow"):
                     raise PermissionError(d.get("reason") or "网络请求被拒绝")
                 req = urllib.request.Request(url, headers={"Cache-Control": "no-cache"})
-                data = urllib.request.urlopen(req, timeout=30).read()
+                data = safe_open_url(req, timeout=30).read()
             except Exception as e:
                 return {"ok": False, "错误": "下载失败 %s: %s" % (rel, str(e)[:60])}
             if hashlib.sha256(data).hexdigest() != str(f.get("sha256", "")).lower():

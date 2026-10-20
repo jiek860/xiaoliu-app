@@ -147,7 +147,7 @@ def report(top=12, json_out=None, quick=False):
     print("④ 覆盖最好的 8 个（这些是稳的，别动）")
     print("=" * 78)
     ok = sorted([r for r in rows if r[0] < 99999], key=lambda x: -x[1])[:8]
-    for miss, pc, p, s in ok:
+    for _miss, pc, p, s in ok:
         print("  %5.1f%%  %-44s %4d 语句" % (pc, p, s))
 
     print()

@@ -33,7 +33,8 @@ class ActivityCenterDialog(QDialog):
             pass
         self._bridge = _RunBridge(self)
         self._bridge.changed.connect(self._on_changed)
-        self.registry.subscribe(self._bridge.changed.emit)
+        self._registry_cb = self._bridge.changed.emit
+        self.registry.subscribe(self._registry_cb)
         self._tick = QTimer(self)
         self._tick.timeout.connect(self._refresh)
         self._tick.start(1000)
@@ -230,7 +231,7 @@ class ActivityCenterDialog(QDialog):
 
     def closeEvent(self, event):
         try:
-            self.registry.unsubscribe(self._bridge.changed.emit)
+            self.registry.unsubscribe(getattr(self, "_registry_cb", None))
         except Exception:  # 静默是故意的
             pass
         try:

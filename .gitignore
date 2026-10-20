@@ -99,3 +99,11 @@ _audit_*.json
 _audit_*.log
 _smoke_run*.log
 _smoke_run*.pid
+# ---------- 发布/审计生成物 ----------
+coverage.json
+coverage.xml
+sbom.cyclonedx.json
+dependency-audit*.json
+license-report.json
+security-audit-report.json
+perf-current.json

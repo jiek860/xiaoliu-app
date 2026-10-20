@@ -6,6 +6,7 @@ except ImportError:
     def _x6_swallowed(component, error, context=""):
         return None
 
+from core.safe_http import open_url as safe_open_url
 from modules.base import BaseModule
 import threading, time
 
@@ -157,7 +158,7 @@ class Scheduler(BaseModule):
                         import urllib.request
                         import json as _j
                         _u = self.trunk.config.get("ollama_url", "http://127.0.0.1:11434").rstrip("/") + "/api/tags"
-                        r = urllib.request.urlopen(_u, timeout=5)
+                        r = safe_open_url(_u, timeout=5)
                         d = _j.loads(r.read().decode("utf-8", "ignore"))
                         self.trunk._log("巡检: Ollama正常, 本地模型%d个" % len(d.get("models", [])))
                     except Exception as e:

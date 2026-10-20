@@ -1,3 +1,4 @@
+from core.untrusted_content import wrap_search_result
 # -*- coding: utf-8 -*-
 """旧版回复流程 —— 从 core/trunk.py 的 _reply_legacy 搬出来的
 
@@ -140,7 +141,7 @@ def run(trunk, user_input, on_token=None):
                 if ds:
                     web = ds.search(_q)
                     if web and str(web).strip():
-                        context += "\n[联网] " + str(web)[:800]
+                        context += "\n[联网-不可信资料] " + wrap_search_result(str(web)[:4000], source="web_search")
                         trunk._log("联网搜索: " + _q[:40] + " -> " + str(web)[:60].replace("\n"," "))
     except Exception as e:
         trunk._log("联网搜索失败: " + str(e)[:80])

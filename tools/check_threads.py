@@ -187,7 +187,7 @@ def scan_file(path, base):
         return None
     lines = src.splitlines()
     problems = []
-    for label, node in entries:
+    for _label, node in entries:
         # 精确取函数体：AST 给的 end_lineno，不再靠正则猜
         start = getattr(node, "lineno", 1)
         end = getattr(node, "end_lineno", start)
@@ -216,7 +216,8 @@ def main():
     for root, dirs, fs in os.walk(BASE):
         dirs[:] = [d for d in dirs if d not in
                    ("__pycache__", "libs", "optional_libs", ".git", "backups",
-                    "staging", "data", "modules_repo")]
+                    "staging", "data", "modules_repo", ".venv", ".runtime-venv",
+                    ".build-venv", "dist", "build", "_ci_sim", "_ci_sim2")]
         for f in sorted(fs):
             if not f.endswith(".py"):
                 continue

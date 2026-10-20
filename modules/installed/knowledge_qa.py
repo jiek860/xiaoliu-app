@@ -278,7 +278,10 @@ class KnowledgeQnA(BaseModule):
         citations = [{"source": os.path.join(self.docs_dir, d)}
                      for d in relevant.get("文档", [])[:3]]
         try:
-            r = llm.chat(f"基于以下资料回答问题:\n{context[:1000]}\n\n问题: {question}")
+            from core.untrusted_content import wrap_untrusted
+            context = wrap_untrusted(context[:4000], source="knowledge_base",
+                                     kind="document")
+            r = llm.chat(f"基于以下不可信资料回答问题:\n{context}\n\n问题: {question}")
             self.query_count += 1
             out = {"问题": question, "回答": r,
                    "参考文档": relevant.get("文档", []),

@@ -49,6 +49,8 @@ import threading
 import time
 from collections import deque
 from core import command_policy
+from core.child_process import minimal_child_env
+from core.windows_job import WindowsJob
 
 from core.agent_harness import get_run_registry
 
@@ -80,7 +82,7 @@ def live_count():
         return len(_LIVE)
 
 
-def _child_env():
+def _child_env(extra=None):
     """给子进程准备环境变量：把常见的可执行文件目录补进 PATH。
 
     为什么需要：MCP 服务器大多靠 npx / uvx 启动，而这两个不一定在 PATH 上 ——
@@ -89,26 +91,12 @@ def _child_env():
     node 装在 C:\\Program Files\\nodejs。用户（尤其是朋友）在自己终端里
     未必配过这些，程序这边补上就不用他们自己折腾环境变量了。
     """
-    env = os.environ.copy()
-    # MCP 子进程不应继承本程序的 API Key / 授权密钥。只移除明显的敏感变量，
-    # 保留 npx/uvx 需要的 PATH、APPDATA、npm 配置等。
-    for _k in list(env.keys()):
-        _kl = _k.lower()
-        if any(x in _kl for x in ("api_key", "apikey", "secret", "password",
-                                  "passwd", "license_key", "sign_key",
-                                  "access_token", "auth_token")):
-            env.pop(_k, None)
-    # 子进程可能继承 cp936 等本地编码；MCP 协议规定 JSON-RPC 文本按 UTF-8。
-    # 不设置的话中文会被写成 GBK，而客户端按 UTF-8 解码成乱码。
-    env["PYTHONIOENCODING"] = "utf-8"
-    env["X6_MCP_SANDBOX"] = "1"
-    # 注意别把这里包进 try/except —— 之前漏了 `import sys`，
-    # sys.prefix 抛 NameError 被 except 静默吞掉，结果 Python 的 Scripts 目录
-    # 一直没被补进 PATH（pip 装的 uv/uvx 就在那里）。
+    env = minimal_child_env(dict(extra or {}, X6_MCP_SANDBOX="1"))
+    # Keep npx/uvx discoverable without inheriting the parent's full environment.
     extra = [
-        os.path.join(sys.prefix, "Scripts"),        # Windows: pip 安装的脚本
-        os.path.join(sys.prefix, "bin"),            # POSIX venv
-        os.path.join(os.path.expanduser("~"), ".local", "bin"),   # 官方 uv 安装器
+        os.path.join(sys.prefix, "Scripts"),
+        os.path.join(sys.prefix, "bin"),
+        os.path.join(os.path.expanduser("~"), ".local", "bin"),
         os.path.join(os.path.expanduser("~"), ".cargo", "bin"),
     ]
     if os.name == "nt":
@@ -126,10 +114,16 @@ def _child_env():
 class StdioMCPServer:
     """一个 stdio 型 MCP 服务器的连接"""
 
-    def __init__(self, name, command, cwd=None, timeout=25, log=None):
+    def __init__(self, name, command, cwd=None, timeout=25, log=None,
+                 base=None, max_memory_mb=1024, max_cpu_seconds=0,
+                 max_processes=8, max_line_bytes=1024 * 1024,
+                 max_total_bytes=8 * 1024 * 1024,
+                 max_stderr_bytes=512 * 1024, env_extra=None):
         self.name = name
         self.command = (command or "").strip()
         self.cwd = cwd
+        self.base = base
+        self.env_extra = dict(env_extra or {})
         self.timeout = timeout
         self._log = log or (lambda m: None)
 
@@ -147,7 +141,16 @@ class StdioMCPServer:
         self._reader = None
         self._err_reader = None
         self._monitor = None
-        self.max_memory_mb = 1024
+        self._job = None
+        self.max_memory_mb = int(max_memory_mb or 0)
+        self.max_cpu_seconds = int(max_cpu_seconds or 0)
+        self.max_processes = int(max_processes or 0)
+        self.max_line_bytes = int(max_line_bytes or 0)
+        self.max_total_bytes = int(max_total_bytes or 0)
+        self.max_stderr_bytes = int(max_stderr_bytes or 0)
+        self._stdout_bytes = 0
+        self._stderr_bytes = 0
+        self.limit_error = ""
         self._alive = False
         self._run_id = ""
 
@@ -196,10 +199,19 @@ class StdioMCPServer:
             kwargs = dict(stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, text=True, encoding="utf-8",
                           errors="replace", bufsize=1, cwd=self.cwd,
-                          shell=False, env=_child_env())
+                          shell=False, env=_child_env(self.env_extra))
             if os.name == "nt":
                 kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             self.proc = subprocess.Popen(argv, **kwargs)
+            if os.name == "nt":
+                self._job = WindowsJob(
+                    max_memory_mb=self.max_memory_mb,
+                    max_cpu_seconds=self.max_cpu_seconds,
+                    max_processes=self.max_processes,
+                    kill_on_close=True)
+                attach = self._job.attach(self.proc.pid)
+                if not attach.get("ok"):
+                    self.last_error = "Job Object 未附加: %s" % attach.get("error")
         except Exception as e:
             self.last_error = "启动失败: %s" % str(e)[:120]
             self._finish_run("failed", self.last_error)
@@ -231,7 +243,10 @@ class StdioMCPServer:
             # 握手第三步：通知，不需要回复
             self._notify("notifications/initialized", {})
         except Exception as e:
-            self.last_error = "握手失败: %s" % str(e)[:120]
+            if self.limit_error:
+                self.last_error = self.limit_error
+            else:
+                self.last_error = "握手失败: %s" % str(e)[:120]
             self.stop()
             return False
 
@@ -288,6 +303,16 @@ class StdioMCPServer:
         p = self.proc
         if not p:
             return
+        if self._job is not None:
+            try:
+                self._job.terminate()
+            except Exception:  # 静默是故意的
+                pass
+            try:
+                self._job.close()
+            except Exception:  # 静默是故意的
+                pass
+            self._job = None
         try:
             if p.stdin:
                 p.stdin.close()
@@ -359,26 +384,49 @@ class StdioMCPServer:
                                if isinstance(e, dict) else str(e)[:160])
         return slot.get("result")
 
+    def _limit_triggered(self, message):
+        self.limit_error = message
+        self.last_error = message
+        self._stderr_tail.append(message[:180])
+        try:
+            self.stop()
+        except Exception:  # 静默是故意的
+            pass
+
     def _read_stdout(self):
         p = self.proc
         if not p or not p.stdout:
             return
         try:
-            for raw in p.stdout:
+            while self.alive():
+                raw = p.stdout.readline(max(1, self.max_line_bytes + 1))
+                if not raw:
+                    break
+                size = len(raw.encode("utf-8", "replace"))
+                self._stdout_bytes += size
+                if (self.max_line_bytes and size > self.max_line_bytes) or (
+                        self.max_line_bytes and not raw.endswith("\n")
+                        and size >= self.max_line_bytes):
+                    self._limit_triggered(
+                        "MCP stdout 单行超过 %d 字节，已终止" % self.max_line_bytes)
+                    return
+                if self.max_total_bytes and self._stdout_bytes > self.max_total_bytes:
+                    self._limit_triggered(
+                        "MCP stdout 总量超过 %d 字节，已终止" % self.max_total_bytes)
+                    return
                 raw = (raw or "").strip()
                 if not raw:
                     continue
                 try:
                     msg = json.loads(raw)
                 except Exception:
-                    # 非 JSON 输出（横幅、日志）不是错误，留个尾巴方便排查
                     self._stderr_tail.append("[stdout] " + raw[:160])
                     continue
                 if not isinstance(msg, dict):
                     continue
                 rid = msg.get("id")
                 if rid is None:
-                    continue                      # 服务端通知，忽略
+                    continue
                 with self._lock:
                     slot = self._pending.pop(rid, None)
                 if not slot:
@@ -392,7 +440,6 @@ class StdioMCPServer:
             self._stderr_tail.append("[reader] %s" % str(e)[:120])
         finally:
             self._alive = False
-            # 进程没了，把所有还在等的请求唤醒，别让调用方干等超时
             with self._lock:
                 slots = list(self._pending.values())
                 self._pending.clear()
@@ -401,12 +448,21 @@ class StdioMCPServer:
                 s["event"].set()
 
     def _drain_stderr(self):
-        """必须把 stderr 抽干：管道写满会把子进程卡死"""
+        """Drain stderr and enforce a byte budget so a child cannot flood us."""
         p = self.proc
         if not p or not p.stderr:
             return
         try:
-            for raw in p.stderr:
+            while self.alive():
+                raw = p.stderr.readline(64 * 1024)
+                if not raw:
+                    break
+                size = len(raw.encode("utf-8", "replace"))
+                self._stderr_bytes += size
+                if self.max_stderr_bytes and self._stderr_bytes > self.max_stderr_bytes:
+                    self._limit_triggered(
+                        "MCP stderr 总量超过 %d 字节，已终止" % self.max_stderr_bytes)
+                    return
                 raw = (raw or "").strip()
                 if raw:
                     self._stderr_tail.append(raw[:160])

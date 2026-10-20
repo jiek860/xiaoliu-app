@@ -1,0 +1,31 @@
+﻿{
+  "version": 1,
+  "policy": {
+    "mode": "ratchet",
+    "allow_lowering": false,
+    "updated": "2026-10-20",
+    "note": "Only raise thresholds. Lowering requires an explicit reviewed change."
+  },
+  "global": {
+    "minimum": 58.0
+  },
+  "critical_modules": {
+    "core/permission_center.py": 75.0,
+    "core/net_guard.py": 55.0,
+    "core/plugin_api.py": 65.0,
+    "core/plugin_capabilities.py": 80.0,
+    "core/plugin_broker.py": 65.0,
+    "core/mcp_stdio.py": 70.0,
+    "core/path_safety.py": 70.0,
+    "core/safe_http.py": 80.0,
+    "core/tool_policy.py": 80.0,
+    "core/untrusted_content.py": 80.0,
+    "core/redaction.py": 80.0,
+    "modules/installed/tool_caller.py": 55.0
+  },
+  "directory_minimums": {
+    "core": 55.0,
+    "gui": 38.0,
+    "modules/installed": 45.0
+  }
+}

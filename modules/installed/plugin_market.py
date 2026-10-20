@@ -11,6 +11,7 @@ except ImportError:
     def _x6_swallowed(component, error, context=""):
         return None
 
+from core.safe_http import open_url as safe_open_url
 from modules.base import BaseModule
 import os
 import re
@@ -60,8 +61,6 @@ def _icon_of(name):
     if any(k in m for k in ["知识", "rag", "graph", "图谱"]):
         return "📖"
     return "🧩"
-
-
 class PluginMarket(BaseModule):
     NAME = "plugin_market"
     VERSION = "1.0"
@@ -73,7 +72,6 @@ class PluginMarket(BaseModule):
         self.repo_dir = os.path.join(self.base, "modules_repo")
         self.backup_dir = os.path.join(self.base, "data", "plugin_backups")
         os.makedirs(self.backup_dir, exist_ok=True)
-
     # ---------- 扫描 ----------
     def _doc_of(self, file_path):
         try:
@@ -169,6 +167,9 @@ class PluginMarket(BaseModule):
                 m["trust"] = gi.get("trust", "")
                 m["permissions"] = gi.get("permissions", [])
                 m["risk"] = gi.get("risk", "")
+                meta = self._repo_meta(str(m.get("file") or "") + ".py")
+                from core.plugin_capabilities import plugin_manifest_info
+                m.update(plugin_manifest_info(meta))
         except Exception as e:  # 静默是故意的 - 治理摘要失败不影响插件列表
             _x6_swallowed(__name__, e, "best-effort fallback")
         modules.sort(key=lambda x: (not x["installed"], x["name"]))
@@ -181,6 +182,9 @@ class PluginMarket(BaseModule):
             return bool(self.trunk and self.trunk.config.get("allow_unsigned_plugins", False))
         except Exception:
             return False
+
+    def _allow_inprocess_plugins(self):
+        return bool(self.trunk and getattr(self.trunk, "config", {}).get("allow_inprocess_plugins", False))
 
     def _signer(self):
         from core.plugin_signer import PluginSigner
@@ -353,7 +357,7 @@ class PluginMarket(BaseModule):
                 d = ng.check(u, module="plugin_market", purpose="plugin_index")
                 if not d.get("allow"):
                     raise PermissionError(d.get("reason") or "网络请求被拒绝")
-                r = urllib.request.urlopen(u, timeout=8)
+                r = safe_open_url(u, timeout=8)
                 data = json.loads(r.read().decode("utf-8-sig"))
                 if isinstance(data, list):
                     return data
@@ -405,7 +409,7 @@ class PluginMarket(BaseModule):
                 d = ng.check(u, module="plugin_market", purpose="plugin_download")
                 if not d.get("allow"):
                     raise PermissionError(d.get("reason") or "网络请求被拒绝")
-                r = urllib.request.urlopen(u, timeout=10)
+                r = safe_open_url(u, timeout=10)
                 raw = r.read()
                 if i == 1:  # API返回JSON
                     j = json.loads(raw)
@@ -520,6 +524,9 @@ class PluginMarket(BaseModule):
         fname = os.path.splitext(os.path.basename(file_path))[0]
         if not fname or not fname[0].isalpha():
             return {"ok": False, "原因": "插件文件名需以字母开头（如 myplugin.py）"}
+        if not self._allow_inprocess_plugins():
+            return {"ok": False, "原因": "进程内插件安装默认关闭，请使用隔离安装；"
+                    "仅开发调试可显式设置 allow_inprocess_plugins=true（不推荐）"}
         dst = os.path.join(self.installed_dir, fname + ".py")
         # ① 沙盒语法校验（编译临时副本，不碰原文件）
         tmp = os.path.join(self.backup_dir, "_check_%s.py" % fname)
@@ -544,6 +551,8 @@ class PluginMarket(BaseModule):
         api_ok, api_why = self._validate_plugin_payload(src_text, {}, fname)
         if not api_ok:
             return {"ok": False, "原因": api_why}
+        if self.trunk:
+            self.trunk._log("警告: 进程内兼容模式安装插件 %s，该模式不是安全沙盒" % fname, "WARN")
         # ③ 动态加载验证（沙盒执行，失败不落盘）
         try:
             spec = importlib.util.spec_from_file_location("plg_" + fname, file_path)

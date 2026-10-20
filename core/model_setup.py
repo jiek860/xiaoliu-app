@@ -11,6 +11,7 @@ r"""模型配置自检：判断现在到底能不能用起来，以及该怎么�
 
 本模块不依赖 Qt，可单独测试。
 """
+from core.safe_http import open_url as safe_open_url
 import json
 import urllib.request
 
@@ -74,7 +75,7 @@ def probe_ollama(url=None, timeout=3):
             out["error"] = "网络策略拒绝: " + str(d.get("reason"))
             return out
         req = urllib.request.Request(url + "/api/tags")
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with safe_open_url(req, timeout=timeout) as r:
             data = json.loads(r.read().decode("utf-8", "replace"))
         out["reachable"] = True
         out["models"] = [str(m.get("name", "")) for m in (data.get("models") or [])]

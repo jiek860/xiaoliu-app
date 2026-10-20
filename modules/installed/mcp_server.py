@@ -27,6 +27,7 @@ except ImportError:
         return None
 
 import hmac
+import ipaddress
 import json
 import os
 import secrets
@@ -35,6 +36,13 @@ import urllib.parse
 
 from core.safe import safe
 from modules.base import BaseModule
+
+
+def _is_loopback_host(host):
+    try:
+        return ipaddress.ip_address(str(host or "").strip("[]")).is_loopback
+    except ValueError:
+        return str(host or "").strip().lower() == "localhost"
 
 
 class MCPServer(BaseModule):
@@ -235,6 +243,13 @@ class MCPServer(BaseModule):
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
         from urllib.parse import urlparse
 
+        if not _is_loopback_host(host):
+            allowed_remote = bool((getattr(self.trunk, "config", {}) or {})
+                                  .get("mcp_allow_remote", False))
+            if not allowed_remote or not self.auth_token:
+                return {"ok": False,
+                        "错误": "非环回监听必须显式开启 mcp_allow_remote 并配置鉴权 token"}
+
         srv = self
         self._bind_host = host
 
@@ -252,7 +267,7 @@ class MCPServer(BaseModule):
                     host = raw.rsplit(":", 1)[0] if ":" in raw else raw
                 allowed = {"127.0.0.1", "localhost", "::1"}
                 bind_host = str(getattr(srv, "_bind_host", "") or "").lower()
-                if bind_host and bind_host not in ("0.0.0.0", "::"):
+                if bind_host and _is_loopback_host(bind_host):
                     allowed.add(bind_host)
                 return host in allowed
 

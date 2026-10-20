@@ -65,6 +65,7 @@ def win():
     QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
     QMessageBox.critical = staticmethod(lambda *a, **k: None)
     QWizard.exec_ = lambda self: 0        # 向导自己会 exec_()，一并桩掉
+    QDialog.exec_ = lambda self: 0        # MCP 启动确认框等模态框
 
     from core.trunk import Trunk
     with mock.patch.object(Trunk, "_start_background", lambda self: None), \

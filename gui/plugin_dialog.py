@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """插件市场窗口 - 网格卡片/安装/卸载/热加载"""
 import os, sys, importlib, threading
+from core.plugin_capabilities import plugin_manifest_info
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QWidget, QFrame, QGridLayout, QMessageBox, QFileDialog, QProgressDialog, QApplication
 from PyQt5.QtCore import QObject, pyqtSignal
 
@@ -98,6 +99,18 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp=None, show_components=None):
         meta = QLabel("%s · %dKB" % (m["file"], m.get("size", 0)))
         meta.setStyleSheet("color:#94a3b8;font-size:10px;")
         v.addWidget(meta)
+        cap_text = m.get("capability_summary") or "能力:未知（默认拒绝）"
+        cap = QLabel(cap_text)
+        cap.setWordWrap(True)
+        cap.setStyleSheet("color:#7c3aed;font-size:10px;")
+        v.addWidget(cap)
+        pub = QLabel("发布者:%s  签名:%s  API:%s" % (
+            m.get("publisher", "unknown"),
+            m.get("signature_status", "unknown"),
+            m.get("api_version", "legacy")))
+        pub.setWordWrap(True)
+        pub.setStyleSheet("color:#94a3b8;font-size:9px;")
+        v.addWidget(pub)
         if m["installed"]:
             b = QPushButton("🗑 卸载")
             b.setStyleSheet("background:#fee2e2;color:#b91c1c;border:none;border-radius:6px;padding:5px;")
@@ -143,6 +156,16 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp=None, show_components=None):
             b.setStyleSheet("background:#4a9eff;color:#fff;border:none;border-radius:6px;padding:5px;")
             def _make_ins(mm):
                 def _ins():
+                    risk = str(mm.get("risk_level") or "unknown").lower()
+                    if risk in ("high", "unknown"):
+                        answer = QMessageBox.question(
+                            d, "高风险插件确认",
+                            "插件: %s\n风险: %s\n%s\n\n是否继续安装？" % (
+                                mm.get("file", "?"), risk,
+                                mm.get("capability_summary", "能力未知，默认拒绝")),
+                            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                        if answer != QMessageBox.Yes:
+                            return
                     b.setEnabled(False)
                     pg = QProgressDialog("正在下载安装 %s ..." % mm.get("file", ""), None, 0, 0, d)
                     pg.setWindowTitle("下载安装中")
@@ -188,6 +211,11 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp=None, show_components=None):
                         "desc": m.get("desc", ""), "size": m.get("size", 0),
                         "icon": m.get("icon", "🧩"),
                         "sha256": "", "signature": "",
+                        "capability_summary": m.get("capability_summary"),
+                        "risk_level": m.get("risk_level"),
+                        "publisher": m.get("publisher"),
+                        "signature_status": m.get("signature_status"),
+                        "api_version": m.get("api_version"),
                     })
                 msg.setText("本地 %d 个模块 · 正在获取在线清单…" % len(mods))
             except Exception as ee:
@@ -228,7 +256,8 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp=None, show_components=None):
                              "desc": o.get("desc", ""), "size": o.get("size", 0),
                              "icon": "🧩" if not installed else "✅",
                              "sha256": o.get("sha256", ""),
-                             "signature": o.get("signature", "")})
+                             "signature": o.get("signature", ""),
+                             **plugin_manifest_info(o)})
             _clear_grid()
             cols = 4
             for idx, m in enumerate(mods):

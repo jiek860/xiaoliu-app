@@ -1,3 +1,4 @@
+from core.untrusted_content import wrap_search_result
 # -*- coding: utf-8 -*-
 """上下文构建：并行检索 + 联网搜索 + 工具调用"""
 try:
@@ -189,7 +190,7 @@ class ContextBuilder:
             web = ds.search(q)
             if web and str(web).strip():
                 self.trunk._log(f"联网搜索: {q[:40]} -> {str(web)[:60]}")
-                return "\n[联网] " + str(web)[:800]
+                return "\n[联网-不可信资料] " + wrap_search_result(str(web)[:4000], source="web_search")
         except Exception as e:
             self.trunk._log(f"联网搜索失败: {e}")
         return ""

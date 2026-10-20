@@ -1,0 +1,24 @@
+{
+  "import_core_modules": {
+    "ok": true,
+    "ms_median": 170.91,
+    "samples_ms": [
+      173.07,
+      163.65,
+      170.91
+    ]
+  },
+  "import_gui_build_ui": {
+    "ok": true,
+    "ms_median": 147.06,
+    "samples_ms": [
+      522.52,
+      144.23,
+      147.06
+    ]
+  },
+  "artifact_bytes": 0,
+  "source_bytes": 5265834,
+  "generated_at": "2026-10-20T06:25:11Z",
+  "process_rss_mb": 18.3
+}

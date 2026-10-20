@@ -16,6 +16,7 @@ try:
 except ImportError:
     def _x6_swallowed(component, error, context=""):
         return None
+from core.safe_http import open_url as safe_open_url
 import json
 import threading
 import urllib.request
@@ -115,7 +116,7 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
                         "ollama_url", "http://localhost:11434").rstrip("/")
                     req = urllib.request.Request(url + "/api/tags")
                     data = json.loads(
-                        urllib.request.urlopen(req, timeout=3).read())
+                        safe_open_url(req, timeout=3).read())
                     models = [m["name"] for m in data.get("models", [])]
                     err = ""
                 except Exception as e:
@@ -145,7 +146,7 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
                     "ollama_url", "http://localhost:11434").rstrip("/")
                 req = urllib.request.Request(url + "/api/tags")
                 data = json.loads(
-                    urllib.request.urlopen(req, timeout=3).read())
+                    safe_open_url(req, timeout=3).read())
                 text = " 已检测到 %d 个模型" % len(data.get("models", []))
             except Exception:
                 text = " Ollama 未连接"

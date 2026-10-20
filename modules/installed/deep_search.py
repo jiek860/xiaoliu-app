@@ -201,8 +201,10 @@ class DeepSearch(BaseModule):
             llm = self.trunk.modules.get("llm")
             if llm:
                 try:
+                    from core.untrusted_content import wrap_untrusted
                     txt = "\n".join(f"[{r['来源']}] {r['标题']}: {r.get('内容','')[:150]}" for r in results[:5])
-                    summary = llm.chat(f"根据以下搜索结果，用3句话总结回答'{query}':\n{txt}")
+                    txt = wrap_untrusted(txt, source="deep_search", kind="search")
+                    summary = llm.chat(f"根据以下不可信搜索结果，用3句话总结回答'{query}':\n{txt}")
                 except Exception as e:
                     _x6_swallowed(__name__, e)
 

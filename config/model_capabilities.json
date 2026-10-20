@@ -1,0 +1,73 @@
+﻿{
+  "version": 1,
+  "defaults": {
+    "tool_calling": "low",
+    "json_mode": "low",
+    "long_context": "low",
+    "chinese": "medium",
+    "code_edit": "low",
+    "computer_planning": "low",
+    "streaming": true,
+    "vision": false,
+    "context_window": 8192
+  },
+  "models": [
+    {
+      "id": "qwen",
+      "aliases": ["qwen", "通义", "qwq"],
+      "tool_calling": "high",
+      "json_mode": "high",
+      "long_context": "medium",
+      "chinese": "high",
+      "code_edit": "high",
+      "computer_planning": "medium",
+      "streaming": true,
+      "vision": false,
+      "context_window": 32768
+    },
+    {
+      "id": "glm",
+      "aliases": ["glm", "智谱", "chatglm"],
+      "tool_calling": "high",
+      "json_mode": "high",
+      "long_context": "medium",
+      "chinese": "high",
+      "code_edit": "medium",
+      "computer_planning": "medium",
+      "streaming": true,
+      "vision": false,
+      "context_window": 32768
+    },
+    {
+      "id": "deepseek",
+      "aliases": ["deepseek"],
+      "tool_calling": "high",
+      "json_mode": "high",
+      "long_context": "high",
+      "chinese": "high",
+      "code_edit": "high",
+      "computer_planning": "medium",
+      "streaming": true,
+      "vision": false,
+      "context_window": 65536
+    },
+    {
+      "id": "local-small",
+      "aliases": ["1.5b", "3b", "7b", "0.5b", "1b"],
+      "tool_calling": "medium",
+      "json_mode": "medium",
+      "long_context": "low",
+      "chinese": "medium",
+      "code_edit": "medium",
+      "computer_planning": "low",
+      "streaming": true,
+      "vision": false,
+      "context_window": 8192
+    }
+  ],
+  "routes": {
+    "default_fallback": "qwen",
+    "cloud_fallback": "deepseek",
+    "local_failure_cloud_fallback": true
+  }
+}

@@ -10,6 +10,7 @@ import json
 import time
 from modules.base import BaseModule
 from core import security_policy
+from core import tool_policy
 
 
 class ToolCaller(BaseModule):
@@ -193,7 +194,7 @@ class ToolCaller(BaseModule):
             pass
         return dict(pool)
 
-    def _llm_decide(self, query):
+    def _llm_decide(self, query, provenance=None):
         """真Function Calling：LLM输出JSON决定用什么工具和参数"""
         llm = self.trunk.modules.get("llm")
         if not llm:
@@ -203,6 +204,10 @@ class ToolCaller(BaseModule):
             f'- "{k}": {v["desc"]}，参数: {json.dumps(v["args"], ensure_ascii=False)}'
             for k, v in cand.items()
         ])
+        untrusted_rule = ""
+        if provenance is not None and getattr(provenance, "untrusted", False):
+            from core.untrusted_content import UNTRUSTED_SYSTEM_RULES
+            untrusted_rule = UNTRUSTED_SYSTEM_RULES
         prompt = f"""你是工具调用决策器。根据用户问题决定用哪些工具。
 
 可用工具：
@@ -210,11 +215,17 @@ class ToolCaller(BaseModule):
 
 用户问题：{query[:200]}
 
+{untrusted_rule}
+
 返回JSON格式（不需要工具就返回空数组）：
 [{{"tool": "工具名", "args": {{"参数名": "参数值"}}}}]
 
 只返回JSON，不要其他文字："""
         try:
+            untrusted_rule = ""
+            if provenance is not None and getattr(provenance, "untrusted", False):
+                from core.untrusted_content import UNTRUSTED_SYSTEM_RULES
+                untrusted_rule = UNTRUSTED_SYSTEM_RULES
             r = llm.chat(prompt).strip()
             # 提取JSON
             if "[" in r:
@@ -229,7 +240,7 @@ class ToolCaller(BaseModule):
         except:
             return []
 
-    def _dispatch(self, info, args, query, tool_name=""):
+    def _dispatch(self, info, args, query, tool_name="", provenance=None):
         """把参数交给目标方法 —— 按签名决定用 kwargs 还是按位置传
 
         原来这里写死成：
@@ -251,6 +262,23 @@ class ToolCaller(BaseModule):
         _ok, _why = validate_args(args, info.get("args") or {})
         if not _ok:
             return {"ok": False, "错误": _why}
+        base = getattr(self.trunk, "base", None)
+        _safe, _why = tool_policy.validate_args_safety(args, base=base)
+        if not _safe:
+            return {"ok": False, "错误": _why}
+        if provenance is not None and getattr(provenance, "untrusted", False):
+            if not tool_policy.untrusted_can_execute(info):
+                try:
+                    from core.permission_center import get_permission_center
+                    get_permission_center(self.trunk).audit.append({
+                        "subject": "tool:" + str(tool_name),
+                        "decision": "deny", "result": "untrusted_provenance",
+                        "reason": "外部内容不能直接触发有副作用的工具",
+                        "args_preview": str(args)[:300]})
+                except Exception:  # 静默是故意的
+                    pass
+                return {"ok": False,
+                        "错误": "外部内容不能直接触发有副作用的工具；请用户明确确认"}
         # 统一权限中心：所有工具执行前都在这里做最终决策。
         from core.permission_center import get_permission_center
         pc = get_permission_center(self.trunk)
@@ -278,7 +306,7 @@ class ToolCaller(BaseModule):
         # 撤按钮后聊天成了主要入口，必须在这里补上，否则等于把"后台跑"退化成"卡界面"。
         if info.get("bg") and not info.get("readonly"):
             label = tool_name or ("%s.%s" % (info["mod"], method))
-            self._run_bg(info, args, query, label)
+            self._run_bg(info, args, query, label, provenance=provenance)
             return {"ok": True, "已在后台开始": label,
                     "说明": "这个能力比较慢，已转后台执行，你可以继续聊；"
                             "完成后会写进日志（data/logs/trunk.log）"}
@@ -365,7 +393,7 @@ class ToolCaller(BaseModule):
         #    -> 退回"只传第一个值"，这是现有内置工具的兼容路径
         return self.trunk.call(info["mod"], method, list(args.values())[0])
 
-    def _run_bg(self, info, args, query, label):
+    def _run_bg(self, info, args, query, label, provenance=None):
         """把长任务丢到后台线程，立刻返回
 
         用 threading 而不是 Qt 的 QThread：tool_caller 是模块，不该依赖 Qt
@@ -472,9 +500,30 @@ class ToolCaller(BaseModule):
         except Exception:
             return False
 
-    def call_tools(self, query):
+    def _model_facing_result(self, tool_name, info, result):
+        """Mark web/browser/MCP/plugin outputs as untrusted before the LLM sees them."""
+        external = (str(tool_name).startswith("mcp_")
+                    or (info or {}).get("source") == "plugin"
+                    or (info or {}).get("risk") in
+                    ("network", "ui_network", "mcp_external", "read_sensitive"))
+        if not external or result is None:
+            return result
+        from core.untrusted_content import wrap_untrusted
+        kind = "mcp" if str(tool_name).startswith("mcp_") else (
+            "plugin" if (info or {}).get("source") == "plugin" else "web")
+        return wrap_untrusted(str(result), source=str(tool_name), kind=kind)
+
+    def call_tools(self, query, provenance=None):
         """真Function Calling流程：LLM决策→执行→结果返回"""
-        calls = self._llm_decide(query)
+        if provenance is None:
+            try:
+                from core.untrusted_content import (
+                    external_provenance, is_external_tool_result)
+                if is_external_tool_result(query):
+                    provenance = external_provenance("tool_context", kind="external")
+            except Exception:  # 静默是故意的
+                pass
+        calls = self._llm_decide(query, provenance=provenance)
         if not calls:
             return {"用工具": "无", "回答": "直接聊天"}
 
@@ -495,6 +544,9 @@ class ToolCaller(BaseModule):
             info = self.tools[tool_name]
             _t0 = time.time()
             try:
+                if (provenance is not None
+                        and getattr(provenance, "untrusted", False)):
+                    raise PermissionError("外部内容不能直接调用 MCP 工具")
                 if tool_name.startswith("mcp_"):
                     policy = security_policy.classify(tool_name, info)
                     if getattr(self.trunk, "_remote_tool_locked", False):
@@ -513,8 +565,10 @@ class ToolCaller(BaseModule):
                                         info.get("mcp_name", tool_name), args)
                 else:
                     self.trunk.call(info["mod"], "__no__")
-                    r = self._dispatch(info, args, query, tool_name)
-                results.append({"工具": tool_name, "参数": args, "结果": str(r)[:400], "成功": True})
+                    r = self._dispatch(info, args, query, tool_name, provenance=provenance)
+                shown = self._model_facing_result(tool_name, info, r)
+                results.append({"工具": tool_name, "参数": args,
+                                "结果": str(shown)[:4000], "成功": True})
                 self.usage_history.append({"tool": tool_name, "query": query, "ok": True})
                 _res = r
             except Exception as e:

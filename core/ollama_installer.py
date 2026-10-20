@@ -27,6 +27,7 @@ GPU 运行库都打进去了。这一点必须提前告诉用户，否则会以�
 不静默安装（那是替用户做决定，而且装到哪、要不要管理员权限
 都应该由系统安装向导说了算）。
 """
+from core.safe_http import open_url as safe_open_url
 import hashlib
 import os
 import shutil
@@ -93,7 +94,7 @@ def probe(url, timeout=10):
         req = urllib.request.Request(url, headers={
             "User-Agent": _UA, "Range": "bytes=0-1023"})
         t0 = time.time()
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with safe_open_url(req, timeout=timeout) as r:
             head = r.read(1024)
             cr = r.headers.get("Content-Range") or ""
         sec = time.time() - t0
@@ -164,7 +165,7 @@ def download(url, dest=None, progress=None, chunk=256 * 1024,
         got = 0
         total = 0
         last_cb = 0.0
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with safe_open_url(req, timeout=30) as r:
             try:
                 total = int(r.headers.get("Content-Length") or 0)
             except Exception:
@@ -376,7 +377,7 @@ def pull_model(url, model, progress=None, should_stop=None, timeout=30):
     last_status = None
     got_mb = tot_mb = 0.0
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with safe_open_url(req, timeout=timeout) as r:
             for raw in r:
                 raw = raw.strip()
                 if not raw:

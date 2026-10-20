@@ -5,6 +5,7 @@ TOOLS 是"能力声明"：告诉系统"我能被这样调用"，由 tools/rebuil
 写进 modules_repo/manifest.json 的 tools 字段（那份清单是 RSA 签名的）。
 字段含义见 core/core_caps.py 的说明。
 """
+from core.safe_http import open_url as safe_open_url
 from modules.base import BaseModule
 import urllib.request, urllib.parse, json
 
@@ -35,7 +36,7 @@ class Weather(BaseModule):
                 url, module="weather", purpose="weather")
             if not d.get("allow"):
                 return {"错误": "网络策略拒绝: " + str(d.get("reason"))}
-            r = urllib.request.urlopen(url, timeout=10)
+            r = safe_open_url(url, timeout=10)
             d = json.loads(r.read())
             cur = d["current_condition"][0]
             return {

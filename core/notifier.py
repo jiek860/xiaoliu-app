@@ -16,6 +16,7 @@ Nuitka / 加固壳都挡不住：断点、内存 dump 都能拿到）。
 注意：加签只能挡"随手复制 URL 乱发"的人  secret 同样在客户端里，
 真能逆向的人还是抠得出来。要防刷只能靠服务端限流。
 """
+from core.safe_http import open_url as safe_open_url
 import base64
 import hashlib
 import hmac
@@ -42,7 +43,7 @@ def _post_json(url, payload, timeout=8, trunk=None):
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
         url, data=data, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with safe_open_url(req, timeout=timeout) as r:
         return r.read().decode("utf-8", "replace")
 
 

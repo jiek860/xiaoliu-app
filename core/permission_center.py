@@ -296,6 +296,62 @@ class PermissionCenter:
         return {"allow": False, "requires_confirm": True,
                 "reason": "需要用户确认", "risk": policy.get("risk")}
 
+    def authorize_capability(self, plugin_name, capabilities, kind, *,
+                             plugin_root=None, path=None, domain=None,
+                             method="GET", argv=None, key=None, context=None):
+        """Authorize a plugin/MCP capability through the same rules/audit store.
+
+        The target operation is validated against the normalized capability
+        manifest first; a previous once/session/always grant can then satisfy
+        user confirmation. Missing capabilities are denied, never defaulted on.
+        """
+        from core.plugin_capabilities import capability_allows
+
+        subject = "capability:%s:%s" % (plugin_name, kind)
+        decision, reason = capability_allows(
+            capabilities, kind, domain=domain, method=method,
+            plugin_root=plugin_root, path=path, argv=argv, key=key)
+        if not decision:
+            self.audit.append({
+                "subject": subject, "decision": "deny", "result": "capability_denied",
+                "reason": reason, "args_preview": str(context or "")[:300]})
+            return {"allow": False, "requires_confirm": False,
+                    "reason": reason, "capability": kind}
+
+        if self.locked and kind not in ("config",):
+            self.audit.append({
+                "subject": subject, "decision": "deny", "result": "lockdown",
+                "reason": "系统处于紧急锁定状态"})
+            return {"allow": False, "requires_confirm": False,
+                    "reason": "系统处于紧急锁定状态", "capability": kind}
+
+        for rule in self._match(subject):
+            if rule.get("decision") == "allow":
+                if rule.get("_once"):
+                    self._consume_once(subject)
+                self.audit.append({
+                    "subject": subject, "decision": "allow",
+                    "result": "capability_allowed", "reason": "已有授权规则",
+                    "args_preview": str(context or "")[:300]})
+                return {"allow": True, "requires_confirm": False,
+                        "reason": "已有授权规则", "capability": kind}
+            if rule.get("decision") == "deny":
+                return {"allow": False, "requires_confirm": False,
+                        "reason": "用户已拒绝", "capability": kind}
+
+        high_risk = kind in ("process", "ui_control")
+        requires_confirm = high_risk or kind in ("network", "filesystem")
+        if not requires_confirm:
+            self.audit.append({
+                "subject": subject, "decision": "allow",
+                "result": "capability_allowed", "reason": reason,
+                "args_preview": str(context or "")[:300]})
+            return {"allow": True, "requires_confirm": False,
+                    "reason": reason, "capability": kind}
+        return {"allow": False, "requires_confirm": True,
+                "reason": "能力 %s 需要用户确认" % kind,
+                "capability": kind}
+
     def _remote_allowed(self):
         try:
             return bool(getattr(self.trunk, "_remote_tools_allowed", False)

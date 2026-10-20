@@ -28,11 +28,14 @@ _SECRET_PATTERNS = [
 
 
 def redact(text, limit=300):
-    s = str(text or "")
-    for pat, repl in _SECRET_PATTERNS:
-        s = pat.sub(repl, s)
-    return s[:limit]
-
+    try:
+        from core.redaction import redact_text
+        return redact_text(text, limit=limit)
+    except Exception:
+        s = str(text or "")
+        for pat, repl in _SECRET_PATTERNS:
+            s = pat.sub(repl, s)
+        return s[:limit]
 
 class AuditLog:
     def __init__(self, base):
@@ -52,7 +55,11 @@ class AuditLog:
             pass
 
     def append(self, event):
-        rec = dict(event or {})
+        try:
+            from core.redaction import redact_mapping
+            rec = dict(redact_mapping(dict(event or {})))
+        except Exception:
+            rec = dict(event or {})
         rec.setdefault("time", time.strftime("%Y-%m-%d %H:%M:%S"))
         for k in ("subject", "task_id", "decision", "result",
                   "reason", "args_preview", "module", "domain", "purpose"):

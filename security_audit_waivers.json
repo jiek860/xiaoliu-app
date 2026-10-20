@@ -1,0 +1,10 @@
+﻿{
+  "version": 1,
+  "policy": {
+    "fingerprint": "sha256(file path + bandit test id + normalized code context)",
+    "required_fields": ["fingerprint", "status", "reason", "owner", "issue", "expires"],
+    "allowed_statuses": ["confirmed_safe", "accepted_risk"],
+    "note": "Expired or incomplete waivers fail the security gate. Never lower a gate to hide a new finding."
+  },
+  "waivers": []
+}

@@ -1,0 +1,11 @@
+﻿{
+  "version": 1,
+  "allowed": [
+    "MIT", "BSD", "Apache", "PSF", "ISC", "MPL", "Unlicense",
+    "Python Software Foundation", "ZPL", "CC0"
+  ],
+  "review_required": [
+    "GPL", "LGPL", "AGPL", "Commercial", "Proprietary"
+  ],
+  "notes": "GPL/LGPL/commercial licenses require an explicit distribution decision before release."
+}
