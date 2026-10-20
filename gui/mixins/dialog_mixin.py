@@ -184,48 +184,9 @@ class DialogMixin:
         return self._open_simple_dialog("update_dialog", "UpdateDialog")
 
     def _panel_commands(self):
-        """主窗口能打开的面板 —— 命令面板和设置窗口共用这一份，避免两处各写一份"""
-        return {
-            "电脑控制":     getattr(self, "computer_dialog", None),
-            "机器人":       getattr(self, "bot_dialog", None),
-            "插件市场":     getattr(self, "plugin_dialog", None),
-            "MCP市场":      getattr(self, "mcp_dialog", None),
-            "历史记录":     getattr(self, "history_dialog", None),
-            "日志中心":     getattr(self, "log_dialog", None),
-            "系统自检":     getattr(self, "sys_dialog", None),
-            "首次设置向导": getattr(self, "onboarding_dialog", None),
-            "模型管理":     getattr(self, "model_manager_dialog", None),
-            "语音对话":     getattr(self, "voice_chat_dialog", None),
-            "记忆可视化":   getattr(self, "memory_view_dialog", None),
-            "数据统计":     getattr(self, "stats_dialog", None),
-            "日历待办":     getattr(self, "tools_dialog", None),
-            "搜索聊天":     getattr(self, "search_dialog", None),
-            "安全中心":     getattr(self, "security_center_dialog", None),
-            "权限中心":     getattr(self, "security_center_dialog", None),
-            "任务中心":     getattr(self, "open_task_center", None),
-            "运行中活动":   getattr(self, "activity_center_dialog", None),
-            "代码 Agent":   getattr(self, "code_agent_dialog", None),
-            "电脑 Agent":   getattr(self, "computer_agent_dialog", None),
-            "开始任务":     getattr(self, "start_task", None),
-            "定时任务":     getattr(self, "scheduled_tasks_dialog", None),
-            "知识库":       getattr(self, "kb_dialog", None),
-            "RAG管理":      getattr(self, "rag_dialog", None),
-            "团队管理":     getattr(self, "team_dialog", None),
-            "多用户":       getattr(self, "team_dialog", None),
-            "用量成本":     getattr(self, "usage_dialog", None),
-            "模型用量":     getattr(self, "usage_dialog", None),
-            "资料中心":     getattr(self, "kb_dialog", None),
-            "检查更新":     getattr(self, "update_dialog", None),
-            "桌宠":         getattr(self, "pet_dialog", None),
-            "模块星图":     getattr(self, "module_map_dialog", None),
-            "意见反馈":     getattr(self, "show_feedback", None),
-            "新手教程":     getattr(self, "show_tutorial", None),
-            "可选组件":     getattr(self, "show_components", None),
-            "设置":         getattr(self, "set_dialog", None),
-            # 命令面板自己也在表里（设置里那个 ⌘ 按钮就是靠它开）
-            "命令面板 (Ctrl+K)": getattr(self, "command_palette", None),
-            "实用工具（旧按钮面板）": getattr(self, "module_tools_dialog", None),
-        }
+        """主窗口能打开的面板 —— 命令面板和设置窗口共用。"""
+        from gui.panel_registry import build_panel_commands
+        return build_panel_commands(self)
 
     def command_palette(self):
         """⌘ 命令面板（Ctrl+K）—— 能力/面板/工具的统一搜索入口
