@@ -193,7 +193,9 @@ class OnboardingWizard(
             "macOS / Linux 的聊天和部分文件功能可能可用，但电脑控制、窗口操作、"
             "截图等桌面能力不是当前支持目标。<br>"
             "旧数据启动时会先自动备份再按 v0→v1→v2 迁移；"
-            "插件只接受签名且 API 版本兼容的模块。")
+            "插件只接受签名且 API 版本兼容的模块。<br>"
+            "8 类模型服务商、RAG 管理、团队管理和用量成本："
+            "设置 → 模型，或按 Ctrl+K 搜对应名称。")
         compat.setWordWrap(True)
         compat.setStyleSheet("color:#7c2d12;line-height:165%;")
         l1.addWidget(compat)

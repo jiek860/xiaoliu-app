@@ -71,3 +71,11 @@
 - PyInstaller 不再重复打包 `gui/` 和 `core/` 源码树，只保留运行时会编辑的 `core/lazy_config.py`。
 - 排除未使用的 Qt WebEngine/QML/Quick/SQL/Test/XML 等模块。
 - 本地构建：文件数 643 -> 370，产物 151.0MB -> 148.6MB，启动冒烟和 missing-module 分类通过。
+
+
+## 2026-10-20 文档同步
+
+本文件、README/README_EN、ARCHITECTURE、docs/00/10/20/50/70/80、
+CHANGELOG、FAQ.txt、使用说明-小白版.txt、模型教程.txt、检测手册.txt、
+部署步骤.md、开发者须知-密钥与发版.md、gui/tutorial_dialog.py 已同步。
+打包源通过 `tools/sync_package.py` 更新。

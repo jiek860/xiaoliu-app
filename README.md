@@ -75,3 +75,20 @@
 - `data/logs/crashes.log`      Python 层崩溃
 - `data/logs/faulthandler.log` 全部线程的 Python 栈（崩溃现场）
 - 设置 → 记录 → 日志中心 → 「导出日志包」
+
+
+## 第二阶段产品能力（2026-10-20 已落地）
+
+- 模型服务商：OpenAI、Anthropic、Gemini、OpenRouter、Azure OpenAI、
+  LM Studio、llama.cpp、vLLM、自定义 OpenAI 兼容。
+- 能力路由：tool calling / JSON mode / vision / context window；
+  本地失败或能力不足自动云端兜底。
+- RAG：增量索引、页码/offset 引用、ACL 角色、混合检索、轻量 rerank。
+- 团队：owner/admin/editor/viewer/auditor、登录绑定、用户隔离、
+  集中配置、脱敏审计导出。
+- 插件市场：版本/信任/兼容检查、检查更新、更新前备份、回滚账本。
+- GUI Agent：UIA+OCR/视觉双通道、动作验证、重试修复、DPI/多显示器/IME 策略。
+- 用量成本：7 天调用、Token、估算成本、P50/P95 延迟。
+- 新增管理窗口：模型服务商、RAG 管理、团队管理、用量成本。
+
+详细方案与状态见 `docs/PRODUCT_PHASE2.md`，插件 SDK 见 `docs/PLUGIN_SDK.md`。

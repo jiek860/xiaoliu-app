@@ -63,3 +63,9 @@ A: 打开 "打开控制台.bat" 看错误信息
 本次同步：Windows + Python 3.10/3.11/3.12 兼容矩阵、
 旧数据 v0→v1→v2 自动迁移、插件 API v1.0 边界检查。
 完整兼容性见 docs/70_兼容性与数据迁移.md。
+
+第二阶段安装补充（2026-10-20）：
+- 默认安装只装 5 个核心依赖；模型服务商、RAG、团队、成本面板不需要额外依赖。
+- PDF/Word/Excel/PPT/OCR 解析需要可选组件：双击 scripts\install_optional.bat。
+- 浏览器自动化需要：py -3 -m playwright install chromium。
+- 打包源同步：py -3 tools\sync_package.py（发布前必须跑）。
