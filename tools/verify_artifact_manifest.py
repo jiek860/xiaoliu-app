@@ -54,7 +54,8 @@ def main(argv=None):
         actual = sha256(target)
         if actual != str(row.get("sha256") or "").lower():
             failures.append("sha256 mismatch: " + rel)
-        if int(row.get("size") or -1) != target.stat().st_size:
+        expected_size = row.get("size")
+        if expected_size is None or int(expected_size) != target.stat().st_size:
             failures.append("size mismatch: " + rel)
     # A few obvious secret-bearing names must never be shipped.
     for path in root.rglob("*"):
@@ -64,6 +65,10 @@ def main(argv=None):
         low = rel.lower()
         if path.name.lower() in SENSITIVE_NAMES or low.endswith(SENSITIVE_SUFFIXES):
             if "公钥" in path.name or path.name.lower().endswith("public.pem"):
+                continue
+            # certifi ships a public CA bundle named cacert.pem; it is not a
+            # private key and is required for TLS verification.
+            if low.endswith("certifi/cacert.pem"):
                 continue
             failures.append("sensitive file in artifact: " + rel)
         if rel == "artifact-manifest.json":

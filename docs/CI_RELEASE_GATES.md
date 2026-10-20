@@ -19,8 +19,7 @@
 | `compat-required` | `.github/workflows/compat-matrix.yml` | Windows / Python 3.10-3.12 矩阵 |
 | `windows-build-required` | `.github/workflows/build-windows.yml` | PyInstaller 构建、产物 hash 清单 |
 | `portable-required` | `.github/workflows/build-portable.yml` | Windows/Linux/macOS 便携包 |
-| `security-required` | `.github/workflows/security.yml` | secret scan、Bandit triage、pip-audit、license、SBOM |
-| `dependency-review` | `.github/workflows/dependency-review.yml` | PR 依赖漏洞与许可证审查 |
+| `security-required` | `.github/workflows/security.yml` | secret scan、Bandit triage、pip-audit、license、SBOM（Dependabot + pip-audit 作为依赖审查门禁） |
 | `codeql-analyze` | `.github/workflows/codeql.yml` | CodeQL 静态分析 |
 
 如果矩阵检查需要单独配置，也可同时要求：

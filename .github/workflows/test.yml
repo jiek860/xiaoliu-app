@@ -67,7 +67,7 @@ jobs:
         run: python tools/rebuild_modules_repo.py --apply
       - name: Test and coverage gate
         run: |
-          python -m coverage run --source=core,gui,modules -m pytest tests/ -q
+          python -m coverage run --source=core,gui,modules -m pytest tests/ -x -vv --timeout=120 --timeout-method=thread
           python -m coverage report --fail-under=58
           python -m coverage xml -o coverage.xml
           python -m coverage json -o coverage.json
