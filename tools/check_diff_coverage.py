@@ -16,8 +16,9 @@ HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 def changed_lines(base_ref):
     try:
         diff = subprocess.run(
-            ["git", "diff", "--unified=0", "--diff-filter=ACMRT",
-             "%s...HEAD" % base_ref, "--", "core", "gui", "modules"],
+            ["git", "diff", "--ignore-space-at-eol", "--unified=0",
+             "--diff-filter=ACMRT", "%s...HEAD" % base_ref,
+             "--", "core", "gui", "modules"],
             cwd=str(BASE), capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=60)
     except Exception as exc:
