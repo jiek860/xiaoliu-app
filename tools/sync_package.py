@@ -39,6 +39,10 @@ DEFAULT_DST = r"E:\xiao6-package"
 FILES = ["run.py", "app.ico", "config.default.json",
          "requirements.txt", "requirements-optional.txt", "requirements.lock",
          "install.bat", "启动PyQt.bat", "使用说明-小白版.txt",
+         # 用户教程：程序内「新手教程」「检查更新」「深度自检」会直接打开
+         # 这些文件；少了它们，打包版点按钮只会提示"文件未找到"。
+         "FAQ.txt", "安装教程.txt", "激活教程.txt", "模型教程.txt",
+         "检测手册.txt", "部署步骤.md", "卸载.bat",
          # 协议：agreement.py 读 docs/，读不到会回退到根目录  打包版
          # 不带 docs/，所以这两份必须随包发，否则首次启动显示"文件未找到"
          "隐私政策.txt", "用户协议.txt"]
@@ -106,6 +110,116 @@ def plan(dst):
             if sm[k] != dm[k]:
                 upd.append("%s/%s" % (name, k))
     return add, upd, dele
+
+
+PACKAGE_README = "_打包说明.txt"
+
+
+def write_package_readme(dst):
+    """生成/刷新打包源说明，数字每次同步后重新计算，避免像以前那样
+    一直写着 1710 个文件 / 47.8 MB（早就不对了）。"""
+    import datetime
+    n, s = du(dst)
+    def _count(sub):
+        p = os.path.join(dst, sub)
+        c, _ = du(p) if os.path.isdir(p) else (0, 0)
+        return c
+    files = sorted(f for f in FILES if os.path.isfile(os.path.join(dst, f)))
+    lines = [
+        "小6智能体 · 打包专用目录（打包源）",
+        "=" * 60,
+        "生成时间：%s（由 tools/sync_package.py 自动刷新）"
+        % datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "来源：从开发目录**复制**过来的一份干净程序",
+        "规模：%d 个文件 / %.1f MB" % (n, s / 1048576.0),
+        "",
+        "这份是干什么的",
+        "-" * 60,
+        "用桌面上那套工具（加固打包 + 安装包生成器）给小6 做安装包。",
+        "**对这一个文件夹打包**，不要对开发目录打包。",
+        "",
+        "开发目录里混着不能发出去的东西 —— 直接打包是隐私事故：",
+        "    data\\config.json     API Key、邮箱授权码、Webhook",
+        "    data\\chats.db        聊天记录",
+        "    data\\memory*.json    长期记忆",
+        "    data\\users\\ logs\\    账号与会话",
+        "    backups\\             自动备份",
+        "    optional_libs\\       可选依赖（约 1 GB）",
+        "    tests\\ tools\\ .git\\  开发用",
+        "本目录在同步时已逐项排查，上面这些一个都没进来。",
+        "",
+        "复制内容（明细，数字为本次同步实测）",
+        "-" * 60,
+        "【程序本体】",
+        "  run.py                       入口（打包工具要编译它）",
+        "  core\\        %4d 文件       核心代码（含公钥/激活公钥）" % _count("core"),
+        "  gui\\         %4d 文件       界面代码" % _count("gui"),
+        "  modules\\     %4d 文件       插件模块" % _count("modules"),
+        "  modules_repo\\ %3d 文件     插件清单（RSA 签名）" % _count("modules_repo"),
+        "  libs\\        %4d 文件       随包库" % _count("libs"),
+        "",
+        "【配置与依赖】",
+        "  config.default.json          默认配置（脱敏版，不含任何 Key）",
+        "  requirements.txt / -optional.txt",
+        "",
+        "【给用户的文件】",
+    ]
+    for f in files:
+        if f not in ("run.py", "app.ico", "config.default.json",
+                     "requirements.txt", "requirements-optional.txt",
+                     "requirements.lock", "install.bat"):
+            lines.append("  %-28s %s" % (f, ""))
+    lines += [
+        "",
+        "打包步骤（手工操作）",
+        "-" * 60,
+        "第 1 步：编译成 exe",
+        "    双击 加固打包.exe，选源文件：" + os.path.join(dst, "run.py"),
+        "    输出位置：就放 " + dst + "（方便第 2 步直接从文件夹里找）",
+        "",
+        "    ⚠️ 也可以走 PyInstaller：在开发目录执行",
+        "       .build-venv\\Scripts\\python.exe -m PyInstaller --clean --noconfirm xiao6.spec",
+        "       注意 xiao6.spec 引用的是开发目录里的文件，不要在打包源里直接跑。",
+        "",
+        "第 2 步：做成安装包",
+        "    双击 安装包生成器.exe",
+        "    ① 主程序 exe        **留空**",
+        "    ② 应用名            小6智能体",
+        "    ③ 安装包图标        可留空",
+        "    ④ 桌面快捷方式      勾上",
+        "    ⑤ 整个文件夹一起打包  **选 %s**    ← 关键" % dst,
+        "    ⑥ Inno Setup 编译器  已自动填好",
+        "    然后点「一键生成安装包」",
+        "",
+        "做完之后请验一遍（重要）",
+        "-" * 60,
+        "安装包必须在干净环境里试装，重点看四件事：",
+        "  1. 装完双击快捷方式，能不能打开界面",
+        "  2. 能不能聊起来（首次向导配模型）",
+        "  3. 设置 → 系统 → 深度自检，有没有报错",
+        "  4. 卸载，确认 data\\ 留在原地没被删",
+        "",
+        "已知的坑",
+        "-" * 60,
+        "1. 可选功能（语音 / 看图）默认不在里面。要带上 optional_libs，",
+        "   安装包会从约 200 MB 涨到 1 GB 以上；建议做标准版 + 语音版两个包。",
+        "2. 这是打包源，不是运行环境。想在这儿直接跑，需要先把依赖装进 libs\。",
+        "3. 程序内「新手教程」「用量成本」「RAG管理」「团队管理」入口见",
+        "   使用说明-小白版.txt；运行时不读取 docs/，本目录只带用户能看的文档。",
+        "",
+        "用户文档清单（本目录已包含）",
+        "-" * 60,
+    ]
+    for f in files:
+        if f.lower().endswith((".txt", ".md")) and f != PACKAGE_README:
+            lines.append("  %s" % f)
+    text = "\n".join(lines) + "\n"
+    path = os.path.join(dst, PACKAGE_README)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
+    return path
 
 
 def check_safety(dst):
@@ -268,6 +382,9 @@ def main():
             print("    清理 %s" % k)
 
     if not (add or upd or dele or stash):
+        if not a.dry_run:
+            # 说明文件按当前实际数字重新生成（只有内容变了才会写盘）
+            write_package_readme(dst)
         print()
         print("  ✅ 已经一致，不用动")
         return 0
@@ -341,6 +458,9 @@ def main():
             print("  ❌ %s" % p)
         return 1
     print("  ✅ 安全检查通过（没有 data/ tests/ tools/，配置里没有 Key）")
+
+    readme = write_package_readme(dst)
+    print("  ✅ 已刷新 %s" % os.path.basename(readme))
 
     n, s = du(dst)
     print()
