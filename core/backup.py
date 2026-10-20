@@ -249,10 +249,13 @@ class Backup:
                 for d in sorted(self.EXCLUDE_DIRS):
                     ex_args.append("-xr!" + d)
                 ex_args.append("-xr!backup_*")
+                # Run from the project root and archive the relative "data"
+                # path so 7-Zip and the Python fallback produce the same
+                # internal names (data/config.json, not config.json).
                 r = subprocess.run(
                     [_7z, "a", "-tzip", "-p%s" % password, "-mem=AES256", "-y",
-                     dest, os.path.join(data_src, "*")] + ex_args,
-                    capture_output=True, timeout=180)
+                     dest, "data"] + ex_args,
+                    cwd=self.base, capture_output=True, timeout=180)
                 if os.path.exists(dest):
                     return {"成功": True, "导出到": dest, "加密": "AES256(7-Zip)",
                             "大小KB": os.path.getsize(dest) // 1024,
