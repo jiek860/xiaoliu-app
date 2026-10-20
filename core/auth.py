@@ -25,6 +25,11 @@ class Auth:
         self.db_path = os.path.join(self.data_dir, "users.json")
         self.db = self._load()
         self.current_user = None
+        try:
+            from core.team_policy import TeamStore
+            self.team = TeamStore(base)
+        except Exception:
+            self.team = None
         # 加载激活码校验资产
         self._secret = None
         self._pub = None
@@ -135,6 +140,16 @@ class Auth:
         os.makedirs(os.path.join(user_dir, "memory"), exist_ok=True)
         return user_dir
 
+    def _ensure_team_user(self, username):
+        """Keep the license account and team RBAC record in sync."""
+        if self.team is None:
+            return
+        try:
+            if username not in self.team.users:
+                self.team.add_user(username, username, "viewer", requester="local")
+        except Exception:  # 静默是故意的
+            pass
+
     # ---------- 对外接口 ----------
     def activate(self, username, code):
         """用激活码激活账号。账号名任意，激活码必须合法且未被用过。"""
@@ -168,6 +183,7 @@ class Auth:
             "last_login": 0,
         }
         self._ensure_user_dir(username)
+        self._ensure_team_user(username)
         self._save()
         extra = ""
         if info.get("expire") and info["expire"] != "永久":
@@ -200,11 +216,18 @@ class Auth:
             except Exception as e:
                 _x6_swallowed(__name__, e)
                 pass
+        self._ensure_team_user(username)
+        if self.team is not None:
+            team_user = self.team.users.get(username) or {}
+            if team_user.get("disabled"):
+                return {"ok": False, "msg": "该团队账号已被管理员禁用"}
         self.current_user = username
         d["last_login"] = time.time()
         self._ensure_user_dir(username)
         self._save()
-        return {"ok": True, "user": username}
+        role = (self.team.users.get(username, {}) if self.team else {}).get(
+            "role", "viewer")
+        return {"ok": True, "user": username, "role": role}
 
     def logout(self):
         self.current_user = None
@@ -213,7 +236,14 @@ class Auth:
     def whoami(self):
         if not self.current_user:
             return {"user": "未登录", "activated": False}
-        return {"user": self.current_user, "activated": True}
+        role = (self.team.users.get(self.current_user, {}) if self.team else {}).get(
+            "role", "viewer")
+        return {"user": self.current_user, "activated": True, "role": role}
+
+    def has_permission(self, permission):
+        if not self.current_user or self.team is None:
+            return False
+        return bool(self.team.check(self.current_user, permission).get("ok"))
 
     def level_name(self):
         """兼容旧调用：不再有等级，直接返回账号名。"""

@@ -77,3 +77,22 @@ def test_central_config_applied_by_load_config(tmp_path):
     cfg = load_config(str(data / "config.json"))
     assert cfg["model_mode"] == "云端模型"
     assert cfg["allow_inprocess_plugins"] is False
+
+
+def test_auth_binds_license_user_to_team_role_and_disable(tmp_path, monkeypatch):
+    from core.auth import Auth
+    class T:
+        base = str(tmp_path)
+        config = {}
+    a = Auth(T())
+    monkeypatch.setattr(a, "_verify_code",
+                        lambda code: (True, "ok", {"expire": "永久"}))
+    assert a.activate("alice", "FAKE-CODE")["ok"]
+    r = a.login("alice")
+    assert r["ok"] and r["role"] == "viewer"
+    assert a.whoami()["role"] == "viewer"
+    assert a.has_permission("data:read")
+    assert not a.has_permission("config:write")
+    assert a.team.disable_user("alice")["ok"]
+    a.logout()
+    assert a.login("alice")["ok"] is False
