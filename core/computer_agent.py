@@ -311,6 +311,8 @@ class ComputerAgent(
                     verified = self.verify(action, result, before)
                 item = {"action": action, "result": result,
                         "verified": verified, "attempts": attempts,
+                        "repair": repair_strategy(action, verified, attempts)
+                        if attempts else [],
                         "thought": decision.get("thought", ""),
                         "before_screenshot": before.get("screenshot", ""),
                         "after_screenshot": result.get("after_screenshot", "")}

@@ -57,6 +57,7 @@ def manifest_product_info(meta, host_version="25.2.23", api_version="1.0"):
     compat = host_compatibility(meta, host_version, api_version)
     return {
         "name": str(meta.get("name") or meta.get("file") or "unknown"),
+        "file": str(meta.get("file") or ""),
         "version": str(meta.get("version") or "1.0.0"),
         "trust_tier": trust_tier(meta),
         "compatible": compat["ok"],

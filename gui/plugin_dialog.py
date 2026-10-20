@@ -290,10 +290,25 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp=None, show_components=None):
             updates = r.get("updates") or []
             blocked = r.get("blocked") or []
             if updates:
-                msg.setText("可更新: " + "、".join(
+                summary = "、".join(
                     "%s %s->%s" % (u["file"], u.get("current"),
                                    u["latest"].get("version"))
-                    for u in updates[:6]))
+                    for u in updates[:6])
+                answer = QMessageBox.question(
+                    d, "插件更新", "发现兼容更新：\n%s\n\n是否全部更新？" % summary,
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                if answer == QMessageBox.Yes:
+                    from core.plugin_installer import apply_update
+                    results = []
+                    for u in updates:
+                        meta = dict(u.get("latest") or {})
+                        meta["file"] = u.get("file")
+                        results.append(apply_update(pm, meta))
+                    ok = sum(1 for x in results if x.get("ok"))
+                    msg.setText("更新完成: %d/%d" % (ok, len(results)))
+                    _refresh()
+                    return
+                msg.setText("可更新: " + summary)
             elif blocked:
                 msg.setText("有 %d 个新版本与当前宿主/API 不兼容" % len(blocked))
             else:

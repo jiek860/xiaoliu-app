@@ -256,11 +256,26 @@ class Backup:
                     [_7z, "a", "-tzip", "-p%s" % password, "-mem=AES256", "-y",
                      dest, "data"] + ex_args,
                     cwd=self.base, capture_output=True, timeout=180)
-                if os.path.exists(dest):
+                verified = False
+                if getattr(r, "returncode", 1) == 0 and os.path.exists(dest):
+                    try:
+                        with zipfile.ZipFile(dest) as z:
+                            infos = z.infolist()
+                            verified = bool(infos) and all(
+                                bool(i.flag_bits & 0x1) for i in infos)
+                    except Exception:  # 静默是故意的 - 验证失败后必须删掉半成品
+                        verified = False
+                if verified:
                     return {"成功": True, "导出到": dest, "加密": "AES256(7-Zip)",
                             "大小KB": os.path.getsize(dest) // 1024,
                             "说明": "已排除 datasets/日志/旧备份等，只导出状态数据"}
-                return {"成功": False, "错误": (r.stderr or b"").decode("gbk", "ignore")[:100]}
+                # 7-Zip 存在但失败/未加密：删掉半成品，继续走 Python AES-GCM，
+                # 绝不把未加密 ZIP 当成功结果交给用户。
+                try:
+                    if os.path.exists(dest):
+                        os.remove(dest)
+                except OSError as e:  # 静默是故意的 - 后续写同名文件会覆盖
+                    _x6_swallowed(__name__, e, "best-effort cleanup")
         except Exception as e:
             _x6_swallowed(__name__, e)
             pass

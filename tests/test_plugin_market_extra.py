@@ -194,3 +194,21 @@ def test_plugin_market_check_updates(tmp_path, monkeypatch):
     r = pm.check_updates()
     assert r["ok"] is True
     assert r["updates"] and r["updates"][0]["latest"]["version"] == "1.2.0"
+
+
+def test_apply_update_backs_up_and_records_ledger(tmp_path, monkeypatch):
+    from core.plugin_installer import apply_update
+    from core.plugin_registry import InstallLedger
+    pm = _market(tmp_path)
+    installed = tmp_path / "modules" / "installed"
+    installed.mkdir(parents=True, exist_ok=True)
+    (installed / "notes.py").write_text("old", encoding="utf-8")
+    def fake_download(filename, meta):
+        (installed / filename).write_text("new", encoding="utf-8")
+        return {"ok": True, "msg": "downloaded"}
+    monkeypatch.setattr(pm, "download", fake_download)
+    r = apply_update(pm, {"name": "notes", "file": "notes.py", "version": "1.2.0"})
+    assert r["ok"] is True
+    assert r["backup"] and (tmp_path / "data" / "plugin_backups" / "notes.py").exists()
+    assert "notes" in pm.trunk.loaded
+    assert InstallLedger(str(tmp_path)).latest("notes")["version"] == "1.2.0"
