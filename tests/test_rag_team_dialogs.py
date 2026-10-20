@@ -59,3 +59,14 @@ def test_usage_dialog_constructs(tmp_path, qapp):
         assert "最近 7 天" in d.summary.text()
     finally:
         d.close()
+
+
+def test_panel_registry_contains_new_admin_entries():
+    from gui.panel_registry import build_panel_commands
+    class Owner:
+        rag_dialog = lambda self: None
+        team_dialog = lambda self: None
+        usage_dialog = lambda self: None
+    cmds = build_panel_commands(Owner())
+    assert cmds["RAG管理"] and cmds["团队管理"] and cmds["用量成本"]
+    assert cmds["插件市场"] is None
