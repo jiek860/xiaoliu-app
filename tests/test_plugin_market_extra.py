@@ -182,3 +182,15 @@ def test_plugin_download_falls_back_to_second_signed_source(tmp_path, monkeypatc
     r = pm.download("notes.py", meta)
     assert r["ok"] is True, r
     assert (tmp_path / "modules" / "installed" / "notes.py").read_bytes() == raw_good
+
+
+def test_plugin_market_check_updates(tmp_path, monkeypatch):
+    pm = _market(tmp_path)
+    online = [{"file": "notes.py", "name": "notes", "version": "1.2.0",
+               "api_version": "1.0", "signature": "s", "first_party": True,
+               "capabilities": {}}]
+    monkeypatch.setattr(pm, "list_online", lambda: online)
+    monkeypatch.setattr(pm, "_repo_meta", lambda _f: {"version": "1.0.0"})
+    r = pm.check_updates()
+    assert r["ok"] is True
+    assert r["updates"] and r["updates"][0]["latest"]["version"] == "1.2.0"

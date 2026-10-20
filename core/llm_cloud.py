@@ -39,6 +39,29 @@ class LLMCloudMixin:
         kwargs.setdefault("timeout", 60)
         return requests.post(url, **kwargs)  # nosec B113
 
+    def _provider_request(self, messages, stream=False, timeout=30):
+        """Build a provider-specific request when cloud_provider is configured."""
+        provider = str(self.config.get("cloud_provider") or "").strip()
+        if not provider:
+            return None
+        from core.llm_providers import (
+            build_chat_request, config_for_provider, normalize_provider,
+            provider_spec)
+        key = normalize_provider(provider)
+        spec = provider_spec(key)
+        connector = config_for_provider(self.config, key)
+        if not spec:
+            raise ValueError("unknown cloud provider: %s" % provider)
+        if not connector["local"] and not connector["api_key"]:
+            raise ValueError("provider requires cloud_key")
+        if not connector["base_url"]:
+            raise ValueError("provider requires cloud_url/base_url")
+        return build_chat_request(
+            key, connector["model"], messages,
+            api_key=connector["api_key"], base_url=connector["base_url"],
+            stream=stream, deployment=connector["deployment"],
+            api_version=connector["api_version"])
+
     def _chat_cloud_only(self, message):
         """模式②：只连云端，失败重试1次"""
         for _attempt in range(2):
@@ -79,7 +102,6 @@ class LLMCloudMixin:
     def _try_cloud(self, message):
         url = self.config.get("cloud_url", "")
         key = self.config.get("cloud_key", "")
-        if not url or not key: return None
         model = self.config.get("cloud_model", "qwen-turbo")
         try:
             if isinstance(message, list):
@@ -88,14 +110,23 @@ class LLMCloudMixin:
             else:
                 msgs = [{"role": "user", "content": message}]
             msgs = self._fit_messages(self._mask_if_enabled(msgs))
-            if not url.endswith("/chat/completions"):
-                url = url.rstrip("/") + "/chat/completions"
             _t0 = time.time()
-            r = self._post(url,
-                headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
-                json={"model": model, "messages": msgs, "temperature": 0.7},
-                timeout=30)
-            _ans = r.json()["choices"][0]["message"]["content"]
+            provider_req = self._provider_request(msgs, stream=False, timeout=30)
+            if provider_req is not None:
+                r = self._post(provider_req["url"], headers=provider_req["headers"],
+                               json=provider_req["json"], timeout=30)
+                from core.llm_providers import parse_chat_response
+                _ans = parse_chat_response(provider_req["provider"], r.json())
+            else:
+                if not url or not key:
+                    return None
+                if not url.endswith("/chat/completions"):
+                    url = url.rstrip("/") + "/chat/completions"
+                r = self._post(url,
+                    headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+                    json={"model": model, "messages": msgs, "temperature": 0.7},
+                    timeout=30)
+                _ans = r.json()["choices"][0]["message"]["content"]
             self._track_usage(model, msgs, _ans, time.time() - _t0,
                               kind="cloud_model")
             return _ans
@@ -107,8 +138,13 @@ class LLMCloudMixin:
         """云端真流式：逐字返回"""
         url = self.config.get("cloud_url", "")
         key = self.config.get("cloud_key", "")
-        if not url or not key: return ""
         model = self.config.get("cloud_model", "qwen-turbo")
+        if str(self.config.get("cloud_provider") or "").strip():
+            full = self._try_cloud(message)
+            if full and on_token:
+                on_token(full)
+            return full or ""
+        if not url or not key: return ""
         try:
             if isinstance(message, list):
                 msgs = [{k: v for k, v in m.items() if k != "images"} if isinstance(m, dict) else m

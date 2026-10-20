@@ -9,6 +9,7 @@ import time
 import uuid
 from collections import OrderedDict
 from core.visual_grounding import parse_uia_lines, ground, fuse_grounding
+from core.gui_agent_quality import DualChannelLocator
 
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -188,9 +189,9 @@ class ComputerPerceptionMixin:
                 ocr_text = ""
             if not use_vision:
                 vision_text = ""
-        hits = fuse_grounding(goal, snap.get("elements") or [],
-                              ocr_text=ocr_text, vision_text=vision_text,
-                              top_k=8)
+        hits = DualChannelLocator().locate(
+            goal, snap.get("elements") or [], ocr_text=ocr_text,
+            vision_text=vision_text, top_k=8)
         if min_confidence > 0:
             hits = [x for x in hits
                     if x.get("confidence", 0) >= min_confidence]

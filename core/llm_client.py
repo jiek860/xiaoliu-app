@@ -181,6 +181,21 @@ class LLMClient(
     def run(self, message="你好"):
         return self.chat(message)
 
+    def route_request(self, requirements=None, local_failed=None):
+        """Return a deterministic local/cloud model route for a task."""
+        from core.model_router import TaskRequirements, route_model
+        local_model = str(self.config.get("local_model", "") or "")
+        cloud_model = str(self.config.get("cloud_model", "") or "")
+        provider = str(self.config.get("cloud_provider") or "openai")
+        return route_model(
+            local_model=local_model, cloud_model=cloud_model,
+            provider=provider,
+            requirements=requirements or TaskRequirements(),
+            local_available=not bool(getattr(self, "ollama_down", False)),
+            local_failed=bool(self._fail_count >= 3 if local_failed is None
+                              else local_failed),
+        )
+
     def get_model_info(self):
         """获取当前模型信息"""
         return {
