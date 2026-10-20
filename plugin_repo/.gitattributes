@@ -1,0 +1,3 @@
+﻿# Signed plugin files are hashed byte-for-byte. Never apply Git newline
+# conversion to this directory or RSA signature verification will fail.
+* -text
