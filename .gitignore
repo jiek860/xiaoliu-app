@@ -70,6 +70,8 @@ __pycache__/
 
 # ---------- 五、编辑器 / 虚拟环境 ----------
 .venv/
+.runtime-venv/
+.build-venv/
 venv/
 env/
 .idea/
@@ -83,3 +85,17 @@ htmlcov/
 _cov_tmp.json
 data/tools/
 data/dumps/
+# ---------- 本地审计 / 临时检查产物 ----------
+_sec_grep.txt
+_chk_win.py
+_fix_backup_*/
+_env_*.log
+_env_*.err
+_env_*.pid
+_coverage_*.json
+_coverage_*.log
+_final_*_pytest.log
+_audit_*.json
+_audit_*.log
+_smoke_run*.log
+_smoke_run*.pid

@@ -387,14 +387,14 @@ def test_full_hint_callers_still_exist():
     结果那里根本没有 —— 是我想当然了。改成查**真实存在的这三处**，
     而且反过来要求"每个调用点都真的调到了 full_hint"。
     """
-    callers = [
-        os.path.join("core", "llm_client.py"),
-        os.path.join("core", "pipeline", "legacy_reply.py"),
-        os.path.join("core", "pipeline", "prompt_assembler.py"),
-    ]
-    for rel in callers:
+    llm_src = "\n".join(open(os.path.join(BASE, rel), encoding="utf-8").read()
+                        for rel in ("core/llm_client.py", "core/llm_local.py",
+                                    "core/llm_health.py"))
+    assert "full_hint" in llm_src, "LLM 侧不再调 full_hint  人格提示接不上了"
+    for rel in (os.path.join("core", "pipeline", "legacy_reply.py"),
+                os.path.join("core", "pipeline", "prompt_assembler.py")):
         p = os.path.join(BASE, rel)
         assert os.path.exists(p), "调用点文件没了：%s" % rel
         src = open(p, encoding="utf-8").read()
         assert "full_hint" in src, \
-            "%s 不再调 full_hint —— 人格提示接不上了" % rel
+            "%s 不再调 full_hint  人格提示接不上了" % rel

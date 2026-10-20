@@ -4,7 +4,7 @@ r"""打包一个「干净版」给小6智能体给朋友用
 为什么需要它
 ------------
 直接把整个项目文件夹压缩发出去，会把下面这些**你自己的东西**一起送出去：
-    data\config.json     你的 GLM API Key、QQ 邮箱授权码、企业微信 Webhook
+    data\config.json     你的 GLM API Key、飞书 / 企业微信 / 钉钉 Webhook
     data\chats.db        你和它的全部聊天记录
     data\memory.json     它的长期记忆（包含关于你的事）
     data\users\          各账号的聊天与记忆目录
@@ -31,6 +31,12 @@ r"""打包一个「干净版」给小6智能体给朋友用
 打包完成后会**扫描 zip 内容**，发现疑似密钥/私钥/隐私文件就直接删除产物并报错，
 不会留下一个"以为干净其实不安全"的包。
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import argparse
 import os
 import re
@@ -55,9 +61,10 @@ INCLUDE_FILES = [
     "run.py", "run_server.py",
     "install.bat", "check.bat", "启动PyQt.bat", "启动PyQt.vbs", "卸载.bat", "打开控制台.bat",
     "config.default.json", "requirements.txt", "requirements-optional.txt",
+    "requirements.lock",
     "pyproject.toml", "app.ico",
     "README.md", "ARCHITECTURE.md", "FAQ.txt",
-    "使用说明.txt", "安装教程.txt", "模型教程.txt", "激活教程.txt",
+    "使用说明-小白版.txt", "安装教程.txt", "模型教程.txt", "激活教程.txt",
     "用户协议.txt", "隐私政策.txt",
 ]
 
@@ -66,8 +73,12 @@ EXCLUDE_RELPATHS = {
     "检测手册.txt",                      # 你自己的检测手册
     "开发者须知-密钥与发版.md",            # 含密钥库位置等内部信息
     "CONTRIBUTING.md", "CHANGELOG.md",
-    "docs/开发流程与目录结构梳理.md",       # 内部梳理（含体积/已知问题）
-    "docs/全模块规则体系.md", "docs/规则对比与优化清单.md", "docs/升级报告_20260923.md",
+    "docs/README.md",                    # 文档索引（开发者内部）
+    "docs/00_产品架构与UI主文档.md",       # 内部产品/架构主文档
+    "docs/10_开发流程与工程手册.md",       # 内部开发/发版/风险手册
+    "docs/20_优化路线与实施记录.md",       # 内部路线/实施记录
+    "docs/30_模块规则与API参考.md",        # 内部规则/API 参考
+    "docs/40_安全加固与权限说明.md",            # 内部安全记录
 }
 
 # ---------- data\ 里只带"内容"，不带"隐私" ----------
@@ -90,6 +101,10 @@ SECRET_PATTERNS = [
     ("OpenAI 风格 Key", re.compile(rb"sk-[A-Za-z0-9]{20,}")),
     ("企业微信 Webhook", re.compile(rb"qyapi\.weixin\.qq\.com[^\s\"']{0,120}"),
      ),
+    ("飞书 Webhook", re.compile(
+        rb"open\.feishu\.cn/open-apis/bot/v2/hook/[A-Za-z0-9\-]+")),
+    ("钉钉 Webhook", re.compile(
+        rb"oapi\.dingtalk\.com/robot/send\?access_token=[A-Za-z0-9]+")),
     ("私钥块", re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     ("Gitee 带令牌 URL", re.compile(rb"https://[^/\s:@]+:[0-9a-f]{32}@gitee\.com")),
     # 带密码的连接串：要求密码位至少 10 位真字符。
@@ -287,7 +302,8 @@ def main():
             print("      " + p)
         try:
             os.remove(out)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return 1
 

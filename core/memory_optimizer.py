@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """v26-5.3: 内存优化 完整版"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import gc, weakref, threading, time
 
 
@@ -36,7 +42,8 @@ class MemoryOptimizer:
                 time.sleep(interval)
                 try:
                     self.cleanup()
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
         threading.Thread(target=_loop, daemon=True, name="memory-cleanup").start()
         return {"ok": True, "间隔秒": interval, "状态": "已启动"}

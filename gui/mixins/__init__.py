@@ -5,6 +5,7 @@ from gui.mixins.dialog_mixin    import DialogMixin
 from gui.mixins.voice_mixin     import VoiceMixin
 from gui.mixins.system_mixin    import SystemMixin
 from gui.mixins.lifecycle_mixin import LifecycleMixin
+from gui.mixins.ui_mode_mixin   import UIModeMixin
 
 __all__ = [
     "ChatMixin",
@@ -12,4 +13,5 @@ __all__ = [
     "VoiceMixin",
     "SystemMixin",
     "LifecycleMixin",
+    "UIModeMixin",
 ]

@@ -1,7 +1,14 @@
 # -*- coding: utf-8 -*-
 """文件上传 v2.1 - 上传 + 读取 + 列表 + 搜索 + 删除 + 统计 + 清空 + 导出"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, time
 from core.safe import safe
+from core.path_safety import safe_join, safe_name
 from modules.base import BaseModule
 
 
@@ -32,7 +39,8 @@ class FileUpload(BaseModule):
         if fname.endswith((".txt", ".py", ".md", ".json", ".csv")):
             try:
                 content = open(dst, encoding="utf-8", errors="ignore").read()[:1000]
-            except: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
 
         self.upload_count += 1
         self.history.append({"文件": fname, "时间": time.strftime("%m-%d %H:%M")})
@@ -53,22 +61,22 @@ class FileUpload(BaseModule):
 
     @safe
     def delete_file(self, fname):
-        """删除文件"""
-        path = os.path.join(self.upload_dir, fname)
-        if os.path.exists(path):
-            os.remove(path)
-            return {"ok": True}
-        return {"错误": "文件不存在"}
+        """删除文件（只允许 upload_dir 内的一级文件名）"""
+        path = safe_join(self.upload_dir, safe_name(fname, default=""))
+        if not path or not os.path.isfile(path):
+            return {"错误": "文件不存在或路径非法"}
+        os.remove(path)
+        return {"ok": True}
 
     @safe
     def read_file(self, fname):
-        """读取文件内容"""
-        path = os.path.join(self.upload_dir, fname)
-        if not os.path.exists(path):
-            return {"错误": "文件不存在"}
+        """读取文件内容（只允许 upload_dir 内的一级文件名）"""
+        path = safe_join(self.upload_dir, safe_name(fname, default=""))
+        if not path or not os.path.isfile(path):
+            return {"错误": "文件不存在或路径非法"}
         try:
             content = open(path, encoding="utf-8", errors="ignore").read()
-            return {"文件名": fname, "内容": content[:1000]}
+            return {"文件名": os.path.basename(path), "内容": content[:1000]}
         except Exception as e:
             return {"错误": str(e)[:80]}
 
@@ -122,9 +130,11 @@ class FileUpload(BaseModule):
 
     @safe
     def rename_file(self, old_name, new_name):
-        """重命名文件"""
-        old_path = os.path.join(self.upload_dir, old_name)
-        new_path = os.path.join(self.upload_dir, new_name)
+        """重命名文件（两端都只允许 upload_dir 内的一级文件名）"""
+        old_path = safe_join(self.upload_dir, safe_name(old_name, default=""))
+        new_path = safe_join(self.upload_dir, safe_name(new_name, default=""))
+        if not old_path or not new_path:
+            return {"错误": "路径非法"}
         if not os.path.exists(old_path):
             return {"错误": "文件不存在"}
         os.rename(old_path, new_path)

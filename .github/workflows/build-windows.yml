@@ -1,0 +1,51 @@
+name: Windows 打包检查
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "core/**"
+      - "gui/**"
+      - "modules/**"
+      - "xiao6.spec"
+      - "tools/check_pyinstaller_output.py"
+      - ".github/workflows/build-windows.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  pyinstaller:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PYTHONIOENCODING: utf-8
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 创建干净打包环境
+        shell: pwsh
+        run: |
+          python -m venv .build-venv
+          .\.build-venv\Scripts\python.exe -m pip install -U pip
+          .\.build-venv\Scripts\python.exe -m pip install -r requirements.txt pyinstaller
+      - name: 构建
+        shell: pwsh
+        run: |
+          .\.build-venv\Scripts\python.exe -m PyInstaller --clean --noconfirm xiao6.spec
+      - name: 检查产物
+        shell: pwsh
+        run: |
+          python tools\check_pyinstaller_output.py --dist dist --launch-seconds 10
+      - name: 检查 missing-module 分类
+        shell: pwsh
+        run: |
+          python tools\check_pyinstaller_warnings.py --warn build\xiao6\warn-xiao6.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xiao6-windows-build
+          path: dist/
+          if-no-files-found: error

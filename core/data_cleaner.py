@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """v26-6.1: 数据去重与清洗 完整版"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, json, sqlite3
 
 
@@ -40,7 +46,8 @@ class DataCleaner:
         for ln in open(p, encoding="utf-8"):
             try:
                 cards.append(json.loads(ln))
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         keep = []
         deleted = 0

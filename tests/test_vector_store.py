@@ -98,7 +98,10 @@ def test_embed_success(monkeypatch, vs):
     calls = []
 
     def fake_post(url, json=None, timeout=None):
-        calls.append(url)
+        # 只统计嵌入端点：全量跑时可能有别的线程在打 /api/chat
+        # （实测：期望 1 次、实际 2 次，多出来那条是后台线程）
+        if str(url).endswith("/api/embeddings"):
+            calls.append(url)
         return _Resp({"embedding": [0.1, 0.2, 0.3]})
 
     import requests
@@ -143,8 +146,10 @@ def test_cooldown_skips_network_entirely(monkeypatch, vs):
     """
     calls = []
 
-    def boom(*a, **k):
-        calls.append(1)
+    def boom(url="", *a, **k):
+        # 同上：只统计嵌入端点，别把后台线程的 /api/chat 算进来
+        if str(url).endswith("/api/embeddings"):
+            calls.append(1)
         raise ConnectionError("连不上")
 
     import requests

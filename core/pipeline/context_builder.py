@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """上下文构建：并行检索 + 联网搜索 + 工具调用"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import concurrent.futures
 import time
 
@@ -58,7 +64,8 @@ class ContextBuilder:
         try:
             if self.trunk:
                 return bool(self.trunk.rule("联网.默认放开", True))
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return True
 
@@ -220,7 +227,6 @@ class ContextBuilder:
         它的 __exit__ 会 join 所有线程，超时形同虚设
         （实测 memory 那个任务要 45 秒，build() 就真的等了 45 秒）。
         """
-        import concurrent.futures
         ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
             fut = ex.submit(fn)
@@ -256,7 +262,8 @@ class ContextBuilder:
                     if f in done:
                         try:
                             context += f.result(timeout=0)
-                        except Exception:
+                        except Exception as e:
+                            _x6_swallowed(__name__, e)
                             pass
             except Exception as e:
                 self.trunk._log(f"并行检索失败: {e}")
@@ -276,9 +283,11 @@ class ContextBuilder:
                 try:
                     context += f.result(timeout=max(self._WEB_BUDGET,
                                                     self._TOOL_BUDGET) + 2)
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         finally:
             ex2.shutdown(wait=False)

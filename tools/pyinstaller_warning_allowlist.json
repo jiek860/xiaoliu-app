@@ -1,0 +1,120 @@
+{
+  "_说明": "PyInstaller missing-module 分类允许列表。新增未分类模块会让 check_pyinstaller_warnings.py 失败，必须人工确认它不是运行必需依赖。",
+  "prefixes": {
+    "numpy_internal_reflection": [
+      "numpy._core.",
+      "numpy._distributor_init_local"
+    ],
+    "pip_vendor_optional": [
+      "pip._vendor.",
+      "pip.__file__"
+    ],
+    "setuptools_vendor": [
+      "setuptools._vendor."
+    ],
+    "multiprocessing_pseudo_symbols": [
+      "multiprocessing.AuthenticationError",
+      "multiprocessing.BufferTooShort",
+      "multiprocessing.TimeoutError",
+      "multiprocessing.get_context",
+      "multiprocessing.get_start_method",
+      "multiprocessing.set_start_method"
+    ]
+  },
+  "exact": {
+    "unix_or_platform": [
+      "posix",
+      "pwd",
+      "grp",
+      "fcntl",
+      "resource",
+      "termios",
+      "readline",
+      "_posixshmem",
+      "_posixsubprocess",
+      "_scproxy",
+      "_manylinux",
+      "vms_lib",
+      "java",
+      "java.lang",
+      "android",
+      "jnius",
+      "js",
+      "pyodide",
+      "pyodide.ffi",
+      "thread",
+      "_winreg",
+      "win32evtlog",
+      "win32evtlogutil",
+      "win32pdh"
+    ],
+    "python2_legacy": [
+      "ConfigParser",
+      "HTMLParser",
+      "Queue",
+      "StringIO",
+      "__builtin__",
+      "__pypy__",
+      "__pypy__.builders",
+      "_abcoll",
+      "_dummy_thread",
+      "collections.Mapping",
+      "collections.MutableMapping",
+      "compression",
+      "dummy_thread",
+      "dummy_threading",
+      "htmlentitydefs",
+      "httplib",
+      "urllib.ContentTooShortError",
+      "urllib.pathname2url",
+      "urllib.quote",
+      "urllib.splittype",
+      "urllib.unquote",
+      "urllib.url2pathname",
+      "urllib.urlretrieve",
+      "urllib2",
+      "urlparse",
+      "xmlrpclib"
+    ],
+    "optional_python_packages": [
+      "IPython",
+      "IPython.core",
+      "IPython.display",
+      "attr",
+      "bcrypt",
+      "brotli",
+      "brotlicffi",
+      "chardet",
+      "filelock",
+      "h2",
+      "h2.connection",
+      "h2.events",
+      "importlib_resources",
+      "ipywidgets",
+      "jedi",
+      "keyring",
+      "redis",
+      "simplejson",
+      "socks",
+      "threadpoolctl",
+      "typing_extensions",
+      "urllib3_secure_extra",
+      "yaml",
+      "OpenSSL",
+      "OpenSSL.SSL",
+      "OpenSSL.crypto",
+      "cryptography.x509.UnsupportedExtension"
+    ],
+    "pyinstaller_internal": [
+      "_frozen_importlib_external",
+      "_typeshed",
+      "pyimod02_importers",
+      "sitecustomize",
+      "usercustomize",
+      "trove_classifiers"
+    ],
+    "asyncio_legacy_symbols": [
+      "asyncio.DefaultEventLoopPolicy"
+    ]
+  }
+}

@@ -28,6 +28,12 @@
       两者传输方式根本不同 —— 那个按钮装什么都连不上。现在改成如实的
       "预置服务器 + 复制命令"页，不再假装能一键安装。
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import json
 import threading
 
@@ -212,7 +218,8 @@ class MCPDialog(QDialog):
         self.trunk.config["mcp_servers"] = servers
         try:
             self.trunk.save_config()
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def _mcp_client(self):
@@ -245,13 +252,15 @@ class MCPDialog(QDialog):
         def _work():
             try:
                 self._mcp_client()
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
             finally:
                 self._client_loading = False
             try:
                 self.client_ready.emit()
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
 
         threading.Thread(target=_work, daemon=True,

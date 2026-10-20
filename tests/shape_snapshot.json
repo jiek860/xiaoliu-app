@@ -1,5 +1,5 @@
 {
-  "LAZY_MAP.size": 67,
+  "LAZY_MAP.size": 66,
   "LAZY_MAP.value_arity": [
     3
   ],
@@ -36,6 +36,10 @@
         "pgno",
         "segid",
         "term"
+      ],
+      "x6_meta": [
+        "key",
+        "value"
       ]
     }
   },
@@ -44,6 +48,8 @@
       "agent_max_steps",
       "ai_name",
       "ai_persona",
+      "auto_report_crash",
+      "bot_allow_tools",
       "browser_timeout",
       "chat_history_limit",
       "chat_history_limit_simple",
@@ -51,31 +57,42 @@
       "cloud_model",
       "cloud_url",
       "code_exec_timeout",
-      "feedback_email_pass",
-      "feedback_email_to",
-      "feedback_email_user",
-      "feedback_smtp_port",
-      "feedback_smtp_server",
+      "config_schema",
+      "crash_watchdog",
+      "dingtalk_secret",
+      "dingtalk_webhook",
+      "feishu_secret",
+      "feishu_webhook",
       "font_size",
       "http_timeout",
       "llm_timeout",
       "local_model",
       "log_level",
       "max_tokens_reply",
+      "mcp_allow_dangerous_tools",
       "mcp_servers",
       "mcp_url",
       "memory_max_items",
       "memory_unload_idle_sec",
       "model_mode",
       "module_server",
+      "notify_channel",
       "ollama_url",
       "online_repo_url",
       "reflect_every",
       "retrieval_top_k",
       "search_cache_sec",
       "search_timeout",
+      "security",
+      "shortcut_command_palette",
+      "show_advanced_entries",
       "simple_reply_max_len",
       "small_model",
+      "task",
+      "task_auto_mode",
+      "task_auto_wait_sec",
+      "ui_mode",
+      "ui_mode_ever_switched",
       "vector_cache_size",
       "vector_preload",
       "vl_model",
@@ -94,12 +111,16 @@
     "kind": "dict"
   },
   "data.memory.json": {
-    "kind": "map-of",
-    "value": {
-      "item_keys": [],
-      "item_kinds": [],
-      "kind": "list"
-    }
+    "keys": [
+      "_schema_version",
+      "checker",
+      "default",
+      "u1",
+      "userA",
+      "userB",
+      "回归"
+    ],
+    "kind": "dict"
   },
   "data.vectors.db": {
     "kind": "sqlite",
@@ -111,16 +132,22 @@
         "tag",
         "text",
         "time"
+      ],
+      "x6_meta": [
+        "key",
+        "value"
       ]
     }
   },
-  "manifest.count": 43,
+  "manifest.count": 42,
   "manifest.keys": [
+    "api_version",
     "button",
     "cls",
     "depends",
     "desc",
     "file",
+    "first_party",
     "group",
     "name",
     "needs_model",

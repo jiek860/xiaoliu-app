@@ -3,7 +3,7 @@
 
 为什么需要
 ----------
-实测（2026-10-13）：docs/全模块规则体系.md 自称"文档为唯一事实源"，
+实测（2026-10-13）：docs/30_模块规则与API参考.md 自称"文档为唯一事实源"，
 但头部写着「43 个注册模块」—— 实际是 **67 个**；
 别名映射里还列着 `web_learner→proactive_learner`，而那条**早就删了**；
 C 组 8 条标注"建议、待落地"，实际**都已有实现**。
@@ -27,7 +27,7 @@ sys.path.insert(0, BASE)
 sys.path.insert(0, os.path.join(BASE, "libs"))
 sys.path.insert(0, os.path.join(BASE, "optional_libs"))
 
-DOC = os.path.join(BASE, "docs", "全模块规则体系.md")
+DOC = os.path.join(BASE, "docs", "30_模块规则与API参考.md")
 
 
 def _doc():
@@ -101,7 +101,7 @@ def test_doc_numbers_match_code(label, key):
     assert nums, "在文档里找不到 %s 的声明（核对表被删了？）" % label
     assert real in nums, (
         "文档里的 %s 与代码对不上：文档写着 %s，代码实际是 %d。\n"
-        "改法：更新 docs/全模块规则体系.md 头部的核对表。"
+        "改法：更新 docs/30_模块规则与API参考.md 头部的核对表。"
         % (label, nums, real))
 
 

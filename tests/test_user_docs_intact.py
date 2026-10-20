@@ -26,10 +26,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 这些是**用户的东西**，任何工具都不该动
 USER_DOCS = [
-    "小6工程化风险解决方案.txt",
-    "小6智能体最新架构与功能说明.txt",
     "使用说明-小白版.txt",
-    "使用说明.txt",
     "检测手册.txt",
     "安装教程.txt",
     "模型教程.txt",

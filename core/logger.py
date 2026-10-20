@@ -3,6 +3,12 @@
 所有模块用同一个日志文件，分级：debug/info/warn/error
 升级：日志轮转、日志统计、日志搜索、日志清理、彩色控制台
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os
 import time
 from datetime import datetime
@@ -44,12 +50,14 @@ class Logger:
                     break
                 level, msg = item
                 self._write_sync(level, msg)
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
             finally:
                 try:
                     self._log_queue.task_done()
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
 
     def _write(self, level, msg):
@@ -78,7 +86,8 @@ class Logger:
             color = COLORS.get(level, "")
             reset = COLORS["RESET"]
             print("%s[%s]%s %s" % (color, level, reset, str(msg)[:100]))
-        except:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def debug(self, msg):
@@ -95,7 +104,8 @@ class Logger:
             with open(self.log_path, "a", encoding="utf-8") as f:
                 f.write(line)
             self._counts["debug"] = self._counts.get("debug", 0) + 1
-        except:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def info(self, msg):

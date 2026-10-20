@@ -1,7 +1,17 @@
 # 自动备份模块
-import os, shutil
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
+import os, shutil, secrets, hashlib, tempfile
 from datetime import datetime
 from core.logger import get_logger
+from core.path_safety import safe_name, safe_join
+
+_ENC_MAGIC = b"X6BAK2"
+_ENC_ITER = 200_000
 
 class Backup:
     # 备份时跳过的目录，三类：
@@ -133,7 +143,8 @@ class Backup:
             if callback:
                 try:
                     callback(r)
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
         threading.Thread(target=_run, daemon=True).start()
         return {"已启动": True}
@@ -161,8 +172,43 @@ class Backup:
         files = os.listdir(self.backup_dir) if os.path.exists(self.backup_dir) else []
         return {"备份数": len(files), "列表": sorted(files)[-10:]}
 
+    @staticmethod
+    def _encrypt_bytes(data, password):
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        salt = secrets.token_bytes(16)
+        nonce = secrets.token_bytes(12)
+        key = hashlib.pbkdf2_hmac(
+            "sha256", str(password).encode("utf-8"), salt, _ENC_ITER, dklen=32)
+        ct = AESGCM(key).encrypt(nonce, data, _ENC_MAGIC)
+        return _ENC_MAGIC + salt + nonce + ct
+
+    @staticmethod
+    def _decrypt_bytes(data, password):
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        if not data.startswith(_ENC_MAGIC):
+            raise ValueError("不是小6加密备份格式")
+        off = len(_ENC_MAGIC)
+        salt = data[off:off + 16]
+        off += 16
+        nonce = data[off:off + 12]
+        ct = data[off + 12:]
+        key = hashlib.pbkdf2_hmac(
+            "sha256", str(password).encode("utf-8"), salt, _ENC_ITER, dklen=32)
+        return AESGCM(key).decrypt(nonce, ct, _ENC_MAGIC)
+
+    def decrypt_export(self, source, out_zip, password):
+        """把 Python AES-GCM 备份解回普通 zip（供恢复/检查用）。"""
+        try:
+            data = open(source, "rb").read()
+            plain = self._decrypt_bytes(data, password)
+            with open(out_zip, "wb") as f:
+                f.write(plain)
+            return {"成功": True, "导出到": out_zip}
+        except Exception as e:
+            return {"成功": False, "错误": "解密备份失败: " + str(e)[:80]}
+
     def export(self, dest_dir=None, password=None):
-        """P2-10: 备份导出异地（zip + AES256 密码加密，优先 7-Zip）"""
+        """备份导出异地：优先 7-Zip AES256，否则用 Python AES-GCM 加密。"""
         import zipfile
         dest_dir = dest_dir or self.base
         if not os.path.isdir(dest_dir):
@@ -209,21 +255,42 @@ class Backup:
                     capture_output=True, timeout=180)
                 if os.path.exists(dest):
                     return {"成功": True, "导出到": dest, "加密": "AES256(7-Zip)",
-                            "大小KB": os.path.getsize(dest) // 1024, "密码": password,
+                            "大小KB": os.path.getsize(dest) // 1024,
                             "说明": "已排除 datasets/日志/旧备份等，只导出状态数据"}
                 return {"成功": False, "错误": (r.stderr or b"").decode("gbk", "ignore")[:100]}
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
-        # ② 退化：zipfile 普通压缩（无密码，但至少异地可拷贝）
+        # 没有 7-Zip：先构建临时 zip，再整体 AES-GCM 加密。
+        # 绝不退化成明文 zip。
+        tmp_zip = dest + ".plain.tmp"
         try:
-            with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+            with zipfile.ZipFile(tmp_zip, "w", zipfile.ZIP_DEFLATED) as z:
                 for fp in _walk_filtered():
                     z.write(fp, os.path.relpath(fp, self.base))
-            return {"成功": True, "导出到": dest, "加密": "无(未找到7-Zip)",
-                    "大小KB": os.path.getsize(dest) // 1024, "密码": "",
-                    "说明": "已排除 datasets/日志/旧备份等，只导出状态数据"}
+            raw = open(tmp_zip, "rb").read()
+            enc = self._encrypt_bytes(raw, password)
+            with open(dest, "wb") as f:
+                f.write(enc)
+            return {"成功": True, "导出到": dest,
+                    "加密": "AES-GCM + PBKDF2(Python)",
+                    "格式": "小6加密备份（x6bak）",
+                    "大小KB": os.path.getsize(dest) // 1024,
+                    "说明": "已排除 datasets/日志/旧备份；恢复时用 "
+                            "Backup.decrypt_export() 解回 zip"}
         except Exception as e:
-            return {"成功": False, "错误": str(e)[:80]}
+            try:
+                if os.path.exists(dest):
+                    os.remove(dest)
+            except OSError:
+                pass
+            return {"成功": False, "错误": "加密备份失败: " + str(e)[:80]}
+        finally:
+            try:
+                if os.path.exists(tmp_zip):
+                    os.remove(tmp_zip)
+            except OSError:
+                pass
 
     def run(self, *args):
         return self.backup_now()
@@ -236,9 +303,10 @@ class Backup:
         整目录清空会把那些没进备份的东西一并删掉 —— 那是不可逆的数据丢失。
         所以改成"备份里有什么就覆盖什么"，未备份的目录原样保留。
         """
-        path = os.path.join(self.backup_dir, backup_name)
-        if not os.path.exists(path):
-            return {"成功": False, "错误": "备份不存在"}
+        name = safe_name(backup_name, default="")
+        path = safe_join(self.backup_dir, name)
+        if not name or not path or not os.path.isdir(path):
+            return {"成功": False, "错误": "备份不存在或名称非法"}
         data_dst = os.path.join(self.base, "data")
         os.makedirs(data_dst, exist_ok=True)
         try:
@@ -259,11 +327,12 @@ class Backup:
 
     def delete_backup(self, backup_name):
         """删除指定备份"""
-        path = os.path.join(self.backup_dir, backup_name)
-        if os.path.exists(path):
+        name = safe_name(backup_name, default="")
+        path = safe_join(self.backup_dir, name)
+        if name and path and os.path.isdir(path):
             shutil.rmtree(path)
             return {"成功": True}
-        return {"成功": False, "错误": "备份不存在"}
+        return {"成功": False, "错误": "备份不存在或名称非法"}
 
 
 

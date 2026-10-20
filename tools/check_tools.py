@@ -26,6 +26,12 @@
     py -3 tools\\check_tools.py            # 检查
     py -3 tools\\check_tools.py --rebase   # 下调提示词预算
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import argparse
 import json
 import os
@@ -167,7 +173,8 @@ def _dups(base):
             for t in tools_of_source(p, str(m.get("cls") or "") or None):
                 if t.get("name") in core_names:
                     out.append(t["name"])
-    except Exception:
+    except Exception as e:
+        _x6_swallowed(__name__, e)
         pass
     return sorted(set(out))
 
@@ -202,4 +209,6 @@ def _measure():
 
 
 if __name__ == "__main__":
+    from _console import use_utf8_console
+    use_utf8_console()
     sys.exit(main())

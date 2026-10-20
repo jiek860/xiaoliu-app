@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """语音：内置播放 + 录音输入"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os
 
 
@@ -23,7 +29,8 @@ class SpeechController:
                 QMediaContent(QUrl.fromLocalFile(os.path.abspath(path)))
             )
             self._audio_player.play()
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def speak_async(self, text):

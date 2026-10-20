@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """账号与聊天记录管理"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os
 from core.chat_store import ChatStore
 
@@ -19,7 +25,8 @@ class AccountManager:
                 u = r.get("user")
                 if u and u != "未登录":
                     return u
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return None
 
@@ -31,7 +38,8 @@ class AccountManager:
     def save_line(self, role: str, text: str):
         try:
             self.chat_store.append(self.username, role, str(text), session_id=self.session)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def load_history(self, limit: int = 50):

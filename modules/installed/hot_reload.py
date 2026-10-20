@@ -2,6 +2,12 @@
 """热更新模块 v5.1 - 沙盒验证+自动加载+错误弹窗
 v5.1: 改用 importlib 动态加载，支持中文文件名模块；监控目录兼容 modules_repo/
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 from modules.base import BaseModule
 # importlib.util 是子模块，必须显式导入：只写 import importlib 的话，
 # 在干净进程里 importlib.util 不存在，reload_module 会报
@@ -43,7 +49,8 @@ class HotReload(BaseModule):
                 name = f[:-3]
                 # mtime + 内容哈希 双变化才算改动
                 try:
-                    h = hashlib.md5(open(path, "rb").read()).hexdigest()
+                    h = hashlib.md5(open(path, "rb").read(),
+                                       usedforsecurity=False).hexdigest()
                 except Exception:
                     h = ""
                 old = self.last_check.get(name)
@@ -141,7 +148,8 @@ class HotReload(BaseModule):
         try:
             import shutil
             shutil.copy2(path, bak_path)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
         try:
@@ -151,7 +159,7 @@ class HotReload(BaseModule):
             sys.modules[mod_key] = mod
             spec.loader.exec_module(mod)
             new_cls = None
-            for k, v in vars(mod).items():
+            for _k, v in vars(mod).items():
                 if isinstance(v, type) and v.__module__ == mod.__name__:
                     new_cls = v
                     break
@@ -180,7 +188,8 @@ class HotReload(BaseModule):
                     shutil.copy2(bak_path, path)
             if self.trunk:
                 self.trunk._log("热更新已回滚: %s" % name)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def check_core_changes(self):
@@ -193,8 +202,10 @@ class HotReload(BaseModule):
                 continue
             path = os.path.join(self.core_dir, f)
             try:
-                h = hashlib.md5(open(path, "rb").read()).hexdigest()
-            except Exception:
+                h = hashlib.md5(open(path, "rb").read(),
+                                       usedforsecurity=False).hexdigest()
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 continue
             key = "core:" + f
             if key in self.last_check and self.last_check[key][1] != h:
@@ -230,7 +241,8 @@ class HotReload(BaseModule):
                 exe = exe[:-4] + "w.exe"
             subprocess.Popen([exe, os.path.join(self.base, "gui", "app_pyqt.py")],
                              cwd=self.base)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         os._exit(0)
 

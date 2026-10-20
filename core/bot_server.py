@@ -1,7 +1,29 @@
 # -*- coding: utf-8 -*-
-"""机器人服务 v2.0 - 企业微信 + 钉钉，收到消息AI处理后回复"""
-import json, threading, urllib.request
+"""机器人服务 v2.0 - 企业微信 + 钉钉，收到消息AI处理后回复
+
+发送统一走 core/notifier（那边有说明：群机器人 webhook 是"公开地址"，
+比邮箱授权码安全得多）。这里只负责两件事：
+    1. 起一个本地 HTTP 回调，接收企业微信/钉钉的消息
+    2. 把消息交给 trunk.reply()，再原路发回去
+
+历史：原来 send_wecom / send_dingtalk 各写了一份 urllib 拼接，
+和 core/notifier.py 重复。2026-10 收敛到 Notifier，公开 API 不变
+（gui/bot_dialog.py 的 set_wecom_webhook / send_wecom 照常可用）。
+"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
+import hmac
+import json
+import secrets
+import threading
+import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
+
+from core.notifier import Notifier
 
 
 class BotServer:
@@ -12,57 +34,67 @@ class BotServer:
         self.running = False
         self.wecom_webhook = ""
         self.dingtalk_webhook = ""
+        self.dingtalk_secret = ""
         self.port = 9000
-        self.token = ""  # BUG-09: 访问token校验
+        self.token = secrets.token_urlsafe(24)
+        self.max_body = 64 * 1024
 
     def set_wecom_webhook(self, url):
         self.wecom_webhook = url
 
-    def set_dingtalk_webhook(self, url):
+    def set_dingtalk_webhook(self, url, secret=""):
         self.dingtalk_webhook = url
+        if secret:
+            self.dingtalk_secret = secret
 
-    def _safe_url(self, url):
-        """安全检查：只允许http/https"""
-        if not (url.startswith("https://") or url.startswith("http://")):
-            raise ValueError("不安全的URL: " + url[:30])
-        return url
+    def _notifier(self, channel, url):
+        """拼一个只启用单个通道的 Notifier（配置是"公开地址"，不是密钥）"""
+        return Notifier({
+            "notify_channel": channel,
+            "wecom_webhook": url if channel == "wecom" else "",
+            "dingtalk_webhook": url if channel == "dingtalk" else "",
+            "dingtalk_secret": self.dingtalk_secret,
+        })
 
     def send_wecom(self, text):
-        """发消息到企业微信群"""
+        """发消息到企业微信群（实现在 core/notifier）"""
         if not self.wecom_webhook:
             return False
-        try:
-            self._safe_url(self.wecom_webhook)
-            data = json.dumps({"msgtype": "text", "text": {"content": text}}).encode("utf-8")
-            req = urllib.request.Request(self.wecom_webhook, data=data, headers={"Content-Type": "application/json"})
-            urllib.request.urlopen(req, timeout=5)
-            return True
-        except Exception as e:
-            print(f"企业微信发送失败: {e}")
-            return False
+        ok, err = self._notifier("wecom", self.wecom_webhook).send(text)
+        if not ok:
+            print("企业微信发送失败: %s" % err)
+        return ok
 
     def send_dingtalk(self, text):
-        """发消息到钉钉群"""
+        """发消息到钉钉群（实现在 core/notifier）"""
         if not self.dingtalk_webhook:
             return False
-        try:
-            self._safe_url(self.dingtalk_webhook)
-            data = json.dumps({"msgtype": "text", "text": {"content": text}}).encode("utf-8")
-            req = urllib.request.Request(self.dingtalk_webhook, data=data, headers={"Content-Type": "application/json"})
-            urllib.request.urlopen(req, timeout=5)
-            return True
-        except Exception as e:
-            print(f"钉钉发送失败: {e}")
-            return False
+        ok, err = self._notifier("dingtalk", self.dingtalk_webhook).send(text)
+        if not ok:
+            print("钉钉发送失败: %s" % err)
+        return ok
 
     def handle_message(self, text):
-        """BUG-08: 收到消息后，调用trunk.reply()，带人格/记忆/闭环"""
+        """收到消息后调用 trunk.reply()；外部机器人默认禁用工具。"""
         if not self.trunk:
             return "（程序未加载）"
         try:
+            self.trunk._remote_tool_locked = True
+            try:
+                self.trunk._remote_tools_allowed = bool(
+                    (getattr(self.trunk, "config", {}) or {}).get("bot_allow_tools", False))
+            except Exception:
+                self.trunk._remote_tools_allowed = False
             return self.trunk.reply(text)
         except Exception as e:
             return f"处理出错: {str(e)[:80]}"
+        finally:
+            for _attr in ("_remote_tool_locked", "_remote_tools_allowed"):
+                try:
+                    delattr(self.trunk, _attr)
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
+                    pass
 
     def start(self, port=9000):
         """启动HTTP服务器"""
@@ -70,8 +102,64 @@ class BotServer:
         bot = self
 
         class Handler(BaseHTTPRequestHandler):
+            def _host_ok(self):
+                raw = (self.headers.get("Host") or "").strip().lower()
+                host = raw.rsplit(":", 1)[0] if ":" in raw and not raw.startswith("[") else raw
+                return host in ("127.0.0.1", "localhost", "::1", "[::1]")
+
+            def _origin_ok(self):
+                origin = self.headers.get("Origin")
+                if not origin:
+                    return True
+                try:
+                    p = urllib.parse.urlparse(origin)
+                    return (p.hostname or "").lower() in ("127.0.0.1", "localhost", "::1")
+                except Exception:
+                    return False
+
+            def _auth_ok(self):
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                given = (q.get("token", [""])[0]
+                         or self.headers.get("X-X6-Token") or "")
+                return bool(given) and hmac.compare_digest(str(given), bot.token)
+
+            def _deny(self, code):
+                # 把已发送的请求体读干净，避免服务端先 close 时客户端
+                # 还在写 body，Windows 上表现为 ConnectionAbortedError。
+                try:
+                    n = int(self.headers.get("Content-Length") or 0)
+                    if 0 < n <= bot.max_body:
+                        self.rfile.read(n)
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
+                    pass
+                body = b'{"ok":false}'
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Connection", "close")
+                self.close_connection = True
+                self.end_headers()
+                try:
+                    self.wfile.write(body)
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
+                    pass
+
             def do_POST(self):
-                content_length = int(self.headers.get("Content-Length", 0))
+                if not self._host_ok() or not self._origin_ok():
+                    self._deny(403); return
+                if not self._auth_ok():
+                    self._deny(401); return
+                try:
+                    content_length = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    content_length = -1
+                if content_length < 0 or content_length > bot.max_body:
+                    self._deny(413); return
+                ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+                if ctype != "application/json":
+                    self._deny(415); return
                 body = self.rfile.read(content_length).decode("utf-8")
 
                 # 企业微信回调
@@ -108,7 +196,9 @@ class BotServer:
             self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
             self.thread.start()
             self.running = True
-            return {"成功": True, "端口": port}
+            return {"成功": True, "端口": port, "token": self.token,
+                    "回调地址": "http://127.0.0.1:%d/{wecom|dingtalk}?token=%s"
+                                % (port, self.token)}
         except Exception as e:
             return {"成功": False, "错误": str(e)[:80]}
 
@@ -124,6 +214,6 @@ class BotServer:
             "运行中": self.running,
             "端口": self.port,
             "企业微信": "已配置" if self.wecom_webhook else "未配置",
-            "钉钉": "已配置" if self.dingtalk_webhook else "未配置"
+            "钉钉": "已配置" if self.dingtalk_webhook else "未配置",
+            "token": self.token,
         }
-

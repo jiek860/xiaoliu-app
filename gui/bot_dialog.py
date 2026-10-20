@@ -91,8 +91,8 @@ class BotDialog(QDialog):
             self.status.setText(f"状态: ● 已启动，端口 {r.get('端口')}")
             self.status.setStyleSheet("color:green;font-weight:bold;")
             self.log.append("✅ 机器人服务已启动")
-            self.log.append(f"   企业微信回调地址: http://你的IP:9000/wecom")
-            self.log.append(f"   钉钉回调地址: http://你的IP:9000/dingtalk")
+            self.log.append("   企业微信回调地址: http://你的IP:9000/wecom")
+            self.log.append("   钉钉回调地址: http://你的IP:9000/dingtalk")
             self.start_btn.setEnabled(False)
         else:
             QMessageBox.critical(self, "错误", f"启动失败: {r.get('错误')}")

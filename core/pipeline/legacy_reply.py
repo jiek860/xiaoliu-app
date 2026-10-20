@@ -9,6 +9,12 @@
 为什么搬：222 行，是 trunk.py 里最大的单个方法。回复流程属于业务编排，
 内核只该决定「走 pipeline 还是走回退」，具体怎么回退不该占内核篇幅。
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import time
 
 
@@ -26,10 +32,19 @@ def run(trunk, user_input, on_token=None):
                 trunk._log('缓存命中: ' + user_input[:30])
                 if on_token: on_token(cached)
                 return cached
-    except Exception: pass
+    except Exception as e:
+        _x6_swallowed(__name__, e)
     # v12: 电脑控制快速通道——自然语言直接触发本地操作
     try:
-        cc = trunk._load_lazy("computer_controller")
+        _remote_locked = getattr(trunk, "_remote_tool_locked", False)
+        _remote_allow = False
+        try:
+            _remote_allow = bool(getattr(trunk, "_remote_tools_allowed", False)
+                                 or (getattr(trunk, "config", {}) or {})
+                                 .get("bot_allow_tools", False))
+        except Exception:
+            _remote_allow = False
+        cc = None if (_remote_locked and not _remote_allow) else trunk._load_lazy("computer_controller")
         if cc:
             handled, result = cc.try_handle(user_input)
             if handled:
@@ -44,7 +59,8 @@ def run(trunk, user_input, on_token=None):
                         ])
                         if summary and not summary.startswith("本地模型错误"):
                             result = summary
-                    except Exception:
+                    except Exception as e:
+                        _x6_swallowed(__name__, e)
                         pass
                 trunk.mem_add(user_input, str(result)[:200])
                 return str(result)
@@ -82,7 +98,8 @@ def run(trunk, user_input, on_token=None):
                                                            item.get("time", "?"),
                                                            item.get("text", ""))
                 return out
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return ""
 
@@ -92,7 +109,8 @@ def run(trunk, user_input, on_token=None):
             if kg:
                 r = kg.rag_query(user_input)
                 return ("\n[知识] " + str(r)[:200]) if r else ""
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return ""
 
@@ -103,7 +121,8 @@ def run(trunk, user_input, on_token=None):
                 for f in (_ex.submit(_ctx_v), _ex.submit(_ctx_m), _ex.submit(_ctx_g)):
                     try:
                         context += f.result(timeout=12)
-                    except Exception:
+                    except Exception as e:
+                        _x6_swallowed(__name__, e)
                         pass
         except Exception as e:
             trunk._log("并行检索失败: " + str(e)[:60])
@@ -179,7 +198,8 @@ def run(trunk, user_input, on_token=None):
             adv = refl.get_advice()
             if adv:
                 messages.append({"role": "system", "content": "自我反思建议: " + adv})
-    except Exception:
+    except Exception as e:
+        _x6_swallowed(__name__, e)
         pass
     # few-shot：让小模型学说话风格
     for ex in few_shot:
@@ -205,7 +225,8 @@ def run(trunk, user_input, on_token=None):
         gc = trunk._load_lazy("group_chat")
         if gc and hasattr(gc, "compose"):
             answer = gc.compose(user_input, answer)
-    except Exception:
+    except Exception as e:
+        _x6_swallowed(__name__, e)
         pass
     # 7.5 编程代码沙盒验证：用户要代码 + 回复含python代码块 → 试跑验证
     try:
@@ -232,5 +253,6 @@ def run(trunk, user_input, on_token=None):
         cache = trunk._load_lazy('cache')
         if cache and answer and len(answer) < 2000:
             cache.set(user_input, answer)
-    except Exception: pass
+    except Exception as e:
+        _x6_swallowed(__name__, e)
     return answer

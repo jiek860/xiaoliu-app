@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """批量重命名中文模块为英文名 + 全局搜索替换 import 引用。"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import argparse
 import json
 import re
@@ -55,7 +61,8 @@ def replace_references(mapping: dict, dry: bool):
             continue
         try:
             src = py.read_text(encoding="utf-8")
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             continue
         new = src
         for cn_name, en_name in name_map.items():
@@ -83,7 +90,8 @@ def check_leftover():
             continue
         try:
             src = py.read_text(encoding="utf-8")
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             continue
         for m in re.finditer(r'["\']([^"\']*[\u4e00-\u9fff][^"\']*\.py)["\']', src):
             leftovers.append((py.relative_to(BASE), m.group(1)))

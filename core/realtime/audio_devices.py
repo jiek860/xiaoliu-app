@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """枚举麦克风设备"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 def list_input_devices():
     try: import pyaudio
     except: return []
@@ -15,7 +21,8 @@ def list_input_devices():
                         "channels": info.get("maxInputChannels", 1),
                         "rate": int(info.get("defaultSampleRate", 16000)),
                         "default": i == default})
-        except: pass
+        except Exception as e:
+            _x6_swallowed(__name__, e)
     pa.terminate()
     return out
 

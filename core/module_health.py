@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """模块健康度 - 记录模块失败次数，连续失败自动禁用"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, json
 from core.paths import BASE
 class ModuleHealth:
@@ -12,14 +18,16 @@ class ModuleHealth:
     def _load(self):
         if os.path.exists(self.path):
             try: return json.load(open(self.path, encoding="utf-8"))
-            except: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
         return {}
     def _save(self):
         try:
             tmp = self.path + ".tmp"
             json.dump(self.data, open(tmp,"w",encoding="utf-8"), ensure_ascii=False, indent=2)
             os.replace(tmp, self.path)
-        except: pass
+        except Exception as e:
+            _x6_swallowed(__name__, e)
     def record_failure(self, name, err=""):
         e = self.data.setdefault(name, {"fail_count":0,"disabled":False})
         e["fail_count"] +=1

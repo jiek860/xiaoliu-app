@@ -15,8 +15,11 @@ echo    那就要拿**进程级 dump** 才能定位。
 echo.
 echo  平时不用配 —— 只在真出问题时才需要。
 echo.
+echo  补充：程序现在已支持崩溃自动上报（意见反馈 / 看门狗），
+echo        这里的 dump 只在需要看**原生调用栈**（崩在 DLL 里）时才用。
+echo.
 
-rem ---- 解析可用的 Python ----
+rem ---- resolve python ----
 set "PYCMD="
 py -3 --version >nul 2>&1
 if not errorlevel 1 set "PYCMD=py -3"

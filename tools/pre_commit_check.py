@@ -21,6 +21,12 @@
     py -3 tools\\pre_commit_check.py --full     # pre-push 档（含 pytest）
     py -3 tools\\pre_commit_check.py --install  # 装 hook 到本仓库
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import argparse
 import os
 import subprocess
@@ -81,7 +87,8 @@ def install_hooks():
         if os.path.isfile(p):
             try:
                 os.chmod(p, 0o755)
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
     cur = subprocess.run(["git", "config", "core.hooksPath"], cwd=BASE,
                          capture_output=True, text=True).stdout.strip()

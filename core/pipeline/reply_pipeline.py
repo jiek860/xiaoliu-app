@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """回复管线编排器：把 _reply_inner 的 300 行变成 30 行的流程"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import time
 from core.pipeline.context_builder import ContextBuilder
 from core.pipeline.prompt_assembler import PromptAssembler
@@ -28,7 +34,8 @@ class ReplyPipeline:
             af = t.modules.get("agent_flow")
             if af is not None and hasattr(af, "record_step"):
                 af.record_step(name, status, detail)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def run(self, user_input: str, on_token=None) -> str:
@@ -39,7 +46,8 @@ class ReplyPipeline:
             af = t.modules.get("agent_flow")
             if af is not None and hasattr(af, "clear"):
                 af.clear()          # 每轮重新记，别把上一轮的混进来
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         t._set_status("正在理解你的问题...")
         t._reply_n = getattr(t, "_reply_n", 0) + 1
@@ -90,6 +98,16 @@ class ReplyPipeline:
 
     def _try_computer_control(self, user_input: str):
         try:
+            if getattr(self.trunk, "_remote_tool_locked", False):
+                allow = False
+                try:
+                    allow = bool(getattr(self.trunk, "_remote_tools_allowed", False)
+                                 or (getattr(self.trunk, "config", {}) or {})
+                                 .get("bot_allow_tools", False))
+                except Exception:
+                    allow = False
+                if not allow:
+                    return None
             cc = self.trunk._load_lazy("computer_controller")
             if not cc:
                 return None
@@ -108,7 +126,8 @@ class ReplyPipeline:
                     ])
                     if summary and not summary.startswith("本地模型错误"):
                         result = summary
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
             self.trunk.mem_add(user_input, str(result)[:200])
             return str(result)

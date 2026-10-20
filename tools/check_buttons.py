@@ -17,6 +17,12 @@
 
 和 check_version.py / check_shapes.py 一样，可以挂进 check.bat。
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import argparse
 import json
 import os
@@ -75,7 +81,8 @@ def count_all(base):
             rel = os.path.relpath(p, base).replace("\\", "/")
             try:
                 src = open(p, encoding="utf-8", errors="ignore").read()
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 continue
             n = sum(len(re.findall(r"\b%s\s*\(" % b, src)) for b in BTN)
             if n:
@@ -172,4 +179,6 @@ def main():
 
 
 if __name__ == "__main__":
+    from _console import use_utf8_console
+    use_utf8_console()
     sys.exit(main())

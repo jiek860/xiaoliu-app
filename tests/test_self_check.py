@@ -361,9 +361,9 @@ def test_trunk_delegates_to_self_check():
     from core.trunk import Trunk
     assert hasattr(Trunk, "_deep_check"), \
         "trunk._deep_check 没了 —— gui/system_dialog.py 会调不到"
-    src = open(os.path.join(BASE, "core", "trunk.py"),
+    src = open(os.path.join(BASE, "core", "trunk_background.py"),
                encoding="utf-8").read()
-    assert "self_check" in src, "trunk 没引用 self_check"
+    assert "self_check" in src, "trunk 后台 mixin 没引用 self_check"
 
 
 def test_warmup_delegation_still_patchable():

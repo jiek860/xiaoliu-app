@@ -55,9 +55,24 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.10"
-# 渐进式：先只对 core 做类型检查，不追求全量通过
-files = ["core"]
+# 渐进式强类型：先覆盖 Agent 闭环和关键安全模块，后续逐步扩大。
+files = [
+    "core/action_schema.py",
+    "core/agent_permissions.py",
+    "core/agent_router.py",
+    "core/agent_orchestrator.py",
+    "core/agent_artifacts.py",
+    "core/agent_harness.py",
+    "core/code_agent.py",
+    "core/computer_rollback.py",
+    "core/diagnostics.py",
+    "core/lazy_health.py",
+    "core/patch_engine.py",
+    "core/sandbox.py",
+    "core/screen_geometry.py",
+]
 ignore_missing_imports = true
+follow_imports = "skip"
 warn_unused_ignores = false
 warn_return_any = false
 check_untyped_defs = true

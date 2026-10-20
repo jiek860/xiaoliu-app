@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """Prompt 组装：人格 + 反思建议 + few-shot + 历史"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 class PromptAssembler:
     def __init__(self, trunk):
         self.trunk = trunk
@@ -58,7 +64,8 @@ class PromptAssembler:
                 refl = self.trunk.modules.get("self_reflect")
             if refl and hasattr(refl, "get_advice"):
                 return refl.get_advice() or ""
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return ""
 

@@ -1,0 +1,29 @@
+{
+  "_说明": "分层文件长度策略：普通文件目标 200-400；核心复杂模块 300-450；500 行警告；新文件 600 行失败；800 行以上冻结、禁止新增代码。存量文件按预算只许下降。",
+  "policy": {
+    "default_max_lines": 600,
+    "warn_lines": 500,
+    "block_new_code_lines": 800,
+    "targets": {
+      "ordinary": [
+        200,
+        400
+      ],
+      "core_complex": [
+        300,
+        450
+      ],
+      "facade": [
+        100,
+        250
+      ]
+    },
+    "split_required_lines": 600
+  },
+  "per_file_budgets": {
+    "core/trunk.py": {
+      "budget": 220,
+      "category": "facade"
+    }
+  }
+}

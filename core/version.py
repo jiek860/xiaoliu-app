@@ -10,10 +10,10 @@
 现在有 check_version.py 兜着，不会再悄悄漂移。
 """
 
-__version__ = "v25.2.21"
+__version__ = "v25.2.23"
 __app_name__ = "小6智能体"
 __author__ = "小6"
-__build_date__ = "2026-10-13"
+__build_date__ = "2026-10-19"
 
 
 def get_version():

@@ -8,9 +8,35 @@ v2.1 把这条线接活（2026-10-13）：
   · 现在：浏览器装在**程序文件夹**的 data/browsers（_ensure_browser_path），
     并补了 try_handle()/run() 作为工具入口，接进 tool_caller。
 """
-import os, re, time
+import atexit
+import concurrent.futures
+import os, re, threading, time
 from core.safe import safe
 from modules.base import BaseModule
+
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
+
+
+def _browser_thread(fn):
+    """把 Playwright 调用固定到单独线程，避免跨线程操作 page。"""
+    def wrapper(self, *args, **kwargs):
+        self._ensure_thread_runtime()
+        if getattr(self._local, "inside", False):
+            return fn(self, *args, **kwargs)
+        future = self._executor.submit(
+            self._invoke_in_browser_thread, fn, args, kwargs)
+        try:
+            return future.result(timeout=self._call_timeout)
+        except concurrent.futures.TimeoutError:
+            return {"ok": False, "error": "浏览器操作超时（线程安全保护）"}
+    wrapper.__name__ = getattr(fn, "__name__", "browser_op")
+    wrapper.__doc__ = getattr(fn, "__doc__", "")
+    return wrapper
 
 
 class Browser(BaseModule):
@@ -22,8 +48,55 @@ class Browser(BaseModule):
         self.base = getattr(trunk, "base", None) or "."
         self.history = []
         self._page = None
-        self._pw = None          # sync_playwright 的句柄，退出时要收
+        self._pw = None
         self._browser = None
+        self._local = threading.local()
+        self._call_timeout = 45
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="x6-browser")
+        atexit.register(self.shutdown)
+
+    def _ensure_thread_runtime(self):
+        if not hasattr(self, "_local"):
+            self._local = threading.local()
+        if not hasattr(self, "_call_timeout"):
+            self._call_timeout = 45
+        if not hasattr(self, "_executor"):
+            self._executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="x6-browser")
+            atexit.register(self.shutdown)
+
+    def _invoke_in_browser_thread(self, fn, args, kwargs):
+        self._local.inside = True
+        try:
+            return fn(self, *args, **kwargs)
+        finally:
+            self._local.inside = False
+
+    def shutdown(self):
+        """关闭浏览器和专属线程；重复调用安全。"""
+        if not hasattr(self, "_executor"):
+            return
+        def _close():
+            try:
+                if self._browser is not None:
+                    self._browser.close()
+            except Exception as e:  # 静默是故意的 - 退出清理失败不阻塞程序
+                _x6_swallowed(__name__, e, "best-effort fallback")
+            try:
+                if self._pw is not None:
+                    self._pw.stop()
+            except Exception as e:  # 静默是故意的 - 退出清理失败不阻塞程序
+                _x6_swallowed(__name__, e, "best-effort fallback")
+            self._page = self._browser = self._pw = None
+        try:
+            self._executor.submit(_close).result(timeout=8)
+        except Exception as e:  # 静默是故意的 - 退出清理失败不阻塞程序
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        try:
+            self._executor.shutdown(wait=False)
+        except Exception as e:  # 静默是故意的 - 退出清理失败不阻塞程序
+            _x6_swallowed(__name__, e, "best-effort fallback")
 
     def _ensure_browser_path(self):
         """让 playwright 到**程序文件夹**里找浏览器
@@ -70,8 +143,8 @@ class Browser(BaseModule):
                         n += 1
                     # 静默是故意的：统计体积时跳过读不到的单个文件，
                     # 少算一个不影响"大概多大"
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _x6_swallowed(__name__, e, "best-effort fallback")
             return n, round(sz / 1024.0 / 1024, 1)
 
         dirs = _g.glob(os.path.join(d, "chromium-*"))
@@ -114,6 +187,7 @@ class Browser(BaseModule):
         return self._page
 
     @safe
+    @_browser_thread
     def open(self, url, headless=True):
         """打开网页"""
         try:
@@ -127,6 +201,7 @@ class Browser(BaseModule):
             return {"错误": str(e)[:80]}
 
     @safe
+    @_browser_thread
     def click(self, selector):
         """点击元素"""
         if not self._page:
@@ -138,6 +213,7 @@ class Browser(BaseModule):
             return {"错误": str(e)[:80]}
 
     @safe
+    @_browser_thread
     def type_text(self, selector, text):
         """输入文字"""
         if not self._page:
@@ -149,6 +225,7 @@ class Browser(BaseModule):
             return {"错误": str(e)[:80]}
 
     @safe
+    @_browser_thread
     def get_text(self, selector=None):
         """获取页面文字"""
         if not self._page:
@@ -161,6 +238,7 @@ class Browser(BaseModule):
             return {"错误": str(e)[:80]}
 
     @safe
+    @_browser_thread
     def screenshot(self, path=None):
         """截图"""
         if not self._page:
@@ -174,6 +252,7 @@ class Browser(BaseModule):
             return {"错误": str(e)[:80]}
 
     @safe
+    @_browser_thread
     def scroll(self, direction="down", pixels=500):
         """滚动页面"""
         if not self._page:
@@ -186,6 +265,7 @@ class Browser(BaseModule):
             return {"错误": str(e)[:80]}
 
     @safe
+    @_browser_thread
     def wait(self, seconds=2):
         """等待"""
         time.sleep(seconds)
@@ -198,6 +278,7 @@ class Browser(BaseModule):
 
     # P1-05: 浏览器自动化增强
     @safe
+    @_browser_thread
     def login_and_keep(self, url, selector_user, selector_pwd, username, password):
         """登录并保持会话"""
         try:
@@ -211,6 +292,7 @@ class Browser(BaseModule):
             return {"错误": str(e)[:80]}
 
     @safe
+    @_browser_thread
     def fill_form(self, fields):
         """批量填表: fields = {selector: value}"""
         if not self._page:
@@ -223,6 +305,7 @@ class Browser(BaseModule):
             return {"错误": str(e)[:80]}
 
     @safe
+    @_browser_thread
     def new_tab(self, url):
         """开新标签"""
         if not self._page:
@@ -236,6 +319,76 @@ class Browser(BaseModule):
             return {"错误": str(e)[:80]}
 
     # ---------- 统一入口（工具调用 / 聊天用）----------
+    # ---------- DOM 感知（供电脑 Agent 使用）----------
+    @_browser_thread
+    def current_info(self):
+        """返回当前页面 URL/标题；未启动浏览器时安全返回空状态。"""
+        if not self._page:
+            return {"ok": True, "started": False, "url": "", "title": ""}
+        try:
+            return {"ok": True, "started": True,
+                    "url": self._page.url or "",
+                    "title": self._page.title() or ""}
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:200],
+                    "url": "", "title": ""}
+
+    @safe
+    @_browser_thread
+    def get_dom(self, selector=None):
+        """读取当前页面文本和可访问性友好的 HTML 摘要。"""
+        try:
+            page = self._start(headless=False)
+            if selector:
+                el = page.locator(selector).first
+                return {"ok": True, "selector": selector,
+                        "text": (el.inner_text() or "")[:20000],
+                        "html": (el.inner_html() or "")[:30000]}
+            return {"ok": True, "url": page.url, "title": page.title(),
+                    "text": (page.locator("body").inner_text() or "")[:30000],
+                    "html": (page.content() or "")[:50000]}
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:300]}
+
+    @safe
+    @_browser_thread
+    def exists(self, selector):
+        try:
+            page = self._start(headless=False)
+            return {"ok": True, "exists": page.locator(selector).count() > 0}
+        except Exception as e:
+            return {"ok": False, "exists": False, "error": str(e)[:200]}
+
+    @safe
+    @_browser_thread
+    def wait_for_selector(self, selector, timeout=5000):
+        try:
+            page = self._start(headless=False)
+            page.wait_for_selector(selector, timeout=int(timeout))
+            return {"ok": True, "selector": selector}
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:200]}
+
+    @safe
+    @_browser_thread
+    def press(self, selector, key="Enter"):
+        try:
+            page = self._start(headless=False)
+            page.locator(selector).first.press(str(key))
+            return {"ok": True, "selector": selector, "key": str(key)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:200]}
+
+    @safe
+    @_browser_thread
+    def upload_file(self, selector, path):
+        try:
+            page = self._start(headless=False)
+            page.locator(selector).first.set_input_files(str(path))
+            return {"ok": True, "selector": selector, "path": str(path)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:200]}
+
     def try_handle(self, text):
         """把一句话解析成浏览器动作并执行
 

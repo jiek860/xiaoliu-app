@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """遗忘曲线 v2.0 - 间隔重复记忆 + 记忆提取 + 复习提醒 + 清空 + 统计"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, json, time
 from core.safe import safe
 from modules.base import BaseModule
@@ -20,14 +26,16 @@ class ForgettingCurve(BaseModule):
         if os.path.exists(self.memory_path):
             try:
                 return json.load(open(self.memory_path, encoding="utf-8"))
-            except: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
         return {}
 
     def _save(self):
         from core.safe import atomic_write_json
         try:
             atomic_write_json(self.memory_path, self.memory)
-        except: pass
+        except Exception as e:
+            _x6_swallowed(__name__, e)
 
     @safe
     def remember(self, key, content):

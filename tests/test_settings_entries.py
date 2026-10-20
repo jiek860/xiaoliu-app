@@ -110,6 +110,8 @@ def test_every_settings_button_resolves(win):
 def test_disabled_button_says_why():
     """万一真缺入口，tooltip 要写清缺的是哪个键（否则无从排查）"""
     src = open(SETTINGS, encoding="utf-8").read()
+    src += open(os.path.join(os.path.dirname(SETTINGS), "settings_widgets.py"),
+                encoding="utf-8").read()
     assert "没找到入口" in src, \
         "置灰时的提示里没有说明缺哪个键 —— 出问题会查不到原因"
 

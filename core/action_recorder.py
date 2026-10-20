@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """P1-03: 操作录制回放"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, json, time
 from datetime import datetime
 
@@ -65,7 +71,8 @@ class ActionRecorder:
                     cc.hotkey(a.get("keys", ""))
                 elif t == "wait":
                     time.sleep(a.get("seconds", 1) / speed)
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         return {"ok": True, "count": len(data["actions"])}
 

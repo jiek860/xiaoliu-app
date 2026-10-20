@@ -1,9 +1,35 @@
 # -*- coding: utf-8 -*-
 """SBOM生成 - 软件物料清单"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os
 import json
 import hashlib
+import subprocess
+import sys
 import time
+
+
+def _version(base):
+    try:
+        sys.path.insert(0, base)
+        from core.version import __version__
+        return str(__version__)
+    except Exception:
+        return "unknown"
+
+
+def _dependencies():
+    try:
+        out = subprocess.run([sys.executable, "-m", "pip", "freeze"],
+                             capture_output=True, text=True, timeout=30)
+        return [x.strip() for x in (out.stdout or "").splitlines() if x.strip()]
+    except Exception:
+        return []
 
 
 def generate_sbom(base=None):
@@ -29,14 +55,16 @@ def generate_sbom(base=None):
                         "size": size,
                         "sha256": sha,
                     })
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
 
     sbom = {
         "name": "小6智能体",
-        "version": "v24.1.0",
+        "version": _version(base),
         "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "file_count": len(files),
+        "dependencies": _dependencies(),
         "files": files,
     }
 
@@ -49,5 +77,5 @@ def generate_sbom(base=None):
 
 if __name__ == "__main__":
     r = generate_sbom()
-    print("✅ SBOM已生成:", r["file"])
-    print("文件数:", r["files"])
+    print("SBOM generated:", r["file"])
+    print("files:", r["files"])

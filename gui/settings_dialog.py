@@ -1,380 +1,574 @@
-# -*- coding: utf-8 -*-
-"""设置窗口 v3.0 - 分标签页：模型 / 界面 / 工具 / 扩展 / 记录 / 系统
+﻿# -*- coding: utf-8 -*-
+"""设置窗口 v4.0  简单模式 3 页，高级模式完整分级。
 
-原来"功能中心"里那批入口已全部并入这里，按用途分类成标签页。
+简单模式：
+    开始：模型配置、本地/云端
+    使用：界面、知识库、通知、更新、模式切换
+    帮助：新手教程、安全中心、反馈
+
+高级模式：
+    模型 / 界面 / 工具 / 扩展 / 记录 / 系统 / 开发者
+
+原则：功能不删，只分级。所有旧入口在高级模式仍然一键可达。
 """
-import json, threading, urllib.request
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QCheckBox, QMessageBox, QInputDialog, QTabWidget, QWidget
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+import json
+import threading
+import urllib.request
+
 from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QComboBox, QCheckBox, QMessageBox, QInputDialog, QTabWidget, QWidget,
+    QScrollArea,
+)
+from gui.settings_widgets import (
+    make_hint, make_open_button, make_scroll_tab, make_tab,
+)
 
 
 def show_settings_dialog(parent, dlg, trunk, base, ai_name,
                          model_btn, local_light, cloud_light, chat, input_box,
                          commands=None):
-    """设置窗口
+    """设置窗口。
 
-    commands: {名称: 可调用}，由主窗口传入 —— 就是原来"功能中心"里的那批入口
-              （电脑控制 / 系统 / 插件 / 日志 / MCP市场 / 机器人 / 历史记录 /
-              首次设置向导）。某个回调没传或不可调用时，对应按钮置灰而不是报错。
-
-    注意：这里原来还有个 title 参数，调用方传的是 getattr(self,"title","小6智能体")
-    —— 主窗口根本没有 title 属性，所以永远是那个字符串；而「改名」按钮却对它调
-    .setText()，一点就抛 AttributeError。参数已删除，改名改用 parent.setWindowTitle()。
+    commands: {名称: 可调用}，由主窗口传入；缺入口时按钮置灰并说明。
     """
-    d, l = dlg("设置", 620, 640)
+    d, l = dlg("设置", 680, 700)
     CMD = commands or {}
+    simple = True
+    try:
+        from gui.ui_mode import get_ui_mode
+        simple = get_ui_mode(base, getattr(trunk, "config", {})) == "simple"
+    except Exception as e:
+        _x6_swallowed(__name__, e)
+        pass
 
     def _open_btn(icon, name, desc, key=None):
-        """生成一个"打开某个功能窗口"的按钮。
+        return make_open_button(d, CMD, icon, name, desc, key)
 
-        行为和原来的功能中心一致：先关掉设置窗口，再打开目标窗口。
+    def _hint(text):
+        return make_hint(text)
 
-        ⚠️ name 是**显示**用的；key 是去 CMD 里**查**的（不传就用 name）。
-        为什么要分开：以前两者是同一个字符串，于是"把查表的键名改得
-        更清楚一点"就会**悄悄弄坏按钮** —— 实测踩到过：
-        gui/mixins/dialog_mixin.py 的 _panel_commands 把
-            "系统" -> "系统自检"、"插件" -> "插件市场"、
-            "日志" -> "日志中心"、"MCP" -> "MCP市场"
-        结果设置里这 4 个按钮全部查不到、被静默置灰：
-        用户点不动，界面上**没有任何报错**，也没有日志。
-        分开之后，改键名不会再影响显示文案。
+    def _tab(title):
+        return make_tab(title)
 
-        另外失败时把"缺的是哪个键"写进 tooltip —— 以前只写
-        "这个功能在当前版本不可用"，出了问题根本不知道是哪出了问题。
-        """
-        b = QPushButton("%s  %s" % (icon, name))
-        b.setToolTip(desc)
-        b.setMinimumHeight(34)
-        want = key if key is not None else name
-        fn = CMD.get(want)
-        if not callable(fn):
-            b.setEnabled(False)
-            b.setToolTip("这个功能在当前版本不可用（没找到入口：%s）" % want)
-            return b
+    def _scroll_tab(title, build):
+        return make_scroll_tab(title, build)
 
-        def _go(_checked=False, f=fn, n=name):
+    # ================= 通用：模型配置 =================
+    def build_model(lay):
+        lay.addWidget(QLabel(" 模型配置"))
+        lay.addWidget(QLabel("模型模式:"))
+        mode_box = QComboBox()
+        mode_box.addItems(["本地路由", "云端模型"])
+        mode_box.setToolTip(
+            "本地路由：隐私好、免费，但依赖 Ollama；云端模型：效果通常更好，按量计费")
+        cur_mode = trunk.config.get("model_mode", "本地路由")
+        mode_box.setCurrentText(
+            "云端模型" if "云端" in str(cur_mode) else "本地路由")
+        lay.addWidget(mode_box)
+        lay.addWidget(_hint(
+            "影响：本地路由需要 Ollama 在线；云端模式需要有效的 API 地址和 Key。"))
+
+        class _ModelsReady(QObject):
+            done = pyqtSignal(object, str)
+
+        mr = _ModelsReady(d)
+        d._model_probe = mr
+        check_btn = QPushButton("检测本地模型")
+        lay.addWidget(check_btn)
+
+        def on_models(models, err):
+            check_btn.setEnabled(True)
+            check_btn.setText("检测本地模型")
+            if err:
+                QMessageBox.warning(d, "错误", "Ollama 未启动\n请先打开 Ollama")
+                return
+            pick = QDialog(d)
+            pick.setWindowTitle("选择本地模型")
+            pick.resize(360, 320)
+            pl = QVBoxLayout(pick)
+            pl.addWidget(QLabel("检测到 %d 个模型：" % len(models)))
+            for mm in models:
+                def _pick(_checked=False, x=mm):
+                    trunk.config["local_model"] = x
+                    trunk.save_config()
+                    pick.accept()
+                    QMessageBox.information(d, "成功", "已选择: " + x)
+                pl.addWidget(QPushButton(mm, clicked=_pick))
+            pick.exec_()
+
+        mr.done.connect(on_models)
+
+        def check_local():
+            check_btn.setEnabled(False)
+            check_btn.setText("检测中")
+
+            def work():
+                try:
+                    url = trunk.config.get(
+                        "ollama_url", "http://localhost:11434").rstrip("/")
+                    req = urllib.request.Request(url + "/api/tags")
+                    data = json.loads(
+                        urllib.request.urlopen(req, timeout=3).read())
+                    models = [m["name"] for m in data.get("models", [])]
+                    err = ""
+                except Exception as e:
+                    models, err = [], str(e)[:60]
+                try:
+                    mr.done.emit(models, err)
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
+                    pass
+            threading.Thread(target=work, daemon=True,
+                             name="settings-model-probe").start()
+
+        check_btn.clicked.connect(check_local)
+        ollama_lbl = QLabel(" 正在检测 Ollama")
+        lay.addWidget(ollama_lbl)
+
+        class _Probe(QObject):
+            done = pyqtSignal(str)
+
+        probe = _Probe(d)
+        d._ollama_probe = probe
+        probe.done.connect(ollama_lbl.setText)
+
+        def probe_ollama():
             try:
-                d.close()
+                url = trunk.config.get(
+                    "ollama_url", "http://localhost:11434").rstrip("/")
+                req = urllib.request.Request(url + "/api/tags")
+                data = json.loads(
+                    urllib.request.urlopen(req, timeout=3).read())
+                text = " 已检测到 %d 个模型" % len(data.get("models", []))
             except Exception:
-                pass
+                text = " Ollama 未连接"
             try:
-                f()
+                probe.done.emit(text)
             except Exception as e:
-                QMessageBox.warning(None, n, "打开失败: %s" % str(e)[:80])
-        b.clicked.connect(_go)
-        return b
+                _x6_swallowed(__name__, e)
+                pass
+        threading.Thread(target=probe_ollama, daemon=True,
+                         name="settings-ollama-probe").start()
 
-    # 标签页
+        cloud_btn = QPushButton("配置云端模型")
+        lay.addWidget(cloud_btn)
+
+        def cloud_set():
+            cd = QDialog(d)
+            cd.setWindowTitle("云端模型")
+            cl = QVBoxLayout(cd)
+            cl.addWidget(QLabel("云端模型:"))
+            cc = QComboBox()
+            cc.setEditable(True)
+            cc.addItems([
+                "glm-4-flash", "glm-4", "glm-4v-flash",
+                "qwen-turbo", "qwen-plus", "qwen-max", "qwen-vl-plus",
+                "deepseek-chat", "deepseek-reasoner",
+                "ernie-3.5-8k", "ernie-4.0-8k",
+                "hunyuan-lite", "hunyuan-pro",
+                "yi-lightning", "yi-large", "moonshot-v1-8k",
+            ])
+            cc.setCurrentText(trunk.config.get("cloud_model", "qwen-turbo"))
+            cl.addWidget(cc)
+            cl.addWidget(QLabel("API 地址:"))
+            uu = QLineEdit(trunk.config.get(
+                "cloud_url",
+                "https://open.bigmodel.cn/api/paas/v4/chat/completions"))
+            cl.addWidget(uu)
+            cl.addWidget(QLabel("API Key:"))
+            kk = QLineEdit(trunk.config.get("cloud_key", ""))
+            kk.setEchoMode(QLineEdit.Password)
+            cl.addWidget(kk)
+
+            def save_cloud():
+                trunk.config["cloud_model"] = cc.currentText().strip()
+                trunk.config["cloud_url"] = uu.text().strip()
+                trunk.config["cloud_key"] = kk.text().strip()
+                trunk.save_config()
+                cd.accept()
+                QMessageBox.information(d, "成功", "云端模型配置已保存")
+
+            cl.addWidget(QPushButton("保存", clicked=save_cloud))
+            cd.exec_()
+
+        cloud_btn.clicked.connect(cloud_set)
+        lay.addWidget(QLabel(
+            "本地：先安装 Ollama；云端：填 API 地址和 Key。"))
+        return mode_box
+
+    # ================= 界面 / 使用 =================
+    def build_interface(lay, include_advanced_tools=True):
+        lay.addWidget(QLabel(" 身份命名"))
+        lay.addWidget(QLabel("AI 名字:"))
+        ne = QLineEdit(ai_name)
+        lay.addWidget(ne)
+
+        def _rename():
+            new = (ne.text() or "").strip()
+            if not new:
+                QMessageBox.information(d, "改名", "名字不能是空的")
+                return
+            try:
+                trunk.config["ai_name"] = new
+                trunk.save_config()
+                parent.setWindowTitle(" " + new)
+                parent.ai_name = new
+            except Exception as e:
+                QMessageBox.warning(d, "改名", "保存失败: " + str(e)[:80])
+                return
+            QMessageBox.information(d, "改名", "现在叫「%s」了" % new)
+
+        lay.addWidget(QPushButton("改名", clicked=_rename))
+
+        lay.addWidget(QLabel("\n 外观"))
+        lay.addWidget(QLabel("字体大小:"))
+        fs = QComboBox()
+        fs.addItems(["12px", "14px", "16px", "18px"])
+        fs.setCurrentText(trunk.config.get("font_size", "14px"))
+        fs.setToolTip("立即影响聊天和输入框文字大小")
+        lay.addWidget(fs)
+
+        from gui.theme_manager import THEME_LABELS, DENSITY_LABELS, ThemeManager
+        appearance = ThemeManager(base).appearance
+        lay.addWidget(QLabel("主题:"))
+        theme_box = QComboBox()
+        theme_box.addItems(list(THEME_LABELS.values()))
+        theme_box.setCurrentText(THEME_LABELS.get(
+            appearance.get("theme", "system"), "跟随系统"))
+        theme_box.setToolTip("切换后立即预览，保存后持久化")
+        lay.addWidget(theme_box)
+        lay.addWidget(QLabel("界面密度:"))
+        density_box = QComboBox()
+        density_box.addItems(list(DENSITY_LABELS.values()))
+        density_box.setCurrentText(DENSITY_LABELS.get(
+            appearance.get("density", "comfortable"), "舒适"))
+        density_box.setToolTip("影响按钮内边距和列表疏密")
+        lay.addWidget(density_box)
+        lay.addWidget(_hint(
+            "主题和密度修改会立即预览；窗口位置/大小在退出时自动记住。"))
+        d._settings_theme = theme_box
+        d._settings_density = density_box
+
+        def _preview_appearance():
+            try:
+                from gui.theme_manager import (
+                    THEME_LABELS, DENSITY_LABELS, ThemeManager)
+                inv_theme = {v: k for k, v in THEME_LABELS.items()}
+                inv_density = {v: k for k, v in DENSITY_LABELS.items()}
+                tm = ThemeManager(base)
+                tm.set_options(
+                    theme=inv_theme.get(theme_box.currentText(), "system"),
+                    density=inv_density.get(density_box.currentText(), "comfortable"),
+                    font_size=int(fs.currentText().replace("px", "")))
+                if parent is not None and hasattr(parent, "theme_manager"):
+                    parent.theme_manager = tm
+                    tm.apply_to(parent)
+            except Exception:  # 静默是故意的
+                pass
+        theme_box.currentIndexChanged.connect(lambda _i: _preview_appearance())
+        density_box.currentIndexChanged.connect(lambda _i: _preview_appearance())
+        fs.currentIndexChanged.connect(lambda _i: _preview_appearance())
+
+        lay.addWidget(QLabel("\n 网络"))
+        net_chk = QCheckBox("联网开关")
+        net_chk.setChecked(trunk.config.get("联网", True))
+        net_chk.setToolTip("关闭后模型和工具的网络请求会被阻止，本地模型仍可用")
+        lay.addWidget(net_chk)
+        lay.addWidget(_hint("影响：搜索、云端模型、插件市场和更新检查。"))
+
+        lay.addWidget(QLabel("\n AI 人格"))
+        persona_btn = QPushButton("编辑 AI 人格")
+        lay.addWidget(persona_btn)
+
+        def _edit_persona():
+            cur = trunk.config.get(
+                "ai_persona",
+                "你是小6，住在用户电脑里的AI朋友。说话口语化，简短直接。")
+            txt, ok = QInputDialog.getMultiLineText(
+                d, "AI人格", "描述小6的性格/说话风格：", cur)
+            if ok and txt.strip():
+                trunk.config["ai_persona"] = txt.strip()
+                trunk.save_config()
+                QMessageBox.information(d, "已保存", "AI 人格已更新")
+        persona_btn.clicked.connect(_edit_persona)
+
+        lay.addWidget(QLabel("\n 快捷键"))
+        shortcut_edit = QLineEdit(
+            trunk.config.get("shortcut_command_palette", "Ctrl+K"))
+        shortcut_edit.setPlaceholderText("Ctrl+K")
+        shortcut_edit.setToolTip("命令面板全局快捷键，保存后立即生效")
+        lay.addWidget(shortcut_edit)
+        d._settings_shortcut = shortcut_edit
+
+        lay.addWidget(QLabel("\n 模式"))
+        mode_switch = QComboBox()
+        mode_switch.addItems(["简单模式", "高级模式"])
+        mode_switch.setCurrentText("简单模式" if simple else "高级模式")
+        lay.addWidget(mode_switch)
+
+        def _switch_mode():
+            target = "advanced" if mode_switch.currentText() == "高级模式" else "simple"
+            try:
+                from gui.ui_mode import set_ui_mode
+                set_ui_mode(base, target, trunk.config, trunk.save_config)
+                if parent is not None and hasattr(parent, "_set_ui_mode"):
+                    parent._set_ui_mode(target)
+                QMessageBox.information(
+                    d, "模式已切换",
+                    "已切换到%s模式。重新打开设置即可看到对应分级。" %
+                    ("高级" if target == "advanced" else "简单"))
+                d.close()
+            except Exception as e:
+                QMessageBox.warning(d, "切换失败", str(e)[:100])
+        mode_switch.currentIndexChanged.connect(lambda _i: _switch_mode())
+
+        if include_advanced_tools:
+            lay.addWidget(QLabel("\n 桌面"))
+            lay.addWidget(_open_btn("", "桌宠", "桌面悬浮窗，再点一次收起"))
+        return ne, fs, net_chk, mode_box_holder
+
+    mode_box_holder = {"widget": None}
+
+    # ================= 各功能页 =================
+    def build_usage(lay):
+        ne, fs, net_chk, _ = build_interface(lay, include_advanced_tools=False)
+        d._settings_name_edit = ne
+        d._settings_font = fs
+        d._settings_net = net_chk
+        lay.addWidget(QLabel("\n 资料"))
+        lay.addWidget(_open_btn("", "知识库", "导入和管理资料",
+                                key="知识库"))
+        lay.addWidget(QLabel("\n 通知"))
+        notify_box = QComboBox()
+        notify_box.addItems(["飞书", "企业微信", "钉钉", "关闭"])
+        notify_box.setCurrentText(
+            {"feishu": "飞书", "wecom": "企业微信",
+             "dingtalk": "钉钉", "off": "关闭"}.get(
+                str(trunk.config.get("notify_channel", "feishu")), "飞书"))
+        lay.addWidget(notify_box)
+        d._settings_notify = notify_box
+        lay.addWidget(QLabel("\n 更新"))
+        lay.addWidget(_open_btn("", "检查更新",
+                                "检查新版本 / 回滚 / 更新历史"))
+
+    def build_help(lay):
+        lay.addWidget(QLabel(" 帮助与安全"))
+        lay.addWidget(_open_btn("", "新手教程",
+                                "3 分钟上手 + 兼容性 / 数据迁移 / 插件 API 速查"))
+        lay.addWidget(_open_btn("", "安全中心",
+                                "权限、网络事件和审计记录",
+                                key="安全中心"))
+        lay.addWidget(_open_btn("", "意见反馈", "给开发者留言"))
+        lay.addWidget(_open_btn("", "首次设置向导",
+                                "模型没配好时重新配置"))
+
+    def build_tools(lay):
+        lay.addWidget(QLabel(" 工具"))
+        lay.addWidget(_open_btn("", "电脑控制",
+                                "操作软件 / 文件 / 窗口 / 系统"))
+        lay.addWidget(_open_btn("", "机器人",
+                                "企业微信 / 钉钉聊天机器人"))
+        lay.addWidget(_open_btn("", "语音对话",
+                                "实时语音对话：静音断句、可随时打断"))
+        lay.addWidget(_open_btn("", "日历待办", "日历 + 待办 + 笔记"))
+        lay.addWidget(_open_btn("", "命令面板 (Ctrl+K)",
+                                "一个搜索框找所有能力和面板"))
+        lay.addWidget(_open_btn("", "模块星图",
+                                "全部模块的星型拓扑图"))
+
+    def build_extensions(lay):
+        lay.addWidget(QLabel(" 扩展"))
+        lay.addWidget(_open_btn("", "插件", "安装 / 卸载 / 热加载模块",
+                                key="插件市场"))
+        lay.addWidget(_open_btn("", "MCP",
+                                "服务器管理 / 预置服务器 / 配置参考",
+                                key="MCP市场"))
+        lay.addWidget(_open_btn("", "可选组件",
+                                "语音识别 / 看图 / 浏览器自动化 / 一键安装"))
+
+    def build_records(lay):
+        lay.addWidget(QLabel(" 记录"))
+        lay.addWidget(_open_btn("", "历史记录",
+                                "分页 / 搜索 / 导出全部聊天记录"))
+        lay.addWidget(_open_btn("", "日志", "运行日志 / 错误 / 操作记录",
+                                key="日志中心"))
+        lay.addWidget(_open_btn("", "搜索聊天", "全局搜索所有会话"))
+        lay.addWidget(_open_btn("", "记忆可视化",
+                                "记忆时间线 / 图谱 / 搜索 / 编辑"))
+        lay.addWidget(_open_btn("", "数据统计", "用量与数据统计报表"))
+
+    def build_system(lay):
+        lay.addWidget(QLabel(" 系统"))
+        lay.addWidget(_open_btn("", "系统", "深度自检 / 备份 / 训练",
+                                key="系统自检"))
+        lay.addWidget(_open_btn("", "首次设置向导",
+                                "模型没配好、它不回话时打开这个"))
+        lay.addWidget(_open_btn("", "新手教程",
+                                "激活 / 配模型 / 聊天 / 兼容性与迁移速查"))
+        lay.addWidget(_open_btn("", "检查更新",
+                                "检查新版本 / 回滚 / 更新历史"))
+        lay.addWidget(_open_btn("", "意见反馈", "给开发者留言"))
+        lay.addWidget(QLabel("\n 开发者"))
+        lay.addWidget(_open_btn("", "命令面板 (Ctrl+K)",
+                                "搜索所有能力和面板"))
+        lay.addWidget(_open_btn("", "模块星图", "模块拓扑图"))
+        lay.addWidget(_open_btn("", "日志", "运行日志与错误",
+                                key="日志中心"))
+
     tabs = QTabWidget()
 
-    # ===== 标签1: 模型 =====
-    tab1 = QWidget()
-    l1 = QVBoxLayout(tab1)
-    l1.addWidget(QLabel("🤖 模型配置"))
-    l1.addWidget(QLabel("模型模式:"))
-    m = QComboBox()
-    m.addItems(["本地路由", "云端模型"])
-    _cur_mode = trunk.config.get("model_mode", "本地路由")
-    m.setCurrentText("云端模型" if "云端" in str(_cur_mode) else "本地路由")
-    l1.addWidget(m)
+    def build_start(lay):
+        mb = build_model(lay)
+        mode_box_holder["widget"] = mb
 
-    # 「检测本地模型」：网络请求必须放子线程。
-    # 原来 check_local 是直接连到 clicked 上的，里面 urlopen(timeout=3) 在 UI 线程
-    # 上跑 —— Ollama 不在线时（比如 ollama_url 指向局域网里没开的机器）
-    # 点一下界面就冻满 3 秒。下面这段跟 _probe_ollama 用同一套写法。
-    class _ModelsReady(QObject):
-        done = pyqtSignal(object, str)          # (models, err)
+    if simple:
+        tabs.addTab(_scroll_tab("开始", build_start), " 开始")
+        tabs.addTab(_scroll_tab("使用", build_usage), " 使用")
+        tabs.addTab(_scroll_tab("帮助", build_help), " 帮助")
+    else:
+        tabs.addTab(_scroll_tab("模型", lambda lay: build_model(lay)), " 模型")
+        tabs.addTab(_scroll_tab("界面", build_usage), " 界面")
+        tabs.addTab(_scroll_tab("工具", build_tools), " 工具")
+        tabs.addTab(_scroll_tab("扩展", build_extensions), " 扩展")
+        tabs.addTab(_scroll_tab("记录", build_records), " 记录")
+        tabs.addTab(_scroll_tab("系统", build_system), " 系统")
+        tabs.addTab(_scroll_tab("开发者", build_system), " 开发者")
 
-    _mr = _ModelsReady(d)
-    d._model_probe = _mr        # 必须留住引用，否则被回收后信号没人接
-
-    _check_btn = QPushButton("检测本地模型")
-    l1.addWidget(_check_btn)
-
-    def _show_model_picker(models):
-        d2 = QDialog(d)
-        d2.setWindowTitle("选择本地模型")
-        d2.setFixedSize(350, 300)
-        l2 = QVBoxLayout(d2)
-        l2.addWidget(QLabel("检测到 %d 个模型：" % len(models)))
-
-        def _pick_local(x):
-            trunk.config["local_model"] = x
-            trunk.save_config()
-            d2.accept()
-            QMessageBox.information(d, "成功", "已选择: " + x)
-        for mm in models:
-            l2.addWidget(QPushButton(mm, clicked=lambda checked, x=mm: _pick_local(x)))
-        d2.exec_()
-
-    def _on_models(models, err):
-        """子线程取完回到 GUI 线程：这里才能碰控件"""
-        _check_btn.setEnabled(True)
-        _check_btn.setText("检测本地模型")
-        if err:
-            QMessageBox.warning(d, "错误", "Ollama未启动\n请先打开Ollama")
-            return
-        _show_model_picker(models)
-
-    _mr.done.connect(_on_models)
-
-    def check_local():
-        _check_btn.setEnabled(False)
-        _check_btn.setText("检测中…")
-
-        def work():
-            try:
-                ollama_url = trunk.config.get("ollama_url", "http://localhost:11434")
-                req = urllib.request.Request(ollama_url + "/api/tags")
-                data = json.loads(urllib.request.urlopen(req, timeout=3).read())
-                models, err = [mm["name"] for mm in data.get("models", [])], ""
-            except Exception as e:
-                models, err = [], str(e)[:60]
-            try:
-                _mr.done.emit(models, err)      # 信号排队回 GUI 线程
-            except Exception:
-                pass
-
-        threading.Thread(target=work, daemon=True,
-                         name="settings-model-probe").start()
-
-    _check_btn.clicked.connect(check_local)
-
-    # Ollama 探测放后台做。
-    # 原来是在**构建对话框的过程中**直接发请求（timeout=3），
-    # Ollama 不在线时（比如 ollama_url 指向局域网里没开的机器），
-    # 每次点「设置」都要先卡满 3 秒窗口才出来。
-    ollama_lbl = QLabel("⏳ 正在检测 Ollama…")
-    l1.addWidget(ollama_lbl)
-
-    class _Probe(QObject):
-        done = pyqtSignal(str)
-
-    # 以对话框为父对象，并把引用挂到 d 上 ——
-    # 只写成局部变量的话，函数返回后它可能被 Python 回收，
-    # 后台线程 emit 的信号就没人接了（实测标签一直停在"正在检测…"）。
-    _probe = _Probe(d)
-    d._ollama_probe = _probe
-    _probe.done.connect(ollama_lbl.setText)
-
-    def _probe_ollama():
-        try:
-            url = trunk.config.get("ollama_url", "http://localhost:11434")
-            req = urllib.request.Request(url + "/api/tags")
-            data = json.loads(urllib.request.urlopen(req, timeout=3).read())
-            n = len(data.get("models", []))
-            text = "📦 已检测到 %d 个模型" % n
-        except Exception:
-            text = "⚠️ Ollama 未连接"
-        try:
-            _probe.done.emit(text)
-        except Exception:
-            pass
-
-    threading.Thread(target=_probe_ollama, daemon=True,
-                     name="settings-ollama-probe").start()
-
-    def cloud_set():
-        d2 = QDialog(d); d2.setWindowTitle("云端模型"); l2 = QVBoxLayout(d2)
-        l2.addWidget(QLabel("云端模型:"))
-        cc = QComboBox(); cc.setEditable(True)
-        cc.addItems([
-            "glm-4-flash", "glm-4", "glm-4v-flash",
-            "qwen-turbo", "qwen-plus", "qwen-max", "qwen-vl-plus",
-            "deepseek-chat", "deepseek-reasoner",
-            "ernie-3.5-8k", "ernie-4.0-8k",
-            "hunyuan-lite", "hunyuan-pro",
-            "yi-lightning", "yi-large",
-            "moonshot-v1-8k",
-            "gpt-4o", "gpt-4", "claude-3-5-sonnet"
-        ])
-        cc.setCurrentText(trunk.config.get("cloud_model", "qwen-turbo"))
-        l2.addWidget(cc)
-        l2.addWidget(QLabel("API地址:"))
-        uu = QLineEdit("https://open.bigmodel.cn/api/paas/v4/chat/completions")
-        l2.addWidget(uu)
-        l2.addWidget(QLabel("API密钥:"))
-        kk = QLineEdit(); kk.setEchoMode(QLineEdit.Password)
-        kk.setText(trunk.config.get("cloud_key", ""))
-        l2.addWidget(kk)
-        def save_c():
-            setattr(trunk, 'config', {**trunk.config, "cloud_model": cc.currentText(),
-                                      "cloud_url": uu.text(), "cloud_key": kk.text(),
-                                      "model_mode": "云端模型"})
-            trunk.save_config()
-            try: trunk.modules["llm"].reload_config()
-            except: pass
-            model_btn.setText("🔄 模型:云端")
-            local_light.setStyleSheet("color:#666;")
-            cloud_light.setStyleSheet("color:#0f0;")
-            d2.accept(); QMessageBox.information(d, "成功", "云端已设置")
-        l2.addWidget(QPushButton("确认", clicked=save_c))
-        d2.exec_()
-    l1.addWidget(QPushButton("云端模型设置", clicked=cloud_set))
-    l1.addWidget(_open_btn("📦", "模型管理",
-                           "列出 / 下载 / 删除 Ollama 本地模型"))
-
-    l1.addWidget(QLabel("\n🌐 联网"))
-    net_chk = QCheckBox("允许联网检索（对话时按需搜索）")
-    net_chk.setChecked(trunk.config.get("联网", True))
-    l1.addWidget(net_chk)
-    tabs.addTab(tab1, "🤖 模型")
-
-    # ===== 标签2: 界面 =====
-    tab2 = QWidget()
-    l2 = QVBoxLayout(tab2)
-    l2.addWidget(QLabel("👤 身份命名"))
-    l2.addWidget(QLabel("AI名字:"))
-    ne = QLineEdit(ai_name)
-    l2.addWidget(ne)
-
-    def _rename():
-        """改名：写配置 + 改窗口标题 + 改聊天里显示的名字
-
-        原来这一行是：
-            QPushButton("改名", clicked=lambda: (title.setText("✨ " + ne.text())))
-        而 title 是调用方传进来的**字符串**（getattr(self,"title","小6智能体")），
-        字符串没有 setText —— 点一下必然抛 AttributeError。
-        run.py 装了 excepthook，所以程序不会崩，但改名完全不生效，
-        而且每次点都往 crashes.log 里写一条，把自检健康分扣掉 20。
-        """
-        new = (ne.text() or "").strip()
-        if not new:
-            QMessageBox.information(d, "改名", "名字不能是空的")
-            return
-        try:
-            trunk.config["ai_name"] = new
-            trunk.save_config()
-        except Exception as e:
-            QMessageBox.warning(d, "改名", "保存失败: " + str(e)[:80])
-            return
-        # 主窗口的标题和聊天里显示的名字一起改掉
-        try:
-            parent.setWindowTitle("✨ " + new)
-        except Exception:
-            pass
-        try:
-            parent.ai_name = new
-        except Exception:
-            pass
-        QMessageBox.information(d, "改名", "现在叫「%s」了" % new)
-
-    l2.addWidget(QPushButton("改名", clicked=_rename))
-
-    l2.addWidget(QLabel("\n🎨 外观"))
-    l2.addWidget(QLabel("字体大小:"))
-    fs = QComboBox()
-    fs.addItems(["12px", "14px", "16px", "18px"])
-    l2.addWidget(fs)
-
-    l2.addWidget(QLabel("\n🌐 网络"))
-    net_chk = QCheckBox("联网开关")
-    net_chk.setChecked(trunk.config.get("联网", True))
-    l2.addWidget(net_chk)
-
-    def _edit_persona():
-        cur = trunk.config.get("ai_persona", "你是小6，住在用户电脑里的AI朋友。说话口语化，简短直接。")
-        txt, ok = QInputDialog.getMultiLineText(d, "AI人格", "描述小6的性格/说话风格：", cur)
-        if ok and txt.strip():
-            trunk.config["ai_persona"] = txt.strip()
-            trunk.save_config()
-            QMessageBox.information(d, "已保存", "AI人格已更新")
-    l2.addWidget(QLabel("\n🧠 AI人格"))
-    l2.addWidget(QPushButton("编辑AI人格", clicked=_edit_persona))
-    l2.addWidget(QLabel("\n🐾 桌面"))
-    l2.addWidget(_open_btn("🐾", "桌宠", "桌面悬浮窗，再点一次收起"))
-    tabs.addTab(tab2, "🎨 界面")
-
-    # ===== 标签3: 工具（原来是功能中心的"帮你干活"一组）=====
-    tab3 = QWidget()
-    l3 = QVBoxLayout(tab3)
-    l3.addWidget(QLabel("🛠️ 工具"))
-    l3.addWidget(_open_btn("🖥️", "电脑控制", "操作软件 / 文件 / 窗口 / 系统"))
-    l3.addWidget(_open_btn("🤖", "机器人", "企业微信 / 钉钉聊天机器人"))
-    l3.addWidget(_open_btn("🎙️", "语音对话",
-                           "语音实时对话：静音自动断句、可随时打断、连续多轮"))
-    l3.addWidget(_open_btn("📅", "日历待办", "日历 + 待办 + 笔记"))
-    l3.addWidget(_open_btn("⌘", "命令面板 (Ctrl+K)",
-                           "一个搜索框找所有能力和面板 —— 图片识别 / 记忆整理 / "
-                           "统计报表 / 一键迁移 / 群聊辩论 等都在里面"))
-    l3.addWidget(_open_btn("🕸️", "模块星图",
-                           "全部模块的星型拓扑图（用系统浏览器打开，实时刷新）"))
-    l3.addStretch(1)
-    tabs.addTab(tab3, "🛠️ 工具")
-
-    # ===== 标签4: 扩展（插件 + MCP）=====
-    tab4 = QWidget()
-    l4 = QVBoxLayout(tab4)
-    l4.addWidget(QLabel("🧩 扩展"))
-    l4.addWidget(_open_btn("🧩", "插件", "安装 / 卸载 / 热加载模块",
-                           key="插件市场"))
-    # MCP 的所有东西都在 mcp_dialog 那一页里（服务器管理 / 预置服务器 / 配置参考）。
-    # 这里原来还有个"MCP服务器地址 + 保存并重连"，写的是 config["mcp_url"] ——
-    # 全项目没有任何代码读那个键，是个死设置；真正生效的是 config["mcp_servers"]。
-    l4.addWidget(_open_btn("🔌", "MCP", "服务器管理 / 预置服务器 / 配置参考",
-                           key="MCP市场"))
-    l4.addStretch(1)
-    tabs.addTab(tab4, "🧩 扩展")
-
-    # ===== 标签5: 记录 =====
-    tab5 = QWidget()
-    l5 = QVBoxLayout(tab5)
-    l5.addWidget(QLabel("📜 记录"))
-    l5.addWidget(_open_btn("📜", "历史记录", "分页 / 搜索 / 导出全部聊天记录"))
-    l5.addWidget(_open_btn("📋", "日志", "运行日志 / 错误 / 操作记录",
-                           key="日志中心"))
-    l5.addWidget(_open_btn("🔍", "搜索聊天", "全局搜索所有会话里的消息"))
-    l5.addWidget(_open_btn("🧠", "记忆可视化", "记忆时间线 / 图谱 / 搜索 / 编辑"))
-    l5.addWidget(_open_btn("📊", "数据统计", "用量与数据的统计报表"))
-    l5.addStretch(1)
-    tabs.addTab(tab5, "📜 记录")
-
-    # ===== 标签6: 系统 =====
-    tab6 = QWidget()
-    l6 = QVBoxLayout(tab6)
-    l6.addWidget(QLabel("⚙️ 系统"))
-    l6.addWidget(_open_btn("⚙️", "系统", "深度自检 / 备份 / 训练",
-                           key="系统自检"))
-    l6.addWidget(_open_btn("🧭", "首次设置向导", "模型没配好、它不回话时打开这个"))
-    l6.addWidget(_open_btn("📱", "手机远程", "手机连上这台电脑使用"))
-    l6.addWidget(_open_btn("🔄", "检查更新", "检查新版本 / 回滚 / 更新历史"))
-    l6.addStretch(1)
-    tabs.addTab(tab6, "⚙️ 系统")
-
-    # 原来的"🗂 数据"和"⚙️ 高级"两个标签已移除（按需求只保留后台运行）：
-    #   · 数据页：只有"记忆管理"(trunk.call vector_store run) 和"电脑控制"两个
-    #     按钮，两个功能在对话链路 / 上面「工具」页里都照常可用
-    #   · 高级页：只有一个 QTextBrowser 日志框，而且**从来没有被写入过**，
-    #     是个空摆设
-    # 后台的 vector_store / knowledge_graph 等模块不受影响，照常随 trunk 加载。
-
+    # 设置搜索：按标签页内可见文字查找，命中后切到对应页并聚焦控件。
+    search_row = QHBoxLayout()
+    search_box = QLineEdit()
+    search_box.setPlaceholderText("搜索设置：主题、模型、日志、快捷键")
+    search_box.setClearButtonEnabled(True)
+    search_result = QLabel("")
+    search_result.setStyleSheet("color:#667085;font-size:12px;")
+    search_row.addWidget(search_box, 1)
+    search_row.addWidget(search_result)
+    l.addLayout(search_row)
     l.addWidget(tabs)
 
-    # 保存按钮
-    def do_save():
-        trunk.config["model_mode"] = m.currentText()
-        try: trunk.modules["llm"].reload_config()
-        except: pass
-        if "云端" in m.currentText():
-            model_btn.setText("🔄 模型:云端")
-            local_light.setStyleSheet("color:#666;")
-            cloud_light.setStyleSheet("color:#0f0;")
-        else:
-            model_btn.setText("🔄 模型:本地路由")
-            local_light.setStyleSheet("color:#0f0;")
-            cloud_light.setStyleSheet("color:#0f0;")
-        trunk.config["ai_name"] = ne.text()
-        trunk.config["font_size"] = fs.currentText()
+    def _search_settings():
+        q = search_box.text().strip().lower()
+        if not q:
+            search_result.setText("")
+            return
+        for i in range(tabs.count()):
+            page = tabs.widget(i)
+            tab_text = tabs.tabText(i)
+            if q in tab_text.lower():
+                tabs.setCurrentIndex(i)
+                search_result.setText("已定位标签页：" + tab_text)
+                return
+            for child in page.findChildren(QWidget):
+                text = ""
+                try:
+                    text = str(child.text())
+                except Exception:  # 静默是故意的
+                    try:
+                        text = str(child.currentText())
+                    except Exception:  # 静默是故意的
+                        text = ""
+                if text and q in text.lower():
+                    tabs.setCurrentIndex(i)
+                    try:
+                        child.setFocus()
+                    except Exception:  # 静默是故意的
+                        pass
+                    search_result.setText("已定位：" + text[:40])
+                    return
+        search_result.setText("没有找到匹配的设置项")
+
+    search_box.returnPressed.connect(_search_settings)
+    search_box.textChanged.connect(
+        lambda t: _search_settings() if len(t.strip()) >= 2 else None)
+
+    # ================= 保存 =================
+    def _safe_set_model_ui(mode_text):
+        if model_btn is None:
+            return
         try:
-            sz = int(fs.currentText().replace("px", ""))
-            chat.setStyleSheet("font-size:%dpx;" % sz)
-            input_box.setStyleSheet("font-size:%dpx; border:none; background:transparent;" % sz)
-        except: pass
-        trunk.config["联网"] = net_chk.isChecked()
-        trunk.save_config()
-        QMessageBox.information(d, "成功", "已保存")
+            model_btn.setText(
+                " 模型:云端" if "云端" in mode_text else " 模型:本地路由")
+            if local_light is not None:
+                local_light.setStyleSheet(
+                    "color:#666;" if "云端" in mode_text else "color:#0f0;")
+            if cloud_light is not None:
+                cloud_light.setStyleSheet("color:#0f0;")
+        except Exception as e:
+            _x6_swallowed(__name__, e)
+            pass
+
+    def do_save():
+        try:
+            mb = mode_box_holder.get("widget")
+            if mb is not None:
+                trunk.config["model_mode"] = mb.currentText()
+            if getattr(d, "_settings_name_edit", None) is not None:
+                trunk.config["ai_name"] = d._settings_name_edit.text()
+            if getattr(d, "_settings_font", None) is not None:
+                trunk.config["font_size"] = d._settings_font.currentText()
+                try:
+                    size = int(d._settings_font.currentText().replace("px", ""))
+                    if chat is not None:
+                        chat.setStyleSheet("font-size:%dpx;" % size)
+                    if input_box is not None:
+                        input_box.setStyleSheet(
+                            "font-size:%dpx;border:none;background:transparent;"
+                            % size)
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
+                    pass
+            if getattr(d, "_settings_theme", None) is not None:
+                from gui.theme_manager import (
+                    THEME_LABELS, DENSITY_LABELS, ThemeManager)
+                inv_theme = {v: k for k, v in THEME_LABELS.items()}
+                inv_density = {v: k for k, v in DENSITY_LABELS.items()}
+                tm = ThemeManager(base)
+                tm.set_options(
+                    theme=inv_theme.get(d._settings_theme.currentText(), "system"),
+                    density=inv_density.get(
+                        d._settings_density.currentText(), "comfortable"),
+                    font_size=int(d._settings_font.currentText().replace("px", ""))
+                    if getattr(d, "_settings_font", None) is not None else 14)
+                if parent is not None and hasattr(parent, "theme_manager"):
+                    parent.theme_manager = tm
+                    tm.apply_to(parent)
+            if getattr(d, "_settings_shortcut", None) is not None:
+                sc_text = d._settings_shortcut.text().strip() or "Ctrl+K"
+                trunk.config["shortcut_command_palette"] = sc_text
+                if parent is not None and hasattr(
+                        parent, "_set_command_palette_shortcut"):
+                    parent._set_command_palette_shortcut(sc_text)
+            if getattr(d, "_settings_net", None) is not None:
+                trunk.config["联网"] = d._settings_net.isChecked()
+            if getattr(d, "_settings_notify", None) is not None:
+                trunk.config["notify_channel"] = {
+                    "飞书": "feishu", "企业微信": "wecom",
+                    "钉钉": "dingtalk", "关闭": "off"}.get(
+                        d._settings_notify.currentText(), "feishu")
+            trunk.save_config()
+            try:
+                trunk.modules["llm"].reload_config()
+            except Exception as e:
+                _x6_swallowed(__name__, e)
+                pass
+            _safe_set_model_ui(trunk.config.get("model_mode", "本地路由"))
+            try:
+                parent.model_status_label.setText(
+                    "模型：%s" % trunk.config.get("model_mode", "本地路由"))
+            except Exception as e:
+                _x6_swallowed(__name__, e)
+                pass
+            QMessageBox.information(d, "成功", "已保存")
+        except Exception as e:
+            QMessageBox.warning(d, "保存失败", str(e)[:120])
+
     l.addWidget(QPushButton("保存", clicked=do_save))
     d.exec_()
-
-
-
+    return d

@@ -6,6 +6,12 @@
 - 评估：evaluate(rule_id, context) 简易条件判定
 - 单一事实源：所有模块的可调参数都从这里读，不再散落硬编码
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, json
 
 
@@ -30,7 +36,8 @@ class RuleEngine:
                 self._json_overrides = d.get("rules", {}) if isinstance(d, dict) else {}
                 self._json_loaded = True
                 return
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         self._json_overrides = {}
 
@@ -46,7 +53,8 @@ class RuleEngine:
         try:
             json.dump(out, open(self.rules_path, "w", encoding="utf-8"),
                       ensure_ascii=False, indent=2)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     # ---------- 注册 ----------
@@ -97,7 +105,8 @@ class RuleEngine:
                 json.dump({"rules": allrules},
                           open(self.rules_path, "w", encoding="utf-8"),
                           ensure_ascii=False, indent=2)
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         return True
 

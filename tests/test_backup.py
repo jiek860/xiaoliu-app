@@ -215,7 +215,13 @@ def test_export_filters_excluded_dirs():
         os.makedirs(out, exist_ok=True)
         r = bk.export(dest_dir=out, password="test123")
         assert r.get("成功"), r
+        assert r.get("加密") != "无(未找到7-Zip)"
         zp = r["导出到"]
+        if "AES-GCM" in str(r.get("加密", "")):
+            clear = os.path.join(out, "clear.zip")
+            rr = bk.decrypt_export(zp, clear, "test123")
+            assert rr.get("成功"), rr
+            zp = clear
         with zipfile.ZipFile(zp) as z:
             names = [n.replace("\\", "/") for n in z.namelist()]
         assert any(n.endswith("data/config.json") for n in names), names

@@ -2,7 +2,16 @@
 """知识问答 v2.1 - RAG知识库 + 文档列表 + 搜索 + 删除 + 清空 + 统计 + 导出"""
 import os
 from core.safe import safe
+from core.path_safety import safe_join, safe_name
+from core.document_parser import chunk_text
 from modules.base import BaseModule
+
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 
 
 class KnowledgeQnA(BaseModule):
@@ -43,12 +52,34 @@ class KnowledgeQnA(BaseModule):
          "args": {},
          "readonly": True,
          "hints": ["知识库统计", "知识库用了多少"]},
+        {"name": "kqa_import_file", "method": "import_file",
+         "desc": "导入 PDF/Word/Excel/PPT/文本到知识库，并建立来源引用",
+         "args": {"path": "文件路径"},
+         "confirm": True,
+         "hints": ["导入文档", "导入知识库", "上传PDF", "导入Word"]},
+        {"name": "kqa_rebuild_index", "method": "rebuild_index",
+         "desc": "清空并重建知识库检索索引",
+         "args": {},
+         "confirm": True,
+         "hints": ["重建知识索引", "修复知识库", "刷新知识库"]},
     ]
 
     def __init__(self, trunk=None):
         super().__init__(trunk)
         self.trunk = trunk
-        self.docs_dir = os.path.join(trunk.base if trunk else ".", "data", "knowledge")
+        base = getattr(trunk, "base", None) or "."
+        try:
+            ws_id = str((getattr(trunk, "config", {}) or {}).get(
+                "workspace_id", "default") or "default")
+        except Exception:  # 静默是故意的 - 配置异常时退回默认工作区
+            ws_id = "default"
+        if ws_id and ws_id != "default":
+            self.workspace_root = os.path.join(
+                base, "data", "workspaces", safe_name(ws_id, default="default"))
+            self.docs_dir = os.path.join(self.workspace_root, "knowledge")
+        else:
+            self.workspace_root = base
+            self.docs_dir = os.path.join(base, "data", "knowledge")
         os.makedirs(self.docs_dir, exist_ok=True)
         self.query_count = 0
         self.add_count = 0
@@ -56,18 +87,84 @@ class KnowledgeQnA(BaseModule):
     @safe
     def add_doc(self, title, content):
         """添加文档到知识库"""
-        fname = title.replace(" ", "_")[:30] + ".txt"
-        path = os.path.join(self.docs_dir, fname)
+        fname = safe_name(str(title).replace(" ", "_")[:40], default="untitled", max_len=48)
+        if not fname.lower().endswith(".txt"):
+            fname += ".txt"
+        path = safe_join(self.docs_dir, fname)
+        if not path:
+            return {"错误": "文档标题非法"}
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
         self.add_count += 1
         return {"已添加": title}
 
     @safe
+    def import_file(self, path):
+        """导入文档并切块入检索索引。"""
+        from core.document_parser import parse, chunk_text
+        r = parse(path)
+        if not r.get("ok"):
+            return r
+        import hashlib
+        title = os.path.splitext(os.path.basename(path))[0]
+        doc_id = hashlib.sha256(os.path.abspath(path).encode("utf-8")).hexdigest()[:12]
+        fname = safe_name(title, default=doc_id, max_len=48) + ".txt"
+        out = safe_join(self.docs_dir, fname)
+        if not out:
+            return {"错误": "文档名非法"}
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(r.get("text", ""))
+        try:
+            from core.retrieval import HybridRetriever
+            idx = HybridRetriever(self.workspace_root)
+            meta = r.get("metadata") or {}
+            chunks = []
+            if meta.get("pages"):
+                for page in meta["pages"]:
+                    for c in chunk_text(page.get("text", "")):
+                        c = dict(c)
+                        c["page"] = page.get("page")
+                        chunks.append(c)
+            else:
+                chunks = chunk_text(r.get("text", ""))
+            idx.add_many([
+                {"text": c["text"], "id": doc_id + "_" + c["id"],
+                 "source": os.path.abspath(path),
+                 "page": c.get("page")}
+                for c in chunks
+            ])
+            try:
+                from core.fts_index import FTSIndex
+                fts = FTSIndex(self.workspace_root)
+                fts.delete_source(os.path.abspath(path))
+                fts.add_many([
+                    {"text": c["text"], "doc_id": doc_id,
+                     "source": os.path.abspath(path),
+                     "page": c.get("page", ""),
+                     "heading": title}
+                    for c in chunks
+                ])
+            except Exception as e:
+                _x6_swallowed(__name__, e, "best-effort fallback")
+        except Exception as e:
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        return {"ok": True, "文件": out, "字符数": r.get("chars", 0),
+                "来源": os.path.abspath(path)}
+
+    @safe
     def list_docs(self):
         """列出所有文档"""
         files = os.listdir(self.docs_dir)
         return {"文档数": len(files), "文档": files}
+
+    @safe
+    def list_documents(self):
+        out = []
+        for f in sorted(os.listdir(self.docs_dir)):
+            p = safe_join(self.docs_dir, f)
+            if p and os.path.isfile(p):
+                out.append({"文件名": f, "大小KB": max(1, os.path.getsize(p) // 1024)})
+        return {"文档数": len(out), "文档": out}
 
     @safe
     def search_doc(self, keyword):
@@ -92,6 +189,66 @@ class KnowledgeQnA(BaseModule):
         return r
 
     @safe
+    def search_sources(self, query, top_k=5):
+        """返回带来源和页码的检索结果。"""
+        hits = []
+        try:
+            from core.fts_index import FTSIndex
+            hits.extend(FTSIndex(self.workspace_root)
+                        .search(query, top_k))
+        except Exception as e:  # 静默是故意的 - FTS 不可用时继续用混合索引
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        try:
+            from core.retrieval import HybridRetriever
+            for h in HybridRetriever(self.workspace_root).search(query, top_k):
+                h = dict(h)
+                h.setdefault("page", "")
+                hits.append(h)
+        except Exception as e:  # 静默是故意的 - 混合索引失败时用已有结果
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        # 去重并保留来源/页码
+        seen, out = set(), []
+        for h in hits:
+            key = (h.get("source"), h.get("page"), h.get("text", "")[:80])
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(h)
+        return out[:top_k]
+
+    @safe
+    def rebuild_index(self):
+        """清空并重建 FTS + 混合索引。"""
+        try:
+            from core.fts_index import FTSIndex
+            from core.retrieval import HybridRetriever
+            fts = FTSIndex(self.workspace_root)
+            idx = HybridRetriever(self.workspace_root)
+            fts.clear_all()
+            idx.clear()
+            total = 0
+            for f in os.listdir(self.docs_dir):
+                if not f.endswith(".txt"):
+                    continue
+                p = safe_join(self.docs_dir, f)
+                if not p:
+                    continue
+                text = open(p, encoding="utf-8", errors="replace").read()
+                chunks = chunk_text(text)
+                idx.add_many([
+                    {"text": c["text"], "id": f + "_" + c["id"],
+                     "source": p, "page": ""} for c in chunks])
+                fts.add_many([
+                    {"text": c["text"], "doc_id": f, "source": p,
+                     "page": "", "heading": os.path.splitext(f)[0]}
+                    for c in chunks])
+                total += len(chunks)
+            return {"ok": True, "文档块数": total,
+                    "FTS": fts.stats(), "混合索引": idx.stats()}
+        except Exception as e:
+            return {"ok": False, "错误": str(e)[:120]}
+
+    @safe
     def ask(self, question):
         """基于知识库回答问题"""
         llm = self.trunk.modules.get("llm")
@@ -102,6 +259,13 @@ class KnowledgeQnA(BaseModule):
         relevant = self.search_doc(question)
         context = ""
         missed = []
+        try:
+            from core.fts_index import FTSIndex
+            for hit in FTSIndex(self.workspace_root).search(question, 3):
+                context += "[来源 %s] %s\n" % (hit.get("source", ""),
+                                                hit.get("text", "")[:500])
+        except Exception as e:
+            _x6_swallowed(__name__, e, "best-effort fallback")
         for doc in relevant.get("文档", [])[:3]:
             path = os.path.join(self.docs_dir, doc)
             try:
@@ -111,11 +275,14 @@ class KnowledgeQnA(BaseModule):
                 # "模型就是答不好"。这条以前是 except: pass。
                 missed.append("%s（%s）" % (doc, type(e).__name__))
 
+        citations = [{"source": os.path.join(self.docs_dir, d)}
+                     for d in relevant.get("文档", [])[:3]]
         try:
             r = llm.chat(f"基于以下资料回答问题:\n{context[:1000]}\n\n问题: {question}")
             self.query_count += 1
             out = {"问题": question, "回答": r,
-                   "参考文档": relevant.get("文档", [])}
+                   "参考文档": relevant.get("文档", []),
+                   "引用": citations}
             if missed:
                 out["参考文档读不了"] = missed
                 out["说明"] = ("有 %d 篇参考文档读不出来，这次回答没用到它们 ——"
@@ -127,21 +294,28 @@ class KnowledgeQnA(BaseModule):
     @safe
     def delete_doc(self, fname):
         """删除文档"""
-        path = os.path.join(self.docs_dir, fname)
-        if os.path.exists(path):
-            os.remove(path)
-            return {"ok": True}
-        return {"错误": "文档不存在"}
+        path = safe_join(self.docs_dir, safe_name(fname, default=""))
+        if not path or not os.path.isfile(path):
+            return {"错误": "文档不存在或路径非法"}
+        os.remove(path)
+        try:
+            from core.fts_index import FTSIndex
+            from core.retrieval import HybridRetriever
+            FTSIndex(self.workspace_root).delete_source(path)
+            HybridRetriever(self.workspace_root).delete_source(path)
+        except Exception as e:  # 静默是故意的 - 索引清理失败不回滚文件删除
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        return {"ok": True}
 
     @safe
     def read_doc(self, fname):
         """读取文档内容"""
-        path = os.path.join(self.docs_dir, fname)
-        if not os.path.exists(path):
-            return {"错误": "文档不存在"}
+        path = safe_join(self.docs_dir, safe_name(fname, default=""))
+        if not path or not os.path.isfile(path):
+            return {"错误": "文档不存在或路径非法"}
         try:
             content = open(path, encoding="utf-8").read()
-            return {"文件名": fname, "内容": content[:500]}
+            return {"文件名": os.path.basename(path), "内容": content[:500]}
         except Exception as e:
             return {"错误": str(e)[:80]}
 

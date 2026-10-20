@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
 """所有插件模块的统一基类"""
+
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 class BaseModule:
     """所有installed模块继承这个类，保证接口统一"""
     def __init__(self, trunk=None):
@@ -17,5 +24,5 @@ class BaseModule:
         if self.trunk:
             try:
                 self.trunk._log("[%s] %s" % (self.__class__.__name__, str(msg)[:100]))
-            except Exception:
-                pass
+            except Exception as e:
+                _x6_swallowed(__name__, e, "best-effort fallback")

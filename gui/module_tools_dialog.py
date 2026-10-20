@@ -22,6 +22,12 @@
 ACTIONS 那 24 条数据也没有丢 —— 它们已经全部变成注册表里的能力声明
 （core/core_caps.py 与各模块的 TOOLS）。
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 from PyQt5.QtWidgets import QMessageBox
 
 
@@ -47,7 +53,8 @@ class ModuleToolsDialog:
             try:
                 QMessageBox.warning(self.parent, "实用工具",
                                     "打不开命令面板：" + str(e)[:150])
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
             return None
 

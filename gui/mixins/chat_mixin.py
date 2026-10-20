@@ -4,6 +4,13 @@ import time
 from PyQt5.QtCore import Qt
 from gui.workers import StreamWorker
 
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
+
 
 class ChatMixin:
     """聊天相关方法"""
@@ -13,10 +20,18 @@ class ChatMixin:
         if not text:
             try:
                 self.input.setFocus()
-            except Exception:
-                pass
+            except Exception as e:  # 静默是故意的
+                _x6_swallowed(__name__, e, "best-effort fallback")
             return
         
+        # [任务模式] 输入框已切到任务时，统一走任务运行时
+        try:
+            if self._composer_is_task():
+                self.last_user_msg = time.time()
+                return self._send_task(text)
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+
         # 检查登录状态
         try:
             if not self.account.current_username():
@@ -26,44 +41,86 @@ class ChatMixin:
                 return
         # 静默是故意的：这只是个便利提示（问用户要不要装组件）——
         # 它出任何问题都不该影响聊天本身
-        except Exception:
-            pass
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
         
+        # 统一 Agent 路由：明确的代码/电脑任务先建议进入 Agent 旅程。
+        try:
+            from core.agent_router import route_goal
+            route = route_goal(
+                text, has_code_root=bool(getattr(self, "base", None)))
+            if route.get("kind") in ("code", "computer") and \
+                    float(route.get("confidence") or 0) >= 0.65:
+                from PyQt5.QtWidgets import QMessageBox
+                label = "代码 Agent" if route["kind"] == "code" else "电脑 Agent"
+                r = QMessageBox.question(
+                    self, "检测到可执行的 Agent 任务",
+                    "这看起来适合交给「%s」。\n\n%s\n\n"
+                    "要打开统一 Agent 旅程吗？\n"
+                    "（可在里面暂停、人工接管、审批和一键撤销）"
+                    % (label, route.get("reason", "")),
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+                if r == QMessageBox.Yes:
+                    d = self.agent_journey_dialog(text)
+                    if d is not None:
+                        self.input.clear()
+                        return
+        except Exception as e:  # 静默是故意的 - 路由失败不影响普通聊天
+            _x6_swallowed(__name__, e, "best-effort fallback")
+
+        # 复杂请求自动提示：一键切到任务模式，而不是让用户自己猜
+        force_chat = False
+        try:
+            if self.trunk._should_auto_task(text):
+                from PyQt5.QtWidgets import QMessageBox
+                r = QMessageBox.question(
+                    self, "检测到复杂任务",
+                    "这看起来是一个需要多步执行的任务。\n\n"
+                    "要切换到任务模式，显示计划、步骤和结果吗？",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+                if r == QMessageBox.Yes:
+                    self._set_composer_mode("task")
+                    self.last_user_msg = time.time()
+                    return self._send_task(text)
+                force_chat = True
+        except Exception:  # 静默是故意的
+            force_chat = False
+
         self.last_user_msg = time.time()
         try:
             self.chat.append_user(text)
             self.input.clear()
             anchor = self.chat.append_thinking()
             self._chat_anchor = anchor
-        except Exception as e:
+        except Exception as e:  # 静默是故意的
             from core.logger import get_logger
             get_logger().error("send 前置步骤失败: %s" % e)
             return
         
         try:
             self.account.save_line("u", text)
-        except Exception as e:
+        except Exception as e:  # 静默是故意的
             from core.logger import get_logger
             get_logger().warn("保存用户消息失败: %s" % e)
         
         try:
-            self.worker = StreamWorker(self.trunk, text)
+            self.worker = StreamWorker(self.trunk, text, force_chat=force_chat)
             self.worker.token.connect(self._on_token)
             self.worker.done.connect(self._on_reply)
             self.worker.start()
             try:
                 self.trunk._log("[GUI] 发送消息: %s" % text[:30])
-            except Exception:
-                pass
-        except Exception as e:
+            except Exception as e:  # 静默是故意的
+                _x6_swallowed(__name__, e, "best-effort fallback")
+        except Exception as e:  # 静默是故意的
             from core.logger import get_logger
             get_logger().error("启动 Worker 失败: %s" % e)
             try:
                 if self._chat_anchor is not None:
                     self.chat.remove_from_anchor(self._chat_anchor)
                     self._chat_anchor = None
-            except Exception:
-                pass
+            except Exception as e:  # 静默是故意的
+                _x6_swallowed(__name__, e, "best-effort fallback")
 
     def _on_token(self, t):
         cur = self.chat.textCursor()
@@ -77,14 +134,14 @@ class ChatMixin:
             if anchor is not None:
                 self.chat.remove_from_anchor(anchor)
                 self._chat_anchor = None
-        except Exception as e:
+        except Exception as e:  # 静默是故意的
             from core.logger import get_logger
             get_logger().error("移除思考块失败: %s" % e)
         
         try:
             self.account.save_line("a", a)
-        except Exception:
-            pass
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
         
         try:
             tts = str(a)
@@ -96,15 +153,36 @@ class ChatMixin:
             # 只有自动朗读开关开着才播报
             if tts.strip() and self.trunk.config.get("auto_tts", False):
                 self.speech.speak_async(tts.strip())
-        except Exception:
-            pass
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
         
         try:
             self.chat.render_reply(a, fallback_name=self.ai_name)
-        except Exception as e:
+        except Exception as e:  # 静默是故意的
             from core.logger import get_logger
             get_logger().error("渲染回复失败: %s" % e)
             self.chat.append("回复渲染失败: " + str(e)[:100])
+
+        # 第一次聊天完成 + 自动任务结果卡片
+        try:
+            self._mark_guide_event("first_chat")
+            self._handle_last_task_result()
+            self._update_empty_state()
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+
+        # 权限 / 网络 / 工具不存在等失败，给一条唯一下一步
+        try:
+            low = str(a or "").lower()
+            triggers = ("权限", "拒绝", "网络被拒绝", "工具不存在", "not found")
+            if any(k in low for k in triggers):
+                guide = self.guidance.for_error(str(a))
+                self.chat.append_guidance_card(
+                    guide.get("title"), guide.get("message"),
+                    "guidance://" + guide.get("action"),
+                    guide.get("action_label"))
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
 
         # 回复里如果出现了"缺依赖"，弹一个"要不要现在装"的框
         # （改之前只留一句让用户自己复制命令的文字，很多人到这就放弃了，
@@ -144,14 +222,85 @@ class ChatMixin:
                         self.trunk.save_config()
                 # 静默是故意的：记"不再问"失败只是下次可能再问一遍，
                 # 不该因此打断聊天
-                except Exception:
-                    pass
+                except Exception as e:  # 静默是故意的
+                    _x6_swallowed(__name__, e, "best-effort fallback")
             if choice == "installed":
                 self.chat.append(
                     "<div style='color:#16a34a'>✅ 组件装好了，"
                     "再试一次刚才那个功能就行。</div>")
-        except Exception:
-            pass
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+
+    # ---------------- 对话编辑 / 重新生成 / 分支 ----------------
+    def _last_exchange(self):
+        store = self.account.chat_store
+        user = store.last_message(self.account.username, self.account.session,
+                                  role="u")
+        assistant = store.last_message(self.account.username,
+                                       self.account.session, role="a")
+        return user, assistant
+
+    def _delete_last_exchange(self):
+        store = self.account.chat_store
+        user, assistant = self._last_exchange()
+        if assistant:
+            store.delete_message_by_id(assistant["id"])
+        if user:
+            store.delete_message_by_id(user["id"])
+        return user
+
+    def edit_last_user_message(self):
+        """把上一条用户消息放回输入框，重新编辑后发送。"""
+        user = self._delete_last_exchange()
+        if not user:
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.information(self, "编辑消息", "当前会话还没有可编辑的用户消息")
+            return
+        try:
+            self.chat.clear()
+            self.chat.load_history(
+                self.account.load_history(limit=50))
+            self.input.setPlainText(user.get("text", ""))
+            self.input.setFocus()
+            self._update_empty_state()
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+
+    def regenerate_last_reply(self):
+        """删除上一轮问答后重新发送同一条用户消息。"""
+        user = self._delete_last_exchange()
+        if not user:
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.information(self, "重新生成", "当前会话还没有可重新生成的问答")
+            return
+        try:
+            self.chat.clear()
+            self.chat.load_history(self.account.load_history(limit=50))
+            self.input.setPlainText(user.get("text", ""))
+            self.send()
+        except Exception as e:
+            from core.logger import get_logger
+            get_logger().error("重新生成失败: %s" % e)
+
+    def branch_current_conversation(self):
+        """把当前会话复制到一个新分支并切换过去。"""
+        try:
+            old_sid = self.account.session
+            new_sid = self.account.chat_store.branch_session(
+                self.account.username, old_sid)
+            self.account.switch_session(new_sid)
+            self.chat.clear()
+            self.chat.load_history(self.account.load_history(limit=50))
+            self._refresh_session_list()
+            self._update_empty_state()
+            try:
+                self.statusBar().showMessage(
+                    "已创建对话分支：%s" % new_sid, 4000)
+            except Exception as e:  # 静默是故意的
+                _x6_swallowed(__name__, e, "best-effort fallback")
+        except Exception as e:
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "创建分支", str(e)[:120])
 
     def _persona_opening(self):
         try:
@@ -164,8 +313,8 @@ class ChatMixin:
                 self.chat.append(
                     f'<b style="color:#1a1a2e">{self.ai_name}:</b><br>{line}<br>'
                 )
-        except Exception:
-            pass
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
 
     def _check_proactive(self):
         try:
@@ -179,8 +328,8 @@ class ChatMixin:
                 self.chat.append(
                     f'<b style="color:#1a1a2e">{self.ai_name}:</b><br>{line}<br>'
                 )
-        except Exception:
-            pass
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
 
 
     def _on_session_clicked(self, item):
@@ -191,7 +340,7 @@ class ChatMixin:
             self.chat.clear()
             msgs = self.account.load_history(limit=50)
             self.chat.load_history(msgs)
-        except Exception as e:
+        except Exception as e:  # 静默是故意的
             self.chat.append(f"<span style='color:#c00'>切换会话失败: {e}</span>")
 
     def _refresh_session_list(self):
@@ -212,6 +361,6 @@ class ChatMixin:
                 it = QListWidgetItem(f"💬 {sid} ({cnt})")
                 it.setData(Qt.UserRole, sid)
                 self.session_list.addItem(it)
-        except Exception:
-            pass
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
 

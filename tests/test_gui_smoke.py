@@ -110,7 +110,6 @@ DIALOGS = [
     ("MCP", "gui.mcp_dialog", "MCPDialog", lambda t: (t, None)),
     ("记忆可视化", "gui.memory_view_dialog", "MemoryViewDialog",
      lambda t: (t, None)),
-    ("手机远程", "gui.mobile_dialog", "MobileDialog", lambda t: (t, None)),
     ("模型管理", "gui.model_manager_dialog", "ModelManagerDialog",
      lambda t: (t, None)),
     ("搜索聊天", "gui.search_dialog", "SearchDialog", lambda t: (t, None)),
@@ -398,7 +397,8 @@ def test_main_window_assembles():
             p.stop()
     try:
         # 关键控件必须存在 —— 少了任何一个，主界面就是残的
-        for attr in ("chat", "input", "trunk", "base"):
+        for attr in ("chat", "input", "trunk", "base", "activity_btn",
+                     "theme_manager", "window_state"):
             assert hasattr(w, attr), "主窗口缺 %s" % attr
         assert w.windowTitle(), "主窗口标题是空的"
         assert len(w.findChildren(QWidget)) > 10, "主窗口里控件太少，装配不完整"

@@ -15,6 +15,13 @@
 """
 import os, json, re, zipfile, platform, datetime
 
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
+
 # 键名里出现这些词就认为是敏感字段
 _SECRET_KEY = re.compile(
     r"(key|secret|token|passwd|password|pass$|_pass|webhook|credential"
@@ -97,13 +104,13 @@ class CrashExport:
                                 % (type(e).__name__, str(e)[:60]))
                     try:
                         z.writestr("config_读取失败.txt", cfg_note)
-                    except Exception:
+                    except Exception as e:
                         # 这里静默是**故意的，别改**（2026-10-13 审计时确认）：
                         # 这只是"尽力往包里塞一张说明纸条"，
                         # 而 cfg_note 本身已经在**返回值**里了（调用方看得到）。
                         # 塞不进去说明 zip 本身有问题，外面的流程会报出来，
                         # 这里再抛一次只会掩盖真正的原因。
-                        pass
+                        _x6_swallowed(__name__, e, "best-effort fallback")
 
             info = "OS: %s\nPython: %s" % (platform.platform(), platform.python_version())
             z.writestr("system_info.txt", info)

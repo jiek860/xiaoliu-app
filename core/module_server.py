@@ -6,7 +6,15 @@
   GET /modules/<name>.py    模块文件下载
 默认端口 8899，GUI 启动时自动内嵌启动；也可独立运行：python core/module_server.py
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, json, threading, urllib.parse
+import html as _html
+from core.path_safety import safe_join
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 
@@ -101,17 +109,24 @@ class ModuleServer:
                     groups.setdefault(g, []).append(m)
                 rows = []
                 for g, ms in sorted(groups.items()):
-                    rows.append('<h2>%s <span class="cnt">%d</span></h2>' % (g, len(ms)))
+                    rows.append('<h2>%s <span class="cnt">%d</span></h2>' % (_html.escape(str(g), quote=True), len(ms)))
                     for m in ms:
                         kb = m.get("size", 0) / 1024
                         need_model = "🧠" if m.get("needs_model") else ""
-                        btn = '<a class="dl" href="/modules/%s.py">下载</a>' % m["name"]
+                        name_html = _html.escape(
+                            str(m.get("name", "")), quote=True)
+                        title_html = _html.escape(
+                            str(m.get("title", m.get("name", ""))), quote=True)
+                        desc_html = _html.escape(
+                            str(m.get("desc", ""))[:60], quote=True)
+                        btn = ('<a class="dl" href="/modules/%s.py">下载</a>'
+                               % name_html)
                         rows.append(
                             '<div class="mod"><div class="t">%s %s</div>'
                             '<div class="d">%s</div>'
                             '<div class="m">%.1f KB %s %s</div></div>'
-                            % (m.get("title", m["name"]), need_model,
-                               m.get("desc", "")[:60], kb, m.get("name", ""), btn))
+                            % (title_html, need_model, desc_html, kb,
+                               name_html, btn))
                 html = """<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
 <title>小6模块服务器</title>
 <style>
@@ -155,8 +170,8 @@ h1{font-size:24px} h2{font-size:17px;margin:22px 0 8px;color:#334155;border-bott
                     elif path.startswith("/modules/") and path.endswith(".py"):
                         name = urllib.parse.unquote(path[len("/modules/"):-3])
                         m = srv.get_module(name)
-                        fp = os.path.join(srv.repo_dir, m["file"]) if m else ""
-                        if m and os.path.exists(fp):
+                        fp = safe_join(srv.repo_dir, m["file"]) if m else None
+                        if m and fp and os.path.isfile(fp):
                             self._send_file(fp)
                         else:
                             self._send_json({"error": "文件不存在"}, 404)
@@ -167,7 +182,8 @@ h1{font-size:24px} h2{font-size:17px;margin:22px 0 8px;color:#334155;border-bott
                 except Exception as e:
                     try:
                         self._send_json({"error": str(e)[:100]}, 500)
-                    except Exception:
+                    except Exception as e:
+                        _x6_swallowed(__name__, e)
                         pass
 
             def log_message(self, *a):

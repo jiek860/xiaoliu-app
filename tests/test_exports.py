@@ -29,8 +29,8 @@ from tests.conftest import make_trunk          # noqa: E402
 def test_redact_covers_hardcoded_names():
     """原来名单里的 3 个仍然脱敏（不能改出回归）"""
     out, n = _redact({
-        "cloud_key": "dd95ec7044bb45fa95a17f",
-        "feedback_email_pass": "ofyngzskxxnubbcb",
+        "cloud_key": "FAKE_GLM_KEY_FOR_TEST",
+        "feedback_email_pass": "FAKE_EMAIL_AUTH_FOR_TEST",
         "wecom_webhook": "https://qyapi.weixin.qq.com/x",
     })
     assert all(out[k] == "***已脱敏***" for k in

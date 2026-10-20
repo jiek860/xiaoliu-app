@@ -1,8 +1,15 @@
 # -*- coding: utf-8 -*-
 """工具调用器 v11.0 - 真Function Calling：LLM输出JSON→自动执行→结果喂回"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import json
 import time
 from modules.base import BaseModule
+from core import security_policy
 
 
 class ToolCaller(BaseModule):
@@ -18,36 +25,44 @@ class ToolCaller(BaseModule):
                 "desc": "联网搜索网页",
                 "mod": "deep_search", "method": "search",
                 "args": {"query": "搜索关键词"},
+                "readonly": True, "risk": "network",
             },
             "vector_search": {
                 "desc": "搜索历史记忆",
                 "mod": "vector_store", "method": "search",
                 "args": {"query": "搜索词"},
+                "readonly": True, "risk": "read",
             },
             "graph_query": {
                 "desc": "查询知识图谱",
                 "mod": "knowledge_graph", "method": "rag_query",
                 "args": {"query": "查询内容"},
+                "readonly": True, "risk": "read",
             },
             "code_run": {
                 "desc": "运行Python代码",
                 "mod": "code_runner", "method": "run",
                 "args": {"code": "Python代码"},
+                "confirm": True, "danger": True,
+                "danger_rule": "工具.允许代码执行", "risk": "exec",
             },
             "file_read": {
                 "desc": "读文件内容",
                 "mod": "file_upload", "method": "read",
                 "args": {"path": "文件路径"},
+                "confirm": True, "risk": "read_sensitive",
             },
             "task_plan": {
                 "desc": "规划任务步骤",
                 "mod": "task_planner", "method": "run_goal",
                 "args": {"goal": "任务目标"},
+                "readonly": True, "risk": "read",
             },
             "computer": {
                 "desc": "控制电脑：打开软件/截屏/系统信息",
                 "mod": "computer_controller", "method": "try_handle",
                 "args": {"action": "操作"},
+                "confirm": True, "risk": "ui_control",
             },
             # 浏览器（Playwright，DOM 选择器级，headless）。
             # 入口是 browser.run/1 个文本参数 —— 注意 tool_caller 分发时只传
@@ -57,6 +72,7 @@ class ToolCaller(BaseModule):
                 "desc": "浏览器：打开网页/读页面文字/点击/输入/截图（DOM级）",
                 "mod": "browser", "method": "run",
                 "args": {"action": "如：打开 https://example.com 并读取页面文字"},
+                "confirm": True, "risk": "ui_network",
             },
             # 开发者文件工具。同样只声明 1 个参数（tool_caller 只传第一个），
             # fs_edit 的参数是一段 JSON 文本。
@@ -64,32 +80,39 @@ class ToolCaller(BaseModule):
                 "desc": "读文件内容（带行号）",
                 "mod": "computer_controller", "method": "read_text",
                 "args": {"path": "文件路径"},
+                "confirm": True, "risk": "read_sensitive",
             },
             "fs_search": {
                 "desc": "在项目目录里搜文件内容",
                 "mod": "computer_controller", "method": "search_text",
                 "args": {"keyword": "关键词或正则"},
+                "readonly": True, "risk": "read",
             },
             "fs_edit": {
                 "desc": "精确替换文件内容（原文须唯一，改前自动备份）",
                 "mod": "computer_controller", "method": "edit_text",
                 "args": {"spec": 'JSON: {"path":"a.py","old":"原文","new":"新文"}'},
+                "confirm": True, "danger": True,
+                "danger_rule": "工具.允许文件修改", "risk": "write",
             },
             # UI 元素树：按控件名操作，不依赖坐标（需 uiautomation）
             "ui_find": {
                 "desc": "按控件名/类型在窗口里找控件（只定位，不点击）",
                 "mod": "computer_controller", "method": "ui_find",
                 "args": {"name": "控件名，如：确定"},
+                "readonly": True, "risk": "read",
             },
             "ui_click": {
                 "desc": "按控件名点击按钮/链接（比点坐标可靠）",
                 "mod": "computer_controller", "method": "ui_click",
                 "args": {"name": "控件名，如：确定"},
+                "confirm": True, "risk": "ui_control",
             },
             "ui_dump": {
                 "desc": "打印某窗口的控件树，用于看清程序界面结构",
                 "mod": "computer_controller", "method": "ui_dump",
                 "args": {"window": "窗口名，如：记事本"},
+                "readonly": True, "risk": "read",
             },
             # 命令执行：默认关闭（规则「电脑控制.允许命令」= false），
             # 开启后也只放白名单命令且每条要弹窗确认。列在这里是为了
@@ -98,6 +121,8 @@ class ToolCaller(BaseModule):
                 "desc": "执行一条白名单内的命令（默认禁用，需规则开启）",
                 "mod": "computer_controller", "method": "shell",
                 "args": {"cmd": "如：git status（不允许 && | > 等串联）"},
+                "confirm": True, "danger": True,
+                "danger_rule": "电脑控制.允许命令", "risk": "exec",
             },
         }
         # ── 接上能力注册表（core/module_caps.py）──
@@ -111,7 +136,8 @@ class ToolCaller(BaseModule):
                 if k not in self.tools:          # 内置优先，注册表不覆盖它
                     self.tools[k] = v
             self._caps_loaded = len(extra or {})
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         self._merge_mcp_tools()
 
@@ -130,8 +156,10 @@ class ToolCaller(BaseModule):
                             "mod": "mcp_server", "method": "call_tool",
                             "args": {"input": "输入"},
                             "mcp_name": t.get("name"),
+                            "confirm": True, "risk": "mcp_external",
                         }
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     # 两级筛选的阈值：进 LLM 提示词的候选工具上限。
@@ -160,7 +188,8 @@ class ToolCaller(BaseModule):
             sub = module_caps.shortlist(pool, query, self._MAX_CANDIDATES)
             if sub:
                 return dict(sub)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return dict(pool)
 
@@ -218,11 +247,26 @@ class ToolCaller(BaseModule):
          browser 声明 {"action"} 但方法是 run(text)），它们必须继续走老路。
         """
         method = info["method"]
-        # 能力注册表来的声明带 readonly/confirm/danger，先做安全分级
-        if info.get("danger") and not self._danger_allowed(tool_name):
-            return {"ok": False, "错误": "「%s」是危险操作且未被允许" % tool_name}
-        if info.get("confirm") and not self._confirm_tool(tool_name, args):
-            return {"ok": False, "错误": "已取消"}
+        from core.tool_schema import validate_args
+        _ok, _why = validate_args(args, info.get("args") or {})
+        if not _ok:
+            return {"ok": False, "错误": _why}
+        # 统一权限中心：所有工具执行前都在这里做最终决策。
+        from core.permission_center import get_permission_center
+        pc = get_permission_center(self.trunk)
+        decision = pc.authorize(tool_name, info=info, args=args)
+        if not decision.get("allow"):
+            if decision.get("requires_confirm"):
+                if not self._confirm_tool(tool_name, args, info):
+                    pc.audit.append({"subject": "tool:" + str(tool_name),
+                                     "decision": "deny", "result": "cancel",
+                                     "reason": "用户取消"})
+                    return {"ok": False, "错误": "已取消"}
+            else:
+                pc.audit.append({"subject": "tool:" + str(tool_name),
+                                 "decision": "deny", "result": "blocked",
+                                 "reason": decision.get("reason", "")})
+                return {"ok": False, "错误": decision.get("reason", "操作被拒绝")}
 
         # 长任务加 bg 标记 -> 转后台执行，立刻返回
         #
@@ -338,7 +382,8 @@ class ToolCaller(BaseModule):
                 # 通知界面（状态栏回调内部自己保证线程安全，失败就算了）
                 try:
                     self.trunk._set_status("✅ %s 已完成（详情见日志）" % label)
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
             except Exception as e:
                 self.trunk._log("后台能力失败: %s - %s"
@@ -347,17 +392,77 @@ class ToolCaller(BaseModule):
         threading.Thread(target=_work, daemon=True,
                          name="x6cap-%s" % str(label)[:14]).start()
 
-    def _confirm_tool(self, tool_name, args):
-        """需确认的能力：没有确认界面就拒绝（和 shell 同一条原则）"""
+    def _confirm_tool(self, tool_name, args, info=None):
+        """需确认的能力：没有确认界面就拒绝，并支持会话/永久授权。"""
+        info = info if info is not None else self.tools.get(tool_name, {})
+        policy = security_policy.classify(tool_name, info)
         try:
             if not getattr(self.trunk, "confirm_cb", None):
-                # 无界面环境下**只读能力**放行，写操作拒绝
-                info = self.tools.get(tool_name, {})
-                if info.get("readonly"):
+                return bool(policy.get("readonly")
+                            and not policy.get("confirm")
+                            and not policy.get("danger"))
+            detail = self._confirm_detail(tool_name, args)
+            action = "执行「%s」" % tool_name
+            scope_cb = getattr(self.trunk, "confirm_scope_cb", None)
+            if callable(scope_cb):
+                scope = scope_cb(action, detail)
+                if scope in ("once", "session", "always"):
+                    if scope in ("session", "always"):
+                        try:
+                            from core.permission_center import get_permission_center
+                            pc2 = get_permission_center(self.trunk)
+                            pc2.approve(
+                                tool_name, scope=scope,
+                                reason="用户在确认框中选择 %s" % scope,
+                                constraints=pc2.suggest_constraints(
+                                    tool_name, args))
+                        except Exception as e:  # 静默是故意的 - 规则落盘失败不影响本次已确认执行
+                            _x6_swallowed(__name__, e, "best-effort fallback")
                     return True
                 return False
-            return bool(self.trunk.confirm("执行「%s」" % tool_name,
-                                           str(args)[:150]))
+            return bool(self.trunk.confirm(action, detail))
+        except Exception:
+            return False
+
+    @staticmethod
+    def _confirm_detail(tool_name, args):
+        """确认框必须展示真正要执行的内容，不能只给工具名。"""
+        try:
+            parts = []
+            if isinstance(args, dict):
+                for k, v in args.items():
+                    sv = str(v)
+                    if len(sv) > 300:
+                        sv = sv[:300] + ""
+                    parts.append("%s=%s" % (k, sv))
+            detail = ("工具: %s\n参数:\n%s"
+                      % (tool_name, "\n".join(parts)))[:1200]
+            if tool_name == "fs_edit" and isinstance(args, dict):
+                try:
+                    import json
+                    from core.diff_review import preview_edit
+                    spec = args.get("spec")
+                    if isinstance(spec, str):
+                        spec = json.loads(spec)
+                    if isinstance(spec, dict):
+                        diff = preview_edit(spec.get("path", ""),
+                                            spec.get("old", ""),
+                                            spec.get("new", ""))
+                        if diff.get("diff"):
+                            detail += ("\n\nDiff (+%d/-%d):\n%s"
+                                       % (diff.get("added", 0),
+                                          diff.get("removed", 0),
+                                          diff["diff"][:1800]))
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
+                    pass
+            return detail[:3500]
+        except Exception:
+            return str(args)[:1200]
+
+    def _rule_allows(self, rule_id):
+        try:
+            return bool(self.trunk.rule(rule_id, False))
         except Exception:
             return False
 
@@ -391,6 +496,19 @@ class ToolCaller(BaseModule):
             _t0 = time.time()
             try:
                 if tool_name.startswith("mcp_"):
+                    policy = security_policy.classify(tool_name, info)
+                    if getattr(self.trunk, "_remote_tool_locked", False):
+                        try:
+                            remote_ok = bool(getattr(self.trunk, "_remote_tools_allowed", False)
+                                             or (getattr(self.trunk, "config", {}) or {})
+                                             .get("bot_allow_tools", False))
+                        except Exception:
+                            remote_ok = False
+                        if not remote_ok:
+                            raise PermissionError("远程会话已禁用 MCP 工具")
+                    if policy.get("confirm") and not self._confirm_tool(
+                            tool_name, args, info):
+                        raise PermissionError("用户未确认 MCP 工具调用")
                     r = self.trunk.call(info["mod"], info["method"],
                                         info.get("mcp_name", tool_name), args)
                 else:
@@ -406,7 +524,8 @@ class ToolCaller(BaseModule):
             if tcl is not None:
                 try:
                     tcl.log_call(tool_name, args, _res, time.time() - _t0)
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
 
         return {"用工具": [c["tool"] for c in calls], "结果": results}

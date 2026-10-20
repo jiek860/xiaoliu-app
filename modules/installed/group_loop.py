@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """群聊闭环 v2.1 - 智能路由 + 群聊组合 + 异常检测 + 反馈 + 统计 + 重置 + 导出"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, time, json
 from core.safe import safe
 from modules.base import BaseModule
@@ -50,7 +56,8 @@ class GroupChatPipeline(BaseModule):
         from core.safe import atomic_write_json
         try:
             atomic_write_json(self.state_path, self.state)
-        except: pass
+        except Exception as e:
+            _x6_swallowed(__name__, e)
 
     @safe
     def feedback(self, user_input, ai_response, good=True):

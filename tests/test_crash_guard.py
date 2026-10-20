@@ -156,7 +156,16 @@ def test_recent_crashes_reads_tail(tmp_path):
     crash_guard.dump_now("第一件事", log_path=p)
     crash_guard.reset_for_test()
 
-    s = crash_guard.recent_crashes(lines=200, log_path=p)
+    # ⚠️ 窗口要开得比"一次 dump 的实际长度"大（2026-10-14 修）
+    #
+    # 原来固定读 200 行，在全量测试里会假失败：
+    # 那时进程里有 **24 个线程**，一次 dump 就好几百行，
+    # 目标内容被挤出窗口 —— 报错信息里看到的是 threading/queue 的栈。
+    # 单独跑这个文件时线程少、dump 短，所以一直是绿的，
+    # **只有全量跑（CI 上）才暴露**。
+    with open(p, encoding="utf-8") as f:
+        ln = len(f.read().splitlines())
+    s = crash_guard.recent_crashes(lines=ln + 50, log_path=p)
     assert "第一件事" in s, s[:200]
 
 

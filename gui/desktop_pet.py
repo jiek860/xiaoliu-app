@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """P1-17: 桌面悬浮窗"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout
 from PyQt5.QtCore import Qt, QPoint
 
@@ -38,5 +44,6 @@ class DesktopPet(QWidget):
                 if win:
                     win.showNormal()
                     win.activateWindow()
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass

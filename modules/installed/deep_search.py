@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """深度搜索 v9.0 - 反反爬：完整浏览器指纹+Cookie池+随机延迟"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import urllib.request, re, urllib.parse, json, gzip, time, random, http.cookiejar
 from core.safe import safe
 from modules.base import BaseModule
@@ -46,7 +52,8 @@ class DeepSearch(BaseModule):
         try:
             if self.trunk:
                 return bool(self.trunk.rule("联网.反爬应对", True))
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return True
 
@@ -58,6 +65,14 @@ class DeepSearch(BaseModule):
         last = None
         uas = (random.sample(self._UA_POOL, min(3, len(self._UA_POOL)))
                if anti else [self._UA_POOL[0]])
+        try:
+            from core.net_guard import get_net_guard
+            d = get_net_guard(self.trunk).check(
+                url, module="deep_search", purpose="web_search", method="GET")
+            if not d.get("allow"):
+                raise PermissionError(d.get("reason") or "网络请求被拒绝")
+        except PermissionError:
+            raise
         for ua in uas:
             try:
                 headers = dict(self._HEADERS_TEMPLATE)
@@ -169,13 +184,14 @@ class DeepSearch(BaseModule):
                 if r:
                     results = r
                     break
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         finally:
             _ex.shutdown(wait=False)
 
         if self._is_code_query(query):
-            gh = self._github(query, 3)
+            gh = self._github(query, 3) or []
             for g in gh:
                 if not any(r.get("标题") == g["标题"] for r in results):
                     results.append(g)
@@ -187,7 +203,8 @@ class DeepSearch(BaseModule):
                 try:
                     txt = "\n".join(f"[{r['来源']}] {r['标题']}: {r.get('内容','')[:150]}" for r in results[:5])
                     summary = llm.chat(f"根据以下搜索结果，用3句话总结回答'{query}':\n{txt}")
-                except: pass
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
 
         # 来源引用
         sources = []
@@ -212,7 +229,8 @@ class DeepSearch(BaseModule):
                             for er in extra_results:
                                 if not any(r.get("标题") == er.get("标题") for r in results):
                                     results.append(er)
-            except: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
 
         result = {"结果": results, "总结": summary, "数量": len(results), "查询": query, "来源": sources}
         self._cache[query] = (now, result)

@@ -9,14 +9,14 @@ echo  打包一个「干净版」发给朋友
 echo ========================================
 echo.
 echo  说明：直接压缩整个项目文件夹，会把下面这些一起发出去 ——
-echo    data\config.json   你的 API Key、邮箱授权码、企微 Webhook
+echo    data\config.json   你的 API Key、飞书/企微 Webhook
 echo    data\chats.db      你和它的全部聊天记录
 echo    data\memory.json   它的长期记忆
 echo    data\users\ data\logs\ data\backup_*\
 echo  本脚本只带程序本体和人格设定，不带任何隐私。
 echo.
 
-rem ---- 解析可用的 Python ----
+rem ---- resolve python ----
 set "PYCMD="
 py -3 --version >nul 2>&1
 if not errorlevel 1 set "PYCMD=py -3"

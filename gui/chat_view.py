@@ -2,8 +2,16 @@
 """聊天视图：气泡渲染、群聊分段、系统通知（v2 - 修复 _trim_old_messages 缺失）"""
 import re
 from datetime import datetime
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QTextBrowser
 from gui.markdown_renderer import MarkdownRenderer
+
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 
 GROUP_COLORS = {
     "小6": "#9b59b6",
@@ -16,6 +24,9 @@ MAX_BLOCKS = 600
 
 
 class ChatView(QTextBrowser):
+    # 任务结果卡片 / 引导卡片里的链接统一发出去，由主窗口决定打开哪个页面。
+    actionRequested = pyqtSignal(str)
+
     def __init__(self, parent=None, base_dir: str = "."):
         super().__init__(parent)
         self.base_dir = base_dir
@@ -31,8 +42,8 @@ class ChatView(QTextBrowser):
         )
         try:
             self.document().setMaximumBlockCount(MAX_BLOCKS)
-        except Exception:
-            pass
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
 
     def _trim_old_messages(self, max_blocks=MAX_BLOCKS):
         try:
@@ -44,14 +55,14 @@ class ChatView(QTextBrowser):
             cur.movePosition(cur.Start)
             cur.movePosition(cur.Down, cur.KeepAnchor, n - max_blocks)
             cur.removeSelectedText()
-        except Exception:
-            pass
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
 
     def append_user(self, text: str):
         try:
             self._trim_old_messages()
-        except Exception:
-            pass
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
         try:
             import html as _h
             _time = datetime.now().strftime("%H:%M")
@@ -64,7 +75,7 @@ class ChatView(QTextBrowser):
                 '<div style="color:#aaa;font-size:10px;margin-top:2px;">'
                 + _time + '</div></div>'
             )
-        except Exception as e:
+        except Exception as e:  # 静默是故意的
             from core.logger import get_logger
             get_logger().error("append_user 失败: %s" % e)
 
@@ -82,7 +93,7 @@ class ChatView(QTextBrowser):
                 'border-radius:4px 14px 14px 14px;max-width:80%;display:inline-block;">'
             )
             self.append(head + body_html + '</div></div>')
-        except Exception as e:
+        except Exception as e:  # 静默是故意的
             from core.logger import get_logger
             get_logger().error("append_bubble 失败: %s" % e)
 
@@ -90,10 +101,10 @@ class ChatView(QTextBrowser):
         try:
             self.append('<div style="color:#888;font-style:italic">... 正在思考 ...</div>')
             return self.document().lastBlock().position()
-        except Exception:
+        except Exception:  # 静默是故意的
             try:
                 return len(self.toPlainText())
-            except Exception:
+            except Exception:  # 静默是故意的
                 return 0
 
     def remove_from_anchor(self, anchor: int):
@@ -102,8 +113,8 @@ class ChatView(QTextBrowser):
             cur.setPosition(anchor)
             cur.movePosition(cur.End, cur.KeepAnchor)
             cur.removeSelectedText()
-        except Exception:
-            pass
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
 
     @staticmethod
     def split_group(text: str):
@@ -121,8 +132,8 @@ class ChatView(QTextBrowser):
     def load_history(self, msgs):
         try:
             self.clear()
-        except Exception:
-            pass
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
         if not msgs:
             return
         for m in msgs:
@@ -139,7 +150,7 @@ class ChatView(QTextBrowser):
                     self.render_reply(text, fallback_name="小6")
                 else:
                     self.append(text)
-            except Exception:
+            except Exception:  # 静默是故意的
                 continue
 
     def render_reply(self, text: str, fallback_name: str = "小6"):
@@ -150,15 +161,59 @@ class ChatView(QTextBrowser):
                     self.append_bubble(nm, self._md.render(body))
             else:
                 self.append_bubble(fallback_name, self._md.render(text))
-        except Exception as e:
+        except Exception as e:  # 静默是故意的
             from core.logger import get_logger
             get_logger().error("render_reply 失败: %s" % e)
             try:
                 self.append(f'<b style="color:#1a1a2e">{fallback_name}:</b><br>{text}<br>')
-            except Exception:
-                pass
+            except Exception as e:  # 静默是故意的
+                _x6_swallowed(__name__, e, "best-effort fallback")
         self._last_codes = self._md.codes
         self._last_reply_text = text
+
+    def append_task_result_card(self, task_id, status="completed", summary="",
+                                error="", next_action="", action_label=""):
+        """在聊天流里显示任务结果卡片 + 查看任务入口。
+
+        QTextBrowser 的链接通过 actionRequested 抛给主窗口，避免聊天视图
+        依赖 TaskCenterDialog / SecurityCenterDialog，保持组件解耦。
+        """
+        try:
+            import html as _h
+            ok = str(status) in ("completed", "done", "success")
+            color = "#16a34a" if ok else "#dc2626"
+            title = "任务完成" if ok else "任务失败"
+            body = _h.escape(str(summary or error or ""))[:600]
+            links = ['<a href="task://%s" style="color:#1976d2;">查看任务</a>'
+                     % _h.escape(str(task_id))]
+            if next_action:
+                links.append('<a href="%s" style="color:#dc2626;">%s</a>'
+                             % (_h.escape(str(next_action)),
+                                _h.escape(action_label or "下一步")))
+            self.append(
+                '<div style="margin:10px 0;padding:12px;border:1px solid #e5e6eb;'
+                'border-left:4px solid %s;border-radius:10px;background:#fff;">'
+                '<div style="font-weight:700;color:%s;">%s</div>'
+                '<div style="color:#475467;font-size:12px;margin:5px 0;">%s</div>'
+                '<div style="font-size:12px;">%s</div></div>'
+                % (color, color, title, body, " &nbsp; ".join(links)))
+        except Exception as e:  # 静默是故意的
+            from core.logger import get_logger
+            get_logger().error("append_task_result_card 失败: %s" % e)
+
+    def append_guidance_card(self, title, message, action, action_label):
+        try:
+            import html as _h
+            self.append(
+                '<div style="margin:8px 0;padding:10px 12px;border-radius:10px;'
+                'background:#f0f7ff;border:1px solid #d6e8ff;">'
+                '<b style="color:#1976d2;">%s</b> '
+                '<span style="color:#475467;font-size:12px;">%s</span> '
+                '<a href="%s" style="color:#dc2626;font-size:12px;">%s</a>'
+                '</div>' % (_h.escape(str(title)), _h.escape(str(message)),
+                            _h.escape(str(action)), _h.escape(str(action_label))))
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
 
     def _on_anchor(self, url):
         u = url.toString()
@@ -169,8 +224,15 @@ class ChatView(QTextBrowser):
                     from PyQt5.QtWidgets import QApplication
                     QApplication.clipboard().setText(self._last_codes[idx])
                     self.append('<div style="color:#52c41a;font-size:11px">代码已复制</div>')
-            except Exception:
-                pass
+            except Exception as e:  # 静默是故意的
+                _x6_swallowed(__name__, e, "best-effort fallback")
+        elif u.startswith(("task://", "retry://", "settings://",
+                           "plugins://", "security://", "guidance://",
+                           "task-budget://")):
+            try:
+                self.actionRequested.emit(u)
+            except Exception as e:  # 静默是故意的
+                _x6_swallowed(__name__, e, "best-effort fallback")
         elif u.startswith("copy://"):
             from PyQt5.QtWidgets import QApplication
             if self._last_reply_text:

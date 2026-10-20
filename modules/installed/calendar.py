@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """v26-7.1: 日历工具"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, json
 from datetime import datetime
 from modules.base import BaseModule
@@ -31,7 +37,8 @@ class Calendar(BaseModule):
         if os.path.exists(self.path):
             try:
                 return json.load(open(self.path, encoding="utf-8"))
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         return []
 

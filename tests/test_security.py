@@ -110,3 +110,27 @@ def test_version_compare():
     assert vt("26.0.0") > vt("v25.9.9")
     assert vt("v25.1.6") == vt("25.1.6")
     assert not (vt("v25.1.6") > vt("25.1.6"))
+
+
+def test_default_feishu_credentials_are_encrypted_at_rest():
+    """默认通知凭据不能以明文出现在默认配置和源码里。"""
+    import json as _json
+    p = os.path.join(BASE, "config.default.json")
+    raw = open(p, encoding="utf-8").read()
+    assert "https://open.feishu.cn/open-apis/bot/v2/hook/" not in raw
+    cfg = _json.loads(raw)
+    for key in ("feishu_webhook", "feishu_secret"):
+        val = str(cfg.get(key) or "")
+        assert val.startswith("x6enc:v1:"), "%s 未加密" % key
+    from core.default_secrets import decrypt_text
+    assert decrypt_text(cfg["feishu_webhook"]).startswith("https://")
+    assert not decrypt_text(cfg["feishu_secret"]).startswith("x6enc:")
+
+
+def test_source_does_not_contain_default_feishu_webhook_plaintext():
+    from core.default_secrets import get_default_feishu_webhook
+    plain = get_default_feishu_webhook()
+    for rel in ("config.default.json", "core/config.py",
+                "core/default_secrets.py"):
+        s = open(os.path.join(BASE, rel), encoding="utf-8").read()
+        assert plain not in s, "%s 里仍有明文 webhook" % rel

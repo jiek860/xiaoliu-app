@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """小6智能助手 - 启动入口"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import sys
 import os
 import traceback
@@ -20,12 +26,21 @@ for _d in (os.path.join(_base, "optional_libs"), os.path.join(_base, "libs")):
 if _base not in sys.path:
     sys.path.insert(0, _base)
 
+# 看门狗模式：只等主进程退出并补发日志，不加载 Qt
+if __name__ == "__main__" and "--watchdog" in sys.argv:
+    try:
+        from core.crash_watchdog import main as _watchdog_main
+        sys.exit(_watchdog_main(sys.argv))
+    except Exception:
+        sys.exit(0)
+
 # ⚠️ 必须在任何 Qt 导入之前：PyQt5 自带旧版 MSVCP140.dll，会挡住 torch 的 c10.dll
 # （WinError 1114）。详见 core/win_dll_fix.py
 try:
     from core.win_dll_fix import preload_msvc_runtime
     preload_msvc_runtime()
-except Exception:
+except Exception as e:
+    _x6_swallowed(__name__, e)
     pass
 
 # ===== 核心依赖检查（缺依赖时给人话提示，不抛一堆traceback） =====
@@ -60,7 +75,8 @@ def _check_deps():
         print(msg)
         try:
             input()
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         sys.exit(1)
 _check_deps()
@@ -79,7 +95,8 @@ def _crash_hook(exc_type, exc_value, exc_tb):
             f.write(f"[{datetime.now()}] GUI崩溃: {exc_type.__name__}: {exc_value}\n")
             traceback.print_exception(exc_type, exc_value, exc_tb, file=f)
             f.write("\n")
-    except Exception:
+    except Exception as e:
+        _x6_swallowed(__name__, e)
         pass
     sys.__excepthook__(exc_type, exc_value, exc_tb)
 
@@ -95,6 +112,13 @@ def run_pyqt():
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     app = QApplication(sys.argv)
     app.setApplicationName("小6智能助手")
+
+    # 崩溃 / 闪退自动上报（直接双击本文件启动时也生效；start 是幂等的）
+    try:
+        from core import auto_report
+        auto_report.start(_base)
+    except Exception as e:
+        print("自动上报初始化失败: %s" % str(e)[:80])
     from gui.main_window import JarvisWindow
     w = JarvisWindow()
     w.show()

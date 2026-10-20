@@ -5,6 +5,12 @@
 - 小6的主回复由躯干主链路生成，本模块只负责追加相关角色
 - 说“大家/各位/都来说”等强制全员回复；@角色名/直呼角色名单独点名
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os
 import re
 import json
@@ -88,12 +94,14 @@ class GroupChat(BaseModule):
                             ext[k] = v
                     self.roles = ext
                     return
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         try:
             _json.dump(self.roles, open(self.roles_file, "w", encoding="utf-8"),
                        ensure_ascii=False, indent=2)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     @safe
@@ -138,7 +146,8 @@ class GroupChat(BaseModule):
                 u = r.get("user")
                 if u and u != "未登录":
                     return u
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return None
 
@@ -149,7 +158,8 @@ class GroupChat(BaseModule):
             d = os.path.join(self.base, "data", "group_mem")  # 游客共用
         try:
             os.makedirs(d, exist_ok=True)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return d
 
@@ -169,7 +179,8 @@ class GroupChat(BaseModule):
                     m = json.loads(ln)
                     out.append({"role": "user", "content": m.get("u", "")})
                     out.append({"role": "assistant", "content": m.get("a", "")})
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
             return out
         except Exception:
@@ -180,7 +191,8 @@ class GroupChat(BaseModule):
             with open(self._mem_path(role, username), "a", encoding="utf-8") as f:
                 f.write(json.dumps({"t": time.time(), "u": q[:300], "a": a[:1000]},
                                    ensure_ascii=False) + "\n")
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     # ---------- 路由 ----------
@@ -218,7 +230,8 @@ class GroupChat(BaseModule):
                         if ans:
                             self._append_mem(role, username, question, ans)
                             return "【%s】\n%s" % (role, ans)
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         # ② 回退：LLM 用人设生成
         cfg = self.roles[role]

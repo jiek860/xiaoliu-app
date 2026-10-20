@@ -18,6 +18,12 @@ install() 按 LAZY_MAP 去找 modules_repo/agent_coder.py，而仓库里还叫 �
 
 默认只做"预演"（--dry-run），加 --apply 才真改文件。
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import argparse
 import ast
 import json
@@ -32,6 +38,7 @@ REPO = os.path.join(BASE, "modules_repo")
 
 sys.path.insert(0, BASE)
 from core.lazy_config import LAZY_MAP  # noqa: E402
+from core.plugin_api import PLUGIN_API_VERSION  # noqa: E402
 
 
 def doc_of(path):
@@ -43,7 +50,8 @@ def doc_of(path):
             lines = [x.strip() for x in m.group(1).splitlines() if x.strip()]
             if lines:
                 return lines[0][:60]
-    except Exception:
+    except Exception as e:
+        _x6_swallowed(__name__, e)
         pass
     return ""
 
@@ -137,7 +145,8 @@ def main():
     if os.path.exists(opath):
         try:
             old_manifest = json.load(open(opath, encoding="utf-8-sig"))
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
     old_by_name, old_by_title = {}, {}
     for m in old_manifest:
@@ -153,7 +162,8 @@ def main():
             try:
                 meta_by_name = json.load(open(cand, encoding="utf-8-sig"))
                 break
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
 
     manifest = []
@@ -179,6 +189,10 @@ def main():
         # 能力声明：模块里声明的 TOOLS 优先，其次保留旧清单里已有的。
         # 写进清单后会一起参与 sha256 + RSA 签名，所以能力声明是防篡改的。
         entry["tools"] = _tools_of(item) or (base or {}).get("tools") or []
+        entry["api_version"] = PLUGIN_API_VERSION
+        # 官方随包模块可依赖少量审计过的 core 集成层；
+        # 第三方插件没有这个标记，安装时按公共 API 严格检查。
+        entry["first_party"] = True
         entry["needs_model"] = bool((base or {}).get("needs_model"))
         entry["depends"] = (base or {}).get("depends") or []
         entry["size"] = os.path.getsize(item["src"])
@@ -196,6 +210,17 @@ def main():
         groups.setdefault(m["group"], []).append(m["title"])
     for g in sorted(groups):
         print("  [%s] %s" % (g, "、".join(groups[g])))
+
+    # ⚠️ 目标目录可能不存在（2026-10-14 修）
+    #    首次在 CI 上跑时 REPO（modules_repo/）**根本不存在** ——
+    #    它是独立 git 仓库、不在主仓库里，checkout 出来没有这个目录。
+    #    原来直接 `os.listdir(REPO)` 会
+    #    `FileNotFoundError: 系统找不到指定的路径`，
+    #    而 CI 的第一步就是跑它 —— 一上来就红，后面全跑不了。
+    #    没有旧目录 = 没有旧文件要删，建一个空的继续走就行。
+    if not os.path.isdir(REPO):
+        print("  （modules_repo/ 不存在 —— 首次生成，建一个空的）")
+        os.makedirs(REPO, exist_ok=True)
 
     will_delete = sorted(f for f in os.listdir(REPO)
                          if f.endswith(".py") and f not in {m["file"] for m in manifest})

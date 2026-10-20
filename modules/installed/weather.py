@@ -30,6 +30,11 @@ class Weather(BaseModule):
         city = city or self.city
         try:
             url = "https://wttr.in/%s?format=j1&lang=zh" % urllib.parse.quote(city)
+            from core.net_guard import get_net_guard
+            d = get_net_guard(getattr(self.trunk, "trunk", self.trunk)).check(
+                url, module="weather", purpose="weather")
+            if not d.get("allow"):
+                return {"错误": "网络策略拒绝: " + str(d.get("reason"))}
             r = urllib.request.urlopen(url, timeout=10)
             d = json.loads(r.read())
             cur = d["current_condition"][0]

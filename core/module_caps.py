@@ -28,6 +28,12 @@ modules_repo 的 RSA 签名签的是**模块文件的 sha256**
     · 任何异常都返回空结果，绝不因为能力数据把界面搞崩
     · 只返回**文件确实已安装**的模块的能力（没装的不该出现在工具表里）
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import ast
 import json
 import os
@@ -163,7 +169,8 @@ def load_tools(base, include_core=True):
                 r = _norm(dict(t, _source="core"))
                 if r:
                     out[r[0]] = r[1]
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     return out

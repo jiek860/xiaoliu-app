@@ -68,9 +68,9 @@
 ║ 第一部分：环境准备（4 项）                              ║
 ╚══════════════════════════════════════════════════════════╝
 【1.1 确认 Python 环境】
-命令：python --version
-预期：Python 3.12.x
-异常：如果是 3.14，用 启动小6.bat 启动。
+命令：python --version（或 py -3 --version）
+预期：Python 3.10.x / 3.11.x / 3.12.x
+异常：3.9 及以下不支持；3.13 未验证；Windows 7/8 不建议。
 
 【1.2 确认依赖】
 命令：pip list | findstr "PyQt5 requests cryptography"
@@ -84,8 +84,24 @@
 
 【1.4 确认数据目录】
 路径：E:\xiaoliu\data
-预期：有 config.json、chats.db、logs/
-异常：第一次启动会自动创建。
+预期：有 config.json、chats.db、logs/；正常迁移后还有 _schema.json、_migrations/
+异常：第一次启动会自动创建；旧数据会先备份再按 v0->v1->v2 迁移。
+
+【1.5 运行兼容矩阵检查（开发者/发布）】
+命令：py -3 tools\check_runtime_compat.py --allow-server
+预期：Python 3.10/3.11/3.12、Windows 10/11，必需依赖齐全。
+异常：版本不在支持范围或缺少 PyQt5/requests/numpy/cryptography/psutil。
+
+【1.6 数据迁移预演（开发者/发布）】
+命令：py -3 tools\migrate_data.py --dry-run --json
+预期：migrated/skipped/errors 结构清晰，不修改原文件。
+异常：查看 errors，先备份 data/，不要直接删除。
+
+【1.7 插件 API 边界检查（开发者/发布）】
+命令：py -3 tools\check_plugin_api.py
+预期：api_version=1.0，checked=42，failed=[]。
+异常：重新 rebuild_modules_repo.py --apply -> sign_modules.py；
+      第三方插件不能 import core 私有模块。
 
 ╔══════════════════════════════════════════════════════════╗
 ║ 第二部分：启动检测（10 项）                              ║
@@ -115,7 +131,7 @@
 异常：没反应看 auth 日志；闪退看 gui_crashes.log。
 
 【2.6 主窗口布局】
-预期：左侧边栏（新建对话/历史/功能中心/设置），中间聊天框，底部输入框（文件/送编辑器/语音/发送）。
+预期：左侧边栏（新建对话/历史/设置），中间聊天框，底部输入框（文件/送编辑器/语音/发送）。
 异常：布局乱改样式表；按钮看不见改输入框高度。
 
 【2.7 高分屏 DPI】
@@ -886,3 +902,8 @@ CI/CD：pre-commit、GitHub Actions、GitLab CI
 文档结束
 共 93 项使用检测 + 7 种代码审计方法 + 13 类扩展检测 + 完整发布门禁
 ═══════════════════════════════════════════════════════════════
+
+文档同步：2026-10-20 / v25.2.23
+本次同步：Windows + Python 3.10/3.11/3.12 兼容矩阵；
+旧数据 v0->v1->v2 自动迁移与备份；插件 API v1.0 边界检查。
+完整说明：docs/70_兼容性与数据迁移.md。

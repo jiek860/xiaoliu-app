@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 """
 import os任务规划器 v10.0 - 真多步任务：LLM拆步+并行执行+子智能体委派+断点续做+质量评分"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import json, os, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from modules.base import BaseModule
@@ -26,7 +32,8 @@ class TaskPlanner(BaseModule):
                     d = json.load(open(os.path.join(self.task_dir, f), encoding="utf-8"))
                     if d.get("status") == "进行中":
                         self.tasks[d["id"]] = d
-        except: pass
+        except Exception as e:
+            _x6_swallowed(__name__, e)
 
     def _save_task(self, task):
         json.dump(task, open(os.path.join(self.task_dir, task["id"]+".json"), "w", encoding="utf-8"), ensure_ascii=False)
@@ -73,7 +80,8 @@ class TaskPlanner(BaseModule):
                 agent = self.trunk.modules.get(agent_name)
                 if agent and hasattr(agent, "reply"):
                     return agent.reply(f"{step['name']}（背景：{context[:200]}）")
-            except: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
         # 兜底用LLM
         prompt = f"背景：{context}\n执行：{step['name']}\n结果："
         try: return llm.chat(prompt)

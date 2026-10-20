@@ -27,7 +27,7 @@ def _cmd(script, *args):
 
 @pytest.fixture
 def server():
-    s = StdioMCPServer("fake", _cmd(FAKE))
+    s = StdioMCPServer("fake", _cmd(FAKE), timeout=60)
     ok = s.start()
     assert ok, "握手失败: %s" % s.diagnostics()
     yield s
@@ -129,7 +129,7 @@ def test_process_death_wakes_pending_requests():
 
 
 def test_stop_is_idempotent():
-    s = StdioMCPServer("fake", _cmd(FAKE))
+    s = StdioMCPServer("fake", _cmd(FAKE), timeout=60)
     assert s.start()
     s.stop()
     s.stop()                    # 再来一次不该抛

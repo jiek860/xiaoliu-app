@@ -1,33 +1,77 @@
 # 小6智能体
-住在你电脑里的AI助手，支持本地Ollama模型、云端GLM模型、联网搜索、电脑控制、语音、记忆、多智能体群聊。
 
-## 快速安装
-1.  安装Python 3.10或更高版本：https://www.python.org/downloads/
-    安装时务必勾选「Add Python to PATH」
-2.  双击项目根目录的 `install.bat`，自动安装所有依赖（国内走清华镜像，速度快）
-3.  进入gui文件夹，双击 `app_pyqt.py` 启动
+住在你电脑里的 AI 助手：本地 Ollama / 云端模型、联网搜索、电脑控制、
+语音、记忆、命令面板、多智能体群聊。版本号见 `core/version.py`。
+
+## 快速开始
+
+> 推荐开发/打包使用隔离环境，不要往系统 Python 里混装 Jupyter、pytest、PyTorch 等开发/可选包：
+>
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File scripts\setup_all_envs.ps1
+> ```
+>
+> 会分别创建 `.venv`（开发）、`.runtime-venv`（干净运行）、`.build-venv`（PyInstaller 打包）。
+> 详细说明见 `docs/10_开发流程与工程手册.md`。
+1. 安装 Python 3.10 / 3.11 / 3.12（安装时勾选「Add Python to PATH」）
+   支持范围见 `docs/70_兼容性与数据迁移.md`；Python 3.13 尚未验证。
+   https://www.python.org/downloads/
+2. 双击 `install.bat` 装依赖（自动走清华镜像）
+3. 双击 `启动PyQt.bat` 启动
 
 ## 首次配置
-1.  启动后弹出登录框，点「激活」，输入账号名即可生成激活码
-2.  配置模型：
-    - 本地模型：先装Ollama（https://ollama.com/download），然后命令行执行 `ollama run qwen2.5:3b`
-    - 云端模型：打开设置，填GLM的API地址和Key，选云端模式即可
-3.  底部输入框打字，回车发送开始聊天
+1. 登录框点「激活」→ 输入账号名 → 生成激活码
+2. 配模型：设置 → 模型
+   - 本地：装 Ollama（https://ollama.com/download），然后 `ollama run qwen2.5:3b`
+   - 云端：填 OpenAI 兼容的 API 地址和 Key
+3. 底部输入框打字，Enter 发送
+
+## 界面模式
+- **简单模式**：首屏只保留聊天、任务、资料、设置和输入区，适合普通用户。
+- **高级模式**：恢复模块按钮、模型选择、代码编辑器、实时对话、安全中心、插件、MCP、记忆、日志等。
+- 切换入口：右上角头像  切换模式；高级模式还会显示更多菜单。
+- 头像菜单固定 5 项：切换模式、检查更新、设置、登录/切换账号、帮助。
+- 更多菜单按任务、资料、工具、安全、插件/MCP、开发、帮助分组，内容自动去重。
+
+## 常用入口
+- `Ctrl+K` 命令面板（所有能力 / 面板都能搜，**最常用**）
+- 设置 → 系统：新手教程 / 可选组件 / 意见反馈 / 检查更新
+- 设置 → 记录：日志 / 历史 / 记忆 / 统计
+
+## 反馈与崩溃上报
+- 意见反馈：设置 → 系统 → 意见反馈（走飞书群机器人，不再用邮箱）
+  提交时自动附带：系统信息 + 错误行 + 崩溃现场 + 日志绝对路径（已脱敏、不含聊天内容）
+- 崩溃 / 闪退自动上报：
+  1) Python 异常（含 Qt 槽）→ 当场发
+  2) 原生崩溃 / 闪退 → 看门狗子进程在进程死后补发
+  3) 看门狗也没能存活 → 下次启动时补发
+- 开关：`data/config.json` 里 `auto_report_crash` / `crash_watchdog`
+
+## 兼容性速查
+- Windows 10 / 11：主支持环境；Windows Server 部分可用；Windows 7/8 不建议。
+- Python 3.10 / 3.11 / 3.12：CI 兼容矩阵目标；3.9 及以下不支持，3.13 未验证。
+- macOS / Linux：聊天和部分文件功能可能可用，但桌面控制、窗口操作、截图等核心能力不支持。
+- 旧数据：启动时自动备份并按 v0→v1→v2 迁移；迁移失败见自检和日志。
+- 插件：RSA 签名 + 插件 API v1.0 边界检查；第三方插件禁止依赖 core 私有实现。
 
 ## 常见问题
-Q：提示「缺少核心依赖」
-A：重新双击install.bat装依赖即可
+- 提示「缺少核心依赖」：重新双击 `install.bat`
+- 提示「连不上本地 Ollama」：确认任务栏有 Ollama 小羊驼图标
+- 聊天没反应：设置 → 记录 → 日志，看 trunk.log 最近的 error
+- 想搬到新电脑：把整个文件夹复制过去，新电脑重跑一遍 `install.bat`
 
-Q：提示「连不上本地Ollama」
-A：确认任务栏有Ollama小羊驼图标，没启动就先启动Ollama
-
-Q：聊天没反应
-A：打开功能中心→日志，看trunk.log里的最近报错，或点「导出日志包」
-
-Q：想搬到新电脑
-A：把整个项目文件夹复制过去，新电脑上重新跑一遍install.bat就行
+## 文档
+- 文档索引：`docs/README.md`
+- 架构速览：`ARCHITECTURE.md`
+- 产品架构与 UI 主文档：`docs/00_产品架构与UI主文档.md`
+- 开发流程与工程手册：`docs/10_开发流程与工程手册.md`
+- 优化路线与实施记录：`docs/20_优化路线与实施记录.md`
+- 产品体验与 Agent 能力方案：`docs/50_产品体验与Agent能力提升方案.md`
+- 开发者 API：`docs/30_模块规则与API参考.md`
+- 兼容性与数据迁移：`docs/70_兼容性与数据迁移.md`
 
 ## 日志位置
-- data/logs/trunk.log：运行日志
-- data/logs/crashes.log：崩溃日志
-出问题直接在功能中心点「导出日志包」，把生成的zip发出来就行。
+- `data/logs/trunk.log`        运行日志
+- `data/logs/crashes.log`      Python 层崩溃
+- `data/logs/faulthandler.log` 全部线程的 Python 栈（崩溃现场）
+- 设置 → 记录 → 日志中心 → 「导出日志包」

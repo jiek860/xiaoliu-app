@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """对话框混入：所有窗口入口 + 后台任务启动"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QWidget, QScrollArea, QMessageBox, QInputDialog, QFileDialog
 from PyQt5.QtCore import Qt
@@ -62,6 +68,16 @@ class DialogMixin:
     def bot_dialog(self):
         from gui.bot_dialog import BotDialog
         BotDialog(self.trunk, self).show()
+
+    def security_center_dialog(self):
+        from gui.security_center_dialog import SecurityCenterDialog
+        d = SecurityCenterDialog(self.trunk, self)
+        d.exec_()
+
+    def task_center_dialog(self):
+        from gui.task_center_dialog import TaskCenterDialog
+        d = TaskCenterDialog(self.trunk, self)
+        d.exec_()
 
     def show_feedback(self):
         from gui.feedback_dialog import FeedbackDialog
@@ -151,10 +167,6 @@ class DialogMixin:
         """消息搜索：全局搜索所有会话"""
         return self._open_simple_dialog("search_dialog", "SearchDialog")
 
-    def mobile_dialog(self):
-        """手机远程连接管理"""
-        return self._open_simple_dialog("mobile_dialog", "MobileDialog")
-
     def update_dialog(self):
         """检查更新 / 回滚 / 更新历史"""
         return self._open_simple_dialog("update_dialog", "UpdateDialog")
@@ -176,10 +188,22 @@ class DialogMixin:
             "数据统计":     getattr(self, "stats_dialog", None),
             "日历待办":     getattr(self, "tools_dialog", None),
             "搜索聊天":     getattr(self, "search_dialog", None),
-            "手机远程":     getattr(self, "mobile_dialog", None),
+            "安全中心":     getattr(self, "security_center_dialog", None),
+            "权限中心":     getattr(self, "security_center_dialog", None),
+            "任务中心":     getattr(self, "open_task_center", None),
+            "运行中活动":   getattr(self, "activity_center_dialog", None),
+            "代码 Agent":   getattr(self, "code_agent_dialog", None),
+            "电脑 Agent":   getattr(self, "computer_agent_dialog", None),
+            "开始任务":     getattr(self, "start_task", None),
+            "定时任务":     getattr(self, "scheduled_tasks_dialog", None),
+            "知识库":       getattr(self, "kb_dialog", None),
+            "资料中心":     getattr(self, "kb_dialog", None),
             "检查更新":     getattr(self, "update_dialog", None),
             "桌宠":         getattr(self, "pet_dialog", None),
             "模块星图":     getattr(self, "module_map_dialog", None),
+            "意见反馈":     getattr(self, "show_feedback", None),
+            "新手教程":     getattr(self, "show_tutorial", None),
+            "可选组件":     getattr(self, "show_components", None),
             "设置":         getattr(self, "set_dialog", None),
             # 命令面板自己也在表里（设置里那个 ⌘ 按钮就是靠它开）
             "命令面板 (Ctrl+K)": getattr(self, "command_palette", None),
@@ -237,7 +261,8 @@ class DialogMixin:
         # 顺手重导一次，避免看到的是上一次启动的旧图
         try:
             self.trunk.export_module_map()
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         QDesktopServices.openUrl(QUrl.fromLocalFile(html))
         return None
@@ -284,7 +309,8 @@ class DialogMixin:
         def on_success(username):
             try:
                 self.login_btn_sb.setText("🔑 " + str(username))
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
             self.account.switch_user(username)
             self.chat.clear()
@@ -351,7 +377,8 @@ class DialogMixin:
         self.trunk.save_config()
         try:
             self.trunk.modules["llm"].reload_config()
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         if "云端" in item:
             self.model_btn.setText("🔄 模型:云端")

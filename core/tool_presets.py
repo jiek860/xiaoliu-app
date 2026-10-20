@@ -23,6 +23,12 @@ DSH 用 agent preset（minimal / standard / ptc）解决同一问题，
 活动模式存在规则「工具.模式」里（默认 "全部"），落盘 data/rules/rules.json，
 和「电脑控制.允许命令」那套是同一个机制，不用另造一套配置。
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 
 # 模式 -> 允许的工具名前缀（None 表示不过滤）
 PRESETS = {
@@ -95,13 +101,15 @@ def current(trunk):
         v = trunk.rule("工具.模式", None) if trunk else None
         if v and v in PRESETS:
             return v
-    except Exception:
+    except Exception as e:
+        _x6_swallowed(__name__, e)
         pass
     try:
         v = (getattr(trunk, "config", {}) or {}).get("工具模式")
         if v and v in PRESETS:
             return v
-    except Exception:
+    except Exception as e:
+        _x6_swallowed(__name__, e)
         pass
     return "全部"
 

@@ -5,6 +5,12 @@
 内核该管注册/懒加载/分发/生命周期，画图这种活不该占着微核的篇幅。
 页面在 docs/模块星图.html（随程序入库），读的正是这里生成的 js。
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import json
 import os
 
@@ -12,7 +18,7 @@ import os
 GROUPS = {
     "trunk": "核心", "llm": "核心", "vector_store": "核心", "knowledge_graph": "核心",
     "rules_engine": "核心", "auth": "核心", "backup": "核心",
-    "scheduler": "后台", "hot_reload": "后台", "mobile_remote": "后台",
+    "scheduler": "后台", "hot_reload": "后台",
     "startup_optimizer": "后台",
     "learning_loop": "闭环", "memory_loop": "闭环", "task_loop": "闭环", "skill_distill": "闭环",
     "agent_flow": "智能体",
@@ -47,7 +53,7 @@ DESCS = {
     "vector_store": "向量检索：nomic-embed+余弦", "knowledge_graph": "知识图谱：三元组+多跳",
     "rules_engine": "规则引擎：底层规则", "auth": "账号激活登录：激活码授权",
     "backup": "自动备份：保留2份", "scheduler": "定时任务：24h后台",
-    "hot_reload": "热更新：沙盒+回滚", "mobile_remote": "手机远程",
+    "hot_reload": "热更新：沙盒+回滚",
     "learning_loop": "学习闭环：找缺口→搜索→入库", "memory_loop": "记忆闭环：对话→记忆卡→复习",
     "task_loop": "任务闭环：拆步→执行→验证", "skill_distill": "技能沉淀：成功任务→SKILL",
     "smart_router": "智能路由：LLM判断谁答", "deep_search": "深度搜索：多源并行",
@@ -91,7 +97,7 @@ CNS = {
     "trunk": "微核躯干", "llm": "大模型", "vector_store": "向量检索",
     "knowledge_graph": "知识图谱", "rules_engine": "规则引擎", "auth": "账号授权",
     "backup": "自动备份", "scheduler": "定时任务", "hot_reload": "热更新",
-    "mobile_remote": "手机远程", "learning_loop": "学习闭环", "memory_loop": "记忆闭环",
+    "learning_loop": "学习闭环", "memory_loop": "记忆闭环",
     "task_loop": "任务闭环", "skill_distill": "技能沉淀", "smart_router": "智能路由",
     "deep_search": "深度搜索", "tool_caller": "工具调用", "computer_controller": "电脑控制",
     "code_runner": "代码沙盒", "file_upload": "文件上传", "multimodal": "多模态",
@@ -191,7 +197,7 @@ def _real_calls(trunk, valid):
 
     # 模块键 -> 该键对应的文件（用来把 "voice" 的调用也算到 "stt" 头上）
     def same_file_keys(name):
-        for fn, ks in f2keys.items():
+        for _fn, ks in f2keys.items():
             if name in ks:
                 return ks
         return [name]
@@ -239,19 +245,21 @@ def _real_calls(trunk, valid):
         try:
             tree = ast.parse(open(os.path.join(inst, fn),
                                   encoding="utf-8", errors="ignore").read())
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             continue
 
         tstr = table_strings(tree)
         targets = {}          # 目标模块键 -> 方法名集合
 
-        def add(tgt, meth):
-            if not tgt or tgt in src_keys or tgt not in valid:
+        def add(tgt, meth, _src_keys=src_keys, _valid=valid,
+                _targets=targets):
+            if not tgt or tgt in _src_keys or tgt not in _valid:
                 return
             # 别名：同一个文件的其它键也记上，免得图上显示成孤儿
             for k in same_file_keys(tgt):
-                if k in valid and k not in src_keys:
-                    targets.setdefault(k, set()).add(meth)
+                if k in _valid and k not in _src_keys:
+                    _targets.setdefault(k, set()).add(meth)
 
         for node in ast.walk(tree):
             if (isinstance(node, ast.Call)
@@ -291,7 +299,8 @@ def _real_calls(trunk, valid):
                 if k in valid and k != "tool_caller":
                     edges.setdefault(("tool_caller", k),
                                      set()).add("按能力声明: " + name)
-    except Exception:
+    except Exception as e:
+        _x6_swallowed(__name__, e)
         pass
 
     return [[s, t, ", ".join(sorted(ms))] for (s, t), ms in sorted(edges.items())]

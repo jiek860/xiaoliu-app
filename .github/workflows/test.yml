@@ -1,6 +1,25 @@
-name: 小6测试
+﻿name: 灏?娴嬭瘯
 on: [push, pull_request]
 jobs:
+  static:
+    runs-on: windows-latest
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 安装静态检查工具
+        run: |
+          python -m pip install -U pip
+          python -m pip install -r requirements-dev.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+      - name: Ruff
+        run: python -m ruff check core gui modules/installed
+      - name: Mypy（渐进式关键模块）
+        run: python -m mypy
+      - name: 文件长度守卫
+        run: python tools/check_file_sizes.py
   test:
     runs-on: windows-latest
     env:
@@ -11,14 +30,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: 装依赖（走国内源）
+      - name: 安装依赖（走国内源）
         run: |
           python -m pip install -U pip
-          python -m pip install -r requirements.txt pytest -i https://pypi.tuna.tsinghua.edu.cn/simple
+          python -m pip install -r requirements.txt pytest coverage -i https://pypi.tuna.tsinghua.edu.cn/simple
       - name: 生成插件清单（CI 上没有 modules_repo）
         run: python tools/rebuild_modules_repo.py --apply
-      - name: 跑测试
-        run: python -m pytest tests/ -q
+      - name: 跑测试与覆盖率门槛
+        run: |
+          python -m coverage run --source=core,gui,modules -m pytest tests/ -q
+          python -m coverage report --fail-under=58
+      - name: Agent E2E
+        run: python tools/run_agent_e2e.py
       - name: 跑守卫
         run: |
           python tools/check_shapes.py
@@ -27,3 +50,10 @@ jobs:
           python tools/check_tools.py
           python tools/check_threads.py
           python tools/check_silent.py
+          python tools/check_plugin_api.py
+          python tools/check_runtime_compat.py --allow-server
+          python tools/migrate_data.py --dry-run --json
+          # 故意不跑 check_repo_sync：
+          #   CI 上的 modules_repo 是 rebuild_modules_repo.py 现生成的，
+          #   没有签名（私钥不在仓库里），验签必然失败。
+          #   插件完整性在开发机发版前用 check.bat 的第 7 步验。

@@ -15,6 +15,12 @@ Qt 规定控件只能在 GUI 线程碰，这么做会随机崩
 现在走 _VoiceRelay：子线程只 emit 信号，Qt 会把它排队到接收者所在的线程，
 槽函数 _on_voice_done 因此在 GUI 线程里执行，碰控件是安全的。
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import threading
 
 from PyQt5.QtCore import QObject, pyqtSignal
@@ -68,7 +74,8 @@ class VoiceMixin:
                 self.input.setFocus()
             elif err:
                 QMessageBox.information(self, "语音", err)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         finally:
             self.voice_btn.setText("语音输入")

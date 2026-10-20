@@ -1,0 +1,40 @@
+name: 小6跨平台构建检查
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "core/**"
+      - "modules/**"
+      - "gui/**"
+      - "tools/build_portable.py"
+      - ".github/workflows/build-portable.yml"
+
+jobs:
+  portable:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python 语法检查
+        run: |
+          python -m compileall -q core modules gui tools
+      - name: 生成便携包
+        run: |
+          python tools/build_portable.py
+      - name: 检查产物
+        run: |
+          python - <<'PY'
+          import glob, os
+          files = glob.glob("build/xiao6-portable-*.zip")
+          assert files, "portable zip not generated"
+          print(files[-1], os.path.getsize(files[-1]))
+          PY

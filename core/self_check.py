@@ -9,6 +9,12 @@ trunk 那边保留同名委托方法，因为：
   · gui/system_dialog.py 直接调 trunk._deep_check()
   · 4 个测试用 mock.patch.object(Trunk, "_warmup_ollama") 打桩
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os
 import json
 import time
@@ -22,7 +28,8 @@ def warmup_ollama(trunk):
         url = trunk.config.get("ollama_url", "http://localhost:11434")
         requests.get(url + "/api/tags", timeout=2)
         trunk._log("Ollama预热完成")
-    except Exception:
+    except Exception as e:
+        _x6_swallowed(__name__, e)
         pass
 
 
@@ -80,7 +87,8 @@ def deep_check(trunk):
         _r = trunk.call("auth", "whoami")
         if isinstance(_r, dict):
             _who = str(_r.get("user", ""))
-    except Exception:
+    except Exception as e:
+        _x6_swallowed(__name__, e)
         pass
     log("账号: %s" % (_who if _who else "未登录(游客)"))
     log("")
@@ -155,7 +163,8 @@ def deep_check(trunk):
                     if not _re.search(r"class\s+" + _re.escape(c) + r"\b",
                                       open(fp, encoding="utf-8").read()):
                         lmiss.append(k + "(类名)")
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
         log("🧩 懒加载模块: %d条 %s" % (len(lazy), "✓ 全对齐" if not lmiss else "❌" + str(lmiss[:3])))
         if lmiss:
@@ -195,7 +204,8 @@ def deep_check(trunk):
         try:
             r = trunk.call("error_lib", "list")
             n = (r or {}).get("未修复", 0)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         log("🩹 错误库: 未修复错误 %d 条%s" % (n, " ⚠" if n else " ✓"))
         if n:
@@ -233,7 +243,8 @@ def deep_check(trunk):
                     _avg_f = 0.0
                 log("🏷 自我评估: 平均 %.2f · %d 次" % (
                     _avg_f, _st.get("总反思次数", _st.get("历史数", 0))))
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
     except Exception as e:
         log("🧮 向量/嵌入: ❌ %s" % str(e)[:40])
@@ -286,7 +297,7 @@ def deep_check(trunk):
         # 11.2 模块分层注册
         _core_n = len([n for n in ("llm", "vector_store", "knowledge_graph", "auth", "backup", "rules_engine")
                        if n in trunk.modules])
-        _bg_n = len([n for n in ("scheduler", "hot_reload", "mobile_remote") if n in trunk.modules])
+        _bg_n = len([n for n in ("scheduler", "hot_reload") if n in trunk.modules])
         _lazy_n = len(getattr(trunk, "_lazy", {}) or {})
         log("🗂 模块分层: 核心%d/6 · 后台%d/3 · 懒加载%d · 当前已加载%d" % (_core_n, _bg_n, _lazy_n, len(trunk.modules)))
         if _core_n < 6:
@@ -315,7 +326,8 @@ def deep_check(trunk):
                                 r"|^\s*(?:from|import)\s+" + _re.escape(_bn) + r"\b")
                         if _re.search(_pat, _src, _re.M):
                             _viol.append("%s→%s" % (_f, _o))
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
         log("🕸 星型拓扑: %s" % ("✓ 模块间无互相 import" if not _viol else "⚠ " + str(_viol[:4])))
         if _viol:
@@ -351,21 +363,24 @@ def deep_check(trunk):
         import time as _tb
         _el = _tb.time() - getattr(trunk, "_process_start", _tb.time())
         log("⏱ 启动耗时: %.1f秒（进程起到现在）" % _el)
-    except Exception: pass
+    except Exception as e:
+        _x6_swallowed(__name__, e)
     try:
         # os.statvfs 是 Unix 专用 API，Windows 上根本没有这个函数，
         # 原来被 except 吞掉，这行从来没打印过。
         import psutil
         _du = psutil.disk_usage(trunk.base)
         log("💽 磁盘: 可用%dGB / 共%dGB" % (_du.free // 1073741824, _du.total // 1073741824))
-    except Exception:
+    except Exception as e:
+        _x6_swallowed(__name__, e)
         pass
     try:
         kg = trunk.modules.get("knowledge_graph")
         if kg:
             n_triples = len(getattr(kg, "data", {}).get("三元组", []))
             log("🧠 知识图谱: %d三元组" % n_triples)
-    except Exception:
+    except Exception as e:
+        _x6_swallowed(__name__, e)
         pass
     try:
         # 数真正的备份系统（core/backup.py 写 backups/，名字形如 backup_20261010_204104）。
@@ -378,7 +393,8 @@ def deep_check(trunk):
         if _b:
             _latest = "（最近 %s）" % os.path.basename(sorted(_b)[-1])[7:15]
         log("📦 备份: %d个%s" % (len(_b), _latest))
-    except Exception: pass
+    except Exception as e:
+        _x6_swallowed(__name__, e)
     try:
         mc=trunk.modules.get("mcp_client")
         if mc:
@@ -393,7 +409,8 @@ def deep_check(trunk):
                 log("   （%d 个服务器连不上）" % len(r["连接失败"]))
         else:
             log("🔌 MCP: 未加载")
-    except Exception: pass
+    except Exception as e:
+        _x6_swallowed(__name__, e)
     try:
         t0=time.time(); llm=trunk.modules.get("llm")
         if llm:
@@ -410,24 +427,28 @@ def deep_check(trunk):
                 if trunk.base.replace("\\", "\\\\") in line and "trunk.base" not in line: hard+=1
         log("🔗 硬编码路径: %d处 %s"%(hard,"⚠" if hard>10 else "✓"))
         if hard>20: errors.append("硬编码%d处"%hard)
-    except Exception: pass
+    except Exception as e:
+        _x6_swallowed(__name__, e)
     try:
         cfg=trunk.config; need=["local_model","ollama_url"]
         miss=[k for k in need if not cfg.get(k)]
         log("⚙️ 配置: %s"%("✓ 关键项齐" if not miss else "❌缺"+str(miss)))
         if miss: errors.append("配置缺"+str(miss))
-    except Exception: pass
+    except Exception as e:
+        _x6_swallowed(__name__, e)
     try:
         logf=os.path.join(trunk.base,"data","logs","app.log"); leak=0
         if os.path.exists(logf):
             for line in open(logf,encoding="utf-8",errors="ignore"):
                 if "sk-" in line or "api_key" in line.lower(): leak+=1
         log("🔒 密钥泄漏: %d处 %s"%(leak,"⚠" if leak else "✓"))
-    except Exception: pass
+    except Exception as e:
+        _x6_swallowed(__name__, e)
     try:
         boot=getattr(trunk,"_boot_time",None)
         if boot: log("🚀 启动耗时: %.1f秒"%(time.time()-boot))
-    except Exception: pass
+    except Exception as e:
+        _x6_swallowed(__name__, e)
     try:
         # 聊天记录在 chats.db 的 messages 表（SQLite），
         # 旧的 chat_history.jsonl 早已不用，所以这里一直显示 0 条。
@@ -442,7 +463,8 @@ def deep_check(trunk):
                 n = 0
             con.close()
         log("💬 聊天记录: %d条" % n)
-    except Exception: pass
+    except Exception as e:
+        _x6_swallowed(__name__, e)
     # 层级检测 + 链接检测
     try:
         loaded=list(trunk.modules.keys())
@@ -450,7 +472,8 @@ def deep_check(trunk):
         never=[m for m in lazy if m not in loaded]
         log("🔗 链接: 已加载%d · 未触发%d"%(len(loaded),len(never)))
         if never: log("   未触发模块: %s"%(", ".join(never[:8])))
-    except Exception: pass
+    except Exception as e:
+        _x6_swallowed(__name__, e)
     try:
         # 真正的"死模块"检测：模块名在**全项目源码**里除了登记表自己，
         # 一处都没出现过 —— 那就说明没有任何代码路径能用到它。
@@ -483,7 +506,8 @@ def deep_check(trunk):
                     if _pat.search(open(_p, encoding="utf-8", errors="ignore").read()):
                         _hit = True
                         break
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     continue
             if not _hit:
                 dead.append(_name)
@@ -496,7 +520,8 @@ def deep_check(trunk):
             errors.append("有%d个登记模块没有任何调用点" % len(dead))
         else:
             log("👻 死模块: ✓ 登记的模块都有调用点")
-    except Exception:
+    except Exception as e:
+        _x6_swallowed(__name__, e)
         pass
 
 

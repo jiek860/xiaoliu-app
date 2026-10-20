@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """定时调度 v10.0 - 真24小时后台：定时备份+主动学习+巡检+热更新检测"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 from modules.base import BaseModule
 import threading, time
 
@@ -52,7 +58,8 @@ class Scheduler(BaseModule):
                     el = self.trunk.modules.get("error_lib")
                     if el:
                         el.log("scheduler", name, self.last_error)
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
                 return False
 
@@ -143,7 +150,6 @@ class Scheduler(BaseModule):
                         ml.do_review()
                 self._safe_run("记忆复习", _review)
                 self.last_review = now
-            # P2-9: 每10分钟模型健康自检 + 内部服务保活（24h 巡检强化）
             if now - self.last_health > 600 and now - self._boot_time > 120:
                 def _health():
                     # ① Ollama 可达性 + 模型数（用配置地址，非硬编码）
@@ -160,16 +166,9 @@ class Scheduler(BaseModule):
                             el = self.trunk.modules.get("error_lib")
                             if el:
                                 el.log("scheduler", "health", "Ollama不可达: " + str(e)[:80])
-                        except Exception:
+                        except Exception as e:
+                            _x6_swallowed(__name__, e)
                             pass
-                    # ② 内部服务保活（模块在但服务停了就重启）
-                    try:
-                        mr = self.trunk.modules.get("mobile_remote")
-                        if mr and hasattr(mr, "start") and getattr(mr, "server", None) is None:
-                            mr.start()
-                            self.trunk._log("巡检: 重启移动端服务")
-                    except Exception:
-                        pass
                 self._safe_run("模型巡检", _health)
                 self.last_health = now
             # 每5分钟热更新检测

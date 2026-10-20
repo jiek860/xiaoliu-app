@@ -18,6 +18,12 @@
 标记文件 data/.guide_done 存在时不再打扰（开发者机器上已经有了）。
 想重新看一遍：删掉它，或从「设置 → 系统 → 首次设置向导」打开。
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os
 import threading
 
@@ -56,7 +62,7 @@ def needs_onboarding(trunk):
     if os.path.exists(marker_path(trunk)):
         return False
     try:
-        return not model_setup.check(trunk)["ready"]
+        return not model_setup.check(trunk, probe=False)["ready"]
     except Exception:
         return False
 
@@ -67,11 +73,24 @@ def mark_done(trunk):
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
             f.write("ok")
-    except Exception:
+    except Exception as e:
+        _x6_swallowed(__name__, e)
         pass
 
 
-class OnboardingWizard(QWizard):
+from gui.onboarding_local import OnboardingLocalMixin
+from gui.onboarding_install import OnboardingInstallMixin
+from gui.onboarding_final import OnboardingFinalMixin
+from gui.onboarding_provider import OnboardingProviderMixin
+
+
+class OnboardingWizard(
+    OnboardingLocalMixin,
+    OnboardingInstallMixin,
+    OnboardingFinalMixin,
+    OnboardingProviderMixin,
+    QWizard,
+):
     """首次运行引导向导
 
     ⚠️ 窗口尺寸是**量出来的，不是猜的**
@@ -89,22 +108,20 @@ class OnboardingWizard(QWizard):
     （"没装 Ollama"那四步说明会让页面明显变高）。
     """
 
-    # 外壳开销：实测值（向导自己的标题/页标题/按钮栏/边距）
     CHROME_W = 24
+
     CHROME_H = 102
 
-    # 后台探测 Ollama 完成后，用它把结果送回主线程
-    # （Qt 控件只能在主线程碰，工作线程只负责发信号）
     probe_done = pyqtSignal(dict, str)
-    # 下载进度：已下字节 / 总字节 / 速度MBps / 剩余秒
+
     dl_prog = pyqtSignal(float, float, float, float)
-    # 下载过程中的文字提示（挑源、换源…）
+
     dl_msg = pyqtSignal(str)
-    # 下载结束（成功/取消/失败）
+
     dl_done = pyqtSignal(dict)
-    # 模型拉取进度：状态文字 / 已下MB / 总MB / 百分比 / 速度
+
     pull_prog = pyqtSignal(str, float, float, int, float)
-    # 模型拉取结束
+
     pull_done = pyqtSignal(dict)
 
     def __init__(self, trunk, parent=None):
@@ -143,7 +160,6 @@ class OnboardingWizard(QWizard):
         self._fit_timer.setSingleShot(True)
         self._fit_timer.timeout.connect(lambda: self.fit_to_content(grow=True))
 
-    # ---------------- 页面 ----------------
     def _build_pages(self):
         # ---- 第 1 页：欢迎 ----
         p1 = QWizardPage()
@@ -159,6 +175,28 @@ class OnboardingWizard(QWizard):
             "· 也可以填自己的云端 API（效果更好，按量付费）")
         tip.setStyleSheet("color:#475569;line-height:170%;")
         l1.addWidget(tip)
+
+        # 新手要在第一屏就知道接下来三步是什么，而不是只看到功能列表。
+        steps = QLabel(
+            "<b>新手三步</b><br>"
+            "&nbsp;&nbsp;1. 在下一页配好模型（本地 Ollama / 云端 API 二选一）<br>"
+            "&nbsp;&nbsp;2. 点「保存并检测」，看到绿色配置完成<br>"
+            "&nbsp;&nbsp;3. 回到聊天框说一句话；复杂目标切到「任务」模式")
+        steps.setWordWrap(True)
+        steps.setStyleSheet(
+            "background:#eff6ff;color:#1e3a8a;border-radius:6px;"
+            "padding:8px;line-height:165%;")
+        l1.addWidget(steps)
+
+        compat = QLabel(
+            "<b>兼容性速查</b>　Windows 10/11 ✅　Python 3.10 / 3.11 / 3.12 ✅<br>"
+            "macOS / Linux 的聊天和部分文件功能可能可用，但电脑控制、窗口操作、"
+            "截图等桌面能力不是当前支持目标。<br>"
+            "旧数据启动时会先自动备份再按 v0→v1→v2 迁移；"
+            "插件只接受签名且 API 版本兼容的模块。")
+        compat.setWordWrap(True)
+        compat.setStyleSheet("color:#7c2d12;line-height:165%;")
+        l1.addWidget(compat)
         # 指向那份面向用户的小白说明。
         # 项目里原本只有 700 行的《架构与功能说明》—— 那是给改代码的人看的，
         # 用户没法从里面查到"怎么配模型""某个功能在哪个菜单"。
@@ -335,498 +373,3 @@ class OnboardingWizard(QWizard):
         l3.addWidget(self.lbl_final)
         l3.addStretch(1)
         self.addPage(p3)
-
-    # ---------------- 逻辑 ----------------
-    def _prefill(self):
-        cfg = self.trunk.config or {}
-        self.ed_ollama.setText(str(cfg.get("ollama_url", "") or ""))
-        _set_model_text(self.ed_local_model,
-                        str(cfg.get("local_model", "") or ""))
-        cloud_url = str(cfg.get("cloud_url", "") or "")
-        self.ed_cloud_url.setText(cloud_url)
-        self.ed_cloud_model.setText(str(cfg.get("cloud_model", "") or ""))
-        if str(cfg.get("model_mode", "")).find("云端") >= 0:
-            self.rb_cloud.setChecked(True)
-        else:
-            self.rb_local.setChecked(True)
-
-        # ⚠️ 把「服务商」下拉框同步成**已保存地址对应的那一家**。
-        #    不这么做的话，下拉框会停在默认的第一项（智谱 GLM），
-        #    而下面的地址可能是别家的 —— 界面自相矛盾，用户会以为
-        #    "我明明选的是智谱，怎么地址不对"。
-        #    反查不到就落到「自定义」，并把已填内容原样留着。
-        #    （踩过的坑：setCurrentText 选**同一个值**不会触发信号，
-        #      所以不能指望 _apply_provider 帮忙同步。）
-        match = "自定义（自己填）"
-        for p in model_setup.CLOUD_PROVIDERS:
-            if cloud_url and p["地址"] == cloud_url:
-                match = p["名字"]
-                break
-        self.cb_provider.blockSignals(True)
-        self.cb_provider.setCurrentText(match)
-        self.cb_provider.blockSignals(False)
-        self._apply_provider(match, fill=False)
-
-        self._refresh_local_status()
-
-    def _refresh_local_status(self, async_=True):
-        """检测本地 Ollama 并把结果显示到状态标签
-
-        默认**异步**：原来是在 initializePage 里同步发请求（timeout=3），
-        向导窗口要等这次探测完才显示出来 —— Ollama 不在线时就是先卡 3 秒。
-        """
-        url = self.ed_ollama.text().strip() or model_setup.DEFAULT_OLLAMA
-        if not async_:
-            self._apply_local_status(model_setup.probe_ollama(url, timeout=3), url)
-            return
-        self.lbl_local_status.setText("⏳ 正在检测 %s …" % url)
-        self.lbl_local_status.setStyleSheet("color:#64748b;")
-
-        def _work():
-            try:
-                info = model_setup.probe_ollama(url, timeout=3)
-            except Exception:
-                info = {"reachable": False, "models": []}
-            try:
-                self.probe_done.emit(info, url)
-            except Exception:
-                pass
-
-        threading.Thread(target=_work, daemon=True,
-                         name="onboarding-probe").start()
-
-    def _apply_local_status(self, info, url):
-        # 检测到的模型自动刷进下拉框 —— 用户点一下就能选，不用照着文档手打。
-        # （手打模型名打错一个字符，表现就是"发了消息没反应"，很难自己查出来。）
-        if info.get("reachable"):
-            models = [m for m in (info.get("models") or []) if m]
-            cur = _model_text(self.ed_local_model)
-            if models:
-                self.ed_local_model.blockSignals(True)
-                self.ed_local_model.clear()
-                self.ed_local_model.addItems(models)
-                # 优先保留用户/配置里已经选好的那个
-                if cur and cur in models:
-                    self.ed_local_model.setCurrentText(cur)
-                elif model_setup.RECOMMENDED_LOCAL_MODEL in models:
-                    self.ed_local_model.setCurrentText(
-                        model_setup.RECOMMENDED_LOCAL_MODEL)
-                else:
-                    # 没指定就用第一个可用的 —— 比让用户自己猜强
-                    self.ed_local_model.setCurrentIndex(0)
-                self.ed_local_model.blockSignals(False)
-
-        if info["reachable"]:
-            n = len(info["models"])
-            if n:
-                self.lbl_local_status.setText(
-                    "✅ 连上了，已装 %d 个模型：%s"
-                    % (n, "、".join(info["models"][:5])))
-                self.lbl_local_status.setStyleSheet("color:#16a34a;")
-                self.lbl_local_howto.setText(
-                    "下面「模型」一栏已经自动列出上面这些，选一个就行 → "
-                    "然后点「保存并检测」。")
-                self.lbl_local_howto.setStyleSheet("color:#16a34a;")
-            else:
-                self.lbl_local_status.setText(
-                    "⚠️ Ollama 在跑，但还没有任何模型。")
-                self.lbl_local_status.setStyleSheet("color:#d97706;")
-                self.lbl_local_howto.setText(self._download_steps())
-                self.lbl_local_howto.setStyleSheet("color:#475569;")
-        else:
-            self.lbl_local_status.setText("❌ 连不上 %s" % url)
-            self.lbl_local_status.setStyleSheet("color:#dc2626;")
-            self.lbl_local_howto.setText(self._download_steps())
-            self.lbl_local_howto.setStyleSheet("color:#475569;")
-
-        # 说明文字从一句变成四步、或者反过来，页面高度会变 —— 重算一次，
-        # 不然新加的那几行会被窗口裁掉。
-        #
-        # ⚠️ 必须先让布局算完再量：刚 setText 完就调 fit_to_content 的话，
-        #    QLabel 的 sizeHint 还是**旧文字**的尺寸，算出来的窗口高度不够，
-        #    四步说明照样被切（实测：宽 580 时那段文字需要 280px，只给了 80px）。
-        #    activate() 强制立刻重排；再补一个 0 延时的兜底，
-        #    因为有些平台下 activate() 之后还要等一轮事件循环才准。
-        try:
-            self.currentPage().layout().activate()
-        # 静默是故意的：强制重排只是为了让下面的尺寸量得准 ——
-        # 它失败顶多量得偏小、退回上一步的尺寸，不该因此拦住用户配模型
-        except Exception:
-            pass
-        self.fit_to_content(grow=True)
-        # 再排一次延时重算：activate() 之后页面 sizeHint 有时还没跟上
-        # （Qt 要等一轮事件循环）。用挂在 self 上的定时器，见 __init__ 里的说明。
-        try:
-            self._fit_timer.start(0)
-        # 静默是故意的：这只是"再排一次重算"，起不来也不影响
-        # 本次已经算好的尺寸
-        except Exception:
-            pass
-
-    def _download_steps(self):
-        """没装/没模型时给**能照着做**的步骤
-
-        对比同类程序后两步都改成程序内一键完成了：
-        装 Ollama 不用自己开浏览器找，下模型不用自己开命令行跑
-        `ollama run xxx`（要会开 cmd、会粘命令、看着黑窗口、
-        还得自己判断什么时候算下完）。
-        """
-        return (
-            "按这个顺序来：<br>"
-            "&nbsp;&nbsp;<b>1.</b> 点上面的 <b>⬇️ 一键下载 Ollama 安装包</b>"
-            "（约 %d MB，自动走国内加速源）<br>"
-            "&nbsp;&nbsp;<b>2.</b> 下完点 <b>📦 立即安装</b>，"
-            "按弹出的安装向导点完（装到哪可以自己选）<br>"
-            "&nbsp;&nbsp;<b>3.</b> 装完 Ollama 会自己在后台运行"
-            "（右下角托盘有个小羊驼图标）<br>"
-            "&nbsp;&nbsp;<b>4.</b> 回到这里点 <b>🔄 重新检测</b>，"
-            "连上以后点 <b>⬇️ 下载模型</b>（模型约 2GB，带进度条，可以取消）<br>"
-            "&nbsp;&nbsp;<b>5.</b> 下完模型会自动出现在下拉框里，"
-            "选中它，再点「💾 保存并检测」<br><br>"
-            "下载不动的备选：去 <a href='%s'>%s</a> 用浏览器手动下安装包。"
-            % (ollama_installer.APPROX_MB, model_setup.OLLAMA_DOWNLOAD,
-               model_setup.OLLAMA_DOWNLOAD))
-
-    # ---------------- 模型下载（复用同一套进度条/取消） ----------------
-    def _start_pull(self):
-        """从 Ollama 拉「模型」框里那个模型"""
-        if getattr(self, "_dl_busy", False):
-            return
-        model = _model_text(self.ed_local_model) or \
-            model_setup.RECOMMENDED_LOCAL_MODEL
-        url = self.ed_ollama.text().strip() or model_setup.DEFAULT_OLLAMA
-
-        self._dl_busy = True
-        self._dl_stop = False
-        self._dl_kind = "model"
-        self.btn_dl.setEnabled(False)
-        self.btn_pull.setEnabled(False)
-        self.btn_cancel_dl.setVisible(True)
-        self.bar_dl.setVisible(True)
-        self.bar_dl.setValue(0)
-        self.lbl_dl.setVisible(True)
-        self.lbl_dl.setText("正在从 Ollama 拉取「%s」…（约 2GB）" % model)
-        self.lbl_dl.setStyleSheet("color:#475569;")
-
-        def _work():
-            try:
-                r = ollama_installer.pull_model(
-                    url, model,
-                    progress=lambda st, g, t, pct, sp:
-                        self.pull_prog.emit(st, g, t, pct, sp),
-                    should_stop=lambda: self._dl_stop)
-                r["模型"] = r.get("模型") or model
-                self.pull_done.emit(r)
-            except Exception as e:
-                self.pull_done.emit({"ok": False,
-                                     "错误": "%s: %s" % (type(e).__name__,
-                                                         str(e)[:80])})
-
-        threading.Thread(target=_work, daemon=True,
-                         name="onboarding-pull").start()
-
-    def _on_pull_progress(self, status, got, total, pct, sp):
-        self.bar_dl.setValue(pct)
-        if total:
-            self.lbl_dl.setText(
-                "%s　已下 %.0f / %.0f MB　%.1f MB/s"
-                % (status, got, total, sp))
-        else:
-            self.lbl_dl.setText(status)
-
-    def _on_pull_done(self, r):
-        self._dl_busy = False
-        self.btn_dl.setEnabled(True)
-        self.btn_pull.setEnabled(True)
-        self.btn_cancel_dl.setVisible(False)
-        if r.get("ok"):
-            self.bar_dl.setValue(100)
-            self.lbl_dl.setText(
-                "✅ 模型「%s」下载完成（%.0f MB，用了 %.0f 秒）—— "
-                "点「🔄 重新检测」刷新列表"
-                % (r.get("模型", ""), r.get("MB", 0), r.get("耗时秒", 0)))
-            self.lbl_dl.setStyleSheet("color:#16a34a;")
-            # 下完自动刷一次列表，用户不用再点
-            self._refresh_local_status()
-        elif r.get("取消"):
-            self.bar_dl.setVisible(False)
-            self.lbl_dl.setText(
-                "已取消。已经下好的部分**不会白费** —— Ollama 留着缓存，"
-                "下次拉同一个模型会接着用。")
-            self.lbl_dl.setStyleSheet("color:#64748b;")
-        else:
-            self.bar_dl.setVisible(False)
-            self.lbl_dl.setText(
-                "❌ 下载失败：%s\n（Ollama 没启动的话先把它打开，"
-                "再点「🔄 重新检测」）" % r.get("错误", "")[:90])
-            self.lbl_dl.setStyleSheet("color:#dc2626;")
-
-    def _recheck(self):
-        self._refresh_local_status()
-
-    # ---------------- 尺寸 ----------------
-    def fit_to_content(self, grow=False):
-        """按各页**实际需要的尺寸**定窗口大小
-
-        ⚠️ 关键是高度要用 heightForWidth(需要的宽度) 算，不能直接用 sizeHint()
-        ------------------------------------------------------------------
-        sizeHint() 给的是"在**当前**宽度下的高度"。而这里要设的是**最小宽度** ——
-        窗口缩到那个宽度后，文字换行会更多、需要的高度比 sizeHint 报的更大。
-
-        实测踩到的：宽 580 时那段"没装 Ollama"的四步说明需要 280px 高，
-        而按 sizeHint 算出来的最小尺寸只给了 80px —— 差 200px，
-        说明文字被裁掉（而这几行正是全部指引）。
-
-        正确做法：
-            宽度 = 各页 sizeHint 的首选宽（在那个宽度下不用额外换行）
-            高度 = heightForWidth(那个宽度)（**在那个宽度下**真正需要的高度）
-
-        grow=True 时，如果算出来比当前尺寸还大就跟着长大
-        （状态文字从一句变成四步说明时，页面会明显变高）。
-
-        **只增不减**：用户自己拉大过窗口的话，不该因为一次
-        文字更新就被缩回去。
-        """
-        try:
-            self.ensurePolished()
-            need_w = need_h = 0
-            for i in range(self.pageIds().__len__()):
-                page = self.page(i)
-                sh = page.sizeHint()
-                w = max(sh.width(), page.minimumSizeHint().width())
-                # 在那个宽度下真正需要的高度
-                h = page.heightForWidth(w) if w > 0 else 0
-                if h <= 0:
-                    h = sh.height()          # 不支持 heightForWidth 就退回 sizeHint
-                need_w = max(need_w, w)
-                need_h = max(need_h, h)
-            if need_w <= 0 or need_h <= 0:
-                return
-            min_w = need_w + self.CHROME_W
-            min_h = need_h + self.CHROME_H
-            self.setMinimumSize(min_w, min_h)
-            if grow:
-                # 初始给一点富余，别卡在"刚好装下"
-                self.resize(max(self.width(), min_w + 70),
-                            max(self.height(), min_h + 10))
-        # 静默是故意的：尺寸算不出来不该拦住用户配模型 ——
-        # 退化成 Qt 的默认尺寸，向导照样能用
-        except Exception:
-            pass
-
-    # ---------------- 云端服务商预设 ----------------
-    def _apply_provider(self, name, fill=True):
-        """选服务商 -> 自动填地址和模型名
-
-        fill=False 时**只更新提示文字，不动已经填好的输入框** ——
-        `_prefill()` 同步下拉框时会用到：那一步的目的只是让
-        "下拉框显示的那家"和"已保存的地址"对上，不该把用户
-        自己改过的地址/模型名覆盖掉。
-        """
-        p = model_setup.find_provider(name)
-        if not p:
-            # 「自定义（自己填）」：不动用户已经填好的内容
-            self.lbl_provider_tip.setText(
-                "自己填的话：地址用服务商文档里的 <b>chat/completions</b> 完整地址，"
-                "模型名一个字符都不能错。")
-            self.lbl_provider_tip.setStyleSheet("color:#64748b;")
-            return
-        if fill:
-            self.ed_cloud_url.setText(p["地址"])
-            self.ed_cloud_model.setText(p["模型"])
-        self.lbl_provider_tip.setText(
-            "%s · %s —— Key 去 <a href='%s'>%s</a> 申请"
-            % (p["名字"], p["备注"], p["申请"], p["申请"]))
-        self.lbl_provider_tip.setStyleSheet("color:#16a34a;")
-
-    # ---------------- Ollama 一键下载 ----------------
-    def _on_dl_button(self):
-        """同一个按钮按状态换动作：还没下完 -> 下载；下好了 -> 安装"""
-        if getattr(self, "_dl_ready_path", None):
-            self._run_installer()
-        else:
-            self._start_download()
-
-    def _start_download(self):
-        """起线程下载，进度通过信号回主线程（Qt 控件只能在主线程碰）"""
-        if getattr(self, "_dl_busy", False):
-            return
-        self._dl_busy = True
-        self._dl_stop = False
-        self._dl_ready_path = None
-        self.btn_dl.setEnabled(False)
-        self.btn_cancel_dl.setVisible(True)
-        self.bar_dl.setVisible(True)
-        self.bar_dl.setValue(0)
-        self.lbl_dl.setVisible(True)
-        self.lbl_dl.setText("正在挑下载源…")
-        self.lbl_dl.setStyleSheet("color:#475569;")
-
-        def _work():
-            try:
-                best = ollama_installer.pick_best(
-                    progress=lambda m: self.dl_msg.emit(m))
-                if not best:
-                    self.dl_done.emit({"ok": False,
-                                       "错误": "所有下载源都连不上（可能是断网）"})
-                    return
-                self.dl_msg.emit("用「%s」下载中 —— 实测 %s"
-                                 % (best["名字"], best.get("实测", "")))
-
-                def prog(got, total, sp, eta):
-                    self.dl_prog.emit(got, total or 0, sp, eta)
-
-                r = ollama_installer.download(
-                    best["url"], progress=prog,
-                    should_stop=lambda: self._dl_stop)
-                r["源"] = best["名字"]
-                self.dl_done.emit(r)
-            except Exception as e:
-                self.dl_done.emit({"ok": False,
-                                   "错误": "%s: %s" % (type(e).__name__,
-                                                       str(e)[:80])})
-
-        threading.Thread(target=_work, daemon=True,
-                         name="onboarding-download").start()
-
-    def _cancel_download(self):
-        """取消当前正在进行的下载（安装包 或 模型，两种共用这个按钮）"""
-        self._dl_stop = True
-        self.lbl_dl.setText("正在取消…")
-
-    def _on_dl_progress(self, got, total, sp, eta):
-        if total:
-            self.bar_dl.setValue(int(got * 100 / total))
-            self.lbl_dl.setText(
-                "已下 %.0f / %.0f MB　%.1f MB/s　剩余约 %d 秒"
-                % (got / 1048576, total / 1048576, sp, int(eta)))
-        else:
-            self.lbl_dl.setText("已下 %.0f MB　%.1f MB/s"
-                                % (got / 1048576, sp))
-
-    def _on_dl_done(self, r):
-        self._dl_busy = False
-        self.btn_dl.setEnabled(True)
-        self.btn_cancel_dl.setVisible(False)
-        if r.get("ok"):
-            self._dl_ready_path = r.get("路径") or ollama_installer.default_path()
-            self.bar_dl.setValue(100)
-            self.lbl_dl.setText(
-                "✅ 下载完成：%.0f MB（%s，用了 %.0f 秒）—— 点下面的按钮安装"
-                % (r.get("MB", 0), r.get("源", ""), r.get("耗时秒", 0)))
-            self.lbl_dl.setStyleSheet("color:#16a34a;")
-            self.btn_dl.setText("📦 立即安装")
-        elif r.get("取消"):
-            self.bar_dl.setVisible(False)
-            self.lbl_dl.setText("已取消下载（没留下半个文件）")
-            self.lbl_dl.setStyleSheet("color:#64748b;")
-        else:
-            self.bar_dl.setVisible(False)
-            self.lbl_dl.setText(
-                "❌ 下载失败：%s\n可以点上面的下载链接用浏览器手动下，"
-                "或稍后重试。" % r.get("错误", "")[:90])
-            self.lbl_dl.setStyleSheet("color:#dc2626;")
-
-    def _run_installer(self):
-        r = ollama_installer.run_installer(
-            getattr(self, "_dl_ready_path", None))
-        if r.get("ok"):
-            self.lbl_dl.setText("📦 %s" % r["提示"])
-            self.lbl_dl.setStyleSheet("color:#16a34a;")
-            self._dl_ready_path = None
-            self.btn_dl.setText("⬇️ 重新下载安装包")
-        else:
-            self.lbl_dl.setText("❌ %s" % r.get("错误", ""))
-            self.lbl_dl.setStyleSheet("color:#dc2626;")
-
-    def _save_and_check(self):
-        try:
-            if self.rb_cloud.isChecked():
-                model_setup.apply_cloud(
-                    self.trunk,
-                    url=self.ed_cloud_url.text().strip(),
-                    model=self.ed_cloud_model.text().strip(),
-                    key=self.ed_cloud_key.text().strip())
-            else:
-                model_setup.apply_local(
-                    self.trunk,
-                    url=self.ed_ollama.text().strip() or model_setup.DEFAULT_OLLAMA,
-                    model=_model_text(self.ed_local_model)
-                    or model_setup.RECOMMENDED_LOCAL_MODEL)
-        except Exception as e:
-            QMessageBox.warning(self, "保存失败", str(e)[:120])
-            return
-        self._refresh_local_status()
-        self._show_result()
-
-    def _show_result(self):
-        try:
-            r = model_setup.check(self.trunk)
-        except Exception as e:
-            self.lbl_result.setText("检测出错：" + str(e)[:100])
-            return
-        if r["ready"]:
-            self.lbl_result.setText("✅ 配置完成，可以正常聊天了。")
-            self.lbl_result.setStyleSheet(
-                "padding:6px;border-radius:4px;background:#dcfce7;color:#166534;")
-        else:
-            self.lbl_result.setText(
-                "⚠️ 还差一点：\n· " + "\n· ".join(r["problems"])
-                + "\n\n" + r["advice"])
-            self.lbl_result.setStyleSheet(
-                "padding:6px;border-radius:4px;background:#fef3c7;color:#92400e;")
-
-    def _on_page_changed(self, pid):
-        if pid == 0:
-            if not self.ed_ollama.text():
-                self._prefill()
-        elif pid == 1:
-            self._refresh_local_status()
-            self._show_result()
-        elif pid == 2:
-            self._fill_final()
-
-    def _fill_final(self):
-        try:
-            r = model_setup.check(self.trunk)
-        except Exception:
-            r = {"ready": False, "problems": ["检测失败"], "advice": "稍后可以在设置里再配。"}
-        if r["ready"]:
-            self.lbl_final.setText(
-                "<h2>🎉 配好了</h2>"
-                "点「完成」就能开始聊天了。<br><br>"
-                "想换个模型、调语气、开关联网，随时去「设置」里改。")
-        else:
-            self.lbl_final.setText(
-                "<h2>暂时还不能聊天</h2>"
-                "缺的是：<br>· " + "<br>· ".join(r["problems"]) +
-                "<br><br>" + r["advice"].replace("\n", "<br>") +
-                "<br><br>点「完成」不会丢东西，你随时可以从"
-                "「设置 → 系统 → 首次设置向导」重新打开这一页。")
-
-    # ---------------- 收尾 ----------------
-    def accept(self):
-        self._save_and_note()
-        super().accept()
-
-    def reject(self):
-        # 用户点了取消/关闭，也算引导过了，别每次启动都弹
-        self._save_and_note()
-        super().reject()
-
-    def _save_and_note(self):
-        mark_done(self.trunk)
-
-
-def show_onboarding(trunk, parent=None):
-    """打开引导。任何异常都不应该影响主程序，返回是否已完成配置。"""
-    try:
-        w = OnboardingWizard(trunk, parent)
-        w.exec_()
-        return model_setup.check(trunk)["ready"]
-    except Exception as e:
-        try:
-            trunk._log("首次引导异常: %s" % str(e)[:80])
-        except Exception:
-            pass
-        return False

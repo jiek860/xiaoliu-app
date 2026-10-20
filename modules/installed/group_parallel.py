@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """群聊并行 v2.1 - 多角色对话 + 角色列表 + 历史记录 + 统计 + 清空"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import time
 from core.safe import safe
 from modules.base import BaseModule
@@ -35,7 +41,8 @@ class GroupChatParallel(BaseModule):
             try:
                 r = llm.chat(f"你是{role}，讨论这个话题: {topic[:100]}")
                 discussions.append({"角色": role, "观点": r[:150]})
-            except: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
 
         self.parallel_count += 1
         self.history.append({
@@ -82,7 +89,8 @@ class GroupChatParallel(BaseModule):
                 try:
                     r = llm.chat(f"第{i+1}轮辩论，你是{role}，话题: {topic[:80]}")
                     discussions.append({"角色": role, "观点": r[:100]})
-                except: pass
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
             rounds_history.append({"轮次": i+1, "讨论": discussions})
 
         return {"话题": topic, "轮次": rounds_history}

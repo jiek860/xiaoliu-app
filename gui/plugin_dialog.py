@@ -11,11 +11,13 @@ class _OnlineSignals(QObject):
     failed = pyqtSignal(str)
 
 
-def show_plugin_dialog(parent, dlg, trunk, open_mcp, show_components):
+def show_plugin_dialog(parent, dlg, trunk, open_mcp=None, show_components=None):
     """插件市场窗口
 
-    open_mcp: 打开 MCP 总面板的回调（就是主窗口的 mcp_dialog）。
-              以前这里传的是另一个只显示 JSON 的窗口。
+    open_mcp / show_components 保留成可选参数，只为兼容旧调用与构造测试。
+    这两个按钮已按需求从这里移除：
+        MCP      -> 设置 -> 扩展 -> MCP
+        可选组件 -> 设置 -> 系统 -> 可选组件
     """
     d, l = dlg("🧩 插件市场", w=880, h=700)
     pm = trunk._load_lazy("plugin_market")
@@ -33,16 +35,6 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp, show_components):
     file_btn = QPushButton("📥 安装 .py 文件")
     file_btn.setStyleSheet("padding:6px 14px;")
     head.addWidget(file_btn)
-    mcp_btn = QPushButton("🔌 MCP")
-    mcp_btn.setToolTip("打开 MCP 总面板（服务器管理 / 预置服务器 / 配置参考）")
-    mcp_btn.setStyleSheet("padding:6px 14px;")
-    mcp_btn.clicked.connect(open_mcp)
-    head.addWidget(mcp_btn)
-    opt_btn = QPushButton("🧩 可选组件")
-    opt_btn.setToolTip("安装语音识别/浏览器自动化等重功能")
-    opt_btn.setStyleSheet("padding:6px 14px;")
-    opt_btn.clicked.connect(show_components)
-    head.addWidget(opt_btn)
     l.addLayout(head)
 
     scroll = QScrollArea()
@@ -133,6 +125,19 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp, show_components):
                     _refresh()
                 return _un
             b.clicked.connect(_make_un(m))
+            rowb = QHBoxLayout()
+            rowb.addWidget(b)
+            rb = QPushButton(" 回滚")
+            rb.setStyleSheet("background:#e0f2fe;color:#0369a1;border:none;border-radius:6px;padding:5px;")
+            def _make_rb(mm):
+                def _rb():
+                    r = pm.rollback_module(mm["name"])
+                    msg.setText((" " if r.get("ok") else " ") + str(r.get("msg") or r.get("原因") or r))
+                    _refresh()
+                return _rb
+            rb.clicked.connect(_make_rb(m))
+            rowb.addWidget(rb)
+            v.addLayout(rowb)
         else:
             b = QPushButton("⬇ 在线下载")
             b.setStyleSheet("background:#4a9eff;color:#fff;border:none;border-radius:6px;padding:5px;")

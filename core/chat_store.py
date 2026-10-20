@@ -2,6 +2,12 @@
 """聊天记录 SQLite（多会话版）v2.0
 升级：搜索、统计、导出、会话重命名、删除会话
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os
 import time
 import sqlite3
@@ -53,7 +59,8 @@ class ChatStore:
                              INSERT INTO messages_fts(messages_fts, rowid, username, session_id, role, text)
                              VALUES('delete', old.id, old.username, old.session_id, old.role, old.text);
                              END""")
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass  # FTS5不可用时回退LIKE
             c.commit()
         finally:
@@ -97,6 +104,67 @@ class ChatStore:
                 "SELECT role, text, ts FROM messages WHERE username=? AND session_id=? ORDER BY ts DESC LIMIT ?",
                 (username, session_id, limit)).fetchall()
         return [{"role": r["role"], "text": r["text"], "ts": r["ts"]} for r in reversed(rows)]
+
+    def last_message(self, username, session_id="default", role=None):
+        """返回最近一条消息（可按 role 过滤）。"""
+        c = self._conn()
+        try:
+            if role:
+                row = c.execute(
+                    "SELECT id, role, text, ts FROM messages "
+                    "WHERE username=? AND session_id=? AND role=? "
+                    "ORDER BY ts DESC, id DESC LIMIT 1",
+                    (username, session_id, role)).fetchone()
+            else:
+                row = c.execute(
+                    "SELECT id, role, text, ts FROM messages "
+                    "WHERE username=? AND session_id=? "
+                    "ORDER BY ts DESC, id DESC LIMIT 1",
+                    (username, session_id)).fetchone()
+            return dict(row) if row else None
+        finally:
+            c.close()
+
+    def delete_message_by_id(self, message_id):
+        c = self._conn()
+        try:
+            c.execute("DELETE FROM messages WHERE id=?", (int(message_id),))
+            c.commit()
+            return True
+        finally:
+            c.close()
+
+    def delete_last_message(self, username, session_id="default", role=None):
+        msg = self.last_message(username, session_id, role=role)
+        if not msg:
+            return False
+        return self.delete_message_by_id(msg["id"])
+
+    def branch_session(self, username, source_session, upto_ts=None):
+        """从当前会话复制到新会话，形成对话分支。"""
+        new_sid = self.new_session(username)
+        c = self._conn()
+        try:
+            if upto_ts is None:
+                rows = c.execute(
+                    "SELECT role, text, ts FROM messages "
+                    "WHERE username=? AND session_id=? ORDER BY ts, id",
+                    (username, source_session)).fetchall()
+            else:
+                rows = c.execute(
+                    "SELECT role, text, ts FROM messages "
+                    "WHERE username=? AND session_id=? AND ts<=? "
+                    "ORDER BY ts, id",
+                    (username, source_session, float(upto_ts))).fetchall()
+            for r in rows:
+                c.execute(
+                    "INSERT INTO messages(username, session_id, role, text, ts) "
+                    "VALUES(?,?,?,?,?)",
+                    (username, new_sid, r["role"], r["text"], r["ts"]))
+            c.commit()
+            return new_sid
+        finally:
+            c.close()
 
     def list_sessions(self, username):
         """列出所有会话（按最后时间倒序）"""

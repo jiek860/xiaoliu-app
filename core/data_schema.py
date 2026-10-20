@@ -30,20 +30,27 @@ import json
 import os
 import time
 
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
+
 # 数据登记表的版本（登记表本身的格式）
-DATA_SCHEMA = 1
+DATA_SCHEMA = 2
 
 # 只登记有真实格式假设的：升级后旧代码会**误读**的那些
 # 值 = 该文件当前的格式版本；将来改格式时 +1 并在这里写迁移
 WATCHED = {
-    "memory_cards.jsonl": 1,   # 每行一个 {"facts": [...], "time": ...}
-    "dreams.jsonl": 1,         # 每行一个梦境记录
-    "personality.json": 1,     # {"birth_time", "relation_stage", "traits", ...}
-    "config.json": 1,          # 靠"合并 DEFAULTS + 类型校验"迁移，见 core/config.py
-    "chats.db": 1,             # messages 表结构
-    "vectors.db": 1,           # vectors 表结构
-    "graph.db": 1,             # 知识图谱三元组表
-    "memory.json": 1,          # 长期记忆
+    "memory_cards.jsonl": 2,   # 每行一个 {"facts": [...], "time": ...}
+    "dreams.jsonl": 2,         # 每行一个梦境记录
+    "personality.json": 2,     # {"birth_time", "relation_stage", "traits", ...}
+    "config.json": 2,          # 靠"合并 DEFAULTS + 类型校验"迁移，见 core/config.py
+    "chats.db": 2,             # messages 表结构
+    "vectors.db": 2,           # vectors 表结构
+    "graph.db": 2,             # 知识图谱三元组表
+    "memory.json": 2,          # 长期记忆
 }
 
 _REL = os.path.join("data", "_schema.json")
@@ -66,8 +73,8 @@ def load(base):
             return d
     # 静默是故意的：登记表不存在/坏了不是错误状态（首次运行本来就没有），
     # 由 check() 报成 unknown 提示，不该让自检崩掉
-    except Exception:
-        pass
+    except Exception as e:
+        _x6_swallowed(__name__, e, "best-effort fallback")
     return {}
 
 
@@ -122,11 +129,19 @@ def check(base):
     """
     d = load(base)
     files = d.get("files") or {}
-    out = {"ok": True, "warning": [], "info": [], "unknown": []}
+    out = {"ok": True, "warning": [], "info": [], "unknown": [],
+           "migratable": []}
 
     if not d:
         out["unknown"] = ["还没有版本登记表（data/_schema.json）—— "
                           "首次运行会自动建立"]
+        existing = [name for name in WATCHED
+                    if os.path.exists(os.path.join(base, "data", name))]
+        if existing:
+            out["migratable"] = existing
+            out["unknown"].append(
+                "已有 %d 个数据文件按 v0 旧数据处理，可自动迁移"
+                % len(existing))
         return out
 
     if int(d.get("data_schema", 0)) > DATA_SCHEMA:
@@ -142,7 +157,9 @@ def check(base):
             continue
         got = files.get(name)
         if got is None:
-            out["unknown"].append("%s 没有版本记录（旧数据或新加的）" % name)
+            out["unknown"].append(
+                "%s 没有版本记录（按 v0 旧数据处理，可自动迁移）" % name)
+            out["migratable"].append(name)
             continue
         got = int(got)
         if got > want:
@@ -166,6 +183,15 @@ def describe(base):
     r = check(base)
     if r["warning"]:
         return "⚠️ 数据版本有问题：%s" % "；".join(r["warning"][:2])
+    if r.get("migratable"):
+        return "发现有 %d 项旧数据可按 v0->v1->v2 自动迁移" % len(
+            r["migratable"])
     if r["unknown"]:
         return "数据版本登记不完整（%d 项）" % len(r["unknown"])
     return "数据版本正常（%d 个文件已登记）" % len(r["info"])
+
+
+def migrate(base, dry_run=False):
+    """执行当前数据 schema 的全部可用迁移。"""
+    from core.data_migrations import migrate_all
+    return migrate_all(base, dry_run=dry_run)

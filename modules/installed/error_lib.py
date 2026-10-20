@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """错误库 v2.1 - 错误码 + 中文说明 + 解决方案 + 统计 + 导出 + 搜索"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os
 from core.safe import safe
 from modules.base import BaseModule
@@ -129,7 +135,8 @@ class ErrorLibrary(BaseModule):
         if os.path.exists(p):
             try:
                 return json.load(open(p, encoding="utf-8"))
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         return []
 
@@ -139,7 +146,8 @@ class ErrorLibrary(BaseModule):
         try:
             json.dump(lst[-500:], open(p, "w", encoding="utf-8"),
                       ensure_ascii=False, indent=1)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     @safe

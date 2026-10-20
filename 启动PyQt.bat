@@ -6,11 +6,9 @@ title 小6智能助手
 if not exist "data" mkdir data
 if not exist "data\logs" mkdir data\logs
 
-rem ---- 解析可用的 Python ----
-rem Windows 的 Microsoft Store 版 python.exe 是占位符，调用返回 9009，
-rem 所以优先用官方安装自带的 py 启动器，其次才是 python。
-rem 注意：这里用 "if not errorlevel 1" 而不是 "%errorlevel%==0"，
-rem       后者写在括号块里会在解析期就展开，拿到的是过期的错误码。
+rem ---- resolve python: py launcher first (Store stub returns 9009) ----
+rem NOTE: use "if not errorlevel 1", not "%errorlevel%==0" -- the latter
+rem is expanded at parse time inside blocks and gives a stale value.
 set "PYCMD="
 py -3 --version >nul 2>&1
 if not errorlevel 1 set "PYCMD=py -3"

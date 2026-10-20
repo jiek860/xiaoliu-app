@@ -136,7 +136,7 @@ class Multimodal(BaseModule):
             # 总结
             llm = self.trunk.modules.get("llm")
             if llm:
-                summary = llm.chat(f"根据这几帧画面，总结这个视频讲了什么:\n" + "\n".join(descriptions))
+                summary = llm.chat("根据这几帧画面，总结这个视频讲了什么:\n" + "\n".join(descriptions))
             else:
                 summary = "（LLM未加载）"
             return {

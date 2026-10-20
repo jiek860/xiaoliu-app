@@ -1,6 +1,26 @@
 # -*- coding: utf-8 -*-
 """小6智能体 - 启动入口"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import sys, os
+
+# 看门狗模式（--watchdog <pid>）必须**最先**处理：
+# 它只等主进程退出并补发日志，不加载 Qt / Trunk，也不装 crash_guard
+# （否则两个进程会同时往 faulthandler.log 里写）。
+_wd_flag = ("--watchdog" in sys.argv)
+if __name__ == "__main__" and _wd_flag:
+    _wd_base = os.path.dirname(os.path.abspath(__file__))
+    if _wd_base not in sys.path:
+        sys.path.insert(0, _wd_base)
+    try:
+        from core.crash_watchdog import main as _watchdog_main
+        sys.exit(_watchdog_main(sys.argv))
+    except Exception:
+        sys.exit(0)
 
 # ⚠️ 崩溃捕获要**第一个装**，必须在任何 Qt / 重型库之前。
 # 原因：2026-10-13 出现过一次 access violation —— 进程直接死，
@@ -40,7 +60,8 @@ if _base_dir not in sys.path:
 try:
     from core.win_dll_fix import preload_msvc_runtime
     preload_msvc_runtime()
-except Exception:
+except Exception as e:
+    _x6_swallowed(__name__, e)
     pass
 
 # HuggingFace 直连在部分网络下会超时（实测本机直连不通、镜像可达）。
@@ -101,6 +122,13 @@ if __name__ == "__main__":
     _install_excepthook()
     _validate_config()
 
+    # 崩溃 / 闪退自动上报：Python 层异常当场发；原生崩溃下次启动补发
+    try:
+        from core import auto_report
+        auto_report.start(os.path.dirname(os.path.abspath(__file__)))
+    except Exception as e:
+        print("自动上报初始化失败: %s" % str(e)[:80])
+
     # Ollama预热 + 向量库预热：后台加载模型，提速
     import threading, urllib.request
     def warmup():
@@ -117,14 +145,15 @@ if __name__ == "__main__":
                 )
                 urllib.request.urlopen(req, timeout=5)
                 print("向量库预热完成")
-            except: pass
-        except: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
+        except Exception as e:
+            _x6_swallowed(__name__, e)
     threading.Thread(target=warmup, daemon=True).start()
 
-    from gui.app_pyqt import run_pyqt
-    run_pyqt()
-    
-    # 退出时清理资源
+    # 退出时清理资源（**必须注册在 run_pyqt 之前**：
+    # run_pyqt 里 sys.exit 一抛，后面这段就永远执行不到 
+    # 原来那份 atexit 其实一直是死代码）
     import atexit
     def _cleanup():
         try:
@@ -134,5 +163,11 @@ if __name__ == "__main__":
             if trunk and hasattr(trunk, "shutdown"):
                 trunk.shutdown()
             print("小6已退出，资源已清理")
-        except: pass
+        except Exception as e:
+            _x6_swallowed(__name__, e)
     atexit.register(_cleanup)
+
+
+    from gui.app_pyqt import run_pyqt
+    run_pyqt()
+    

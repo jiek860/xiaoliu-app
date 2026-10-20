@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """实时对话主引擎 v2.1"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import time, queue, tempfile, threading, shutil
 try: import numpy as np
 except: np = None
@@ -95,10 +101,12 @@ class RealtimeEngine:
         self.player.stop()
         try:
             if self._stream: self._stream.stop_stream(); self._stream.close()
-        except: pass
+        except Exception as e:
+            _x6_swallowed(__name__, e)
         try:
             if self._pa: self._pa.terminate()
-        except: pass
+        except Exception as e:
+            _x6_swallowed(__name__, e)
         self._set_state("IDLE")
         return {"ok": True, "msg": "已停止"}
 

@@ -22,6 +22,12 @@
 · 任何异常只影响这一次执行，不崩面板
 · 列表是**按需出现**的，不像 24 个按钮那样常驻占屏
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os
 
 from PyQt5.QtCore import Qt
@@ -31,6 +37,24 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QFileDialog)
 
 from gui.workers import BgWorker
+from core.feature_registry import COMMAND_GROUPS, command_group_for
+
+
+def _cap_group(name, info):
+    source = str((info or {}).get("source", "")).lower()
+    name = str(name or "").lower()
+    if source == "plugin":
+        return "插件/MCP"
+    if any(k in name for k in ("security", "permission", "net_guard", "audit")):
+        return "安全"
+    return "工具"
+
+
+def _group_rank(group):
+    try:
+        return COMMAND_GROUPS.index(group)
+    except ValueError:
+        return len(COMMAND_GROUPS)
 
 
 def _fmt(r):
@@ -126,14 +150,20 @@ class CommandPalette(QDialog):
             from core import module_caps
             caps = module_caps.load_tools(getattr(self.trunk, "base", None))
             for name, info in caps.items():
+                info = dict(info or {})
+                info.setdefault("group", _cap_group(name, info))
                 self._entries.append(("cap", name, info))
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
         # ② 主窗口能打开的面板
         for label, fn in (self.commands or {}).items():
             if callable(fn):
-                self._entries.append(("panel", label, {"fn": fn, "desc": "打开面板"}))
+                self._entries.append((
+                    "panel", label,
+                    {"fn": fn, "desc": "打开面板",
+                     "group": command_group_for(label)}))
 
         self._filter("")
 
@@ -157,8 +187,13 @@ class CommandPalette(QDialog):
             else:
                 if q in label.lower() or q in str(info.get("desc", "")).lower():
                     out.append((kind, label, info))
-        # 能力按匹配度排前面，面板补在后面
-        out.sort(key=lambda e: (0 if e[0] == "cap" else 1, order.get(e[1], 99)))
+        # 组顺序固定：常用  任务  资料  工具  安全  插件/MCP  开发；
+        # 同组内能力按匹配度、面板按名称补在后面。
+        out.sort(key=lambda e: (
+            _group_rank(e[2].get("group", "工具")),
+            0 if e[0] == "cap" else 1,
+            order.get(e[1], 99),
+            e[1]))
         return out
 
     def _filter(self, text=""):
@@ -178,10 +213,16 @@ class CommandPalette(QDialog):
             self.list_w.addItem(it)
         if self.list_w.count():
             self.list_w.setCurrentRow(0)
-        self.hint.setText("共 %d 项（能力 %d / 面板 %d）"
+        groups = []
+        for _kind, _label, info in hits:
+            g = info.get("group", "工具")
+            if g not in groups:
+                groups.append(g)
+        self.hint.setText("共 %d 项（能力 %d / 面板 %d）  分组：%s"
                           % (len(hits),
                              sum(1 for e in hits if e[0] == "cap"),
-                             sum(1 for e in hits if e[0] == "panel")))
+                             sum(1 for e in hits if e[0] == "panel"),
+                             "  ".join(groups)))
 
     # ---------------- 执行 ----------------
     def _current(self):

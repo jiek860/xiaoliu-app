@@ -29,6 +29,13 @@ import os
 import sys
 import time
 
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
+
 # 功能 -> 该功能需要的可选依赖（与 requirements-optional.txt 对应）
 # 值是 pip 包名；import 名不同的用 (pip名, import名) 表示
 FEATURES = {
@@ -43,6 +50,7 @@ FEATURES = {
     "浏览器自动化": ["playwright"],
     "代码补全": ["jedi"],
     "界面组件": ["uiautomation", "comtypes"],
+    "知识库文档解析": ["pypdf", "python-docx", "openpyxl", "python-pptx"],
 }
 
 # pip 名 -> import 名（名字不一致的那些）
@@ -53,6 +61,8 @@ _IMPORT_NAME = {
     "faster-whisper": "faster_whisper",
     "opencv-python": "cv2",
     "huggingface-hub": "huggingface_hub",
+    "python-docx": "docx",
+    "python-pptx": "pptx",
 }
 
 # 已知的版本约束（来自 requirements-optional.txt 的注释，都是踩过的坑）
@@ -100,8 +110,8 @@ def _version(pkg):
         return _v(pkg)
     # 静默是故意的：取不到版本不是错误（有的包不注册 metadata），
     # 下面还有第二条路（读 __version__），两条都不行就返回空串
-    except Exception:
-        pass
+    except Exception as e:
+        _x6_swallowed(__name__, e, "best-effort fallback")
     try:
         mod = __import__(_import_name(pkg))
         return str(getattr(mod, "__version__", "") or "")
@@ -222,8 +232,8 @@ def _dir_sizes(base):
                     n += 1
                 # 静默是故意的：统计体积时遇到读不到的单个文件（权限/被占用），
                 # 跳过它继续数就行 —— 少算一个文件不影响"大概多大"这个用途
-                except Exception:
-                    pass
+                except Exception as e:
+                    _x6_swallowed(__name__, e, "best-effort fallback")
         out[d] = {"文件数": n, "MB": round(sz / 1024.0 / 1024, 1)}
     return out
 

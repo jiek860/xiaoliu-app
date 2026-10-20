@@ -144,34 +144,35 @@ def _real_calls(src_path, func_attr):
 def test_trunk_log_uses_rotating_writer():
     """trunk._log 必须走带轮转的写入，不能再自己 open(append)"""
     import ast
-    p = os.path.join(BASE, "core", "trunk.py")
-    src = open(p, encoding="utf-8").read()
-    tree = ast.parse(src)
+    paths = [os.path.join(BASE, "core", "trunk.py"),
+             os.path.join(BASE, "core", "trunk_config.py")]
+    src = "\n".join(open(path, encoding="utf-8").read() for path in paths)
 
-    # ① 必须用了公共写入
+    #  必须用了公共写入
     assert "append_line" in src, "trunk._log 没走公共写入（轮转对它无效）"
 
-    # ② 反证：不该再有"往 log_path 以 a 模式 open"的真实调用
+    #  反证：trunk 相关文件不该再有"往 log_path 以 a 模式 open"的真实调用
     bad = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        f = node.func
-        if not (isinstance(f, ast.Name) and f.id == "open"):
-            continue
-        # open(self.log_path, "a")
-        if not node.args:
-            continue
-        a0 = ast.unparse(node.args[0]) if hasattr(ast, "unparse") else ""
-        mode = ""
-        if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
-            mode = str(node.args[1].value)
-        for kw in node.keywords:
-            if kw.arg == "mode" and isinstance(kw.value, ast.Constant):
-                mode = str(kw.value.value)
-        if "log_path" in a0 and "a" in mode:
-            bad.append(node.lineno)
-    assert not bad, "trunk.py 第 %s 行还在直接 open(log_path,'a')（不走轮转）" % bad
+    for path in paths:
+        tree = ast.parse(open(path, encoding="utf-8").read())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            f = node.func
+            if not (isinstance(f, ast.Name) and f.id == "open"):
+                continue
+            if not node.args:
+                continue
+            a0 = ast.unparse(node.args[0]) if hasattr(ast, "unparse") else ""
+            mode = ""
+            if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
+                mode = str(node.args[1].value)
+            for kw in node.keywords:
+                if kw.arg == "mode" and isinstance(kw.value, ast.Constant):
+                    mode = str(kw.value.value)
+            if "log_path" in a0 and "a" in mode:
+                bad.append((path, node.lineno))
+    assert not bad, "trunk 还在直接 open(log_path,'a')（不走轮转）: %s" % bad
 
 
 def test_trunk_log_actually_writes():

@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """系统混入：状态栏刷新、数据导出导入"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os
 import zipfile
 import datetime
@@ -19,7 +25,8 @@ class SystemMixin:
                 "✅ 就绪 | 模块:%d | 模型:%s(%s) | %s" % (
                     n, model, mode,
                     datetime.datetime.now().strftime("%H:%M")), 5000)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     # export_logs() / export_data() 已删除 —— 它们是**重复实现**：

@@ -22,7 +22,7 @@
     except Exception:
         pass
 或
-    except Exception:  # noqa: silent
+    except Exception:  # 静默是故意的
         pass
 判定时会检查 except 节点往上 6 行内有没有 "故意" / "noqa: silent"。
 （已按此标记：gpu_detector.detect、crash_export 写提示文件。）
@@ -33,6 +33,12 @@
     py -3 tools\\check_silent.py --rebase   # 把当前数量写成新基线
     py -3 tools\\check_silent.py -v         # 列出每处位置
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import argparse
 import ast
 import json
@@ -93,7 +99,8 @@ def scan(base=BASE):
             try:
                 src = open(fp, encoding="utf-8-sig", errors="ignore").read()
                 tree = ast.parse(src)
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 continue
             lines = src.splitlines()
             hits = []
@@ -134,7 +141,7 @@ def main():
         # 会变成 int > list，直接 TypeError（写的时候踩过）
         json.dump({"_说明": "静默失败存量基线（棘轮）。新增应当先说明理由，"
                             "确属故意的在这处 except 上方写『静默是故意的：…』"
-                            "或行尾加 # noqa: silent。",
+                            "或行尾加 # 静默是故意的。",
                    "total": total,
                    "per_file": {k: len(v) for k, v in now.items()}},
                   open(BASELINE, "w", encoding="utf-8"),
@@ -180,7 +187,7 @@ def main():
         print("  · 确实该报的 —— 把它改成记日志 / 返回错误，别静默吞")
         print("  · 确实该忍的 —— 在这处 except 上方写一行说明：")
         print("        # 静默是故意的：<为什么这不是错误>")
-        print("    或者行尾加 # noqa: silent")
+        print("    或者行尾加 # 静默是故意的")
         print("  · 都不适用 —— 跑一次 py -3 tools\\check_silent.py --rebase")
         print("    并说明为什么这次放开")
         return 1
@@ -189,4 +196,6 @@ def main():
 
 
 if __name__ == "__main__":
+    from _console import use_utf8_console
+    use_utf8_console()
     sys.exit(main())

@@ -9,6 +9,12 @@
 发版端：build_release.py 生成 manifest → sign_release.py 填入 signature
 用户端：modules/installed/auto_updater.py 的 check_update() 先验签再判断版本
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import hashlib
 import json
 import os
@@ -85,7 +91,8 @@ def load_signing_privatekey():
             if os.path.exists(p):
                 with open(p, "rb") as f:
                     return serialization.load_pem_private_key(f.read(), password=None)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             continue
     raise RuntimeError(
         "找不到更新签名私钥，已查找:\n"

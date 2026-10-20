@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """更新对话框 - 检查更新/回滚/历史"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QMessageBox, QTextBrowser,
@@ -117,9 +123,11 @@ class UpdateDialog(QDialog):
                         )
                     )
                     self.history_list.addItem(item)
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def _get_updater(self):

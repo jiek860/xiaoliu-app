@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """TTS文字转语音模块 - 用edge-tts朗读"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, asyncio, tempfile
 from modules.base import BaseModule
 
@@ -25,7 +31,8 @@ class TTS(BaseModule):
             loop.run_until_complete(self._tts_async(text[:500], tmp))
             loop.close()
             try: os.startfile(tmp)
-            except: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
             self._count += 1
             return {"ok": True, "text": text[:50]}
         except Exception as e:

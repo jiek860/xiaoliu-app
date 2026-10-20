@@ -1,0 +1,39 @@
+[
+  {
+    "id": "path_1",
+    "kind": "path_safety",
+    "root": "E:\\xiaoliu"
+  },
+  {
+    "id": "net_private",
+    "kind": "net_guard",
+    "url": "http://127.0.0.1:1234/x",
+    "expected_allow": false
+  },
+  {
+    "id": "net_file",
+    "kind": "net_guard",
+    "url": "file:///C:/Windows/win.ini",
+    "expected_allow": false
+  },
+  {
+    "id": "net_cloud",
+    "kind": "net_guard",
+    "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    "expected_allow": true
+  },
+  {
+    "id": "permission_lockdown",
+    "kind": "permission"
+  },
+  {
+    "id": "workspace_1",
+    "kind": "workspace",
+    "name": "eval-workspace"
+  },
+  {
+    "id": "parser_1",
+    "kind": "parser",
+    "path": "E:\\xiaoliu\\README.md"
+  }
+]

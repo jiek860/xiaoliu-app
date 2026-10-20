@@ -20,6 +20,12 @@
     · config.default.json 里不许有填好的 Key
     · 同步后打印文件数/体积，方便和上次对比
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import argparse
 import hashlib
 import os
@@ -31,8 +37,11 @@ DEFAULT_DST = r"E:\xiao6-package"
 
 # 要同步的根级文件
 FILES = ["run.py", "app.ico", "config.default.json",
-         "requirements.txt", "requirements-optional.txt",
-         "启动PyQt.bat", "使用说明-小白版.txt"]
+         "requirements.txt", "requirements-optional.txt", "requirements.lock",
+         "install.bat", "启动PyQt.bat", "使用说明-小白版.txt",
+         # 协议：agreement.py 读 docs/，读不到会回退到根目录  打包版
+         # 不带 docs/，所以这两份必须随包发，否则首次启动显示"文件未找到"
+         "隐私政策.txt", "用户协议.txt"]
 # 可选：有就同步
 # ⚠️ 这里**故意不放 CHANGELOG.md / docs/** —— 那是开发文档，
 #    用户不需要。安装包越小越好（每多一个文件，用户就多一分困惑）。
@@ -43,12 +52,13 @@ DIRS = ["core", "gui", "modules", "modules_repo", "libs"]
 
 # 复制时排除的目录名
 SKIP = {"__pycache__", "retired", ".git", ".githooks", ".pytest_cache",
-        ".ruff_cache", "backup_"}
+        ".ruff_cache", "backup_", ".venv", ".runtime-venv",
+        ".build-venv", "htmlcov"}
 
 # 绝对不能出现在打包源里的
 FORBIDDEN = ["data", "backups", "optional_libs", "tests", "tools",
              "scripts", "staging", ".git", ".githooks", "dist", "build",
-             "logs", "docs"]
+             "logs", "docs", ".venv", ".runtime-venv", ".build-venv"]
 
 
 def md5(p):
@@ -109,10 +119,10 @@ def check_safety(dst):
         import re
         s = open(cfg, encoding="utf-8", errors="ignore").read()
         for k, v in re.findall(
-                r'"(cloud_key|email_pass|webhook|api_key)"\s*:\s*"([^"]*)"',
+                r'"(cloud_key|email_pass|webhook|api_key|[^"\s]*_webhook|[^"\s]*_secret)"\s*:\s*"([^"]*)"',
                 s, re.I):
-            if v.strip():
-                problems.append("config.default.json 里 %s 有值！" % k)
+            if v.strip() and not v.startswith("x6enc:v1:"):
+                problems.append("config.default.json 里 %s 有未加密的值！" % k)
     return problems
 
 
@@ -215,6 +225,12 @@ def du(p):
 
 
 def main():
+    try:
+        sys.stdout.reconfigure(errors="replace")
+        sys.stderr.reconfigure(errors="replace")
+    except Exception as e:
+        _x6_swallowed(__name__, e)
+        pass
     ap = argparse.ArgumentParser(description="同步打包源目录")
     ap.add_argument("--to", default=DEFAULT_DST, help="目标目录")
     ap.add_argument("--dry-run", action="store_true", help="只看差异")

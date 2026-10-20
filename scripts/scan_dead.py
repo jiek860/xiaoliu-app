@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """死代码扫描脚本：生成报告，不删任何文件"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, sys
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
@@ -16,7 +22,8 @@ for d in SCAN_DIRS:
             if f.endswith(".py"):
                 try:
                     all_text += open(os.path.join(root, f), encoding="utf-8", errors="ignore").read()
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
 lines = ["=== 死代码扫描报告 ===", "", "模块名 | 有trunk.call引用 | 疑似死代码"]
 for name in LAZY_MAP.keys():

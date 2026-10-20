@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 """
 import os智能路由 v10.0 - LLM真意图识别+路由缓存+反馈学习+置信度阈值"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import re, json, os
 from modules.base import BaseModule
 
@@ -20,7 +26,8 @@ class SmartRouter(BaseModule):
         self.cache_path = os.path.join(self.base, r"data\router_cache.json")
         if os.path.exists(self.cache_path):
             try: self.cache = json.load(open(self.cache_path, encoding="utf-8"))
-            except: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
         # 意图→模块映射
         self.intents = {
             "code": "agent_coder",
@@ -76,7 +83,8 @@ code=编程写代码；analysis=分析总结；planner=策划方案；search=联
             try:
                 conf = max(0.0, min(1.0, float(tok)))
                 break
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 continue
         # 意图词必须是合法意图之一（防止 LLM 输出别的词）
         hit = next((k for k in self.intents if k == intent), None)
@@ -124,7 +132,8 @@ code=编程写代码；analysis=分析总结；planner=策划方案；search=联
             if len(self.cache) > 500:
                 self.cache = dict(list(self.cache.items())[-200:])
             try: from core.safe import atomic_write_json; atomic_write_json(self.cache_path, self.cache, indent=None)
-            except: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
         return result
 
     def feedback(self, text, correct_intent):

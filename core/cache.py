@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """P1-20: 持久化缓存层 - LLM响应/搜索/嵌入缓存"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, json, hashlib, time
 
 
@@ -47,7 +53,8 @@ class DiskCache:
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(item, f, ensure_ascii=False)
             os.replace(tmp, path)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def clear(self):

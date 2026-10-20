@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """事件总线：引擎发事件，GUI订阅"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import threading
 
 class EventBus:
@@ -17,4 +23,5 @@ class EventBus:
         for pattern, fn in subs:
             if pattern == "*" or pattern == kind:
                 try: fn(kind, data)
-                except: pass
+                except Exception as e:
+                    _x6_swallowed(__name__, e)

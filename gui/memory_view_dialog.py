@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """记忆可视化 - 时间线/图谱/搜索/编辑"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, json
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QListWidgetItem, QTextBrowser, QLineEdit, QTabWidget, QWidget, QMessageBox, QInputDialog, QMenu, QAction
 from PyQt5.QtCore import Qt
@@ -75,7 +81,8 @@ class MemoryViewDialog(QDialog):
         for ln in open(self.memory_path, encoding="utf-8"):
             try:
                 cards.append(json.loads(ln.strip()))
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         return cards
 

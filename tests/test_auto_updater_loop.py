@@ -289,8 +289,10 @@ def test_sandbox_uses_unique_temp_name(mk):
     共用固定文件名时，两个验证流程并发会互相覆盖，
     验证结果**张冠李戴**（A 的补丁用 B 的结果判通过）。
     """
-    src = open(os.path.join(BASE, "modules", "installed", "auto_updater.py"),
-               encoding="utf-8").read()
+    src = (open(os.path.join(BASE, "modules", "installed", "auto_updater.py"),
+                encoding="utf-8").read() + "\n" +
+           open(os.path.join(BASE, "core", "auto_update_patch.py"),
+                encoding="utf-8").read())
     assert "getpid()" in src and "get_ident()" in src, \
         "临时文件名没带 pid/线程号 —— 并发会互相覆盖"
 
@@ -476,25 +478,19 @@ def test_loop_never_raises_on_bad_trunk(mk):
 # ══════════════════════════════════════════════════════════════
 # ⑦ 杂项
 # ══════════════════════════════════════════════════════════════
-def test_ask_confirm_without_trunk_defaults_true(mk):
+def test_ask_confirm_without_trunk_defaults_false(mk):
     u = mk()
     u.trunk = None
-    assert u.ask_confirm("计划") is True
+    assert u.ask_confirm("计划") is False
 
 
-def test_ask_confirm_trunk_error_defaults_true(mk):
-    """⚠️ 弹窗失败时**放行**（返回 True）—— 记录这个取向
-
-    这是代码里的既有选择（`except: return True`）。
-    风险：GUI 出问题时，本该弹窗确认的危险操作会**静默放行**。
-    好在后面还有备份+回滚兜着，而且 `_allow_self_upgrade` 那道
-    规则闸还在。这条测试不是要改它，是把这个取向往明处放。
-    """
+def test_ask_confirm_trunk_error_defaults_false(mk):
+    """弹窗回调异常时必须 fail-closed（返回 False），不能静默部署。"""
     u = mk()
     def boom(*a, **k):
         raise RuntimeError("GUI 没了")
     u.trunk.confirm = boom
-    assert u.ask_confirm("计划") is True
+    assert u.ask_confirm("计划") is False
 
 
 def test_analyze_performance_and_run(mk):

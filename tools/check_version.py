@@ -14,6 +14,12 @@
     py -3 tools\\check_version.py          # 只检查
     py -3 tools\\check_version.py --fix    # 能自动改的自动改（CHANGELOG 条目除外）
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import argparse
 import os
 import re
@@ -77,7 +83,7 @@ def main():
     # 还写着 v25.1.3）"必然要举例，那两处被当成不一致就是**误报**。
     # 现在改成只认显式声明行。
     DECL = re.compile(r"版\s*本[号]?\s*[:：]\s*(v?[\d]+\.[\d]+\.[\d]+)")
-    for name in ("小6智能体最新架构与功能说明.txt",):
+    for name in ("docs/00_产品架构与UI主文档.md",):
         p = os.path.join(BASE, name)
         if not os.path.exists(p):
             continue
@@ -115,12 +121,14 @@ def main():
     #   开发流程与目录结构梳理.md   历史提交信息示例
     #   开发者须知-密钥与发版.md    讲"版本号曾漂移"时必然要举例
     #   部署步骤.md                命令行示例
-    #   小6智能体最新架构与功能说明.txt
+    #   docs/00_产品架构与UI主文档.md
     #                             第十/十三节讲历史漂移与守卫时举了 v25.1.3/v25.1.5；
     #                             它的**版本声明**由上面第 3 步单独检查
     EXPLANATORY = ("CHANGELOG.md", "开发流程与目录结构梳理.md",
                    "开发者须知-密钥与发版.md", "部署步骤.md",
-                   "小6智能体最新架构与功能说明.txt")
+                   "00_产品架构与UI主文档.md",
+                   "10_开发流程与工程手册.md",
+                   "20_优化路线与实施记录.md")
     rest = []
     for root, dirs, fs in os.walk(BASE):
         dirs[:] = [d for d in dirs if d not in
@@ -139,7 +147,8 @@ def main():
                     for v in re.findall(r"(?<![\d.])v?25\.\d+\.\d+", line):
                         if v.lstrip("vV") != bare:
                             rest.append("%s:%d  %s" % (rel, i, line.strip()[:60]))
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
     if rest:
         print("    发现 %d 处（历史记录类可忽略）:" % len(rest))
@@ -163,4 +172,6 @@ def main():
 
 
 if __name__ == "__main__":
+    from _console import use_utf8_console
+    use_utf8_console()
     sys.exit(main())

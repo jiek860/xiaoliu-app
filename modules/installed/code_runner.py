@@ -18,47 +18,38 @@ class CodeExecutor(BaseModule):
 
     @safe
     def run_code(self, code):
-        """运行Python代码"""
-        # 安全检查
-        dangerous = ["os.system", "subprocess", "shutil.rmtree", "open(", "eval(", "exec("]
-        for d in dangerous:
-            if d in code:
-                return {"错误": f"检测到危险操作: {d}", "安全": "已阻止"}
-
-        # 写临时文件
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
-            f.write(code)
-            tmpfile = f.name
-
-        try:
-            r = subprocess.run(
-                [sys.executable, tmpfile],
-                capture_output=True, text=True, timeout=self.timeout
-            )
+        """在进程级沙箱中运行 Python 代码。"""
+        from core.sandbox import run_python
+        r = run_python(str(code or ""), timeout=self.timeout)
+        if r.get("timed_out"):
+            self.fail_count += 1
+            result = {"错误": f"超时（{self.timeout}秒），进程树已终止"}
+        elif r.get("ok"):
             self.success_count += 1
             result = {
-                "stdout": r.stdout[:500],
-                "stderr": r.stderr[:500],
-                "returncode": r.returncode
+                "stdout": r.get("stdout", ""),
+                "stderr": r.get("stderr", ""),
+                "returncode": r.get("returncode"),
+                "沙箱": "进程级",
+                "耗时": r.get("duration"),
             }
-        except subprocess.TimeoutExpired:
+        else:
             self.fail_count += 1
-            result = {"错误": f"超时（{self.timeout}秒）"}
-        except Exception as e:
-            self.fail_count += 1
-            result = {"错误": str(e)[:80]}
-        finally:
-            os.unlink(tmpfile)
+            result = {
+                "stdout": r.get("stdout", ""),
+                "stderr": r.get("stderr", ""),
+                "returncode": r.get("returncode"),
+                "错误": r.get("stderr", "")[:200] or "执行失败",
+                "沙箱": "进程级",
+            }
 
-        # 记录历史
         self.history.append({
-            "代码": code[:50],
+            "代码": str(code or "")[:50],
             "结果": str(result.get("stdout", result.get("错误", "")))[:50],
             "时间": time.strftime("%m-%d %H:%M")
         })
         if len(self.history) > 20:
             self.history = self.history[-20:]
-
         return result
 
     @safe

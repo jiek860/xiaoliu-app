@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """磁盘缓存模块 - 把常用问答存到硬盘，重复问题秒回"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, json, time, threading
 from modules.base import BaseModule
 from core.safe import atomic_write_json
@@ -40,7 +46,8 @@ class DiskCache(BaseModule):
                     atomic_write_json(self.path, self._data)
             except Exception as e:
                 try: self._log("缓存保存失败: %s" % str(e)[:40])
-                except: pass
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
         threading.Thread(target=_write, daemon=True).start()
 
     def get(self, question: str):
@@ -87,10 +94,12 @@ class DiskCache(BaseModule):
         try:
             if os.path.exists(self.path):
                 os.remove(self.path)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         try: self._log("缓存已清空")
-        except: pass
+        except Exception as e:
+            _x6_swallowed(__name__, e)
 
     def stats(self):
         """返回缓存统计"""

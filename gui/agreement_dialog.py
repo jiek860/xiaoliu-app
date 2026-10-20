@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """协议确认对话框 - 首次启动/版本更新时弹窗"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QCheckBox, QTextBrowser, QTabWidget, QMessageBox,
@@ -122,7 +128,8 @@ class AgreementDialog(QDialog):
                 r = self.trunk.call("auth", "whoami")
                 if isinstance(r, dict):
                     user = r.get("user", "guest")
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         ag.agree(user=user)
         self.agreed = True

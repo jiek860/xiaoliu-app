@@ -251,4 +251,6 @@ def main():
 
 
 if __name__ == "__main__":
+    from _console import use_utf8_console
+    use_utf8_console()
     sys.exit(main())

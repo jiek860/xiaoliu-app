@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """系统窗口 v2.0 - 标签页卡片式（仿设置窗口）"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 from PyQt5.QtWidgets import QVBoxLayout, QLabel, QPushButton, QTextBrowser, QGroupBox, QTabWidget, QWidget
 
 
@@ -94,7 +100,8 @@ def show_system_dialog(self):
             try:
                 r = self.trunk.call("error_lib", "list")
                 errs = (r or {}).get("未修复", 0) if isinstance(r, dict) else 0
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
             # 读当前模型状态
             try:
@@ -111,7 +118,8 @@ def show_system_dialog(self):
                 model_status = "🟢 当前模型: 未知"
             status_bar.setPlainText("📊 模块: %d | 未修复错误: %d | 状态: %s\n%s"
                 % (n, errs, "✅ 正常" if errs == 0 else "⚠ 有错误", model_status))
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
     _refresh_status()
     l1.addWidget(box1)

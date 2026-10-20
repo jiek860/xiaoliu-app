@@ -5,7 +5,8 @@
 
 1. 下载Python
    - 官网：https://www.python.org/downloads/
-   - 推荐版本：Python 3.10 或更高
+   - 支持版本：Python 3.10 / 3.11 / 3.12（推荐 3.12）
+   - 不支持：Python 3.9 及以下；3.13 尚未验证
 
 2. 安装Python
    - 双击安装包
@@ -19,12 +20,14 @@
 
 二、安装依赖
 
-1. 打开命令行（cmd）
-2. 输入以下命令：
+**推荐**：直接双击项目根目录的 `install.bat` 
+它会自动走清华镜像，把 5 个核心依赖装齐（PyQt5 / requests / numpy / cryptography / psutil）。
 
-   pip install PyQt5 cryptography jedi requests
+手动装也可以，**务必带国内源**（不带的话可能慢到以为卡死）：
 
-3. 等待安装完成
+   py -3 -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+如果提示找不到 `py`，把 `py -3` 换成 `python`。
 
 三、下载小6智能体
 
@@ -36,7 +39,7 @@
 
 1. 双击 "启动PyQt.bat"
 2. 或者打开cmd，输入：
-   python run.py
+   py -3 run.py
 
 3. 第一次启动会弹隐私协议
 4. 点同意，然后登录
@@ -55,3 +58,8 @@ Q: 程序闪退
 A: 打开 "打开控制台.bat" 看错误信息
 
 ════════════════════════════════════════════════════════════
+
+文档同步：2026-10-20 / v25.2.23
+本次同步：Windows + Python 3.10/3.11/3.12 兼容矩阵、
+旧数据 v0→v1→v2 自动迁移、插件 API v1.0 边界检查。
+完整兼容性见 docs/70_兼容性与数据迁移.md。

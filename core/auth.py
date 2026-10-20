@@ -6,6 +6,12 @@
 - 每个账号独立目录：data/users/<账号>/，聊天记录互相隔离
 - 一个激活码只能激活一个账号
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, json, time, shutil
 
 
@@ -38,10 +44,12 @@ class Auth:
                     if len(cleaned) != len(raw):
                         try:
                             shutil.copy2(self.db_path, self.db_path + ".legacy_bak")
-                        except Exception:
+                        except Exception as e:
+                            _x6_swallowed(__name__, e)
                             pass
                     return cleaned
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         return {}
 
@@ -49,7 +57,8 @@ class Auth:
         try:
             with open(self.db_path, "w", encoding="utf-8") as f:
                 json.dump(self.db, f, ensure_ascii=False, indent=2)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def _load_license_assets(self):
@@ -114,7 +123,7 @@ class Auth:
     def _used_codes(self):
         """所有账号已用过的激活码集合"""
         used = set()
-        for u, d in self.db.items():
+        for _u, d in self.db.items():
             c = d.get("code")
             if c:
                 used.add(c.strip().upper())
@@ -175,6 +184,12 @@ class Auth:
         d = self.db[username]
         if not d.get("activated"):
             return {"ok": False, "msg": "账号未激活，请先点「激活」输入激活码"}
+        # 登录时重新验签，不能只信任 users.json 里可被本地编辑的 activated 布尔值。
+        code = str(d.get("code") or "")
+        ok, why, _info = self._verify_code(code)
+        if not ok:
+            return {"ok": False,
+                    "msg": "授权校验失败，请重新激活：" + str(why)[:80]}
         # 过期检查
         exp = d.get("expire")
         if exp and exp != "永久":
@@ -182,7 +197,8 @@ class Auth:
                 from datetime import date
                 if date.today() > date.fromisoformat(str(exp)):
                     return {"ok": False, "msg": "账号已过期（%s）" % exp}
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         self.current_user = username
         d["last_login"] = time.time()

@@ -4,6 +4,13 @@ import os
 import json
 import time
 
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
+
 
 class UpdateStats:
     def __init__(self, trunk=None):
@@ -17,8 +24,8 @@ class UpdateStats:
         if os.path.exists(self.path):
             try:
                 return json.load(open(self.path, encoding="utf-8"))
-            except Exception:
-                pass
+            except Exception as e:
+                _x6_swallowed(__name__, e, "best-effort fallback")
         return {"checks": 0, "success": 0, "fail": 0}
 
     def _save(self):
@@ -27,8 +34,8 @@ class UpdateStats:
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, ensure_ascii=False)
             os.replace(tmp, self.path)
-        except Exception:
-            pass
+        except Exception as e:
+            _x6_swallowed(__name__, e, "best-effort fallback")
 
     def report_check(self):
         """上报：检查更新一次"""

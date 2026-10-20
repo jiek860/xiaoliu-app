@@ -130,16 +130,19 @@ def au():
 
 def test_updater_verifies_manifest_signature(au):
     """更新清单必须验签 —— 否则可以伪造一个"官方更新"塞任意代码"""
-    src = open(os.path.join(BASE, "modules", "installed",
-                            "auto_updater.py"), encoding="utf-8").read()
+    src = (open(os.path.join(BASE, "modules", "installed", "auto_updater.py"),
+                encoding="utf-8").read() + "\n" +
+           open(os.path.join(BASE, "core", "auto_update_download.py"),
+                encoding="utf-8").read())
     assert "verify_manifest" in src, "更新清单没有验签"
     assert "签名缺失或被篡改" in src, "验签失败后没有明确拒绝的文案"
 
 
 def test_updater_verifies_each_file_hash(au):
-    """每个下载的文件都要逐个校验 sha256"""
-    src = open(os.path.join(BASE, "modules", "installed",
-                            "auto_updater.py"), encoding="utf-8").read()
+    src = (open(os.path.join(BASE, "modules", "installed", "auto_updater.py"),
+                encoding="utf-8").read() + "\n" +
+           open(os.path.join(BASE, "core", "auto_update_download.py"),
+                encoding="utf-8").read())
     assert "hashlib.sha256(data).hexdigest()" in src, \
         "没有逐文件校验 sha256"
     assert "sha256 不符" in src, "校验失败后没有明确拒绝的文案"
@@ -153,7 +156,7 @@ def test_updater_verifies_again_before_install(au):
     照样通过。**数出现次数不等于数"真的在把关"**。
     改成：每一处 verify_manifest 调用后面都要跟着"失败就返回"。
     """
-    p = os.path.join(BASE, "modules", "installed", "auto_updater.py")
+    p = os.path.join(BASE, "core", "auto_update_download.py")
     lines = open(p, encoding="utf-8").read().splitlines()
     sites = [i for i, l in enumerate(lines)
              if "verify_manifest(" in l and "def " not in l]
@@ -170,8 +173,8 @@ def test_updater_verifies_again_before_install(au):
 
 def test_updater_backs_up_before_replacing(au):
     """替换程序文件前必须先备份（出问题要能回滚）"""
-    src = open(os.path.join(BASE, "modules", "installed",
-                            "auto_updater.py"), encoding="utf-8").read()
+    src = open(os.path.join(BASE, "core",
+                            "auto_update_download.py"), encoding="utf-8").read()
     assert "备份" in src, "没有备份步骤"
     i_dl = src.find("download_and_install")
     assert i_dl >= 0

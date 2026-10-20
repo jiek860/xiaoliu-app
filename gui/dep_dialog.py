@@ -26,6 +26,13 @@ from PyQt5.QtWidgets import (QApplication, QCheckBox, QDialog, QHBoxLayout,
 
 from core import error_text
 
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
+
 MIRROR = error_text.PIP_MIRROR
 
 
@@ -58,8 +65,8 @@ def package_size_hint(pkg):
     # 静默是故意的：取不到大小不是错误 —— 这一句只是提示语里的
     # "约 XXX MB"，拿不到就走下面的兜底/显示"大小未知"，
     # 不该因此拦住安装流程
-    except Exception:
-        pass
+    except Exception as e:
+        _x6_swallowed(__name__, e, "best-effort fallback")
     # 兜底：不在 FEATURES 映射里的包也要能报大小
     # （torch 就是 —— 它只是"看图"那条路的可选替代后端，没进功能映射）
     if pkg in heavy:

@@ -1,0 +1,147 @@
+# -*- coding: utf-8 -*-
+"""LLM 云端调用、流式、脱敏和响应缓存辅助。"""
+from __future__ import annotations
+
+import json
+import time
+import requests
+from core.llm_shared import _is_cloud_mode
+
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
+
+class LLMCloudMixin:
+    def _post(self, url, **kwargs):
+        """所有 requests.post 的统一出口，先过网络策略。"""
+        try:
+            from core.net_guard import get_net_guard
+            purpose = "local_model" if str(url).startswith(self.base_url) else "cloud_model"
+            d = get_net_guard(self.trunk).check(
+                url, module="llm_client", purpose=purpose, method="POST")
+            if not d.get("allow"):
+                if self.trunk:
+                    self.trunk._log("网络策略拒绝: %s (%s)" %
+                                    (d.get("reason"), d.get("domain", "")))
+                raise PermissionError(d.get("reason") or "网络请求被拒绝")
+        except PermissionError:
+            raise
+        except Exception as e:
+            # 网络策略自身异常时，外部请求按拒绝处理；本地模型按本地放行，
+            # 避免把程序自己的异常变成 Ollama 不可用。
+            if "localhost" in str(url) or "127.0.0.1" in str(url):
+                pass
+            else:
+                raise PermissionError("网络策略检查失败: %s" % str(e)[:60]) from e
+        return requests.post(url, **kwargs)
+
+    def _chat_cloud_only(self, message):
+        """模式②：只连云端，失败重试1次"""
+        for _attempt in range(2):
+            r = self._try_cloud(message)
+            if r:
+                return r
+            time.sleep(1)
+        return "（云端模型暂时没响应，请检查网络或API密钥）"
+
+    def _mask_if_enabled(self, msgs):
+        """发云端前按需脱敏（sensitive_detector）
+
+        默认**关闭**：自动脱敏会改变真正发出去的内容
+        （比如你问"这个身份证号对不对"会被打成 110***********234），
+        所以做成开关，用户自己在 config.json 里加 "云端脱敏": true 才生效。
+        sensitive_detector 这个模块登记了很久没人调用，这里给它接上。
+        """
+        try:
+            if not self.config.get("云端脱敏", False):
+                return msgs
+            if self.trunk is None:
+                return msgs
+            if "sensitive_detector" not in self.trunk.modules:
+                self.trunk.call("sensitive_detector", "__no__")
+            sd = self.trunk.modules.get("sensitive_detector")
+            if sd is None or not hasattr(sd, "mask"):
+                return msgs
+            out = []
+            for m in msgs:
+                if isinstance(m, dict) and isinstance(m.get("content"), str):
+                    m = dict(m)
+                    m["content"] = sd.mask(m["content"])
+                out.append(m)
+            return out
+        except Exception:
+            return msgs
+
+    def _try_cloud(self, message):
+        url = self.config.get("cloud_url", "")
+        key = self.config.get("cloud_key", "")
+        if not url or not key: return None
+        model = self.config.get("cloud_model", "qwen-turbo")
+        try:
+            if isinstance(message, list):
+                msgs = [{k: v for k, v in m.items() if k != "images"} if isinstance(m, dict) else m
+                        for m in message]
+            else:
+                msgs = [{"role": "user", "content": message}]
+            msgs = self._fit_messages(self._mask_if_enabled(msgs))
+            if not url.endswith("/chat/completions"):
+                url = url.rstrip("/") + "/chat/completions"
+            _t0 = time.time()
+            r = self._post(url,
+                headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+                json={"model": model, "messages": msgs, "temperature": 0.7},
+                timeout=30)
+            _ans = r.json()["choices"][0]["message"]["content"]
+            self._track_usage(model, msgs, _ans, time.time() - _t0,
+                              kind="cloud_model")
+            return _ans
+        except Exception as e:
+            if self.trunk: self.trunk._log("云端模型失败: " + str(e)[:60])
+            return None
+
+    def _try_cloud_stream(self, message, on_token=None):
+        """云端真流式：逐字返回"""
+        url = self.config.get("cloud_url", "")
+        key = self.config.get("cloud_key", "")
+        if not url or not key: return ""
+        model = self.config.get("cloud_model", "qwen-turbo")
+        try:
+            if isinstance(message, list):
+                msgs = [{k: v for k, v in m.items() if k != "images"} if isinstance(m, dict) else m
+                        for m in message]
+            else:
+                msgs = [{"role": "user", "content": message}]
+            # 云端流式也必须遵守云端脱敏配置，不能绕过 _try_cloud 的脱敏。
+            msgs = self._fit_messages(self._mask_if_enabled(msgs))
+            if not url.endswith("/chat/completions"):
+                url = url.rstrip("/") + "/chat/completions"
+            full = ""
+            _t0 = time.time()
+            r = self._post(url,
+                headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+                json={"model": model, "messages": msgs, "stream": True},
+                stream=True, timeout=120)
+            for line in r.iter_lines():
+                if not line: continue
+                line = line.decode("utf-8").strip()
+                if not line.startswith("data:"): continue
+                data = line[5:].strip()
+                if data == "[DONE]": break
+                try:
+                    chunk = json.loads(data)
+                    tok = chunk["choices"][0].get("delta", {}).get("content", "")
+                    if tok:
+                        full += tok
+                        if on_token: on_token(tok)
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
+            if full:
+                self._track_usage(model, msgs, full, time.time() - _t0,
+                                  kind="cloud_model_stream")
+            return full
+        except Exception as e:
+            if self.trunk: self.trunk._log("云端流式失败: " + str(e)[:60])
+            return ""

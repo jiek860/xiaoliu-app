@@ -1,0 +1,57 @@
+name: 兼容矩阵
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-python:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: 安装依赖
+        run: |
+          python -m pip install -U pip
+          python -m pip install -r requirements.txt pytest -i https://pypi.tuna.tsinghua.edu.cn/simple
+      - name: 生成插件清单（CI 上没有 modules_repo）
+        run: python tools/rebuild_modules_repo.py --apply
+      - name: 运行环境检查
+        run: python tools/check_runtime_compat.py --allow-server
+      - name: 语法编译检查
+        run: python -m compileall -q core gui modules
+      - name: 数据迁移与插件 API 配置检查
+        run: |
+          python tools/migrate_data.py --dry-run --json
+          python tools/check_plugin_api.py
+      - name: 核心兼容测试
+        run: >-
+          python -m pytest
+          tests/test_smoke.py
+          tests/test_core.py
+          tests/test_imports.py
+          tests/test_runtime_compat.py
+          tests/test_data_schema.py
+          tests/test_data_migrations.py
+          tests/test_plugin_api.py
+          tests/test_docs_consistency.py
+          tests/test_file_size_policy.py
+          tests/test_package_sync.py
+          tests/test_user_docs_intact.py
+          -q

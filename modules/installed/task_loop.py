@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """任务闭环 v13.0 - 云端开真自主循环，本地保持简单拆步"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, time, json
 import sys
 from modules.base import BaseModule
@@ -37,7 +43,8 @@ class TaskPipeline(BaseModule):
         if os.path.exists(self.state_path):
             try:
                 return json.load(open(self.state_path, encoding="utf-8"))
-            except:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         return {"tasks": 0, "done": 0, "history": []}
 
@@ -45,7 +52,8 @@ class TaskPipeline(BaseModule):
         try:
             json.dump(self.state, open(self.state_path, "w", encoding="utf-8"),
                       ensure_ascii=False, indent=2)
-        except:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def _log(self, msg):
@@ -53,7 +61,8 @@ class TaskPipeline(BaseModule):
             try:
                 self.trunk._log(msg)
                 return
-            except:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         print(msg)
 
@@ -64,7 +73,8 @@ class TaskPipeline(BaseModule):
             if llm:
                 mode = llm.config.get("model_mode", "本地路由")
                 return "云端" in str(mode) or "cloud" in str(mode).lower()
-        except:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return False
 

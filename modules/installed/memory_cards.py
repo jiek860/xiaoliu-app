@@ -3,6 +3,12 @@
 import os记忆卡系统 v2（规则级）：对话后按规则触发→分类提取→去重→时间衰减检索，喂回 prompt
 升级：触发规则（轮数/强信号/话题切换/情绪）、分类标签、Jaccard 去重、时间衰减 hint
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import json, os, time, re, threading
 from datetime import datetime
 from core.safe import safe
@@ -79,7 +85,8 @@ class MemoryCards(BaseModule):
         try:
             if self.trunk:
                 return self.trunk.rule(key, default)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return default
 
@@ -132,7 +139,8 @@ JSON:""" % (user_text[:200], answer[:200])
                 card["date"] = datetime.now().strftime("%Y-%m-%d")
                 card["time"] = time.time()
                 return card
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return None
 
@@ -224,7 +232,8 @@ JSON:""" % (user_text[:200], answer[:200])
         try:
             if self.trunk:
                 self.trunk._log(msg)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def stats(self):

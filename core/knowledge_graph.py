@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """知识图谱 v10.0 - LLM真抽取+对话自动入图+多跳推理+RAG查询"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import json, os, re
 from datetime import datetime
 from collections import deque
@@ -34,7 +40,8 @@ class KnowledgeGraph:
                 d = json.load(open(self.path, encoding="utf-8"))
                 if isinstance(d, dict): self.data = d
                 elif isinstance(d, list): self.data = {"三元组": d}
-            except: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
 
     def _save(self):
         """P1-2: 批量写盘，30秒一次，原子写"""
@@ -129,7 +136,7 @@ class KnowledgeGraph:
                 paths.append({"路径": "→".join(path), "深度": d})
             if d >= depth or len(paths) >= limit:
                 continue
-            for p, o in adj.get(node, []):
+            for _p, o in adj.get(node, []):
                 if o not in seen:
                     seen.add(o)
                     frontier.append((o, d + 1, path + [o]))
@@ -162,7 +169,8 @@ class KnowledgeGraph:
         try:
             self.auto_extract(user_text)
             self.auto_extract(assistant_text)
-        except:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def status(self):

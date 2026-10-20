@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """记忆闭环 v12.0 - 编排者：对话→记忆卡总结→遗忘曲线安排→到期复习→检索增强"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, time, json
 from core.safe import safe
 from modules.base import BaseModule
@@ -40,7 +46,8 @@ class MemoryPipeline(BaseModule):
         if os.path.exists(self.episodic_path):
             try:
                 return json.load(open(self.episodic_path, encoding="utf-8"))
-            except:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         return []
 
@@ -48,7 +55,8 @@ class MemoryPipeline(BaseModule):
         try:
             json.dump(self.episodic_mem[-200:], open(self.episodic_path, "w", encoding="utf-8"),
                       ensure_ascii=False, indent=1)
-        except:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     @safe
@@ -72,7 +80,8 @@ class MemoryPipeline(BaseModule):
             for e in reversed(self.episodic_mem):
                 try:
                     t = time.mktime(time.strptime(e.get("time", ""), "%Y-%m-%d %H:%M:%S"))
-                except:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     continue
                 if now - t > hours * 3600:
                     continue
@@ -94,7 +103,8 @@ class MemoryPipeline(BaseModule):
                 txt = h.get("text", "") if isinstance(h, dict) else str(h)
                 if txt:
                     out.append({"type": "向量", "text": txt[:100]})
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         # 情景记忆（当前问题情景 + 时间窗口）
         scene = self._scene(query)
@@ -108,7 +118,8 @@ class MemoryPipeline(BaseModule):
         if os.path.exists(self.state_path):
             try:
                 return json.load(open(self.state_path, encoding="utf-8"))
-            except:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         return {"summarized": 0, "reviews": 0, "last": 0}
 
@@ -116,7 +127,8 @@ class MemoryPipeline(BaseModule):
         try:
             json.dump(self.state, open(self.state_path, "w", encoding="utf-8"),
                       ensure_ascii=False, indent=2)
-        except:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def _log(self, msg):
@@ -124,7 +136,8 @@ class MemoryPipeline(BaseModule):
             try:
                 self.trunk._log(msg)
                 return
-            except:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         print(msg)
 
@@ -173,7 +186,8 @@ class MemoryPipeline(BaseModule):
                     # 复习后强化向量记忆
                     self.trunk.call("vector_store", "add", str(key), tag="复习")
                     reviewed += 1
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
             if reviewed:
                 self.state["reviews"] += reviewed
@@ -188,7 +202,8 @@ class MemoryPipeline(BaseModule):
             r = self.trunk.call("vector_store", "search", query, top_k)
             if isinstance(r, list):
                 return r
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return []
 

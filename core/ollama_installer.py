@@ -27,6 +27,7 @@ GPU 运行库都打进去了。这一点必须提前告诉用户，否则会以�
 不静默安装（那是替用户做决定，而且装到哪、要不要管理员权限
 都应该由系统安装向导说了算）。
 """
+import hashlib
 import os
 import shutil
 import subprocess
@@ -35,6 +36,13 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 
 # 实测可用的下载源。顺序 = 默认优先级（先加速，后官方兜底）。
 # 每个都必须用 /releases/latest/download/ 这种**不带版本号**的地址 ——
@@ -69,12 +77,19 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
 
 
+DEFAULT_OLLAMA = "http://127.0.0.1:11434"
+
 def probe(url, timeout=10):
     """探一个源：能不能拿到、返回的是不是真的 exe、包多大
 
     只看**前 1KB**（Range 请求）—— 探 5 个源不该等于下 5 遍 1.5GB。
     """
     try:
+        from core.net_guard import get_net_guard
+        d = get_net_guard(None).check(
+            url, module="ollama_installer", purpose="installer_probe")
+        if not d.get("allow"):
+            return {"ok": False, "错误": "网络策略拒绝: " + str(d.get("reason"))}
         req = urllib.request.Request(url, headers={
             "User-Agent": _UA, "Range": "bytes=0-1023"})
         t0 = time.time()
@@ -108,8 +123,8 @@ def pick_best(timeout=10, progress=None):
                 progress("正在检测下载源 %d/%d：%s" % (i + 1, len(SOURCES),
                                                   s["名字"]))
             # 静默是故意的：progress 是界面的回调，它挂了不该让"挑源"这件事失败
-            except Exception:
-                pass
+            except Exception as e:
+                _x6_swallowed(__name__, e, "best-effort fallback")
         r = probe(s["url"], timeout=timeout)
         if r.get("ok"):
             out = dict(s)
@@ -134,7 +149,16 @@ def download(url, dest=None, progress=None, chunk=256 * 1024,
     """
     dest = dest or default_path()
     tmp = dest + ".part"
+    # 立刻取消就别去建连接  否则网络慢的时候要干等 30 秒才返回"取消"，
+    # 而且如果连接直接失败，返回的就变成"错误"而不是"取消"（实测偶发）。
+    if should_stop and should_stop():
+        return {"取消": True}
     try:
+        from core.net_guard import get_net_guard
+        d = get_net_guard(None).check(
+            url, module="ollama_installer", purpose="installer_download")
+        if not d.get("allow"):
+            return {"ok": False, "错误": "网络策略拒绝: " + str(d.get("reason"))}
         req = urllib.request.Request(url, headers={"User-Agent": _UA})
         t0 = time.time()
         got = 0
@@ -167,8 +191,8 @@ def download(url, dest=None, progress=None, chunk=256 * 1024,
                         # 静默是故意的：同上 —— 界面回调失败不该中断下载，
                         # 下载本身才是正事（1.5GB 下到一半因为刷界面失败而停
                         # 是最糟的结果）
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            _x6_swallowed(__name__, e, "best-effort fallback")
         os.replace(tmp, dest)          # 下完才改名 —— 中途断了不会留半个 exe
         return {"ok": True, "路径": dest, "字节": got,
                 "MB": round(got / 1048576.0, 1),
@@ -188,11 +212,60 @@ def _cleanup(p):
     # 静默是故意的：删临时文件失败不影响结果 —— 调用方已经拿到了
     # "取消/失败"的结论，.part 留着下次下载会被覆盖。为它再抛一次异常
     # 只会把真正的失败原因（网络错误）盖掉。
+    except Exception as e:
+        _x6_swallowed(__name__, e, "best-effort fallback")
+
+
+def verify_sha256(path, expected_sha256):
+    """校验安装包 SHA256；expected 为空返回 None（表示未提供）。"""
+    expected = str(expected_sha256 or "").strip().lower()
+    if not expected:
+        return None
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+        return h.hexdigest() == expected
     except Exception:
-        pass
+        return False
 
 
-def run_installer(path=None, wait=False):
+def verify_authenticode(path, publisher_hint="Ollama"):
+    """Windows Authenticode 校验：状态必须 Valid，发布者需包含厂商名。
+
+    第三方加速源可能被投毒，仅看响应头 MZ 不够。校验失败一律拒绝启动。
+    """
+    if not sys.platform.startswith("win"):
+        return False, "当前平台不支持 Authenticode 校验"
+    p = str(path).replace("'", "''")
+    ps = (
+        "$s = Get-AuthenticodeSignature -LiteralPath '%s'; "
+        "if ($s.Status -ne 'Valid') { Write-Output ('STATUS:' + $s.Status); exit 2 }; "
+        "Write-Output ('SUBJECT:' + $s.SignerCertificate.Subject)"
+    ) % p
+    try:
+        r = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps],
+            capture_output=True, text=True, timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except Exception as e:
+        return False, "签名校验执行失败: %s" % str(e)[:60]
+    out = ((r.stdout or "") + "\n" + (r.stderr or "")).strip()
+    if r.returncode != 0:
+        return False, "安装包签名无效: " + out[-120:]
+    subject = ""
+    for line in out.splitlines():
+        if line.startswith("SUBJECT:"):
+            subject = line[len("SUBJECT:"):].strip()
+            break
+    if publisher_hint and publisher_hint.lower() not in subject.lower():
+        return False, "发布者不匹配: " + (subject or "未知")
+    return True, subject
+
+
+def run_installer(path=None, wait=False, expected_sha256=None,
+                  expected_publisher="Ollama"):
     """启动安装程序
 
     **不静默安装**：OllamaSetup.exe 自带向导（能选安装位置、要不要开机自启），
@@ -205,6 +278,13 @@ def run_installer(path=None, wait=False):
     if os.path.getsize(path) < 1024 * 1024:
         return {"ok": False, "错误": "安装包太小（%d 字节），可能没下完"
                                     % os.path.getsize(path)}
+    hash_ok = verify_sha256(path, expected_sha256)
+    if hash_ok is False:
+        return {"ok": False, "错误": "安装包 SHA256 校验失败，已拒绝运行"}
+    sig_ok, sig_detail = verify_authenticode(path, expected_publisher)
+    if not sig_ok:
+        return {"ok": False, "错误": "安装包签名校验失败，已拒绝运行: "
+                                    + str(sig_detail)[:100]}
     try:
         if sys.platform.startswith("win"):
             # 用 ShellExecute 语义：让系统处理 UAC（安装需要管理员权限）
@@ -279,6 +359,14 @@ def pull_model(url, model, progress=None, should_stop=None, timeout=30):
     import json as _json
     url = (url or DEFAULT_OLLAMA).rstrip("/") + "/api/pull"
     body = _json.dumps({"name": model, "stream": True}).encode("utf-8")
+    try:
+        from core.net_guard import get_net_guard
+        d = get_net_guard(None).check(
+            url, module="ollama_installer", purpose="local_model", method="POST")
+        if not d.get("allow"):
+            return {"ok": False, "错误": "网络策略拒绝: " + str(d.get("reason"))}
+    except Exception as e:
+        return {"ok": False, "错误": "网络策略检查失败: " + str(e)[:60]}
     req = urllib.request.Request(
         url, data=body, method="POST",
         headers={"Content-Type": "application/json", "User-Agent": _UA})
@@ -335,8 +423,8 @@ def pull_model(url, model, progress=None, should_stop=None, timeout=30):
                                  pct, sp)
                     # 静默是故意的：和 installer 那边同理 ——
                     # 界面回调失败不该中断 2GB 的下载
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _x6_swallowed(__name__, e, "best-effort fallback")
                 if st == "success" or d.get("status") == "success":
                     return {"ok": True, "模型": model,
                             "MB": round(tot_mb or got_mb, 1),

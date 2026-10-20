@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 """MCP客户端 v2.0 - 连接外部MCP服务器 + 调用工具 + 添加/删除/测试 + 历史 + 统计"""
-import json, urllib.request, time, threading
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
+import json, urllib.parse, urllib.request, time, threading
 from core.safe import safe
 from modules.base import BaseModule
 
@@ -12,17 +18,43 @@ class MCPClient(BaseModule):
     # 没有配置任何服务器时的兜底（保持旧行为）
     DEFAULT_SERVER = {"name": "桌面工具", "url": "http://localhost:3742"}
 
+    def _auth_headers(self, url=None, srv=None):
+        """给 HTTP MCP 请求加鉴权头。
+
+        内置 mcp_server 的 token 只存在内存里，同进程的 mcp_client
+        直接读取，不落盘；外部服务器则使用配置里显式填写的 token。
+        """
+        token = ""
+        try:
+            if srv and srv.get("token"):
+                token = str(srv.get("token") or "")
+            if not token and url:
+                u = str(url or "")
+                host = ""
+                try:
+                    host = (urllib.parse.urlparse(u).hostname or "").lower()
+                except Exception:
+                    host = ""
+                ms = self.trunk.modules.get("mcp_server") if self.trunk else None
+                if ms is not None and host in ("127.0.0.1", "localhost", "::1"):
+                    token = str(getattr(ms, "auth_token", "") or "")
+        except Exception:
+            token = ""
+        return {"Authorization": "Bearer " + token} if token else {}
+
     def _log(self, msg):
         """BaseModule 没有 _log，这里补一个（stdio 传输层要回调它记日志）"""
         try:
             if self.trunk:
                 self.trunk._log(msg)
                 return
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         try:
             print(msg)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def __init__(self, trunk=None):
@@ -56,7 +88,8 @@ class MCPClient(BaseModule):
         for s in list(self.stdio.values()):
             try:
                 s.stop()
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         self.stdio = {}
 
@@ -77,7 +110,8 @@ class MCPClient(BaseModule):
                          "command": cmd, "transport": "stdio"}
             elif url:
                 entry = {"name": str(s.get("name") or url),
-                         "url": url, "transport": "http"}
+                         "url": url, "transport": "http",
+                         "token": str(s.get("token") or "")}
             else:
                 continue
             # 同名条目只留第一条：self.stdio 是按名字索引的，
@@ -111,6 +145,12 @@ class MCPClient(BaseModule):
         if not self.servers:
             return
         import concurrent.futures as cf
+        # 预导入 stdio 传输层：4 个线程同时 import 同一个模块会在
+        # importlib 锁上产生竞态，实测出现过 Windows 原生 access violation。
+        try:
+            import core.mcp_stdio  # noqa: F401
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
         workers = max(1, min(8, len(self.servers)))
         try:
             with cf.ThreadPoolExecutor(max_workers=workers) as ex:
@@ -125,9 +165,25 @@ class MCPClient(BaseModule):
         else:
             self._connect_http(srv)
 
+    def _check_url(self, url, purpose="mcp_http"):
+        try:
+            from core.net_guard import get_net_guard
+            host = (urllib.parse.urlparse(url).hostname or "").lower()
+            p = "local_mcp" if host in ("127.0.0.1", "localhost", "::1") else purpose
+            d = get_net_guard(self.trunk).check(
+                url, module="mcp_client", purpose=p)
+            if not d.get("allow"):
+                raise PermissionError(d.get("reason") or "网络请求被拒绝")
+        except PermissionError:
+            raise
+
     def _connect_http(self, srv):
         try:
-            r = urllib.request.urlopen(srv["url"] + "/tools", timeout=3)
+            self._check_url(srv["url"] + "/tools")
+            req = urllib.request.Request(
+                srv["url"] + "/tools",
+                headers=self._auth_headers(srv.get("url"), srv))
+            r = urllib.request.urlopen(req, timeout=3)
             data = json.loads(r.read().decode())
             if isinstance(data, list):
                 found = []
@@ -159,7 +215,8 @@ class MCPClient(BaseModule):
         if old is not None:
             try:
                 old.stop()
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         s = StdioMCPServer(srv["name"], srv["command"], log=self._log)
         if s.start():
@@ -169,7 +226,8 @@ class MCPClient(BaseModule):
             if self._stopped:
                 try:
                     s.stop()
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
                 return
             with self._lock:
@@ -183,7 +241,8 @@ class MCPClient(BaseModule):
             self._log("MCP stdio 连接失败: %s —— %s" % (srv["name"], why))
             try:
                 s.stop()
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
 
     def _connect(self):
@@ -202,7 +261,8 @@ class MCPClient(BaseModule):
             try:
                 s.stop()
                 n += 1
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         self.stdio = {}
         self.tools = []
@@ -220,7 +280,8 @@ class MCPClient(BaseModule):
         try:
             self.trunk.config["mcp_servers"] = cfg
             self.trunk.save_config()
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return self.reload_servers()
 
@@ -242,7 +303,10 @@ class MCPClient(BaseModule):
     def test_server(self, url):
         """测试服务器是否能连接"""
         try:
-            r = urllib.request.urlopen(url + "/tools", timeout=3)
+            self._check_url(url + "/tools")
+            req = urllib.request.Request(
+                url + "/tools", headers=self._auth_headers(url))
+            r = urllib.request.urlopen(req, timeout=3)
             return {"ok": True, "状态": "可连接"}
         except Exception as e:
             return {"ok": False, "错误": str(e)[:50]}
@@ -270,9 +334,11 @@ class MCPClient(BaseModule):
                 if not srv or not srv.get("url"):
                     return {"错误": "找不到服务器: %s" % srv_name}
                 data = json.dumps({"tool": tool_name, "args": args or {}}).encode()
+                self._check_url(srv["url"] + "/call")
+                headers = {"Content-Type": "application/json"}
+                headers.update(self._auth_headers(srv.get("url"), srv))
                 req = urllib.request.Request(
-                    srv["url"] + "/call", data=data,
-                    headers={"Content-Type": "application/json"})
+                    srv["url"] + "/call", data=data, headers=headers)
                 r = urllib.request.urlopen(req, timeout=10)
                 result = json.loads(r.read().decode())
                 self._record(tool_name)

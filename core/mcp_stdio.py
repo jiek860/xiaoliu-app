@@ -33,6 +33,12 @@ mcp_client 原来只支持 HTTP，所以官方那些一个都用不上。本模�
     只保留最后若干行，握手失败时用来告诉用户"到底为什么连不上"。
   · 请求按 id 关联，靠 Event 等待；超时会把自己从待办表里摘掉，避免泄漏。
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import atexit
 import json
 import os
@@ -40,7 +46,11 @@ import shlex
 import subprocess
 import sys
 import threading
+import time
 from collections import deque
+from core import command_policy
+
+from core.agent_harness import get_run_registry
 
 # 官方当前常用的协议版本；服务端会回它自己支持的版本，我们跟着用即可
 PROTOCOL_VERSION = "2024-11-05"
@@ -57,7 +67,8 @@ def _cleanup_all():
     for s in items:
         try:
             s.stop()
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
 
@@ -79,6 +90,18 @@ def _child_env():
     未必配过这些，程序这边补上就不用他们自己折腾环境变量了。
     """
     env = os.environ.copy()
+    # MCP 子进程不应继承本程序的 API Key / 授权密钥。只移除明显的敏感变量，
+    # 保留 npx/uvx 需要的 PATH、APPDATA、npm 配置等。
+    for _k in list(env.keys()):
+        _kl = _k.lower()
+        if any(x in _kl for x in ("api_key", "apikey", "secret", "password",
+                                  "passwd", "license_key", "sign_key",
+                                  "access_token", "auth_token")):
+            env.pop(_k, None)
+    # 子进程可能继承 cp936 等本地编码；MCP 协议规定 JSON-RPC 文本按 UTF-8。
+    # 不设置的话中文会被写成 GBK，而客户端按 UTF-8 解码成乱码。
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["X6_MCP_SANDBOX"] = "1"
     # 注意别把这里包进 try/except —— 之前漏了 `import sys`，
     # sys.prefix 抛 NameError 被 except 静默吞掉，结果 Python 的 Scripts 目录
     # 一直没被补进 PATH（pip 装的 uv/uvx 就在那里）。
@@ -123,7 +146,10 @@ class StdioMCPServer:
 
         self._reader = None
         self._err_reader = None
+        self._monitor = None
+        self.max_memory_mb = 1024
         self._alive = False
+        self._run_id = ""
 
     # ------------------------------------------------------------ 生命周期
 
@@ -135,33 +161,48 @@ class StdioMCPServer:
 
             ["cmd.exe", "/c", 原样命令]            无空格时可用，带引号就废
             ["cmd.exe", "/c", '"' + 命令 + '"']    也不可用
-            shell=True + 原样命令串                 可用（带空格带引号都行）
+            显式 cmd.exe + shell=False 命令行串     可用（带空格带引号都行）
 
         原因是列表形式会被 list2cmdline 处理，把用户写的内部引号转义成 \\" ，
         cmd 认不出来；而 shell=True 是把整条命令串原样交给
         `cmd.exe /c "<整条命令>"`，cmd 按自己的规则去掉最外层那一对引号，
         用户写的内部引号原样保留。用户填的本来就是一条命令行，这样最贴预期。
         """
-        if os.name == "nt":
-            return self.command, True
-        return shlex.split(self.command), False
+        # 先做引号外元字符检查；需要 cmd 包装的命令使用显式 cmd.exe，
+        # 但 Popen 始终 shell=False。
+        ok, reason, _token = command_policy.check_command(self.command)
+        if not ok:
+            raise ValueError("MCP 命令不符合执行策略: " + reason)
+        args, _used_shell_wrapper = command_policy.build_exec_argv(self.command)
+        # 第二项保留为兼容返回值；Popen 始终 shell=False。
+        return args, False
 
     def start(self):
         """启动子进程并完成 MCP 握手。成功返回 True。"""
+        try:
+            self._run_id = "mcp:%s:%s" % (
+                self.name, int(time.time() * 1000))
+            get_run_registry().start_run(
+                "mcp", "MCP: %s" % self.name, run_id=self._run_id,
+                status="running", metadata={"command": self.command[:200]})
+        except Exception:  # 静默是故意的
+            self._run_id = ""
         if not self.command:
             self.last_error = "命令为空"
+            self._finish_run("failed", self.last_error)
             return False
         try:
-            argv, use_shell = self._popen_args()
+            argv, _used_shell = self._popen_args()
             kwargs = dict(stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, text=True, encoding="utf-8",
                           errors="replace", bufsize=1, cwd=self.cwd,
-                          shell=use_shell, env=_child_env())
+                          shell=False, env=_child_env())
             if os.name == "nt":
                 kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             self.proc = subprocess.Popen(argv, **kwargs)
         except Exception as e:
             self.last_error = "启动失败: %s" % str(e)[:120]
+            self._finish_run("failed", self.last_error)
             return False
 
         self._alive = True
@@ -173,6 +214,10 @@ class StdioMCPServer:
         self._err_reader = threading.Thread(target=self._drain_stderr, daemon=True,
                                             name="mcp-stderr-%s" % self.name)
         self._err_reader.start()
+        self._monitor = threading.Thread(target=self._monitor_resources,
+                                         daemon=True,
+                                         name="mcp-monitor-%s" % self.name)
+        self._monitor.start()
 
         try:
             r = self._request("initialize", {
@@ -193,14 +238,51 @@ class StdioMCPServer:
         tools = self.list_tools()
         if tools is None:
             self.last_error = "拉取工具列表失败: %s" % (self.last_error or "未知")
+            self._finish_run("failed", self.last_error)
             return False
+        try:
+            get_run_registry().update_run(
+                self._run_id, status="background",
+                current_step="已连接（%d 个工具）" % len(tools or []),
+                progress=1.0, metadata={
+                    "command": self.command[:200],
+                    "tools": len(tools or []),
+                    "pid": getattr(self.proc, "pid", 0),
+                })
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
         return True
+
+    def _finish_run(self, status, error=""):
+        if not getattr(self, "_run_id", ""):
+            return
+        try:
+            get_run_registry().finish_run(self._run_id, status, error)
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+
+    def _monitor_resources(self):
+        try:
+            import psutil
+            p = psutil.Process(self.proc.pid)
+        except Exception:  # 静默是故意的 - psutil 缺失时不做资源监控
+            return
+        while self._alive and self.proc and self.proc.poll() is None:
+            try:
+                if p.memory_info().rss > self.max_memory_mb * 1024 * 1024:
+                    self.last_error = "MCP 子进程超过内存上限 %dMB，已终止" % self.max_memory_mb
+                    self.stop()
+                    return
+            except Exception:  # 静默是故意的 - 进程已退出或权限变化
+                return
+            time.sleep(1)
 
     def alive(self):
         return bool(self._alive and self.proc and self.proc.poll() is None)
 
     def stop(self):
         self._alive = False
+        self._finish_run("completed", self.last_error if not self.proc else "")
         with _LIVE_LOCK:
             _LIVE.discard(self)
         p = self.proc
@@ -209,7 +291,8 @@ class StdioMCPServer:
         try:
             if p.stdin:
                 p.stdin.close()
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         # Windows 上进程是经 shell 起的，terminate() 只杀掉 cmd.exe，
         # 真正干活的子进程（npx -> node）会变成孤儿。用 taskkill /T 连整棵树一起收。
@@ -218,7 +301,8 @@ class StdioMCPServer:
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)],
                                capture_output=True, timeout=5,
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         try:
             p.terminate()
@@ -226,7 +310,8 @@ class StdioMCPServer:
         except Exception:
             try:
                 p.kill()
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         self.proc = None
 
@@ -325,7 +410,8 @@ class StdioMCPServer:
                 raw = (raw or "").strip()
                 if raw:
                     self._stderr_tail.append(raw[:160])
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def diagnostics(self):

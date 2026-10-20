@@ -10,6 +10,12 @@ v2.1 修的是"分数会说谎"：
   （它要求"有建议"，而规则那条永远没有建议）。
   现在：没评上就留空并写明原因，两种来源分别标记，统计只算真正评过分的。
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, time, json, re
 from core.safe import safe
 from modules.base import BaseModule
@@ -30,14 +36,16 @@ class ReflectEngine(BaseModule):
         if os.path.exists(self.history_path):
             try:
                 return json.load(open(self.history_path, encoding="utf-8"))
-            except: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
         return []
 
     def _save(self):
         try:
             json.dump(self.history, open(self.history_path, "w", encoding="utf-8"),
                       ensure_ascii=False, indent=2)
-        except: pass
+        except Exception as e:
+            _x6_swallowed(__name__, e)
 
     def _scored(self):
         """真正被评过分的条目（分数可能是 None —— 规则粗筛的"无意见"和没评上的）"""
@@ -90,7 +98,8 @@ class ReflectEngine(BaseModule):
         if err and self.trunk:
             try:
                 self.trunk._log("自我反思未评分: %s" % err, "WARN")
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         return {"分数": score, "建议": suggestion, "未评分": err or None}
 

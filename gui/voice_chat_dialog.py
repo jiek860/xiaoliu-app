@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """语音实时对话 v2.0 - VAD静音检测、随时打断、连续多轮"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextBrowser
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 import time
@@ -59,7 +65,8 @@ class VoiceChatWorker(QThread):
                 self.status.emit("🔊 说话中...")
                 try:
                     v.tts(answer, play=True, interrupt_check=lambda: self._interrupt)
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
 
         except Exception as e:

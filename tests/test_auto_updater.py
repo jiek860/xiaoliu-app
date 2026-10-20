@@ -56,6 +56,11 @@ class FakeTrunk:
 def up(tmp_path, monkeypatch):
     """一个指向临时项目的更新器（不碰真项目）"""
     monkeypatch.setenv("X6_ALLOW_UNSIGNED_UPDATE", "")
+    # 测试用假 URL/本地服务；网络策略单独由 test_net_guard 覆盖。
+    from core import net_guard
+    monkeypatch.setattr(
+        net_guard.NetGuard, "check",
+        lambda self, *a, **k: {"allow": True, "reason": "test"})
     u = AutoUpdater(FakeTrunk(str(tmp_path)))
     u.base = str(tmp_path)
     u.staging = os.path.join(str(tmp_path), "staging")
@@ -121,10 +126,9 @@ def test_safe_relpath_allows_dot_in_name(up):
     assert up._safe_relpath("a.b.c/d.py") is not None
 
 
-def test_safe_relpath_empty_is_base(up):
-    """空路径解析成项目根 —— 调用方要自己判非法（下载那边有判）"""
-    r = up._safe_relpath("")
-    assert r == os.path.normpath(up.base)
+def test_safe_relpath_empty_is_rejected(up):
+    """空路径必须拒绝，不能变成项目根目录。"""
+    assert up._safe_relpath("") is None
 
 
 # ══════════════════════════════════════════════════════════════

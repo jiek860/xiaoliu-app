@@ -4,11 +4,17 @@
 """
 import time
 
+try:
+    from core.plugin_api import PLUGIN_API_VERSION
+except ImportError:  # 独立加载 modules.base 时保持可用
+    PLUGIN_API_VERSION = "1.0"
+
 
 class BaseModule:
     """所有功能模块的基类"""
     NAME = "未命名模块"
     VERSION = "1.0"
+    PLUGIN_API_VERSION = PLUGIN_API_VERSION
 
     def __init__(self, trunk=None):
         self.trunk = trunk

@@ -33,15 +33,6 @@ def main():
     except Exception:
         pass
     print(f"模块: {len(t.modules)}核心 + {len(t._lazy)}懒加载")
-    # 启动移动端 Web 服务（8765）
-    try:
-        mr = t._load_lazy('mobile_remote')
-        if mr is None:
-            print("移动端启动失败: 模块 mobile_remote 未登记或加载失败")
-        else:
-            print("移动端: " + str(mr.start()))
-    except Exception as e:
-        print("移动端启动失败: " + str(e))
     print("=== 24小时运行中 ===")
     print("按Ctrl+C停止")
     try:
@@ -54,7 +45,7 @@ def main():
     except KeyboardInterrupt:
         print("\n=== 服务停止 ===")
         try:
-            mr.stop()
+            t.shutdown()
         except Exception:
             pass
 

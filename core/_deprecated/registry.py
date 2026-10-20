@@ -2,6 +2,13 @@
 """模块注册/懒加载模块 - 从trunk.py拆出来，负责模块注册/加载/卸载"""
 import os, sys, time, importlib.util
 
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
+
 
 class ModuleRegistry:
     def __init__(self, trunk):
@@ -60,8 +67,8 @@ class ModuleRegistry:
                     if not hasattr(instance, "trunk") or instance.trunk is None:
                         try:
                             instance.trunk = self.trunk
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            _x6_swallowed(__name__, e, "best-effort fallback")
                 self.register(name, instance)
                 self._log("加载[%s]: %s" % (src, name))
                 if not hasattr(self.trunk, "_mod_load_time"):
@@ -71,7 +78,7 @@ class ModuleRegistry:
                 if meta and meta.get("needs_model") and "llm" in self.modules:
                     meta["model"] = "已连接"
                     meta["model_name"] = self.config.get("local_model", "?")
-                    setattr(instance, "llm", self.modules["llm"])
+                    instance.llm = self.modules["llm"]
                 return instance
             except Exception as e:
                 self._log("加载%s失败: %s" % (name, str(e)[:60]))
@@ -90,8 +97,8 @@ class ModuleRegistry:
         self.module_meta[name] = meta
         mod = self.modules.get(name)
         if mod is not None:
-            setattr(mod, "llm", llm)
-            setattr(mod, "_model", llm)
+            mod.llm = llm
+            mod._model = llm
         self._log("模型链接: %s -> %s" % (name, meta["model_name"]))
         return {"ok": True, "module": name, "model": meta["model_name"]}
 

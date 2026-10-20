@@ -5,11 +5,23 @@
 - 仓库   = modules_repo 里的镜像
 - 卸载    = 移到 data/plugin_backups + 从 lazy_config 移除注册
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 from modules.base import BaseModule
 import os
 import re
 import json
+import hashlib
 import shutil
+
+from core.path_safety import safe_join, safe_name
+from core.plugin_api import (PLUGIN_API_VERSION, manifest_api_version,
+                             validate_plugin_manifest,
+                             validate_plugin_source)
 
 
 def _icon_of(name):
@@ -74,7 +86,8 @@ class PluginMarket(BaseModule):
             m2 = re.search(r'^class\s+\w+.*?(?:\n\s+"""(.*?)""")', t, re.S | re.M)
             if m2:
                 return m2.group(1).strip().splitlines()[0][:60] if m2.group(1) else ""
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return ""
 
@@ -140,6 +153,24 @@ class PluginMarket(BaseModule):
                     "icon": _icon_of(name),
                 })
         # 按已安装优先、再按名字排
+        # 插件治理摘要：信任等级和权限估计，供市场列表展示。
+        try:
+            from core.plugin_governance import PluginGovernance
+            gov = PluginGovernance(self.base)
+            for m in modules:
+                fp = os.path.join(self.repo_dir, m.get("file", ""))
+                src = ""
+                if os.path.isfile(fp):
+                    try:
+                        src = open(fp, encoding="utf-8", errors="ignore").read(200000)
+                    except Exception:  # 静默是故意的 - 读不到源码时只给默认治理信息
+                        src = ""
+                gi = gov.inspect(src, m)
+                m["trust"] = gi.get("trust", "")
+                m["permissions"] = gi.get("permissions", [])
+                m["risk"] = gi.get("risk", "")
+        except Exception as e:  # 静默是故意的 - 治理摘要失败不影响插件列表
+            _x6_swallowed(__name__, e, "best-effort fallback")
         modules.sort(key=lambda x: (not x["installed"], x["name"]))
         return modules
 
@@ -165,7 +196,8 @@ class PluginMarket(BaseModule):
             for m in data:
                 if m.get("file") == filename:
                     return m
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         return {}
 
@@ -189,16 +221,43 @@ class PluginMarket(BaseModule):
                 return False, "签名校验失败（可能被篡改或非官方包）"
             return True, "已验签"
         if want:
-            return True, "仅校验 sha256（该模块未签名）"
+            # 只有哈希、没有签名不能视为可信：能改内容的人通常也能改清单里的
+            # sha256。返回 None 让调用方按 allow_unsigned_plugins 严格拒绝。
+            return None, "只有 sha256，没有 RSA 签名（默认拒绝安装）"
         return None, "清单里没有 sha256/签名信息"
+
+    def _validate_plugin_payload(self, raw, meta, label="插件"):
+        """安装/下载前检查插件 API 版本与 core 依赖边界。
+
+        旧插件没有 api_version 时只给兼容 warning；不支持的版本或
+        依赖 core 私有实现则直接拒绝。官方随包模块靠清单
+        ``first_party: true`` 放行审计过的集成层。
+        """
+        try:
+            src = (raw.decode("utf-8", errors="replace")
+                   if isinstance(raw, bytes) else str(raw))
+            r = validate_plugin_manifest(meta or {}, src)
+        except Exception as e:
+            return False, "插件 API 校验异常: " + str(e)[:100]
+        for w in r.get("warnings") or []:
+            try:
+                if self.trunk:
+                    self.trunk._log("%s API 兼容提示: %s" % (label, w))
+            # 静默是故意的：兼容提示写不进日志不影响安装判定，主流程仍返回校验结果
+            except Exception as e:
+                _x6_swallowed(__name__, e, "best-effort fallback")
+        if not r.get("ok"):
+            return False, "插件 API 校验失败: " + "；".join(
+                (r.get("errors") or [])[:3])
+        return True, ""
 
     def _read_repo_file(self, fname):
         """读仓库文件（优先 manifest 登记的 file 字段）"""
         for cand in (fname, self._repo_meta(fname).get("file")):
             if not cand:
                 continue
-            p = os.path.join(self.repo_dir, cand)
-            if os.path.exists(p):
+            p = safe_join(self.repo_dir, cand)
+            if p and os.path.isfile(p):
                 return p
         return None
 
@@ -236,6 +295,11 @@ class PluginMarket(BaseModule):
                     "原因": "仓库模块没有签名/校验值，已拒绝安装。"
                             "请先运行 python tools/sign_modules.py 生成清单签名"}
 
+        # ---- 插件 API 版本 / core 依赖边界 ----
+        api_ok, api_why = self._validate_plugin_payload(raw, meta, fname)
+        if not api_ok:
+            return {"ok": False, "原因": api_why}
+
         # 语法校验（沙盒：先编译临时副本）
         try:
             import py_compile
@@ -263,7 +327,8 @@ class PluginMarket(BaseModule):
         if self.trunk and hasattr(self.trunk, "_load_lazy"):
             try:
                 self.trunk._load_lazy(name)
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         return {"ok": True, "msg": "安装成功: " + fname}
 
@@ -280,10 +345,15 @@ class PluginMarket(BaseModule):
         import urllib.request, json
         import time as _t
         last_err = ""
+        from core.net_guard import get_net_guard
+        ng = get_net_guard(self.trunk)
         for fname in ("manifest.json", "modules.json"):
             try:
-                r = urllib.request.urlopen(
-                    "%s/%s?t=%d" % (url.rstrip("/"), fname, int(_t.time())), timeout=8)
+                u = "%s/%s?t=%d" % (url.rstrip("/"), fname, int(_t.time()))
+                d = ng.check(u, module="plugin_market", purpose="plugin_index")
+                if not d.get("allow"):
+                    raise PermissionError(d.get("reason") or "网络请求被拒绝")
+                r = urllib.request.urlopen(u, timeout=8)
                 data = json.loads(r.read().decode("utf-8-sig"))
                 if isinstance(data, list):
                     return data
@@ -305,6 +375,19 @@ class PluginMarket(BaseModule):
         url = self.trunk.config.get("online_repo_url", "") if self.trunk else ""
         if not url:
             return {"ok": False, "原因": "未配置在线仓库地址"}
+        # 文件名来自远程清单，绝不能直接拼路径；只允许单级 .py。
+        raw_name = str(filename or "")
+        if (not raw_name
+                or "/" in raw_name or "\\" in raw_name
+                or ":" in raw_name
+                or raw_name != os.path.basename(raw_name)):
+            return {"ok": False, "原因": "非法模块文件名"}
+        filename = safe_name(raw_name, default="", max_len=120)
+        if not filename or not filename.endswith(".py"):
+            return {"ok": False, "原因": "非法模块文件名"}
+        dst = safe_join(self.installed_dir, filename)
+        if not dst:
+            return {"ok": False, "原因": "模块落点越界"}
         import urllib.request, json, base64
         # 备用源：raw + API
         urls = [
@@ -315,8 +398,13 @@ class PluginMarket(BaseModule):
         if meta is None:
             meta = self._repo_meta(filename)
         last_err = ""
+        from core.net_guard import get_net_guard
+        ng = get_net_guard(self.trunk)
         for i, u in enumerate(urls):
             try:
+                d = ng.check(u, module="plugin_market", purpose="plugin_download")
+                if not d.get("allow"):
+                    raise PermissionError(d.get("reason") or "网络请求被拒绝")
                 r = urllib.request.urlopen(u, timeout=10)
                 raw = r.read()
                 if i == 1:  # API返回JSON
@@ -333,10 +421,62 @@ class PluginMarket(BaseModule):
                 return {"ok": False,
                         "原因": "该模块没有签名/校验值，已拒绝安装。"
                                 "需要强制安装可在 data/config.json 设 allow_unsigned_plugins=true"}
-            dst = os.path.join(self.installed_dir, filename)
-            open(dst, "wb").write(raw)
-            return {"ok": True, "msg": "已下载: %s（%s）" % (filename, why)}
+            # ---- 插件 API 版本 / core 依赖边界（不通过绝不落盘）----
+            api_ok, api_why = self._validate_plugin_payload(raw, meta, filename)
+            if not api_ok:
+                return {"ok": False, "原因": api_why}
+            # 先写临时文件，校验通过后再原子替换；失败不留半成品。
+            tmp = dst + ".download"
+            try:
+                with open(tmp, "wb") as f:
+                    f.write(raw)
+                os.replace(tmp, dst)
+            except Exception as e:
+                try:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                except OSError:
+                    pass
+                return {"ok": False, "原因": "写入失败: " + str(e)[:60]}
+            try:
+                from core.plugin_governance import PluginGovernance
+                gi = PluginGovernance(self.base).inspect(
+                    raw.decode("utf-8", errors="replace")[:200000], meta)
+                PluginGovernance(self.base).record(
+                    filename, source="download", trust=gi.get("trust", ""),
+                    permissions=gi.get("permissions", []),
+                    sha256=hashlib.sha256(raw).hexdigest())
+            except Exception:
+                gi = {}
+            return {"ok": True, "msg": "已下载: %s（%s）" % (filename, why),
+                    "治理": gi}
         return {"ok": False, "原因": last_err}
+
+    def rollback_module(self, name):
+        """从 data/plugin_backups 恢复上一版模块文件。"""
+        from core.lazy_config import LAZY_MAP
+        if name not in LAZY_MAP:
+            return {"ok": False, "原因": "模块未登记"}
+        fname = LAZY_MAP[name][0] + ".py"
+        src = os.path.join(self.backup_dir, fname)
+        if not os.path.isfile(src):
+            return {"ok": False, "原因": "没有可回滚的备份: " + fname}
+        dst = safe_join(self.installed_dir, fname)
+        if not dst:
+            return {"ok": False, "原因": "安装路径非法"}
+        shutil.copy2(src, dst)
+        try:
+            self.trunk._load_lazy(name)
+        except Exception as e:  # 静默是故意的 - 回滚后热加载失败下次启动会加载
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        return {"ok": True, "msg": "已回滚: " + fname}
+
+    def governance_report(self, limit=100):
+        try:
+            from core.plugin_governance import PluginGovernance
+            return {"历史": PluginGovernance(self.base).history(limit)}
+        except Exception as e:
+            return {"错误": str(e)[:80]}
 
     # ---------- 卸载 ----------
     def uninstall(self, name):
@@ -364,7 +504,8 @@ class PluginMarket(BaseModule):
         if self.trunk and name in self.trunk.modules:
             try:
                 del self.trunk.modules[name]
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         return {"ok": True, "msg": "已卸载: " + fname}
 
@@ -387,16 +528,22 @@ class PluginMarket(BaseModule):
             py_compile.compile(tmp, doraise=True)
         except Exception as e:
             try: os.remove(tmp)
-            except Exception: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
             return {"ok": False, "原因": "语法校验失败: " + str(e)[:60]}
         # ② 找类名
         src_text = _io.open(tmp, encoding="utf-8", errors="ignore").read()
         m = re.search(r'^class\s+(\w+)', src_text, re.M)
         try: os.remove(tmp)
-        except Exception: pass
+        except Exception as e:
+            _x6_swallowed(__name__, e)
         cls = m.group(1) if m else None
         if not cls:
             return {"ok": False, "原因": "插件里没找到 class 定义"}
+        # 插件 API 版本 / core 依赖边界（本地文件没有清单，按第三方严格检查）
+        api_ok, api_why = self._validate_plugin_payload(src_text, {}, fname)
+        if not api_ok:
+            return {"ok": False, "原因": api_why}
         # ③ 动态加载验证（沙盒执行，失败不落盘）
         try:
             spec = importlib.util.spec_from_file_location("plg_" + fname, file_path)
@@ -424,7 +571,8 @@ class PluginMarket(BaseModule):
         if self.trunk:
             try:
                 self.trunk._load_lazy(key)
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         return {"ok": True, "msg": "安装成功: " + fname + "（key: " + key + "）"}
 

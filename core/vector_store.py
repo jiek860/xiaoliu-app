@@ -6,6 +6,12 @@ P0-3大改：数据存SQLite，内存里保留numpy矩阵做快速检索
 - 启动快，数据大了也不卡
 - 原子写，不会损坏
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os
 import time
 import math
@@ -142,8 +148,8 @@ class VectorStore:
                                 "不受影响）" % note)
         # 静默是故意的：连"记一条日志"都失败就没别的办法了，
         # 而这件事本身不影响修复结果（库已经改名/删掉了）
-        except Exception:
-            pass
+        except Exception as e:
+            _x6_swallowed(__name__, e, "best-effort fallback")
 
     def _init_db(self):
         """初始化表
@@ -213,8 +219,8 @@ class VectorStore:
             # 静默是故意的：连"记一条日志"都失败就没别的办法了。
             # 关键动作（把 data/_emb_mat 置空）已经在上面做完了，
             # 所以这里吞掉不影响"按空库启动"这个结果
-            except Exception:
-                pass
+            except Exception as e:
+                _x6_swallowed(__name__, e, "best-effort fallback")
         finally:
             c.close()
         # ===== P1-06步骤1：向量库一致性检查（只加不改） =====
@@ -236,7 +242,8 @@ class VectorStore:
         except Exception as e:
             try:
                 self.trunk._log("向量库一致性检查失败：%s" % str(e)[:80])
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
 
     # 嵌入失败后的冷却秒数。
@@ -270,7 +277,8 @@ class VectorStore:
                 if emb:
                     if self._embed_retry_at != 0:
                         try: self.trunk._set_status("✅ 向量检索已恢复")
-                        except: pass
+                        except Exception as e:
+                            _x6_swallowed(__name__, e)
                     self._embed_retry_at = 0        # 成功：解除冷却
                 return emb
         except Exception as e:
@@ -280,8 +288,10 @@ class VectorStore:
                 self.trunk._log("嵌入失败（%ds 内不再重试，检索走关键词降级）: %s"
                                 % (self._EMBED_COOLDOWN, str(e)[:60]))
                 try: self.trunk._set_status("⚠ 向量检索暂不可用，已切关键词模式")
-                except: pass
-            except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
             return []
 
@@ -345,14 +355,14 @@ class VectorStore:
                                         % str(e)[:70], "WARN")
                     # 静默是故意的：这是"报告失败的手段本身失败了"，
                     # 报不出去也没别的办法，再套一层只会无限递归
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _x6_swallowed(__name__, e, "best-effort fallback")
                     try:
                         self.trunk._set_status(
                             "⚠ 向量索引同步失败，搜索可能变弱（数据本身没丢）")
                     # 静默是故意的：同上 —— 状态栏设置失败无处可报
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _x6_swallowed(__name__, e, "best-effort fallback")
 
         # 4. 截断
         if len(self.data) > self.max_items:
@@ -375,7 +385,7 @@ class VectorStore:
             c.close()
 
     def _cosine(self, a, b):
-        dot = sum(x*y for x, y in zip(a, b))
+        dot = sum(x*y for x, y in zip(a, b, strict=False))
         na = math.sqrt(sum(x*x for x in a)) or 1
         nb = math.sqrt(sum(x*x for x in b)) or 1
         return dot / (na * nb)

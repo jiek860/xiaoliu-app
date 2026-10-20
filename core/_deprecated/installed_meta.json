@@ -228,18 +228,6 @@
     "depends": [],
     "installed_time": "2026-09-21 14:24:09"
   },
-  "mobile_remote": {
-    "name": "mobile_remote",
-    "file": "手机远程.py",
-    "cls": "MobileRemote",
-    "desc": "移动端APP v6.0 - 聊天网页，加桌面就像APP",
-    "group": "联网检索",
-    "version": "6.0",
-    "button": null,
-    "needs_model": false,
-    "depends": [],
-    "installed_time": "2026-09-21 14:24:13"
-  },
   "mcp_server": {
     "name": "mcp_server",
     "file": "MCP服务.py",

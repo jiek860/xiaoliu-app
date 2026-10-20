@@ -17,13 +17,21 @@ v2.0 为什么从来没真正可用
     · /tools 返回的是 {"工具": [...]} 这种**字典**，而客户端要的是**列表**
       （`if isinstance(data, list)`），于是永远拉到 0 个工具
     · 根本没有 /call，客户端 POST 过去只会收到 501
-    · 默认端口 8765 和 mobile_remote 撞车（配置里期望的是 3742）
     · 绑的是 0.0.0.0，本地工具服务没必要暴露到局域网 —— 改绑 127.0.0.1
     · start_http() 全项目没有任何地方调用，服务从来没起来过
 """
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
+import hmac
 import json
 import os
+import secrets
 import threading
+import urllib.parse
 
 from core.safe import safe
 from modules.base import BaseModule
@@ -35,12 +43,18 @@ class MCPServer(BaseModule):
 
     DEFAULT_PORT = 3742
 
+    # 注意：代码执行/电脑控制/文件写入绝不能出现在默认 HTTP 工具表里。
+    # 用户如果确实要暴露自定义工具，必须自己在 data/mcp_tools.json 中添加，
+    # 并在配置里显式开启 mcp_allow_dangerous_tools。
     _DEFAULTS = [
-        {"name": "chat", "desc": "和AI聊天", "method": "llm.chat"},
-        {"name": "search", "desc": "联网搜索", "method": "deep_search.search"},
-        {"name": "run_code", "desc": "跑Python代码", "method": "code_runner.run"},
-        {"name": "backup", "desc": "备份", "method": "backup.run"},
+        {"name": "chat", "desc": "和AI聊天", "method": "llm.chat",
+         "permissions": ["chat:read"]},
+        {"name": "search", "desc": "联网搜索", "method": "deep_search.search",
+         "permissions": ["network:read"]},
+        {"name": "backup", "desc": "备份", "method": "backup.run",
+         "permissions": ["filesystem:write"]},
     ]
+    MAX_BODY = 64 * 1024
 
     # 各工具的参数说明。args 是以关键字参数形式转给 trunk.call 的，
     # 这里写清楚客户端该传什么。没登记的工具给一个宽松的 schema。
@@ -67,8 +81,24 @@ class MCPServer(BaseModule):
         self._http_server = None
         self._http_thread = None
         self.http_port = 0
+        self.auth_token = secrets.token_urlsafe(32)
+        self._bind_host = "127.0.0.1"
 
     # ------------------------------------------------------------ 工具登记
+
+    def _dangerous_allowed(self):
+        try:
+            return bool((getattr(self.trunk, "config", {}) or {})
+                        .get("mcp_allow_dangerous_tools", False))
+        except Exception:
+            return False
+
+    def _filter_dangerous(self, tools):
+        from core import security_policy
+        if self._dangerous_allowed():
+            return list(tools)
+        return [t for t in tools
+                if not security_policy.method_is_dangerous(t.get("method", ""))]
 
     def _register_tools(self):
         if os.path.exists(self.path):
@@ -81,18 +111,21 @@ class MCPServer(BaseModule):
                         if isinstance(t, dict) and t.get("name") and t.get("method"):
                             base = merged.get(t["name"], {})
                             merged[t["name"]] = {**base, **t}
-                    self.tools = list(merged.values())
+                    self.tools = self._filter_dangerous(merged.values())
                     return
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
-        self.tools = [dict(t) for t in self._DEFAULTS]
+        self.tools = self._filter_dangerous(
+            [dict(t) for t in self._DEFAULTS])
         self._save()
 
     def _save(self):
         try:
             json.dump(self.tools, open(self.path, "w", encoding="utf-8"),
                       ensure_ascii=False, indent=2)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     @safe
@@ -106,6 +139,12 @@ class MCPServer(BaseModule):
         name = str(name).strip()
         if not name or not method:
             return {"ok": False, "原因": "name/method 必填"}
+        from core import security_policy
+        if (security_policy.method_is_dangerous(method)
+                and not self._dangerous_allowed()):
+            return {"ok": False,
+                    "原因": "危险工具默认禁止；如确需启用请设置 "
+                            "mcp_allow_dangerous_tools=true"}
         t = {"name": name, "desc": str(desc)[:80], "method": str(method)}
         for i, x in enumerate(self.tools):
             if x["name"] == name:
@@ -129,10 +168,23 @@ class MCPServer(BaseModule):
     @safe
     def call_tool(self, name, args=None):
         """调用工具：把 "模块.方法" 交给 trunk.call，args 作为关键字参数"""
+        from core import security_policy
         for t in self.tools:
             if t.get("name") != name:
                 continue
             m = str(t.get("method") or "")
+            if security_policy.method_is_dangerous(m):
+                allow = False
+                try:
+                    allow = bool((getattr(self.trunk, "config", {}) or {})
+                                 .get("mcp_allow_dangerous_tools", False))
+                except Exception:
+                    allow = False
+                if not allow:
+                    return {"ok": False, "工具": name,
+                            "错误": "该工具会执行代码/写入文件/控制系统，"
+                                    "HTTP 入口默认禁用；如确需启用请设置 "
+                                    "mcp_allow_dangerous_tools=true"}
             mod, method = (m.split(".", 1) if "." in m else (m, "run"))
             try:
                 if args is None:
@@ -153,12 +205,18 @@ class MCPServer(BaseModule):
         out = []
         for t in self.tools:
             name = t.get("name", "")
+            method = str(t.get("method") or "")
             out.append({
                 "name": name,
                 "description": t.get("desc", "") or t.get("description", ""),
                 "inputSchema": (t.get("inputSchema") or t.get("schema")
                                 or self._SCHEMAS.get(name)
                                 or {"type": "object", "additionalProperties": True}),
+                "permissions": t.get("permissions") or (
+                    [{"network": "read"}] if "search" in method else
+                    [{"chat": "read"}] if method.startswith("llm.") else
+                    [{"filesystem": "write"}] if "backup" in method else
+                    [{"execute": "high"}]),
             })
         return out
 
@@ -178,10 +236,48 @@ class MCPServer(BaseModule):
         from urllib.parse import urlparse
 
         srv = self
+        self._bind_host = host
 
         class Handler(BaseHTTPRequestHandler):
             server_version = "xiao6-mcp/3.0"
             protocol_version = "HTTP/1.1"
+
+            def _host_ok(self):
+                raw = (self.headers.get("Host") or "").strip().lower()
+                if not raw:
+                    return False
+                if raw.startswith("["):
+                    host = raw.split("]")[0].lstrip("[")
+                else:
+                    host = raw.rsplit(":", 1)[0] if ":" in raw else raw
+                allowed = {"127.0.0.1", "localhost", "::1"}
+                bind_host = str(getattr(srv, "_bind_host", "") or "").lower()
+                if bind_host and bind_host not in ("0.0.0.0", "::"):
+                    allowed.add(bind_host)
+                return host in allowed
+
+            def _origin_ok(self):
+                origin = self.headers.get("Origin")
+                if not origin:
+                    return True
+                try:
+                    p = urllib.parse.urlparse(origin)
+                    return (p.scheme in ("http", "https")
+                            and (p.hostname or "").lower() in
+                            ("127.0.0.1", "localhost", "::1"))
+                except Exception:
+                    return False
+
+            def _auth_ok(self):
+                auth = self.headers.get("Authorization") or ""
+                if not auth.startswith("Bearer "):
+                    return False
+                given = auth[len("Bearer "):].strip()
+                return bool(given) and hmac.compare_digest(given, srv.auth_token)
+
+            def _reject(self, code, msg):
+                self._drain_body()
+                self._send(code, {"ok": False, "错误": msg})
 
             def _send(self, code, obj):
                 try:
@@ -202,19 +298,35 @@ class MCPServer(BaseModule):
                         self.send_header("Connection", "close")
                     self.end_headers()
                     self.wfile.write(body)
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
+
+            def _content_length(self):
+                raw = self.headers.get("Content-Length")
+                if raw is None:
+                    return 0
+                if not str(raw).isdigit():
+                    return -1
+                return int(raw)
 
             def _drain_body(self):
                 """把请求体读干净，避免残留数据污染复用连接上的下一个请求"""
                 try:
-                    n = int(self.headers.get("Content-Length") or 0)
-                    if n > 0:
+                    n = self._content_length()
+                    if n > 0 and n <= srv.MAX_BODY:
                         self.rfile.read(n)
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
 
             def do_GET(self):
+                if not self._host_ok() or not self._origin_ok():
+                    self._send(403, {"ok": False, "错误": "来源不被允许"})
+                    return
+                if not self._auth_ok():
+                    self._send(401, {"ok": False, "错误": "缺少或错误的访问令牌"})
+                    return
                 p = (urlparse(self.path).path or "/").rstrip("/") or "/"
                 if p == "/tools":
                     self._send(200, srv._tools_payload())
@@ -228,13 +340,26 @@ class MCPServer(BaseModule):
                     self._send(404, {"ok": False, "错误": "未知路径: " + p})
 
             def do_POST(self):
+                if not self._host_ok() or not self._origin_ok():
+                    self._reject(403, "来源不被允许")
+                    return
+                if not self._auth_ok():
+                    self._reject(401, "缺少或错误的访问令牌")
+                    return
+                ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+                if ctype != "application/json":
+                    self._reject(415, "只接受 application/json")
+                    return
+                n = self._content_length()
+                if n < 0 or n > srv.MAX_BODY:
+                    self._reject(413, "请求体过大或 Content-Length 非法")
+                    return
                 p = (urlparse(self.path).path or "/").rstrip("/") or "/"
                 if p != "/call":
                     self._drain_body()
                     self._send(404, {"ok": False, "错误": "未知路径: " + p})
                     return
                 try:
-                    n = int(self.headers.get("Content-Length") or 0)
                     raw = self.rfile.read(n).decode("utf-8") if n else "{}"
                     payload = json.loads(raw or "{}")
                 except Exception as e:
@@ -269,8 +394,9 @@ class MCPServer(BaseModule):
         self._http_thread = threading.Thread(target=httpd.serve_forever, daemon=True,
                                              name="mcp-local-server")
         self._http_thread.start()
-        return {"状态": "已启动", "地址": "http://%s:%d" % (host, port),
-                "工具数": len(self.tools)}
+        return {"状态": "已启动", "地址": "http://%s:%d" % (host, self.http_port),
+                "工具数": len(self.tools),
+                "鉴权": "Bearer token（同进程内由 mcp_client 自动携带）"}
 
     @safe
     def stop_http(self):
@@ -280,11 +406,14 @@ class MCPServer(BaseModule):
         try:
             self._http_server.shutdown()
             self._http_server.server_close()
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         self._http_server = None
         self._http_thread = None
         self.http_port = 0
+        self.auth_token = secrets.token_urlsafe(32)
+        self._bind_host = "127.0.0.1"
         return {"状态": "已停止"}
 
     def status(self):

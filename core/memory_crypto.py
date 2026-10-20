@@ -1,22 +1,31 @@
 # -*- coding: utf-8 -*-
-"""v26-3.4: 记忆加密导入导出 完整版（AES-GCM）"""
-import os, json, hashlib, secrets
+"""v26-3.4: 记忆加密导入导出（AES-GCM）
+
+导出格式 v2：
+    b"X6MEM2" + salt(16) + nonce(12) + ciphertext
+    密钥 = PBKDF2-HMAC-SHA256(password, salt, 200000)
+导入仍兼容旧版 sha256(password) + nonce + AES-GCM 和旧 XOR 文件。
+"""
+import base64
+import hashlib
+import json
+import os
+import secrets
+
+_V2_MAGIC = b"X6MEM2"
+_V2_ITER = 200_000
+_V2_SALT = 16
 
 
 class MemoryCrypto:
     """记忆加密导出/导入（AES-GCM）"""
+
     def __init__(self, trunk=None):
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or "."
 
     def export_encrypted(self, out_path, password):
-        """AES-GCM 加密导出记忆
-
-        两处按 2026-10-13 的测试结果改了：
-          ① 解析不了的行原来 `except: pass` 静默跳过，返回的"条数"只数成功的
-             —— 用户以为导出完整。现在报出跳过数与明细。
-          ② 写不进去（盘满/权限/路径不存在）原来会把异常抛穿。现在返回错误。
-        """
+        """AES-GCM 加密导出记忆。"""
         cards = []
         bad_lines = []
         p = os.path.join(self.base, "data", "memory_cards.jsonl")
@@ -32,16 +41,20 @@ class MemoryCrypto:
                                          % (i, type(e).__name__))
 
         data = json.dumps(cards, ensure_ascii=False).encode("utf-8")
-        key = hashlib.sha256(password.encode()).digest()
-
         try:
             try:
                 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-                iv = secrets.token_bytes(12)
-                blob = iv + AESGCM(key).encrypt(iv, data, None)
-                algo = "AES-GCM"
+                salt = secrets.token_bytes(_V2_SALT)
+                nonce = secrets.token_bytes(12)
+                key = hashlib.pbkdf2_hmac(
+                    "sha256", password.encode("utf-8"), salt,
+                    _V2_ITER, dklen=32)
+                ct = AESGCM(key).encrypt(nonce, data, _V2_MAGIC)
+                blob = _V2_MAGIC + salt + nonce + ct
+                algo = "AES-GCM + PBKDF2"
             except ImportError:
-                # 只有"没装 cryptography"才回退 XOR（原来这里和别的情况混在一起）
+                # 只有确实没装 cryptography 才允许旧 XOR，并明确标记。
+                key = hashlib.sha256(password.encode()).digest()
                 blob = bytes(b ^ key[i % len(key)]
                              for i, b in enumerate(data))
                 algo = "XOR回退（没装 cryptography，强度弱得多）"
@@ -62,19 +75,7 @@ class MemoryCrypto:
         return r
 
     def import_encrypted(self, path, password):
-        """AES-GCM 解密导入记忆
-
-        ⚠️ 原来这里把"AES 解密失败"和"没装 cryptography"混在同一个 except 里，
-        于是**密码输错也会掉进 XOR 回退分支** —— XOR 解出乱码，
-        json.loads 抛 UnicodeDecodeError/JSONDecodeError，
-        用户看到的是一句"编码错误"，完全看不出是密码不对。
-
-        现在分开判断：
-            · 没装 cryptography  -> 走 XOR 回退
-            · AES 抛 InvalidTag  -> **密码不对**（明确的错误）
-            · 其它               -> 报文件损坏/格式不对
-        """
-        raw = None
+        """解密导入记忆；新格式优先，旧格式兼容。"""
         try:
             with open(path, "rb") as f:
                 raw = f.read()
@@ -84,11 +85,10 @@ class MemoryCrypto:
         if not raw:
             return {"ok": False, "错误": "文件是空的"}
 
-        key = hashlib.sha256(password.encode()).digest()
         try:
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         except ImportError:
-            # 真的没装 cryptography -> XOR 回退（旧文件可能就是这么导的）
+            key = hashlib.sha256(password.encode()).digest()
             try:
                 plain = bytes(b ^ key[i % len(key)]
                               for i, b in enumerate(raw))
@@ -98,16 +98,31 @@ class MemoryCrypto:
                         "错误": "解密失败（没装 cryptography，按 XOR 解也解不开，"
                                 "可能是密码不对或文件损坏）"}
         else:
-            if len(raw) <= 12:
-                return {"ok": False, "错误": "文件太短，不像加密导出包"}
-            iv, ct = raw[:12], raw[12:]
+            if raw.startswith(_V2_MAGIC):
+                if len(raw) <= len(_V2_MAGIC) + _V2_SALT + 12:
+                    return {"ok": False, "错误": "加密文件不完整"}
+                off = len(_V2_MAGIC)
+                salt = raw[off:off + _V2_SALT]
+                off += _V2_SALT
+                nonce = raw[off:off + 12]
+                ct = raw[off + 12:]
+                key = hashlib.pbkdf2_hmac(
+                    "sha256", password.encode("utf-8"), salt,
+                    _V2_ITER, dklen=32)
+                aad = _V2_MAGIC
+            else:
+                # 兼容旧版：sha256(password) + 12 字节 nonce + AES-GCM
+                if len(raw) <= 12:
+                    return {"ok": False, "错误": "文件太短，不像加密导出包"}
+                nonce, ct = raw[:12], raw[12:]
+                key = hashlib.sha256(password.encode()).digest()
+                aad = None
             try:
-                cards = json.loads(AESGCM(key).decrypt(iv, ct, None))
+                cards = json.loads(AESGCM(key).decrypt(nonce, ct, aad))
             except Exception as e:
-                # InvalidTag = 认证失败 = 密码不对（GCM 会校验完整性）
                 if "InvalidTag" in type(e).__name__ or "InvalidTag" in str(e):
                     return {"ok": False,
-                            "错误": "密码不对（或文件被改过）—— 解密校验没通过"}
+                            "错误": "密码不对（或文件被改过） 解密校验没通过"}
                 return {"ok": False,
                         "错误": "解密失败：%s: %s"
                                 % (type(e).__name__, str(e)[:60])}

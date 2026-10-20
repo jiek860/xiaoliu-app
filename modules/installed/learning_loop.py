@@ -1,4 +1,10 @@
 # -*- coding: utf-8 -*-
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 from modules.base import BaseModule
 """学习闭环 v13.0 - 多方向学习库：编程/拟人化/自主化/自我进化/多智能体 轮换学习
 编排者：找缺口→搜资料→提炼→入库→汇报
@@ -82,7 +88,8 @@ class LearningPipeline(BaseModule):
         if os.path.exists(self.state_path):
             try:
                 return json.load(open(self.state_path, encoding="utf-8"))
-            except:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         return {"rounds": 0, "learned": [], "last": 0, "dir_idx": 0, "topic_idx": {}}
 
@@ -90,7 +97,8 @@ class LearningPipeline(BaseModule):
         try:
             json.dump(self.state, open(self.state_path, "w", encoding="utf-8"),
                       ensure_ascii=False, indent=2)
-        except:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
 
     def _log(self, msg):
@@ -98,7 +106,8 @@ class LearningPipeline(BaseModule):
             try:
                 self.trunk._log(msg)
                 return
-            except:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
         print(msg)
 
@@ -113,7 +122,8 @@ class LearningPipeline(BaseModule):
         try:
             if self.trunk:
                 auto_dir = bool(self.trunk.rule("学习.自主选方向", True))
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         if auto_dir:
             d = self.DIR_ORDER[self.state["dir_idx"] % len(self.DIR_ORDER)]
@@ -174,7 +184,8 @@ class LearningPipeline(BaseModule):
             # 从来没调过 kb_add，索引再没人更新（kb_search/kb_categories 靠它）。
             if self.trunk is not None and hasattr(self.trunk, "kb_add"):
                 self.trunk.kb_add("学习主题: " + topic, body[:500], d)
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e)
             pass
         self.state["rounds"] += 1
         self.state["last"] = time.time()
@@ -225,7 +236,8 @@ class LearningPipeline(BaseModule):
                     self._log("用户在聊天，学习暂停本轮")
                     time.sleep(30)
                     continue
-            except Exception:
+            except Exception as e:
+                _x6_swallowed(__name__, e)
                 pass
             try:
                 r = self.run()  # 学一个主题（内部每步实时保存）
@@ -234,7 +246,8 @@ class LearningPipeline(BaseModule):
                 self._log("连续学习异常: %s" % str(e)[:50])
                 try:
                     self.trunk._log("连续学习异常: %s" % str(e)[:50])
-                except:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
             if self._running:
                 time.sleep(interval)  # 不固定时间：只做短暂LLM冷却，然后立即下一个
@@ -267,10 +280,11 @@ class LearningPipeline(BaseModule):
                 if hasattr(v, "stats"):
                     s = v.stats()
                     if isinstance(s, dict):
-                        for kk, vv in s.items():
+                        for _kk, vv in s.items():
                             if isinstance(vv, (int, float)) and vv > 0:
                                 prefs[k] = vv
-            except: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
         return {"偏好统计": prefs}
 
     def recommend(self):

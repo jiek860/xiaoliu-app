@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """播放器：pygame.mixer，可打断"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import time, threading, queue
 
 class Player:
@@ -33,7 +39,8 @@ class Player:
         self._running = False
         try:
             if self._mixer: self._mixer.music.stop()
-        except: pass
+        except Exception as e:
+            _x6_swallowed(__name__, e)
 
     def current_gen(self):
         return self._gen
@@ -43,7 +50,8 @@ class Player:
             self._gen += 1
             try:
                 if self._mixer: self._mixer.music.stop()
-            except: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
             while not self._q.empty():
                 try: self._q.get_nowait()
                 except: break

@@ -16,7 +16,7 @@ echo.
 echo  不会复制：data\ backups\ optional_libs\ tests\ tools\ .git\
 echo.
 
-rem ---- 解析可用的 Python ----
+rem ---- resolve python ----
 set "PYCMD="
 py -3 --version >nul 2>&1
 if not errorlevel 1 set "PYCMD=py -3"
@@ -29,6 +29,15 @@ if not defined PYCMD (
     pause
     exit /b 1
 )
+
+rem ---- clean runtime leftovers in the package dir ----
+rem Running the app inside E:\xiao6-package creates data/ backups/ staging/ docs/.
+rem sync_package.py will fail its safety check if they are still there.
+set "DST=E:\xiao6-package"
+if exist "%DST%\data"    rmdir /s /q "%DST%\data"
+if exist "%DST%\backups" rmdir /s /q "%DST%\backups"
+if exist "%DST%\staging" rmdir /s /q "%DST%\staging"
+if exist "%DST%\docs"    rmdir /s /q "%DST%\docs"
 
 echo  先看一眼要改什么（不动文件）：
 echo.

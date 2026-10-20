@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """语音识别模块 v2.0 - 完整版"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, time, wave, threading
 from modules.base import BaseModule
 
@@ -40,10 +46,12 @@ class _BackendOpenAIWhisper:
 def _detect_backend():
     try:
         import faster_whisper; return "faster-whisper"
-    except: pass
+    except Exception as e:
+        _x6_swallowed(__name__, e)
     try:
         import whisper; return "openai-whisper"
-    except: pass
+    except Exception as e:
+        _x6_swallowed(__name__, e)
     return None
 
 class Voice(BaseModule):
@@ -142,7 +150,8 @@ class Voice(BaseModule):
                 wf.writeframes(b"".join(frames))
             r = self.transcribe(tmp)
             try: os.remove(tmp)
-            except: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
             return r
         except Exception as e:
             return {"ok": False, "error": str(e)[:80]}

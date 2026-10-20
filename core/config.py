@@ -6,6 +6,18 @@ import os
 import json
 from datetime import datetime
 
+from core.secret_store import decrypt_config, encrypt_config
+from core.default_secrets import (
+    decrypt_tree, get_default_feishu_secret, get_default_feishu_webhook)
+
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
+
+
 # 当前配置数据结构版本，以后改字段就+1
 SCHEMA_VERSION = 2
 DEFAULTS = {
@@ -40,10 +52,35 @@ DEFAULTS = {
     "chat_history_limit_simple": 3,  # 简单聊天只带3条历史
     "memory_unload_idle_sec": 300,  # 模块5分钟没用自动卸载
     "vector_preload": True,  # 启动时预加载向量库
+    # ===== UI 模式 =====
+    "ui_mode": "simple",
+    "ui_mode_ever_switched": False,
+    "show_advanced_entries": False,
+    "shortcut_command_palette": "Ctrl+K",
     # ===== 功能开关 =====
     "联网": True,
     "工具调用": True,
     "电脑控制": True,
+    "mcp_allow_dangerous_tools": False,
+    "bot_allow_tools": False,
+    "security": {"network_mode": "standard", "permission_mode": "standard",
+                 "lockdown": False, "allow_domains": [],
+                 "audit_keep_days": 7, "trace_keep_days": 7},
+    "task": {"max_steps": 8, "max_seconds": 300, "max_tokens": 20000},
+    "task_auto_mode": "auto",
+    "task_auto_wait_sec": 45,
+    # ===== 通知通道（反馈/告警）=====
+    "notify_channel": "feishu",
+    # 默认通知凭据在源码中只保存 AES-GCM 密文；运行时才还原到内存。
+    "feishu_webhook": get_default_feishu_webhook(),
+    "feishu_secret": get_default_feishu_secret(),
+    "wecom_webhook": "",
+    "dingtalk_webhook": "",
+    "dingtalk_secret": "",
+    # 崩溃/闪退自动上报（默认开；关了就只写本地日志）
+    "auto_report_crash": True,
+    # 闪退看门狗子进程（默认开；关了就没有"闪退当场补发"）
+    "crash_watchdog": True,
 }
 
 
@@ -52,9 +89,10 @@ def load_config(path):
     cfg = {}
     if os.path.exists(path):
         try:
-            cfg = json.load(open(path, encoding="utf-8"))
-            if not isinstance(cfg, dict):
-                cfg = {}
+            raw = json.load(open(path, encoding="utf-8"))
+            if isinstance(raw, dict):
+                # 敏感字段（cloud_key / webhook / secret ）在这里解密
+                cfg = decrypt_tree(decrypt_config(raw))
         except Exception:
             cfg = {}
     changed = False
@@ -65,6 +103,10 @@ def load_config(path):
         elif not isinstance(cfg[k], type(v)):
             cfg[k] = v
             changed = True
+    # 敏感字段还是明文 -> 触发一次回写，把它换成 dpapi:v1:...
+    _, _n_enc = encrypt_config(cfg)
+    if _n_enc:
+        changed = True
     if changed and os.path.exists(path):
         try:
             save_config(path, cfg)
@@ -78,15 +120,16 @@ def load_config(path):
                                   "下次启动会退回旧配置）: %s: %s"
                                   % (type(e).__name__, str(e)[:70]))
             # 静默是故意的：连日志都写不进去时无处可报
-            except Exception:
-                pass
+            except Exception as e:
+                _x6_swallowed(__name__, e, "best-effort fallback")
     return cfg
 
 
 def save_config(path, config):
-    """原子写：先写.tmp再os.replace，防止中途崩损坏配置"""
+    """原子写：先写.tmp再os.replace。敏感字段在这里加密。"""
+    enc, _n = encrypt_config(config)
     _tmp = path + ".tmp"
-    json.dump(config, open(_tmp, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    json.dump(enc, open(_tmp, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
     os.replace(_tmp, path)
 
 

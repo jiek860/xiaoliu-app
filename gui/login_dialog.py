@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """登录窗口 - 账号+登录+激活"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, json
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QLineEdit, QPushButton, QMessageBox)
@@ -18,7 +24,8 @@ def show_login_dialog(parent, trunk, base, on_login_success):
             dlg.exec_()
             if not dlg.agreed:
                 return False
-    except Exception:
+    except Exception as e:
+        _x6_swallowed(__name__, e)
         pass
 
     d = QDialog(parent)
@@ -26,7 +33,8 @@ def show_login_dialog(parent, trunk, base, on_login_success):
     d.setFixedSize(380, 220)
     try:
         d.setWindowFlags(d.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-    except: pass
+    except Exception as e:
+        _x6_swallowed(__name__, e)
     l = QVBoxLayout(d)
     l.addWidget(QLabel("请输入账号名："))
     u = QLineEdit()
@@ -38,7 +46,8 @@ def show_login_dialog(parent, trunk, base, on_login_success):
         if os.path.exists(cache):
             cu = json.load(open(cache, encoding="utf-8")).get("u", "")
             if cu: u.setText(cu)
-    except: pass
+    except Exception as e:
+        _x6_swallowed(__name__, e)
     result = {"ok": False}
 
     def do_login():
@@ -51,7 +60,8 @@ def show_login_dialog(parent, trunk, base, on_login_success):
             result["ok"] = True
             d.accept()
             try: on_login_success(username)
-            except: pass
+            except Exception as e:
+                _x6_swallowed(__name__, e)
         else:
             QMessageBox.warning(d, "登录失败", msg)
 

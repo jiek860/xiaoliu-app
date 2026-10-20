@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """本地模型管理 - 列出/下载/删除Ollama模型"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QLineEdit, QMessageBox, QProgressBar
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
@@ -32,7 +38,8 @@ class PullWorker(QThread):
                     if d.get("status") == "success":
                         self.done.emit(True, "")
                         return
-                except Exception:
+                except Exception as e:
+                    _x6_swallowed(__name__, e)
                     pass
             self.done.emit(True, "")
         except Exception as e:
@@ -63,6 +70,27 @@ class ModelManagerDialog(QDialog):
         title = QLabel("📦 本地模型管理（Ollama）")
         title.setStyleSheet("font-size:16px;font-weight:bold;padding:6px;")
         layout.addWidget(title)
+
+        self.model_summary = QLabel("硬件与路由信息加载中")
+        self.model_summary.setWordWrap(True)
+        self.model_summary.setStyleSheet(
+            "background:#f7f9fc;border:1px solid #e2e8f0;border-radius:6px;"
+            "padding:8px;color:#334155;")
+        layout.addWidget(self.model_summary)
+        try:
+            from core.model_registry import ModelRegistry
+            reg = ModelRegistry(self.trunk)
+            hw = reg.hardware_profile()
+            route = reg.route_plan()
+            self.model_summary.setText(
+                "内存：%s GB　GPU：%s\n推荐模型：%s\n路由模式：%s　回退链：%s"
+                % (hw.get("ram_gb", "?"),
+                   " / ".join(hw.get("gpu", [])) or "未检测到 NVIDIA GPU",
+                   "、".join(hw.get("recommended", [])[:5]) or "无",
+                   route.get("mode", ""),
+                   "  ".join([x for x in route.get("fallback", []) if x])))
+        except Exception as e:  # 静默是故意的 - 概览失败不影响模型列表
+            self.model_summary.setText("模型概览加载失败: " + str(e)[:80])
 
         # 模型列表
         layout.addWidget(QLabel("已安装模型:"))

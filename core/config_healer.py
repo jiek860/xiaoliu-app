@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """配置自愈 - 检测配置错误并自动修正，只改数据不改代码"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 import os, json, time, shutil
 from core.paths import BASE
 class ConfigHealer:
@@ -24,7 +30,9 @@ class ConfigHealer:
             v = cfg.get(spec["字段"])
             try:
                 if spec["条件"](v): fixes.append({"类型":name, "字段":spec["字段"], "新值":spec["修复"]})
-            except: continue
+            except Exception as e:
+                _x6_swallowed(__name__, e)
+                continue
         if fixes and auto:
             self._backup()
             for f in fixes: cfg[f["字段"]] = f["新值"]
@@ -36,7 +44,8 @@ class ConfigHealer:
         ts = time.strftime("%Y%m%d_%H%M%S")
         dst = os.path.join(self.backup_dir, f"config_{ts}.json")
         try: shutil.copy2(self.cfg_path, dst)
-        except: pass
+        except Exception as e:
+            _x6_swallowed(__name__, e)
     def _restore(self):
         try:
             files = sorted(os.listdir(self.backup_dir))

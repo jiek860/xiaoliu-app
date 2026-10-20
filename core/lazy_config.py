@@ -42,7 +42,6 @@ LAZY_MAP = {
     "plugin_market":    ("plugin_market",    "PluginMarket",        "插件市场"),
     "mcp_client":       ("mcp_client",       "MCPClient",           "MCP客户端"),
     "mcp_server":       ("mcp_server",       "MCPServer",           "MCP服务"),
-    "mobile_remote":    ("mobile_remote",    "MobileRemote",        "手机远程"),
     # ===== L 模块 =====
     "self_reflect":     ("self_reflect",     "ReflectEngine",       "自我反思"),
     "anomaly_detector": ("anomaly_detector", "AnomalyDetector",     "异常检测"),

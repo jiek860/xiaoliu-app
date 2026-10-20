@@ -8,7 +8,6 @@ mcp_client 真的能连上它。
 历史上这套东西是半成品，从没真正可用过：
   · /tools 返回 {"工具": [...]} 字典，客户端要的是列表 -> 永远 0 个工具
   · 没有 /call，客户端 POST 过去只能收到 501
-  · 默认端口 8765 和 mobile_remote 撞车
   · start_http() 全项目没有调用点，服务从来没起来过
 这里把上面每一条都钉住。
 """
@@ -52,8 +51,16 @@ def _url(server, path):
     return "http://127.0.0.1:%d%s" % (server.http_port, path)
 
 
-def _get(server, path):
-    req = urllib.request.Request(_url(server, path))
+def _auth(server, extra=None):
+    h = {"Authorization": "Bearer " + server.auth_token}
+    if extra:
+        h.update(extra)
+    return h
+
+
+def _get(server, path, headers=None):
+    req = urllib.request.Request(_url(server, path),
+                                 headers=headers if headers is not None else _auth(server))
     try:
         with urllib.request.urlopen(req, timeout=8) as r:
             return r.status, json.loads(r.read().decode("utf-8"))
@@ -61,10 +68,12 @@ def _get(server, path):
         return e.code, json.loads(e.read().decode("utf-8"))
 
 
-def _post(server, path, obj=None, raw=None):
+def _post(server, path, obj=None, raw=None, headers=None, ctype="application/json"):
     data = raw if raw is not None else json.dumps(obj or {}).encode("utf-8")
-    req = urllib.request.Request(_url(server, path), data=data,
-                                 headers={"Content-Type": "application/json"})
+    h = _auth(server, {"Content-Type": ctype})
+    if headers:
+        h.update(headers)
+    req = urllib.request.Request(_url(server, path), data=data, headers=h)
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             return r.status, json.loads(r.read().decode("utf-8"))
@@ -97,8 +106,9 @@ def test_tool_entries_have_expected_fields(server):
         assert "description" in t
         assert isinstance(t.get("inputSchema"), dict), t
     names = [t["name"] for t in data]
-    for expect in ("chat", "search", "run_code", "backup"):
+    for expect in ("chat", "search", "backup"):
         assert expect in names, "缺少内置工具 %s（实际 %s）" % (expect, names)
+    assert "run_code" not in names, "代码执行不能出现在默认 HTTP 工具表"
 
 
 def test_schema_declares_required_args(server):
@@ -106,7 +116,6 @@ def test_schema_declares_required_args(server):
     by = {t["name"]: t for t in data}
     assert by["chat"]["inputSchema"].get("required") == ["message"]
     assert by["search"]["inputSchema"].get("required") == ["query"]
-    assert by["run_code"]["inputSchema"].get("required") == ["code"]
 
 
 def test_root_is_health_check(server):
@@ -137,6 +146,37 @@ def test_call_accepts_arguments_field(server, trunk):
         assert code == 200 and data.get("ok") is True, data
     finally:
         trunk.call("mcp_server", "remove_tool", "回显")
+
+
+# ---------------------------------------------------------------- 安全边界
+
+def test_tools_requires_token(server):
+    code, data = _get(server, "/tools", headers={})
+    assert code == 401, (code, data)
+
+
+def test_call_requires_token(server):
+    code, data = _post(server, "/call", {"tool": "chat", "args": {"message": "hi"}},
+                       headers={"Authorization": "Bearer wrong"})
+    assert code == 401, (code, data)
+
+
+def test_post_rejects_non_json_content_type(server):
+    code, data = _post(server, "/call", {"tool": "chat", "args": {}},
+                       headers={"Content-Type": "text/plain"}, ctype="text/plain")
+    assert code == 415, (code, data)
+
+
+def test_post_rejects_cross_origin(server):
+    code, data = _post(server, "/call", {"tool": "chat", "args": {}},
+                       headers={"Origin": "https://evil.example"})
+    assert code == 403, (code, data)
+
+
+def test_default_tools_do_not_include_code_execution(server):
+    _code, data = _get(server, "/tools")
+    names = {t["name"] for t in data}
+    assert "run_code" not in names
 
 
 # ---------------------------------------------------------------- 错误路径
@@ -195,8 +235,9 @@ def test_mcp_client_connects_to_local_server(server, trunk):
         c = MCPClient(trunk)
         names = [t.get("name") for t in c.tools]
         assert c.conn_errors == [], c.conn_errors
-        for expect in ("chat", "search", "run_code", "backup"):
+        for expect in ("chat", "search", "backup"):
             assert expect in names, "%s 没被拉到（实际 %s）" % (expect, names)
+        assert "run_code" not in names
         assert all(t.get("_transport") == "http" for t in c.tools)
     finally:
         trunk.config["mcp_servers"] = orig

@@ -67,6 +67,12 @@ def probe_ollama(url=None, timeout=3):
     url = (url or DEFAULT_OLLAMA).rstrip("/")
     out = {"url": url, "reachable": False, "models": [], "error": ""}
     try:
+        from core.net_guard import get_net_guard
+        d = get_net_guard(None).check(
+            url + "/api/tags", module="model_setup", purpose="local_model")
+        if not d.get("allow"):
+            out["error"] = "网络策略拒绝: " + str(d.get("reason"))
+            return out
         req = urllib.request.Request(url + "/api/tags")
         with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.loads(r.read().decode("utf-8", "replace"))
@@ -77,7 +83,7 @@ def probe_ollama(url=None, timeout=3):
     return out
 
 
-def check(trunk):
+def check(trunk, probe=True):
     """汇总当前模型可用性。
 
     返回:
@@ -101,9 +107,16 @@ def check(trunk):
 
     # 只有本地/双模型模式才去探 Ollama。
     # 纯云端模式下不探，省掉最长 3 秒的等待（首次启动会调这个函数）。
+    #
+    # probe=False：调用方明确不需要网络结果（启动判定 / 向导关闭后），
+    # 这时 reachable=None 表示"没检测"，不是"连不上"  否则会误报问题。
     need_local = ("本地" in mode) or ("双" in mode)
-    if need_local:
+    if need_local and probe:
         ollama = probe_ollama(cfg.get("ollama_url") or DEFAULT_OLLAMA)
+    elif need_local:
+        ollama = {"url": str(cfg.get("ollama_url") or DEFAULT_OLLAMA),
+                  "reachable": None, "models": [],
+                  "error": "已跳过网络探测"}
     else:
         ollama = {"url": str(cfg.get("ollama_url") or DEFAULT_OLLAMA),
                   "reachable": False, "models": [],
@@ -112,8 +125,12 @@ def check(trunk):
     problems = []
     cloud_ok = bool(cloud["key_set"] and cloud["url"])
     local_ok = False
+    unknown = ollama.get("reachable") is None
 
-    if ollama["reachable"]:
+    if unknown:
+        # 没探测：只能按"配置里有没有写模型名"判断
+        local_ok = bool(local_model)
+    elif ollama["reachable"]:
         if not ollama["models"]:
             local_ok = False
         elif not local_model:
@@ -128,7 +145,9 @@ def check(trunk):
     if "双" in mode:
         # 双模型：任一路可用即可
         if not (cloud_ok or local_ok):
-            if not ollama["reachable"]:
+            if unknown:
+                problems.append("本地模型没指定（已跳过网络检测）")
+            elif not ollama["reachable"]:
                 problems.append("连不上本地 Ollama（%s）" % ollama["url"])
             elif not ollama["models"]:
                 problems.append("Ollama 里还没有任何模型")
@@ -142,7 +161,10 @@ def check(trunk):
         if not cloud["key_set"]:
             problems.append("云端模式但没填 API Key")
     else:  # 本地
-        if not ollama["reachable"]:
+        if unknown:
+            if not local_model:
+                problems.append("没指定本地模型名")
+        elif not ollama["reachable"]:
             problems.append("连不上本地 Ollama（%s）" % ollama["url"])
             if ollama["error"]:
                 problems.append("原因：%s" % ollama["error"])
@@ -156,6 +178,8 @@ def check(trunk):
         advice = "配置没问题，可以直接聊天了。"
     elif "云端" in mode:
         advice = "去填上云端 API 地址和 Key，或改用免费的本地 Ollama。"
+    elif unknown:
+        advice = "配置已保存。想确认 Ollama 是否在线，在向导里点「保存并检测」。"
     elif not ollama["reachable"]:
         advice = ("装一个 Ollama 就能免费用：%s\n"
                   "装完执行：ollama run %s" % (OLLAMA_DOWNLOAD, RECOMMENDED_LOCAL_MODEL))
