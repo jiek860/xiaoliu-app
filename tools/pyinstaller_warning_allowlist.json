@@ -103,7 +103,8 @@
       "OpenSSL",
       "OpenSSL.SSL",
       "OpenSSL.crypto",
-      "cryptography.x509.UnsupportedExtension"
+      "cryptography.x509.UnsupportedExtension",
+      "h2.config"
     ],
     "pyinstaller_internal": [
       "_frozen_importlib_external",
