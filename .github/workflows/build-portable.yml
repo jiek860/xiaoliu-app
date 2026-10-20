@@ -38,6 +38,8 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements.txt
+      - name: Initialize pip cache
+        run: python -m pip install --upgrade pip==26.2.1
       - name: Generate plugin manifest
         run: python tools/rebuild_modules_repo.py --apply
       - name: Python syntax check
