@@ -34,9 +34,4 @@ jobs:
           python tools/build_portable.py
       - name: 检查产物
         run: |
-          python - <<'PY'
-          import glob, os
-          files = glob.glob("build/xiao6-portable-*.zip")
-          assert files, "portable zip not generated"
-          print(files[-1], os.path.getsize(files[-1]))
-          PY
+          python -c "import glob,os; files=glob.glob('build/xiao6-portable-*.zip'); assert files, 'portable zip not generated'; print(files[-1], os.path.getsize(files[-1]))"

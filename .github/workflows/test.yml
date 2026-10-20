@@ -1,5 +1,8 @@
-﻿name: 灏?娴嬭瘯
-on: [push, pull_request]
+name: 全量测试
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 jobs:
   static:
     runs-on: windows-latest
