@@ -72,6 +72,6 @@
   ],
   "plugin_repo_urls": [
     "https://gitee.com/cloud-drift/liuyun/raw/master",
-    "https://raw.githubusercontent.com/jiek860/xiaoliu-app/main/modules_repo"
+    "https://raw.githubusercontent.com/jiek860/xiaoliu-app/main/plugin_repo"
   ]
 }
