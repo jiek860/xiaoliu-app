@@ -40,3 +40,17 @@ def test_sensitive_file_is_rejected(tmp_path):
     (tmp_path / "config.json").write_text("{}", encoding="utf-8")
     _manifest(tmp_path)
     assert verify_main(["--dist", str(tmp_path)]) == 1
+
+
+def test_zero_byte_file_size_is_checked_correctly(tmp_path):
+    (tmp_path / "empty.py").write_bytes(b"")
+    _manifest(tmp_path)
+    assert verify_main(["--dist", str(tmp_path)]) == 0
+
+
+def test_certifi_ca_bundle_is_not_treated_as_private_key(tmp_path):
+    ca = tmp_path / "_internal" / "certifi" / "cacert.pem"
+    ca.parent.mkdir(parents=True)
+    ca.write_text("PUBLIC CA BUNDLE", encoding="utf-8")
+    _manifest(tmp_path)
+    assert verify_main(["--dist", str(tmp_path)]) == 0
