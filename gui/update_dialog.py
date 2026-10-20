@@ -148,9 +148,13 @@ class UpdateDialog(QDialog):
                 "检查更新失败: 更新模块未登记或加载失败（core/lazy_config.py 的 auto_updater）")
             return
         try:
-            # 优先用配置里的地址，没配则用默认更新源
-            url = self.trunk.config.get("update_manifest_url", "") or \
-                "https://gitee.com/cloud-drift/liuyun/raw/main/manifest.json"
+            # 不再内置任何第三方更新源；升级源必须由用户或部署方显式配置。
+            url = str(self.trunk.config.get("update_manifest_url", "") or "").strip()
+            if not url:
+                self.log_browser.setPlainText(
+                    "检查更新失败: 未配置 update_manifest_url。\n"
+                    "为避免从第三方仓库自动下载代码，本版本不再内置更新源。")
+                return
             r = updater.check_update(url)
             if not r.get("ok"):
                 self.log_browser.setPlainText("检查更新失败:\n" + r.get("error", "未知错误"))

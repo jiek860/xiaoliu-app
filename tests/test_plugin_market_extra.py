@@ -31,6 +31,8 @@ class _Trunk:
         self.config = {
             "allow_unsigned_plugins": True,
             "allow_inprocess_plugins": True,
+            "plugin_remote_install": True,
+            "plugin_repo_allowlist": ["example.test"],
             "online_repo_url": "https://example.test/repo",
         }
         self.modules = {}
@@ -98,7 +100,8 @@ def test_plugin_download_and_list_online(tmp_path, monkeypatch):
     pm = _market(tmp_path)
     raw = PLUGIN_SRC.encode("utf-8")
     meta = {"file": "newnote.py", "sha256": hashlib.sha256(raw).hexdigest(),
-            "signature": "", "api_version": "1.0", "first_party": False}
+            "signature": "test-signature", "api_version": "1.0",
+            "first_party": False}
 
     class Resp:
         def __init__(self, data):
@@ -114,6 +117,7 @@ def test_plugin_download_and_list_online(tmp_path, monkeypatch):
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     monkeypatch.setattr("core.net_guard.get_net_guard", lambda _t: _NG())
+    monkeypatch.setattr(pm, "_verify_meta", lambda *_a, **_k: (True, "mocked"))
     online = pm.list_online()
     assert online and online[0]["file"] == "newnote.py"
     r = pm.download("newnote.py", meta)
@@ -146,3 +150,35 @@ def test_plugin_install_file_rejects_and_accepts(tmp_path):
     assert r["ok"] is True, r
     assert "myplugin" in pm.trunk.loaded
     assert "myplugin" in (tmp_path / "core" / "lazy_config.py").read_text(encoding="utf-8")
+
+def test_plugin_download_falls_back_to_second_signed_source(tmp_path, monkeypatch):
+    pm = _market(tmp_path)
+    pm.trunk.config["online_repo_url"] = ""
+    pm.trunk.config["plugin_repo_urls"] = [
+        "https://one.example/repo",
+        "https://two.example/repo",
+    ]
+    pm.trunk.config["plugin_repo_allowlist"] = ["one.example", "two.example"]
+    raw_good = PLUGIN_SRC.encode("utf-8")
+    meta = {"file": "notes.py", "signature": "signed",
+            "sha256": hashlib.sha256(raw_good).hexdigest(),
+            "api_version": "1.0", "first_party": False}
+
+    class _Resp:
+        def __init__(self, data):
+            self.data = data
+        def read(self):
+            return self.data
+
+    def fake_open(url, timeout=0):
+        if "one.example" in str(url):
+            return _Resp(b"tampered")
+        return _Resp(raw_good)
+
+    monkeypatch.setattr("modules.installed.plugin_market.safe_open_url", fake_open)
+    monkeypatch.setattr("core.net_guard.get_net_guard", lambda _t: _NG())
+    monkeypatch.setattr(pm, "_verify_meta", lambda data, _meta: (
+        (True, "ok") if data == raw_good else (False, "bad signature")))
+    r = pm.download("notes.py", meta)
+    assert r["ok"] is True, r
+    assert (tmp_path / "modules" / "installed" / "notes.py").read_bytes() == raw_good
