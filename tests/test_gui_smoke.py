@@ -473,6 +473,11 @@ def wiz():
     """
     global _w
     import gui.onboarding_wizard as ow
+    import core.model_setup as _ms
+    mp = pytest.MonkeyPatch()
+    mp.setattr(_ms, "probe_ollama",
+               lambda *a, **k: {"reachable": False, "models": [],
+                                "error": "offline-test"})
     orig = ow.OnboardingWizard._refresh_local_status
     # 把"异步"强制走同步分支 —— 不起探测线程
     ow.OnboardingWizard._refresh_local_status = (
@@ -497,6 +502,7 @@ def wiz():
         except Exception:
             pass
         _w = None
+        mp.undo()
         for _ in range(6):
             _app.processEvents()
 
@@ -518,6 +524,11 @@ def wiz():
     global _w
     if _w is None:
         import gui.onboarding_wizard as ow
+        import core.model_setup as _ms
+        mp = pytest.MonkeyPatch()
+        mp.setattr(_ms, "probe_ollama",
+                   lambda *a, **k: {"reachable": False, "models": [],
+                                    "error": "offline-test"})
         orig = ow.OnboardingWizard._refresh_local_status
         # 把"异步"强制走同步分支 —— 不起线程，也就没有拆除期崩溃
         ow.OnboardingWizard._refresh_local_status = (
@@ -536,6 +547,7 @@ def wiz():
             _app.processEvents()
         finally:
             ow.OnboardingWizard._refresh_local_status = orig
+            mp.undo()
     return _w
 
 
