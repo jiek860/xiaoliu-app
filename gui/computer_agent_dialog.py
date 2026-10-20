@@ -253,8 +253,9 @@ class ComputerAgentDialog(QDialog):
             a = item.get("action") or {}
             v = item.get("verified") or {}
             self.output.appendPlainText(
-                "- %s | 验证: %s | 重试: %s" % (
-                    action_summary(a), v.get("reason", ""), item.get("attempts", 0)))
+                "- %s | 验证: %s | 重试: %s | 修复: %s" % (
+                    action_summary(a), v.get("reason", ""), item.get("attempts", 0),
+                    item.get("repair") or ""))
 
     def _maybe_finish_close(self):
         if self._close_pending and self._worker is not None and                 not self._worker.isRunning():

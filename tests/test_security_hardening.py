@@ -207,7 +207,13 @@ def test_backup_export_never_silently_writes_plaintext():
     assert r.get("成功"), r
     assert r.get("加密") != "无(未找到7-Zip)"
     raw = open(r["导出到"], "rb").read()
-    assert not raw.startswith(b"PK"), "加密失败时不能落成明文 zip"
+    if "7-Zip" in str(r.get("加密") or ""):
+        import zipfile
+        with zipfile.ZipFile(r["导出到"]) as z:
+            infos = z.infolist()
+            assert infos and all(i.flag_bits & 0x1 for i in infos), "7-Zip ZIP 必须逐项加密"
+    else:
+        assert not raw.startswith(b"PK"), "加密失败时不能落成明文 zip"
 
 
 def test_ollama_installer_requires_valid_signature():

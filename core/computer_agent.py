@@ -31,6 +31,7 @@ from core.visual_grounding import parse_uia_lines, ground, fuse_grounding
 from core.computer_shared import AgentCancelled
 from core.computer_perception import ComputerPerceptionMixin
 from core.computer_planner import ComputerPlannerMixin
+from core.gui_agent_quality import repair_strategy
 from core.computer_executor import ComputerExecutorMixin
 from core.computer_verifier import ComputerVerifierMixin
 
@@ -298,7 +299,8 @@ class ComputerAgent(
                         "step": "动作未成功，重新观察后重试",
                         "action": action_summary(action),
                         "reason": verified.get("reason", ""),
-                        "attempt": attempts})
+                        "attempt": attempts,
+                        "repair": repair_strategy(action, verified, attempts)})
                     self._sleep(0.4)
                     snap2 = self.observe()
                     before = snap2
@@ -309,6 +311,8 @@ class ComputerAgent(
                     verified = self.verify(action, result, before)
                 item = {"action": action, "result": result,
                         "verified": verified, "attempts": attempts,
+                        "repair": repair_strategy(action, verified, attempts)
+                        if attempts else [],
                         "thought": decision.get("thought", ""),
                         "before_screenshot": before.get("screenshot", ""),
                         "after_screenshot": result.get("after_screenshot", "")}

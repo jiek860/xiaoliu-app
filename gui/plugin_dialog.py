@@ -36,6 +36,9 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp=None, show_components=None):
     file_btn = QPushButton("📥 安装 .py 文件")
     file_btn.setStyleSheet("padding:6px 14px;")
     head.addWidget(file_btn)
+    update_btn = QPushButton("🔄 检查更新")
+    update_btn.setStyleSheet("padding:6px 14px;")
+    head.addWidget(update_btn)
     l.addLayout(head)
 
     scroll = QScrollArea()
@@ -104,8 +107,10 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp=None, show_components=None):
         cap.setWordWrap(True)
         cap.setStyleSheet("color:#7c3aed;font-size:10px;")
         v.addWidget(cap)
-        pub = QLabel("发布者:%s  签名:%s  API:%s" % (
+        pub = QLabel("发布者:%s  信任:%s  版本:%s  签名:%s  API:%s" % (
             m.get("publisher", "unknown"),
+            m.get("trust_tier", "unknown"),
+            m.get("version", "1.0.0"),
             m.get("signature_status", "unknown"),
             m.get("api_version", "legacy")))
         pub.setWordWrap(True)
@@ -279,6 +284,38 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp=None, show_components=None):
         except Exception as e:
             msg.setText("❌ " + str(e)[:60])
         _refresh()
+    def _check_updates():
+        try:
+            r = pm.check_updates()
+            updates = r.get("updates") or []
+            blocked = r.get("blocked") or []
+            if updates:
+                summary = "、".join(
+                    "%s %s->%s" % (u["file"], u.get("current"),
+                                   u["latest"].get("version"))
+                    for u in updates[:6])
+                answer = QMessageBox.question(
+                    d, "插件更新", "发现兼容更新：\n%s\n\n是否全部更新？" % summary,
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                if answer == QMessageBox.Yes:
+                    from core.plugin_installer import apply_update
+                    results = []
+                    for u in updates:
+                        meta = dict(u.get("latest") or {})
+                        meta["file"] = u.get("file")
+                        results.append(apply_update(pm, meta))
+                    ok = sum(1 for x in results if x.get("ok"))
+                    msg.setText("更新完成: %d/%d" % (ok, len(results)))
+                    _refresh()
+                    return
+                msg.setText("可更新: " + summary)
+            elif blocked:
+                msg.setText("有 %d 个新版本与当前宿主/API 不兼容" % len(blocked))
+            else:
+                msg.setText("没有可用更新")
+        except Exception as e:
+            msg.setText("检查更新失败: " + str(e)[:80])
+    update_btn.clicked.connect(_check_updates)
     file_btn.clicked.connect(_pick_file)
     sig.done.connect(_on_online_done)
     _refresh()                 # 本地那份，瞬时

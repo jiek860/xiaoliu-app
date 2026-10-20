@@ -380,6 +380,9 @@ def plugin_manifest_info(meta):
             "risk_level": result.get("risk_level"),
             "publisher": str(meta.get("publisher") or meta.get("author") or "unknown"),
             "signature_status": "signed" if meta.get("signature") else "unsigned",
+            "version": str(meta.get("version") or "1.0.0"),
+            "trust_tier": ("official" if meta.get("first_party") and meta.get("signature")
+                           else "signed" if meta.get("signature") else "unsigned"),
             "api_version": str(meta.get("api_version") or "legacy"),
         }
     except Exception:

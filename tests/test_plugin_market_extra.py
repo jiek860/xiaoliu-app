@@ -182,3 +182,33 @@ def test_plugin_download_falls_back_to_second_signed_source(tmp_path, monkeypatc
     r = pm.download("notes.py", meta)
     assert r["ok"] is True, r
     assert (tmp_path / "modules" / "installed" / "notes.py").read_bytes() == raw_good
+
+
+def test_plugin_market_check_updates(tmp_path, monkeypatch):
+    pm = _market(tmp_path)
+    online = [{"file": "notes.py", "name": "notes", "version": "1.2.0",
+               "api_version": "1.0", "signature": "s", "first_party": True,
+               "capabilities": {}}]
+    monkeypatch.setattr(pm, "list_online", lambda: online)
+    monkeypatch.setattr(pm, "_repo_meta", lambda _f: {"version": "1.0.0"})
+    r = pm.check_updates()
+    assert r["ok"] is True
+    assert r["updates"] and r["updates"][0]["latest"]["version"] == "1.2.0"
+
+
+def test_apply_update_backs_up_and_records_ledger(tmp_path, monkeypatch):
+    from core.plugin_installer import apply_update
+    from core.plugin_registry import InstallLedger
+    pm = _market(tmp_path)
+    installed = tmp_path / "modules" / "installed"
+    installed.mkdir(parents=True, exist_ok=True)
+    (installed / "notes.py").write_text("old", encoding="utf-8")
+    def fake_download(filename, meta):
+        (installed / filename).write_text("new", encoding="utf-8")
+        return {"ok": True, "msg": "downloaded"}
+    monkeypatch.setattr(pm, "download", fake_download)
+    r = apply_update(pm, {"name": "notes", "file": "notes.py", "version": "1.2.0"})
+    assert r["ok"] is True
+    assert r["backup"] and (tmp_path / "data" / "plugin_backups" / "notes.py").exists()
+    assert "notes" in pm.trunk.loaded
+    assert InstallLedger(str(tmp_path)).latest("notes")["version"] == "1.2.0"

@@ -4,6 +4,7 @@ import os
 from core.safe import safe
 from core.path_safety import safe_join, safe_name
 from core.document_parser import chunk_text
+from core.rag_pipeline import KnowledgeBase
 from modules.base import BaseModule
 
 try:
@@ -81,6 +82,11 @@ class KnowledgeQnA(BaseModule):
             self.workspace_root = base
             self.docs_dir = os.path.join(base, "data", "knowledge")
         os.makedirs(self.docs_dir, exist_ok=True)
+        try:
+            self.rag = KnowledgeBase(self.workspace_root,
+                                     namespace=ws_id or "default")
+        except Exception:
+            self.rag = None
         self.query_count = 0
         self.add_count = 0
 
@@ -95,8 +101,14 @@ class KnowledgeQnA(BaseModule):
             return {"错误": "文档标题非法"}
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
+        rag = {}
+        if self.rag is not None:
+            try:
+                rag = self.rag.ingest_file(path)
+            except Exception:
+                rag = {}
         self.add_count += 1
-        return {"已添加": title}
+        return {"已添加": title, "RAG": rag}
 
     @safe
     def import_file(self, path):
@@ -148,8 +160,14 @@ class KnowledgeQnA(BaseModule):
                 _x6_swallowed(__name__, e, "best-effort fallback")
         except Exception as e:
             _x6_swallowed(__name__, e, "best-effort fallback")
+        rag = {}
+        if self.rag is not None:
+            try:
+                rag = self.rag.ingest_file(out)
+            except Exception:
+                rag = {}
         return {"ok": True, "文件": out, "字符数": r.get("chars", 0),
-                "来源": os.path.abspath(path)}
+                "来源": os.path.abspath(path), "RAG": rag}
 
     @safe
     def list_docs(self):
@@ -206,6 +224,17 @@ class KnowledgeQnA(BaseModule):
                 hits.append(h)
         except Exception as e:  # 静默是故意的 - 混合索引失败时用已有结果
             _x6_swallowed(__name__, e, "best-effort fallback")
+        if self.rag is not None:
+            try:
+                for h in self.rag.search(query, top_k=top_k, role="viewer"):
+                    if h.get("source"):
+                        h = dict(h)
+                        h.setdefault("text", h.get("text", ""))
+                        h.setdefault("page", h.get("page"))
+                        h["citation"] = h.get("citation", "")
+                        hits.insert(0, h)
+            except Exception as e:  # 静默是故意的 - RAG 降级到原有检索
+                _x6_swallowed(__name__, e, "best-effort fallback")
         # 去重并保留来源/页码
         seen, out = set(), []
         for h in hits:

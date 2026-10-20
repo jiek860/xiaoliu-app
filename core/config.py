@@ -26,6 +26,7 @@ DEFAULTS = {
     "local_model": "xiao6-7b:latest",
     "small_model": "xiao6-7b:latest",
     "cloud_model": "qwen-turbo",
+    "cloud_provider": "",
     "ai_name": "Jarvis",
     "ollama_url": "http://localhost:11434",
     "module_server": "http://127.0.0.1:8899",
@@ -63,6 +64,12 @@ DEFAULTS = {
     "电脑控制": True,
     "mcp_allow_dangerous_tools": False,
     "bot_allow_tools": False,
+    "plugin_remote_install": False,
+    "plugin_repo_allowlist": ["gitee.com", "raw.githubusercontent.com"],
+    "plugin_repo_urls": [
+        "https://gitee.com/cloud-drift/liuyun/raw/master",
+        "https://raw.githubusercontent.com/jiek860/xiaoliu-app/main/plugin_repo",
+    ],
     "security": {"network_mode": "standard", "permission_mode": "standard",
                  "lockdown": False, "allow_domains": [],
                  "audit_keep_days": 7, "trace_keep_days": 7},
@@ -95,6 +102,16 @@ def load_config(path):
                 cfg = decrypt_tree(decrypt_config(raw))
         except Exception:
             cfg = {}
+    # Central team policy overrides local/user config keys.
+    try:
+        base = os.path.dirname(os.path.dirname(os.path.abspath(path)))
+        central = os.path.join(base, "data", "team", "central_config.json")
+        if os.path.isfile(central):
+            extra = json.load(open(central, encoding="utf-8-sig"))
+            if isinstance(extra, dict):
+                cfg.update(extra)
+    except Exception:  # 静默是故意的
+        pass
     changed = False
     for k, v in DEFAULTS.items():
         if k not in cfg:

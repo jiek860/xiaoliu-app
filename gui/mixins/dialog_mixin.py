@@ -36,6 +36,14 @@ class DialogMixin:
         from gui.kb_dialog import show_kb_dialog
         show_kb_dialog(self, self._dlg, self.trunk, self._safe_stop_workers)
 
+    def rag_dialog(self):
+        from gui.rag_dialog import show_rag_dialog
+        show_rag_dialog(self.trunk, self)
+
+    def team_dialog(self):
+        from gui.team_dialog import show_team_dialog
+        show_team_dialog(self.trunk, self)
+
     def sys_dialog(self):
         from gui.system_dialog import show_system_dialog
         show_system_dialog(self)
@@ -197,6 +205,9 @@ class DialogMixin:
             "开始任务":     getattr(self, "start_task", None),
             "定时任务":     getattr(self, "scheduled_tasks_dialog", None),
             "知识库":       getattr(self, "kb_dialog", None),
+            "RAG管理":      getattr(self, "rag_dialog", None),
+            "团队管理":     getattr(self, "team_dialog", None),
+            "多用户":       getattr(self, "team_dialog", None),
             "资料中心":     getattr(self, "kb_dialog", None),
             "检查更新":     getattr(self, "update_dialog", None),
             "桌宠":         getattr(self, "pet_dialog", None),

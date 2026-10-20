@@ -411,6 +411,8 @@ class PluginMarket(BaseModule):
         api_ok, api_why = self._validate_plugin_payload(raw, meta, filename)
         if not api_ok:
             return {"ok": False, "原因": api_why}
+        from core.plugin_installer import backup_plugin_file
+        backup = backup_plugin_file(self.installed_dir, self.backup_dir, filename)
         tmp = dst + ".download"
         try:
             with open(tmp, "wb") as f:
@@ -433,7 +435,26 @@ class PluginMarket(BaseModule):
         except Exception:
             gi = {}
         return {"ok": True, "msg": "已下载: %s（%s）" % (filename, verified_why),
-                "治理": gi}
+                "备份": backup, "治理": gi}
+
+    def check_updates(self, online=None):
+        """Return compatible plugin updates using the signed manifest metadata."""
+        from core.plugin_registry import select_update
+        from core.version import get_version
+        online = self.list_online() if online is None else list(online)
+        host = str(get_version())
+        by_file = {}
+        for meta in online:
+            by_file.setdefault(str(meta.get("file") or ""), []).append(meta)
+        updates, blocked = [], []
+        for fname, candidates in by_file.items():
+            current = str(self._repo_meta(fname).get("version") or "0.0.0")
+            plan = select_update(current, candidates, host_version=host)
+            if plan.get("latest"):
+                updates.append({"file": fname, "current": current,
+                                "latest": plan["latest"]})
+            blocked.extend(plan.get("blocked") or [])
+        return {"ok": True, "updates": updates, "blocked": blocked}
 
     def rollback_module(self, name):
         """从 data/plugin_backups 恢复上一版模块文件。"""
