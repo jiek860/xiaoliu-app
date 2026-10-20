@@ -20,6 +20,10 @@ import unittest.mock as mock
 
 import pytest
 
+# Test sessions must never block on the first-run login modal. Individual
+# dialog tests still construct LoginDialog directly.
+os.environ.setdefault("X6_DISABLE_LOGIN_PROMPT", "1")
+
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE not in sys.path:
     sys.path.insert(0, BASE)
