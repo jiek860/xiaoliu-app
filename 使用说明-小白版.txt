@@ -395,3 +395,13 @@
      ③ 不要先删 data\；先备份整个 data\ 再排查；
      ④ 开发/发布前跑 Windows + Python 3.10/3.11/3.12 兼容矩阵
        和 tools\check_plugin_api.py。
+
+## 启动性能（2026-10-20）
+
+- 启动打点：`core/startup.py`，日志里搜 `[启动耗时]`。
+- 秒开策略：`JarvisWindow(boot_signal=False)` 先出骨架，`gui/boot_controller.py`
+  在事件循环后创建 Trunk 并补挂界面。
+- 看门狗在 `run.py` 里早于 Qt 拉起，独立进程，不受界面耗时影响。
+- 模块星图导出与 LLM 预热/看门狗都改成启动后后台执行。
+- 需要旧行为（全部就绪才显示）时设 `X6_BLOCKING_BOOT=1`。
+- 实测：界面可见约 0.16~0.20 秒，全功能就绪约 1.0~1.2 秒。

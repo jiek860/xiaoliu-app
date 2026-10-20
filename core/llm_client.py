@@ -33,7 +33,10 @@ class LLMClient(
     LLMCloudMixin,
     LLMLocalMixin,
 ):
-    def __init__(self, trunk=None):
+    def __init__(self, trunk=None, defer_warmup=False, **kwargs):
+        # defer_warmup=True：只做内存初始化，看门狗和预热交给调用方调度，
+        # 用于启动阶段（实测能省 20~30ms 且避免和 GUI 首帧抢 CPU）。
+        kwargs_defer = bool(defer_warmup or kwargs.get("defer_warmup"))
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.config_path = os.path.join(self.base, r"data\config.json")
@@ -52,10 +55,22 @@ class LLMClient(
         import requests as _req
         self._session = _req.Session()
         self._session.headers.update({"Content-Type": "application/json"})
-        self._timer = threading.Thread(target=self._watchdog, daemon=True)
+        # 看门狗/预热都延后启动：它们要 import requests 之外的重库、还要发网络
+        # 请求，放在构造函数里会直接拖慢 Trunk 创建（启动阶段最贵的路径）。
+        # defer_warmup=True 时由 Trunk 在后台统一调度（见 trunk 的 _warmup）。
+        if not kwargs_defer:
+            self.start_background_workers()
+            threading.Thread(target=self._warmup, daemon=True).start()
+
+    def start_background_workers(self):
+        """启动看门狗线程（幂等）。defer_warmup=True 时由上层在启动完成后调用。"""
+        if getattr(self, "_timer_running", False):
+            return False
+        self._timer = threading.Thread(target=self._watchdog, daemon=True,
+                                       name="llm-watchdog")
         self._timer.start()
-        # 模型预热：后台线程先加载模型，第一次聊天不等冷加载
-        threading.Thread(target=self._warmup, daemon=True).start()
+        self._timer_running = True
+        return True
 
     HARD_KW = re.compile(
         r"认真|仔细|一步步|逐步|详细分析|深度分析|严谨|推理|推导|证明|算法|数学|"

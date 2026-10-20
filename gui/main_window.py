@@ -5,7 +5,7 @@ import json
 import time
 import threading
 import traceback
-from PyQt5.QtWidgets import (QMainWindow, QMessageBox, QApplication, QShortcut)
+from PyQt5.QtWidgets import (QMainWindow, QMessageBox, QApplication, QShortcut, QLabel)
 from PyQt5.QtCore import pyqtSignal, QTimer, Qt
 from PyQt5.QtGui import QIcon, QKeySequence
 from core.trunk import Trunk
@@ -39,11 +39,67 @@ class JarvisWindow(
     confirmScopeRequested = pyqtSignal(str, str)
     statusMessage = pyqtSignal(str)
 
-    def __init__(self):
+    def __init__(self, startup=None, boot_signal=True):
         super().__init__()
+        # 0. 启动计时（可选）：用来定位"哪一段慢了"
+        self._startup = startup
+        self._trunk_ready = False
+        self._after_trunk_hooks = []
+        if startup is not None:
+            startup.mark("窗口对象创建")
         # 1. Trunk 初始化
-        self.trunk = Trunk()
-        self.base = getattr(self.trunk, "base", None) or \
+        #    boot_signal=False 时只建窗口骨架，Trunk 由 _boot_trunk() 稍后填入。
+        #    这是"秒开界面"的关键：先把空壳画出来，重活放到事件循环之后。
+        if boot_signal:
+            self._init_from_trunk(self._boot_trunk())
+        else:
+            # 延迟启动：先只装"不依赖 trunk"的骨架，等 BootController 补上。
+            # 明确置 None：别的代码/测试会用 `w.trunk is None` 判断"还没就绪"。
+            self.trunk = None
+            self._init_skeleton()
+    def _boot_trunk(self):
+        """创建 trunk（后台线程会调它，见 start_background_boot）。"""
+        import time as _t
+        t0 = _t.perf_counter()
+        trunk = Trunk()
+        if self._startup is not None:
+            self._startup.mark("Trunk 初始化完成")
+        try:
+            trunk.perf.record("startup.trunk_init", _t.perf_counter() - t0)
+        except Exception as e:
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        return trunk
+
+    def _init_skeleton(self):
+        """不依赖 trunk 的最小骨架：窗口属性 + 图标 + 最小尺寸 + 主题。
+
+        这样窗口能立刻显示出来；依赖 trunk 的 UI/账号/定时器由
+        BootController 在事件循环之后补上。
+        """
+        self.base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.setWindowTitle("✨ 小6智能体")
+        _ico = os.path.join(self.base, "app.ico")
+        if os.path.exists(_ico):
+            self.setWindowIcon(QIcon(_ico))
+        self.setMinimumSize(1100, 750)
+        try:
+            from gui.style import STYLE
+            self.setStyleSheet(STYLE)
+        except Exception as e:  # 静默是故意的 - 骨架样式失败不该拦住启动
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        self._boot_placeholder = QLabel("正在启动…", self)
+        self._boot_placeholder.setAlignment(Qt.AlignCenter)
+        self._boot_placeholder.setStyleSheet(
+            "color:#64748b;font-size:14px;background:#f8fafc;")
+        self.setCentralWidget(self._boot_placeholder)
+        self._confirm_evt = threading.Event()
+        self._confirm_result = {"ok": False}
+        self._after_trunk_hooks = []
+
+    def _init_from_trunk(self, trunk):
+        """把依赖 trunk 的部分集中初始化（骨架和全量启动共用这条路径）。"""
+        self.trunk = trunk
+        self.base = getattr(trunk, "base", None) or \
             os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         # 2. 状态栏 + 线程安全回调
         self.statusMessage.connect(lambda s: self.statusBar().showMessage(s, 5000))

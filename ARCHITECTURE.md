@@ -308,3 +308,25 @@ py -3 tools/make_sbom.py
 
 入口统一从 `gui/panel_registry.py` 注册，命令面板 Ctrl+K 可打开
 「RAG管理」「团队管理」「用量成本」「模型用量」。
+
+
+## 十二、启动链路（2026-10-20 秒开改造）
+
+```
+run.py
+  ├─ core/startup.mark("进程启动")
+  ├─ sys.path: 项目根 / libs / optional_libs
+  ├─ win_dll_fix.preload_msvc_runtime()
+  ├─ auto_report.start()  -> crash_watchdog.spawn()   ← 独立进程，先跑
+  └─ gui.app_pyqt.run_pyqt(startup)
+       ├─ QApplication（约 70~120ms）
+       ├─ JarvisWindow(boot_signal=False) 只建骨架 -> show()（约 160~200ms 可见）
+       └─ BootController（QTimer 后置）
+            ├─ Trunk() 核心模块并行注册
+            ├─ 模块星图导出丢后台线程
+            ├─ _init_from_trunk() 补挂 UI/账号/定时器
+            └─ 1 秒后补启 LLM 看门狗与模型预热
+```
+
+调试：`trunk.log` 里搜 `[启动耗时]`；想恢复"全部就绪才显示"设
+`X6_BLOCKING_BOOT=1`。

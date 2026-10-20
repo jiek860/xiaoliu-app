@@ -18,6 +18,60 @@ except ImportError:
 
 
 class TrunkBackgroundMixin:
+    def _start_llm_workers_later(self, delay=1.0):
+        """延迟启动 LLM 看门狗和模型预热。
+
+        以前这两件事写在 LLMClient.__init__ 里 —— 而 LLMClient 是启动阶段
+        并行加载的核心模块之一，它的预热会立刻发网络请求、占 CPU，
+        和 GUI 首帧抢时间。现在挪到启动之后，行为不变、启动更快。
+        """
+        def _run():
+            try:
+                llm = self.modules.get("llm")
+                if llm is None:
+                    return
+                if hasattr(llm, "start_background_workers"):
+                    llm.start_background_workers()
+                warm = getattr(llm, "_warmup", None)
+                if callable(warm):
+                    warm()
+            except Exception as e:
+                _x6_swallowed(__name__, e, "best-effort fallback")
+
+        try:
+            threading.Timer(max(0.0, float(delay)), _run).start()
+        except Exception as e:
+            _x6_swallowed(__name__, e, "best-effort fallback")
+
+    def _init_pipeline(self):
+        # 尝试初始化 pipeline；初始化就失败的话只能一直走 legacy
+        self._use_pipeline = True
+        # pipeline 出错后的冷却重试状态（见 _reply_inner / _pipeline_failed）
+        self._pipeline_fail_count = 0     # 连续失败次数，成功一次就清零
+        self._pipeline_retry_at = 0.0     # 早于这个时间点不重试 pipeline
+        try:
+            from core.pipeline import ReplyPipeline
+            self._pipeline = ReplyPipeline(self)
+            self._log("Pipeline 初始化成功")
+        except Exception as e:
+            self._use_pipeline = False
+            self._pipeline = None
+            self._log(f"Pipeline 初始化失败，使用旧流程: {e}")
+        # 后台自我改进组件（全try包裹，坏了不影响主程序）
+        try:
+            from core.config_healer import ConfigHealer
+            fixes = ConfigHealer(self).check_and_heal()
+            if fixes: self._log(f"配置自愈完成，修复{len(fixes)}项")
+        except Exception as e:
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        try:
+            from core.module_health import ModuleHealth
+            disabled = ModuleHealth(self).disabled_modules()
+            if disabled: self._log(f"已自动禁用坏模块: {disabled}")
+        except Exception as e:
+            _x6_swallowed(__name__, e)
+        self._log("躯干启动")
+
     def _warmup(self):
         """预热：后台加载 Ollama 模型 + 向量库，不阻塞启动"""
         try:

@@ -104,24 +104,115 @@ def _crash_hook(exc_type, exc_value, exc_tb):
 sys.excepthook = _crash_hook
 
 
-def run_pyqt():
-    """入口：DPI + 高DPI图标 + 主窗口"""
+def _resolve_startup(startup):
+    """拿到计时器；传进来的优先，没有就 import 一个（失败返回 None）。"""
+    if startup is not None:
+        return startup
+    try:
+        from core import startup as mod
+        return mod
+    except Exception as e:  # 静默是故意的 - 计时器坏了不该挡住启动
+        _x6_swallowed(__name__, e, "best-effort fallback")
+        return None
+
+
+def _make_boot_callbacks(window, startup):
+    """构造 BootController 用的两个回调（进度 / 完成）。
+
+    抽成独立函数是为了能单测：真跑 run_pyqt 会进 app.exec_()，测试里起不来事件循环。
+    """
+    def on_progress(text):
+        try:
+            window.statusBar().showMessage(text, 5000)
+            ph = getattr(window, "_boot_placeholder", None)
+            if ph is not None:
+                ph.setText(text)
+        except Exception as e:  # 静默是故意的 - 状态栏/占位页缺失不影响启动
+            _x6_swallowed(__name__, e, "best-effort fallback")
+
+    def on_finished(ok, message):
+        try:
+            ph = getattr(window, "_boot_placeholder", None)
+            if ph is not None:
+                ph.deleteLater()
+                window._boot_placeholder = None
+                window.setCentralWidget(None)
+        except Exception as e:  # 静默是故意的 - 占位页已销毁就跳过
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        if startup is not None:
+            startup.mark("启动完成" if ok else "启动失败")
+            try:
+                print(startup.log_summary(getattr(window, "trunk", None)))
+            except Exception as e:  # 静默是故意的 - 日志失败不影响启动
+                _x6_swallowed(__name__, e, "best-effort fallback")
+        if not ok:
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.critical(window, "启动失败",
+                                 "核心模块没有加载成功：\n" + str(message)[:400])
+        else:
+            try:
+                window.statusBar().showMessage("已就绪", 3000)
+            except Exception as e:  # 静默是故意的 - 没有状态栏就算了
+                _x6_swallowed(__name__, e, "best-effort fallback")
+
+    return on_progress, on_finished
+
+
+def run_pyqt(startup=None):
+    """入口：DPI + 高DPI图标 + 主窗口
+
+    顺序说明（决定"能不能秒开"）：
+      ① QApplication 最先建 —— 越早建，Windows 越早显示窗口框架
+      ② 看门狗/自动上报在 Qt 之前就已经由 run.py 拉起（幂等）
+      ③ JarvisWindow 内部把 Trunk 初始化和后台服务继续往后排
+    """
+    startup = _resolve_startup(startup)
     from PyQt5.QtWidgets import QApplication
     from PyQt5.QtCore import Qt
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     app = QApplication(sys.argv)
     app.setApplicationName("小6智能助手")
+    if startup is not None:
+        startup.mark("QApplication 就绪")
 
     # 崩溃 / 闪退自动上报（直接双击本文件启动时也生效；start 是幂等的）
     try:
         from core import auto_report
         auto_report.start(_base)
+        if startup is not None:
+            startup.mark("自动上报就绪")
     except Exception as e:
         print("自动上报初始化失败: %s" % str(e)[:80])
     from gui.main_window import JarvisWindow
-    w = JarvisWindow()
+    if startup is not None:
+        startup.mark("主窗口模块导入")
+
+    # 秒开策略：boot_signal=False 时窗口只建"空骨架"立刻显示，
+    # 真正的 Trunk 初始化交给 BootController 在事件循环之后跑。
+    # 环境变量 X6_BLOCKING_BOOT=1 可退回"全部就绪才显示"的旧行为（排查用）。
+    blocking = os.environ.get("X6_BLOCKING_BOOT") == "1"
+    w = JarvisWindow(startup=startup, boot_signal=blocking)
+    if startup is not None:
+        startup.mark("主窗口构造完成")
     w.show()
+    if startup is not None:
+        startup.mark("界面已显示")
+
+    if not blocking:
+        from gui.boot_controller import BootController
+        boot = BootController(w, startup=startup)
+        w._boot_controller = boot
+        on_progress, on_finished = _make_boot_callbacks(w, startup)
+        boot.progress.connect(on_progress)
+        boot.finished.connect(on_finished)
+        boot.start(delay_ms=0)
+    else:
+        if startup is not None:
+            try:
+                print(startup.log_summary(getattr(w, "trunk", None)))
+            except Exception as e:  # 静默是故意的 - 日志失败不影响启动
+                _x6_swallowed(__name__, e, "best-effort fallback")
     sys.exit(app.exec_())
 
 
