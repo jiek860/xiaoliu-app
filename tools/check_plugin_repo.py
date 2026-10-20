@@ -30,6 +30,10 @@ def main():
         base = BASE
         config = {}
 
+    attrs = os.path.join(REPO, ".gitattributes")
+    if not os.path.isfile(attrs) or "* -text" not in open(attrs, encoding="utf-8").read():
+        print("plugin_repo/.gitattributes must contain '* -text'")
+        return 1
     manifest_path = os.path.join(REPO, "manifest.json")
     if not os.path.isfile(manifest_path):
         print("missing plugin_repo/manifest.json")
