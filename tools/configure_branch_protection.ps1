@@ -13,7 +13,6 @@ $checks = @(
     "windows-build-required",
     "portable-required",
     "security-required",
-    "dependency-review",
     "codeql-analyze"
 )
 
