@@ -117,21 +117,45 @@ class CodeEditWidget(QPlainTextEdit):
                                        self.line_number_area_width(), cr.height()))
 
     def paint_line_numbers(self, e):
-        p = QPainter(self._ln_area)
-        p.fillRect(e.rect(), QColor("#f2f3f5"))
-        n = self.blockCount()
-        h = self.fontMetrics().height()
-        top = self.viewport().contentOffset().y()
-        block = self.firstVisibleBlock()
-        bn = block.blockNumber()
-        geom = self.blockBoundingGeometry(block).translated(self.contentOffset())
-        y = int(geom.top() - top)
-        while block.isValid() and y <= e.rect().bottom():
+        """画行号。
+
+        ⚠️ 这里曾两次出错，都是因为**把 Qt 的 API 想当然了**：
+          ① 用 self.contentOffset()（QPlainTextEdit 自己才没有这个方法）；
+          ② 用 self.viewport().contentOffset()（viewport 是普通 QWidget，
+             也没有）—— 于是 paintEvent 每次抛 AttributeError，
+             控制台刷屏、行号区不刷新，日志里就是
+             "'QWidget' object has no attribute 'contentOffset'"。
+
+        正确写法是：`self.contentOffset()` 直接返回偏移（它是
+        QPlainTextEdit 的成员），`self.blockBoundingGeometry(block)`
+        返回的已经是**视口坐标**，两者相加得到的就是屏幕上的位置。
+        """
+        try:
+            p = QPainter(self._ln_area)
+        except Exception:  # 极端情况下拿不到画笔就跳过这一帧  # 静默是故意的
+            return
+        try:
+            p.fillRect(e.rect(), QColor("#f2f3f5"))
+            h = self.fontMetrics().height()
+            offset = self.contentOffset()
+            block = self.firstVisibleBlock()
+            bn = block.blockNumber()
+            geom = self.blockBoundingGeometry(block).translated(offset)
+            y = int(geom.top())
             p.setPen(QColor("#8a919c"))
-            p.drawText(0, y, self._ln_area.width() - 6, h,
-                       Qt.AlignRight, str(bn + 1))
-            block = block.next(); bn += 1
-            y += self.blockBoundingRect(block).height() if block.isValid() else 0
+            while block.isValid() and y <= e.rect().bottom():
+                p.drawText(0, y, self._ln_area.width() - 6, h,
+                           Qt.AlignRight, str(bn + 1))
+                block = block.next()
+                bn += 1
+                if not block.isValid():
+                    break
+                y += int(self.blockBoundingRect(block).height())
+        except Exception:  # 静默是故意的
+            # 绘制期间的异常绝不能冒泡到 Qt 事件循环（会刷屏崩溃日志）
+            pass
+        finally:
+            p.end()
 
     # ----- 补全 -----
     def _setup_completer(self):

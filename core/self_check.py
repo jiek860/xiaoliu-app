@@ -436,6 +436,20 @@ def deep_check(trunk):
         if miss: errors.append("配置缺"+str(miss))
     except Exception as e:
         _x6_swallowed(__name__, e)
+    # 字体：Qt 看不到任何字体时界面会**全白但不报错**，必须显式检查
+    try:
+        from core import font_bootstrap
+        fs = font_bootstrap.status()
+        if fs.get("ok"):
+            log("字体: OK %d 个可用户族" % int(fs.get("count") or 0))
+        elif fs.get("reason"):
+            # 无界面环境（脚本/CI）也会走到这里，不能误报成"界面全白"
+            log("字体: 跳过（%s）" % str(fs.get("reason"))[:50])
+        elif fs.get("count") == 0:
+            log("字体: 未找到任何字体（界面会显示空白）")
+            errors.append("Qt 没有可用字体：界面会全白")
+    except Exception as e:
+        _x6_swallowed(__name__, e)
     try:
         logf=os.path.join(trunk.base,"data","logs","app.log"); leak=0
         if os.path.exists(logf):

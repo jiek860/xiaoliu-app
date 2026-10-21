@@ -1644,6 +1644,54 @@ tools/check_*.py          没有删除操作
 - 实时对话流水线、截图识字GLM-4V接入、磁盘缓存秒回重复问题
 - 功能中心、历史记录窗口、代码编辑器模块
 
+### 依赖安全升级（2026-10-21）
+
+- pip-audit 新披露 9 条漏洞：`certifi 2026.10.18`（1 条）与 `Pillow 12.3.0`（8 条）。
+- `certifi` 升到 `2026.10.19`；`Pillow` 升到 `13.0.0`（`requirements-optional.txt`
+  由 `>=12,<13` 改为 `>=13,<14`）。
+- 两个 lock 文件同步更新；`pip-audit` 对 runtime 与 full 两套依赖均为
+  **0 known vulnerabilities**。
+- 复查图像链路：Pillow 13 下 OCR/多模态相关测试 11 项通过，
+  可选依赖运行时检查（含 Playwright 冒烟）通过。
+
+### 修复：界面全白、启动一堆弹窗、代码编辑器行号崩溃（2026-10-21）
+
+**界面全白（P0）**
+
+- 根因不是布局，是 **Qt 一个字体都没有**：`QFontDatabase().families() == []`。
+  这种状态下 Qt 不报错，只是把每个字画成空白块，看起来像白屏。
+- 新增 `core/font_bootstrap.py`：启动时检测字体族数量，为 0 就从 Windows
+  系统字体目录注册（微软雅黑/黑体/宋体/Segoe UI/Arial），并设置默认字体。
+- `gui/app_pyqt.py` 在建任何控件之前调用 `ensure_fonts(app)`。
+- 深度自检新增一行字体结论；没有 QApplication 时安全跳过（此前直接访问
+  QFontDatabase 会让进程 0xC0000409 硬退出）。
+
+**启动弹窗太多（P0）**
+
+- 以前协议框在 `__init__` 里同步弹、登录框 `singleShot(0)` 弹、首次向导
+  `singleShot(400)` 弹，三者重叠；登录框内部还会**再查一次协议**。
+- 改为串行引导链：`_do_login_flow` → `_confirm_agreement` →
+  `_after_agreement_login` → `_maybe_onboarding`，一次只出现一个模态框。
+- `gui/login_dialog.py` 不再重复弹协议。
+
+**首次配置向导永远不出现（P1）**
+
+- `show_onboarding` 被删了，但 main_window / dialog_mixin 仍在 import，
+  每次启动都写一条 "cannot import name 'show_onboarding'"，新用户看不到配模型向导。
+- 已恢复 `show_onboarding()`，返回是否走完并向 `mark_done` 记录。
+
+**代码编辑器行号崩溃（P1）**
+
+- `gui/code_editor_widget.py` 调用了不存在的
+  `self.viewport().contentOffset()`，paintEvent 每次抛 AttributeError 刷屏。
+- 改为 `self.contentOffset()`，并在绘制期间兜住异常，不再冒泡到 Qt 事件循环。
+
+**验证**
+
+- 全量测试：1331 passed / 2 skipped；覆盖率约 60.48%。
+- 截图对比：修复前整屏只有色块；修复后侧栏、聊天、输入框、状态栏文字全部正常。
+- 新增 `tests/test_font_and_dialogs.py`（11 项）。
+
 ### 启动提速（2026-10-20）
 
 - 新增 `core/startup.py`：启动阶段打点，日志里输出 `[启动耗时]` 一行。

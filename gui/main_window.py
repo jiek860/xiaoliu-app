@@ -170,28 +170,25 @@ class JarvisWindow(
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
 
-        # ===== 协议确认（首次启动/版本更新） =====
+        # ===== 协议确认 =====
+        # ⚠️ 以前在 __init__ 里同步 exec_()，于是启动瞬间会**连着弹三个框**：
+        #    协议 -> 登录 -> 首次向导（登录框里还会再查一次协议）。
+        #    用户感受就是"一打开就一堆弹窗"。现在改成：
+        #      · 协议确认排到窗口显示之后（_do_login_flow 里统一编排）
+        #      · 一次只允许一个模态框，其余等前一个关掉再弹
         try:
             from core.agreement import Agreement
-            from gui.agreement_dialog import AgreementDialog
-            ag = Agreement(self.trunk)
-            if ag.need_show():
-                dlg = AgreementDialog(self.trunk, self)
-                dlg.exec_()
-                if not dlg.agreed:
-                    from PyQt5.QtWidgets import QMessageBox
-                    QMessageBox.information(
-                        self, "退出",
-                        "您未同意协议，程序将退出。"
-                    )
-                    from PyQt5.QtWidgets import QApplication
-                    QApplication.quit()
-                    return
+            self._agreement = Agreement(self.trunk)
+            self._agreement_pending = bool(self._agreement.need_show())
         except Exception as e:  # 静默是故意的
+            self._agreement = None
+            self._agreement_pending = False
             try:
-                self.trunk._log("协议确认失败: %s" % str(e)[:60])
+                self.trunk._log("协议检查失败: %s" % str(e)[:60])
             except Exception as e:  # 静默是故意的
                 _x6_swallowed(__name__, e, "best-effort fallback")
+        if not getattr(self, "_agreement_pending", False):
+            self._agreement_confirmed = True
 
         # 9. 自动登录
         _auto_user = None
@@ -264,7 +261,47 @@ class JarvisWindow(
                 _x6_swallowed(__name__, e, "best-effort fallback")
 
     def _do_login_flow(self):
-        """窗口显示后再走登录门禁（原来在 __init__ 里阻塞，窗口得等登录完才出现）"""
+        """窗口显示后的**串行**引导：协议 -> 登录 -> 首次配置向导。
+
+        为什么改成串行
+        --------------
+        以前三段各自 `exec_()`：协议在 __init__ 里弹、登录在 singleShot(0) 里弹、
+        向导又 singleShot(400) 里弹。三者时间上重叠，会出现"协议还盖着，
+        登录框已经起来了，关掉又冒出向导"，看起来像一堆弹窗互相抢焦点。
+        现在改成一条链：每一步返回后，才决定要不要弹下一步。
+        """
+        if os.environ.get("X6_DISABLE_LOGIN_PROMPT") == "1":
+            self._after_agreement_login()
+            return
+        if getattr(self, "_agreement_pending", False):
+            if not self._confirm_agreement():
+                QApplication.quit()
+                return
+        self._after_agreement_login()
+
+    def _confirm_agreement(self):
+        """弹一次协议确认；同意返回 True。"""
+        try:
+            from gui.agreement_dialog import AgreementDialog
+            dlg = AgreementDialog(self.trunk, self)
+            dlg.exec_()
+            if dlg.agreed:
+                self._agreement_pending = False
+                self._agreement_confirmed = True
+                return True
+            QMessageBox.information(self, "退出", "您未同意协议，程序将退出。")
+            return False
+        except Exception as e:  # 静默是故意的 - 协议框坏了不该让程序打不开
+            try:
+                self.trunk._log("协议确认失败: %s" % str(e)[:60])
+            except Exception:  # 静默是故意的
+                _x6_swallowed(__name__, e, "best-effort fallback")
+            # 打不开协议框就当作已确认，避免把用户锁死在启动阶段
+            self._agreement_pending = False
+            return True
+
+    def _after_agreement_login(self):
+        """协议之后：登录 -> 首次向导，两个框绝不重叠。"""
         if os.environ.get("X6_DISABLE_LOGIN_PROMPT") == "1":
             return
         try:
@@ -291,6 +328,9 @@ class JarvisWindow(
     def _maybe_onboarding(self):
         """首次运行引导：模型还没配通时提示怎么配"""
         if not self.account.current_username():
+            return
+        if os.environ.get("X6_DISABLE_LOGIN_PROMPT") == "1":
+            # 测试/无人值守：不弹任何模态框
             return
         try:
             from gui.onboarding_wizard import needs_onboarding, show_onboarding
