@@ -143,7 +143,8 @@ class Voice(BaseModule):
                 frames.append(stream.read(1024, exception_on_overflow=False))
             stream.stop_stream(); stream.close()
             sampwidth = p.get_sample_size(pyaudio.paInt16); p.terminate()
-            tmp = os.path.join(self.base, "data", "_listen_tmp.wav")
+            # v2.1: 临时产物必须落在 data/plugin_data/<插件名>/ 内（manifest 插件名为 stt）
+            tmp = os.path.join(self.base, "data", "plugin_data", "stt", "_listen_tmp.wav")
             os.makedirs(os.path.dirname(tmp), exist_ok=True)
             with wave.open(tmp, "wb") as wf:
                 wf.setnchannels(1); wf.setsampwidth(sampwidth); wf.setframerate(sample_rate)

@@ -209,7 +209,14 @@ class MCPClient(BaseModule):
 
     def _trust_path(self):
         base = getattr(self.trunk, "base", None) or "."
-        return os.path.join(base, "data", "security", "mcp_trust.json")
+        # v2.1: 插件持久化必须落在 data/plugin_data/<插件名>/ 内
+        new = os.path.join(base, "data", "plugin_data", "mcp_client", "mcp_trust.json")
+        _legacy = os.path.join(base, "data", "security", "mcp_trust.json")
+        if not os.path.exists(new) and os.path.exists(_legacy):
+            try: os.replace(_legacy, new)
+            except OSError:  # 静默是故意的：旧信任文件迁移失败不阻断主流程
+                pass
+        return new
 
     def _trusted_commands(self):
         try:

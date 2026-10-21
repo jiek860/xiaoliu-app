@@ -12,8 +12,16 @@ class SkillCapture(BaseModule):
         super().__init__(trunk)
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or "."
-        self.skill_dir = os.path.join(self.base, "data", "skills")
-        self.pending_dir = os.path.join(self.base, "data", "skills_pending")
+        # v2.1: 插件持久化必须落在 data/plugin_data/<插件名>/ 内
+        os.makedirs(os.path.join(self.base, "data", "plugin_data", "skill_capture"), exist_ok=True)
+        self.skill_dir = os.path.join(self.base, "data", "plugin_data", "skill_capture", "skills")
+        self.pending_dir = os.path.join(self.base, "data", "plugin_data", "skill_capture", "skills_pending")
+        for _old, _new in ((os.path.join(self.base, "data", "skills"), self.skill_dir),
+                           (os.path.join(self.base, "data", "skills_pending"), self.pending_dir)):
+            if not os.path.exists(_new) and os.path.isdir(_old):
+                try: os.rename(_old, _new)
+                except OSError:  # 静默是故意的：旧目录迁移失败不阻断主流程
+                    pass
         os.makedirs(self.skill_dir, exist_ok=True)
         os.makedirs(self.pending_dir, exist_ok=True)
         self.history = []

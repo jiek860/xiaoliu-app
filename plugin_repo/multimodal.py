@@ -26,6 +26,9 @@ class Multimodal(BaseModule):
         super().__init__(trunk)
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or "."
+        # v2.1: 临时产物必须落在 data/plugin_data/<插件名>/ 内
+        self.sandbox = os.path.join(self.base, "data", "plugin_data", "multimodal")
+        os.makedirs(self.sandbox, exist_ok=True)
         self.history = []
         self.describe_count = 0
         self.audio_count = 0
@@ -122,7 +125,7 @@ class Multimodal(BaseModule):
                 if not ret:
                     break
                 if count % (30 // fps) == 0:
-                    frame_path = os.path.join(self.base, "data", "temp_frame.jpg")
+                    frame_path = os.path.join(self.sandbox, "temp_frame.jpg")
                     cv2.imwrite(frame_path, frame)
                     frames.append(frame_path)
                 count += 1
@@ -164,7 +167,7 @@ class Multimodal(BaseModule):
             if not ret:
                 return {"错误": "打不开摄像头"}
             if not save_path:
-                save_path = os.path.join(self.base, "data", "camera.jpg")
+                save_path = os.path.join(self.sandbox, "camera.jpg")
             cv2.imwrite(save_path, frame)
             # 描述这张照片
             r = self.describe_image(save_path)

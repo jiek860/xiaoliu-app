@@ -1,6 +1,6 @@
 ================================================================================
-                小6智能体 · 插件标准 v1.1
-        （对齐《模块级程序标准 Module-Level Program Standard v1.0》）
+              小6插件标准 v2.1（模块级程序标准整合修订版）
+     [MUST]/[SHOULD]/[MAY] 分级 · [全]/[PY]/[MCP]/[L3] 形态标记 · L1/L2/L3 插件分级
 ================================================================================
 适用版本：v25.2.23 起
 状态    ：已落地并强制执行（不是建议稿）
@@ -344,4 +344,84 @@ P2
 文档同步：2026-10-21 / v25.2.23 / 插件标准 v1.1
 相关文档：docs/PLUGIN_STANDARD.md（Markdown 版）、docs/PLUGIN_SDK.md（开发指南）
           docs/MODULE_STANDARD.md（模块级标准对照）
+================================================================================
+
+--------------------------------------------------------------------------------
+十三、v2.1 落地：分级、审计、熔断、密钥与门禁（2026-10-21）
+--------------------------------------------------------------------------------
+
+13.1 插件分级 L1/L2/L3（自动推导）
+    推导函数 core/plugin_tier.py::derive(capabilities)
+    L3 系统型：process.enabled 或 ui_control.enabled 或 config.read_secrets
+    L2 IO 型 ：network.enabled 或 filesystem.write 非空
+    L1 计算型：其余（豁免 N4.3/N4.4/N4.5/N6.4/N8.3）
+    manifest 的 plugin_tier / risk_level 由 capabilities 自动写入，
+    手写值与推导值不一致时以推导值覆盖并告警。
+    当前分布：L1 = 36，L2 = 4，L3 = 2（code_runner / computer_controller）
+
+13.2 审计日志（N15）
+    core/plugin_audit.py
+    每条记录字段：ts(ISO-8601 UTC) / plugin / version / action /
+                  capability / allowed / detail / session_id
+    敏感字段写盘前由 core/redaction 脱敏；写失败只计数不阻断。
+    默认保留 90 天，purge_expired() 清理过期记录。
+
+13.3 熔断与资源上限（N13）
+    core/plugin_limits.py
+    熔断：连续失败 5 次 → 熔断，冷却 60 秒，错误码 PLUGIN_CIRCUIT_OPEN
+    限额：单次调用 30s / 单插件内存 512MB / 单次写 100MB / 网络 60 次每分钟
+    超限错误码 PLUGIN_RESOURCE_EXHAUSTED
+
+13.4 凭据读取（S3/S7）
+    插件必须在 capabilities.config 声明 read_secrets=true 与 secret_names 列表，
+    经 ctx.config.get_secret(name) 由 broker 代理读取；
+    未声明即拒绝；审计只记录凭据"名字"，不记录值。
+
+13.5 签名算法明细（S5）
+    RSA ≥2048（实测 2048）/ RSASSA-PKCS1-v1_5 / SHA-256 / Base64 无换行
+    校验证书链与吊销列表：config/plugin_key_revocation.json
+    工具：py -3 tools/verify_signature.py --all
+
+13.6 回环端口规则（S3）
+    允许 localhost:8080 / 127.0.0.1:5000 / [::1]:3000 这类回环+端口写法；
+    非回环域名一律禁止带端口。
+
+13.7 版本规范（N9.1）
+    version 必须三段式语义化；历史 "1.0"/"5.1" 已统一补成 "1.0.0"/"5.1.0"。
+    api_version 与 version 语义分离：前者精确匹配，后者语义化。
+
+13.8 manifest v2.1 新增字段
+    必填：license / author / min_host_version / plugin_tier / risk_level
+    条件必填：dev_depends / optional_depends / homepage / changelog_url / data_version
+    当前实测：42/42 全部具备
+
+13.9 发布与门禁命令（全部必须通过）
+    py -3 tools/check_plugin_repo.py
+    py -3 tools/check_plugin_api.py
+    py -3 tools/check_plugin_quality.py
+    py -3 tools/check_plugin_tier.py
+    py -3 tools/check_plugin_deps.py --ast
+    py -3 tools/check_plugin_security.py
+    py -3 tools/verify_signature.py --all
+    py -3 -m pytest tests/test_plugin_standard.py tests/test_plugin_standard_v21.py tests/test_plugin_contract.py -q
+
+13.10 插件级契约测试（N8.2b）
+     tests/test_plugin_contract.py         框架级批量契约测试（42 模块）
+     templates/plugin_contract_test.py     单个插件的契约测试模板
+     覆盖：入口可实例化 / tools 方法存在 / 生命周期幂等 / stats JSON 可序列化
+
+13.11 当前实测（2026-10-21）
+     模块 42 · 质量门禁 error 0 · 分级一致 42/42 · 依赖无环
+     签名有效 42/42（RSA 2048） · 安全检查 error 0
+     测试：test_plugin_standard 17 · v21 19 · contract 29 全通过
+
+--------------------------------------------------------------------------------
+十四、仍待补齐（诚实清单）
+--------------------------------------------------------------------------------
+    P0  仓库 LICENSE 文件；插件级 README/API/AGENTS 文档；插件级依赖声明字段落地
+    P1  配置优先级显式化；manifest 驱动卸载；插件级 CHANGELOG；密钥吊销接口
+    P2  遥测指标出口；插件目录化；工具 contract 全覆盖（当前多数未声明）
+
+================================================================================
+文档同步：2026-10-21 / 插件标准 v2.1 / 事实源以代码为准
 ================================================================================

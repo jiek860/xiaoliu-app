@@ -1,5 +1,43 @@
 # 版本变更记录
 
+### 插件标准 v2.1：分级、审计、熔断、密钥校验（2026-10-21）
+
+对齐外部《模块级程序标准 v1.0》并落实评审 P0/P1/P2：
+
+新增模块：
+
+- core/plugin_tier.py：L1/L2/L3 分级与 risk_level 自动推导
+- core/plugin_audit.py：N15 审计日志（8 字段 + 脱敏 + 90 天保留期）
+- core/plugin_limits.py：N13 熔断（5 次/60s）+ 资源上限 + 网络限流
+
+新增工具：
+
+- tools/check_plugin_tier.py    分级一致性
+- tools/check_plugin_deps.py    依赖语法 + 环检测 + AST 边界
+- tools/check_plugin_security.py 配置/路径/密钥/审计/L3 专项
+- tools/verify_signature.py     RSA 签名 + 公钥位数 + 吊销列表
+
+broker 增强：
+
+- 熔断前置检查、调用成功/失败计数、写入配额、网络限流
+- ctx.config.get_secret() 凭据代理（需 read_secrets + secret_names 声明）
+- 每次能力调用写结构化审计
+
+manifest v2.1：
+
+- 新增必填 license / author / min_host_version / plugin_tier / risk_level
+- version 统一为三段式语义化（1.0 -> 1.0.0 等）
+- 回环地址允许显式端口（127.0.0.1:5000）
+
+契约测试：
+
+- tests/test_plugin_contract.py：42 模块批量契约（29 项）
+- tests/test_plugin_standard_v21.py：v2.1 组件单测（19 项）
+- templates/plugin_contract_test.py：单插件模板
+
+CI 新增 5 项门禁。当前实测：1443 passed / 2 skipped；覆盖率 61.17%；
+质量门禁 error 0；分级 L1=36 L2=4 L3=2；签名 42/42（RSA 2048）。
+
 ### 插件标准 v1.1：对齐模块级程序标准（2026-10-21）
 
 新增可执行组件：

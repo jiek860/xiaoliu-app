@@ -20,9 +20,19 @@ class MemoryPipeline(BaseModule):
         super().__init__(trunk)
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        self.state_path = os.path.join(self.base, "data", "memory_loop.json")
+        # v2.1: 插件持久化必须落在 data/plugin_data/<插件名>/ 内
+        _sdir = os.path.join(self.base, "data", "plugin_data", "memory_loop")
+        os.makedirs(_sdir, exist_ok=True)
+        self.state_path = os.path.join(_sdir, "memory_loop.json")
+        self.episodic_path = os.path.join(_sdir, "episodic_memory.json")
+        for _old in (os.path.join(self.base, "data", "memory_loop.json"),
+                     os.path.join(self.base, "data", "episodic_memory.json")):
+            _new = os.path.join(_sdir, os.path.basename(_old))
+            if not os.path.exists(_new) and os.path.exists(_old):
+                try: os.replace(_old, _new)
+                except OSError:  # 静默是故意的：旧数据迁移失败不阻断主流程
+                    pass
         self.state = self._load()
-        self.episodic_path = os.path.join(self.base, "data", "episodic_memory.json")
         self.episodic_mem = self._load_episodic()
 
     # ===== 情景记忆 =====

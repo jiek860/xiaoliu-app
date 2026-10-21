@@ -126,6 +126,26 @@ _OFFICIAL_CAPS = {
 }
 
 
+# v2.1 S1：官方模块的统一元信息（可被 modules/installed_meta.json 覆盖）
+DEFAULT_LICENSE = "LicenseRef-Xiao6-Proprietary"
+DEFAULT_AUTHOR = "小6"
+DEFAULT_MIN_HOST_VERSION = "25.2.23"
+
+
+def _semver(value):
+    """把 "1.0" / "5.1" 规范成 "1.0.0" / "5.1.0"；已合规的原样返回。"""
+    import re as _re
+    text = str(value or "").strip()
+    if _re.match(r"^\d+\.\d+\.\d+(?:[-+].*)?$", text):
+        return text
+    m = _re.match(r"^(\d+)(?:\.(\d+))?$", text)
+    if m:
+        major = m.group(1)
+        minor = m.group(2) or "0"
+        return "%s.%s.0" % (major, minor)
+    return "1.0.0"
+
+
 def capabilities_of(name):
     """给官方模块生成标准能力声明（最小权限 + 明确高风险项）。
 
@@ -138,7 +158,8 @@ def capabilities_of(name):
         "filesystem": {"read": [], "write": []},
         "process": {"enabled": False, "allow_argv": []},
         "ui_control": {"enabled": False},
-        "config": {"read_secrets": False, "public_keys": []},
+        "config": {"read_secrets": False, "public_keys": [],
+                   "secret_names": []},
     }
     raw = dict(defaults)
     specific = _OFFICIAL_CAPS.get(name) or _OFFICIAL_CAPS["__default__"]
@@ -239,7 +260,9 @@ def main():
         entry["group"] = (base or {}).get("group") or guess_group(item["title"], item["file"])
         if entry["group"] == "其他":
             entry["group"] = guess_group(item["title"], item["file"])
-        entry["version"] = (base or {}).get("version") or "1.0"
+        # v2.1 N9.1：version 必须是三段式语义化版本。
+        # 历史清单里大量是 "1.0" / "5.1" 这种两段式，这里统一补成 x.y.0。
+        entry["version"] = _semver((base or {}).get("version") or "1.0")
         entry["button"] = (base or {}).get("button")
         # 能力声明：模块里声明的 TOOLS 优先，其次保留旧清单里已有的。
         # 写进清单后会一起参与 sha256 + RSA 签名，所以能力声明是防篡改的。
@@ -258,6 +281,27 @@ def main():
         entry["capabilities"] = capabilities_of(item["name"])
         entry["needs_model"] = bool((base or {}).get("needs_model"))
         entry["depends"] = (base or {}).get("depends") or []
+        # ---- v2.1 S1 新增必填字段 ----
+        entry["license"] = (base or {}).get("license") or DEFAULT_LICENSE
+        entry["author"] = (base or {}).get("author") or DEFAULT_AUTHOR
+        entry["min_host_version"] = ((base or {}).get("min_host_version")
+                                     or DEFAULT_MIN_HOST_VERSION)
+        # ---- v2.1 A.3 条件必填 ----
+        for key in ("dev_depends", "optional_depends", "homepage",
+                    "changelog_url"):
+            value = (base or {}).get(key)
+            if value:
+                entry[key] = value
+        if (base or {}).get("data_version"):
+            entry["data_version"] = (base or {}).get("data_version")
+        # ---- v2.1 A.4 自动推导：plugin_tier / risk_level ----
+        try:
+            from core.plugin_tier import derive as _derive_tier
+            tier, risk, _why = _derive_tier(entry["capabilities"])
+            entry["plugin_tier"] = tier
+            entry["risk_level"] = risk
+        except Exception as e:
+            _x6_swallowed(__name__, e, "best-effort fallback")
         entry["size"] = os.path.getsize(item["src"])
         entry["sha256"] = ""
         entry["signature"] = ""

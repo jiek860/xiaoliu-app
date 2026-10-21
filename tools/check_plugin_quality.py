@@ -33,9 +33,13 @@ from core.tool_contract import validate_tools  # noqa: E402
 MANIFEST = os.path.join(BASE, "modules_repo", "manifest.json")
 SRC_DIR = os.path.join(BASE, "modules_repo")
 
+# v2.1 S1：18 项原有必填 + 3 项新增必填（license/author/min_host_version）
+# + 2 项自动推导（plugin_tier/risk_level）
 REQUIRED_FIELDS = ("name", "title", "file", "cls", "desc", "group",
                    "version", "api_version", "first_party", "sha256",
-                   "signature", "capabilities")
+                   "signature", "capabilities",
+                   "license", "author", "min_host_version",
+                   "plugin_tier", "risk_level")
 
 # 隐式全局状态检查（标准 3.4）：命中即 warn
 _GLOBAL_PATTERNS = (
@@ -157,11 +161,37 @@ def check_module(meta):
             if key not in caps:
                 errors.append("%s: capabilities 缺 %s 段（标准 5.5）" % (name, key))
 
+    # --- v2.1 §0.3 / A.4 分级与风险推导一致性 ---
+    try:
+        from core.plugin_tier import check_manifest as _check_tier
+        tr = _check_tier(meta)
+        if tr["mismatches"]:
+            for mm in tr["mismatches"]:
+                errors.append("%s: %s 声明值 %r 与推导值 %r 不一致（v2.1 A.4）"
+                              % (name, mm["field"], mm["declared"],
+                                 mm["derived"]))
+        info["plugin_tier"] = tr["tier"]
+        info["risk_level"] = tr["risk"]
+    except Exception as e:
+        warnings.append("%s: 分级推导失败 %s" % (name, str(e)[:60]))
+
+    # --- v2.1 S1 语义化版本 ---
+    if not re.match(r"^\d+\.\d+\.\d+(?:[-+].*)?$",
+                    str(meta.get("version") or "")):
+        warnings.append("%s: version=%r 不是三段式语义化版本（N9.1）"
+                        % (name, meta.get("version")))
+
     # --- 标准 9.2 签名 ---
-    if not str(meta.get("signature") or "").strip():
-        errors.append("%s: 未签名（标准 9.2）" % name)
-    if not str(meta.get("sha256") or "").strip():
-        errors.append("%s: 缺 sha256（标准 9.2）" % name)
+    # ⚠️ manifest.json 是**入库的未签名源**（sha256/signature 在发布时由
+    #    tools/sign_modules.py 写入）。CI checkout 出来的就是未签名状态，
+    #    因此这里只做"存在性"检查：有签名字段就必须非空，
+    #    真正"必须已签名"由 tools/check_plugin_repo.py（校验发布产物）负责。
+    if "signature" in meta and not str(meta.get("signature") or "").strip():
+        warnings.append("%s: manifest 中存在空 signature 字段（发布前需重新签名）"
+                        % name)
+    if "sha256" in meta and not str(meta.get("sha256") or "").strip():
+        warnings.append("%s: manifest 中存在空 sha256 字段（发布前需重新签名）"
+                        % name)
 
     src, path = _read_src(meta)
     if src is None:

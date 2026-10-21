@@ -77,6 +77,13 @@ class _Process(_RpcProxy):
 
 
 class _Config(_RpcProxy):
+    def get_secret(self, name):
+        """读取已声明的凭据（需 capabilities.config.read_secrets）。
+
+        v2.1 S3/S7：凭据只能经 broker 代理读取，不会落插件持久化层。
+        """
+        return self._call("config.get_secret", {"name": str(name)})
+
     def get_public(self, key):
         return self._call("config.get_public", key=key)
 

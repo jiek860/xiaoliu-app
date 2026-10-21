@@ -85,6 +85,12 @@ jobs:
           python tools/check_silent.py
           python tools/check_plugin_api.py
           python tools/check_plugin_repo.py
+          # 小6插件标准 v2.1 门禁
+          python tools/check_plugin_quality.py
+          python tools/check_plugin_tier.py
+          python tools/check_plugin_deps.py --ast
+          python tools/check_plugin_security.py
+          python tools/verify_signature.py --all
           python tools/check_runtime_compat.py --allow-server
           python tools/migrate_data.py --dry-run --json
       - name: Upload coverage evidence
