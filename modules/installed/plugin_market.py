@@ -423,7 +423,7 @@ class PluginMarket(BaseModule):
                 if os.path.exists(tmp):
                     os.remove(tmp)
             except OSError:
-                pass
+                pass  # 静默是故意的：临时文件清理失败不影响主流程
             return {"ok": False, "原因": "写入失败: " + str(e)[:60]}
         try:
             from core.plugin_governance import PluginGovernance

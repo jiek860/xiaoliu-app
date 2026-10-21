@@ -1,5 +1,25 @@
 # 版本变更记录
 
+### 插件标准 v1.1：对齐模块级程序标准（2026-10-21）
+
+新增可执行组件：
+
+- core/plugin_errors.py：18 个结构化错误码 + retryable + context，附 normalize_error 渐进迁移
+- core/module_lifecycle.py：new -> started -> stopped 状态机，start/stop/close/shutdown/health 幂等
+- core/tool_contract.py：工具 contract 字段校验
+- tools/check_plugin_quality.py：42 模块质量门禁，error 必须为 0
+
+基类升级：
+
+- modules/base.py：BaseModule 继承 LifecycleMixin，新增 NOT_RESPONSIBLE 与 describe()
+- core/agent_generic.py：改为继承 BaseModule，使 3 个 agent 模块合规
+
+门禁首跑修复：3 个 agent 缺 run；3 处 except pass 无理由；localhost 白名单；生成能力漏 filesystem 段。
+
+文档：新增根目录 插件标准.txt、docs/MODULE_STANDARD.md；PLUGIN_STANDARD.md 补 v1.1。
+
+验证：1395 passed / 2 skipped；覆盖率 60.99%；质量门禁 error=0。
+
 ### 插件标准 v1.0 落地（2026-10-21）
 
 **问题**：标准其实早就存在（`core/plugin_api.py` + `core/plugin_capabilities.py`），

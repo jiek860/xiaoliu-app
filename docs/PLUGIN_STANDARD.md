@@ -208,3 +208,24 @@ legacy（未声明）    0
 | `code_runner` | `process.enabled=true`，`allow_argv=[["python"],["py"]]` | 代码执行 |
 | `weather` / `deep_search` | `network.enabled=true` + 域名白名单 | 联网 |
 | `browser` / `mcp_client` | `network` 仅回环地址 | 连本地服务 |
+
+---
+
+## 11. v1.1 对齐模块级标准（2026-10-21）
+
+新增可执行组件：
+
+- core/plugin_errors.py：18 个结构化错误码 + retryable + context
+- core/module_lifecycle.py：start/stop/health 幂等状态机
+- core/tool_contract.py：工具 contract 字段校验
+- tools/check_plugin_quality.py：42 模块质量门禁（error 必须为 0）
+
+基类升级：BaseModule 继承 LifecycleMixin，新增 NOT_RESPONSIBLE 与 describe()；
+agent_generic 同步继承 BaseModule。
+
+门禁首跑发现的真实问题：3 个 agent 模块缺 run；3 处 except pass 无理由；
+localhost 无法通过域名白名单；生成能力时漏 filesystem 段。均已修复。
+
+当前实测：模块 42 · error 0 · warn 125 · 全部已签名 · 0 个 legacy。
+
+用户版：根目录 插件标准.txt。
