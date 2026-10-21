@@ -107,3 +107,32 @@ dependency-audit*.json
 license-report.json
 security-audit-report.json
 perf-current.json
+
+# ---------- 一之三、本机残留（2026-10-21 梳理补入）----------
+# 之前这些没被忽略，导致 4000+ 个临时文件长期堆在开发目录里。
+_ci_sim/
+_ci_sim2/
+_ci_sim*.log
+_ci_sim*.err
+_ci_sim*.pid
+_job*.log
+_live_test_log*.txt
+_fix_backup_*/
+_s*.log
+_s*.ps1
+_pr*.log
+_pr*.py
+_docs*.log
+_dc*.out
+_dc*.err
+_diag_*.py
+_shot*.py
+_acc*.py
+_perf*.py
+_prof_*.py
+_ap*.py
+_cl*.py
+_pe*.py
+_p*.py
+_cov*.json
+_v21*.json
