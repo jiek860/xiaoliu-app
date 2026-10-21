@@ -147,6 +147,7 @@
   "manifest.keys": [
     "api_version",
     "button",
+    "capabilities",
     "cls",
     "depends",
     "desc",

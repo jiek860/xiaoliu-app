@@ -46,9 +46,19 @@ def _bool(value, default=False):
     return bool(value)
 
 
+# 本机回环地址：插件连本地模型/MCP/浏览器调试端口是常见且必要的能力，
+# 但它们不符合域名正则（没有顶级域）。标准里显式允许这几个字面量，
+# 且只允许这几个 —— 不能因此放开任意无点主机的解析。
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
 def _clean_domain(value):
     text = str(value or "").strip().lower().rstrip(".")
-    if not text or "://" in text or "/" in text or ":" in text:
+    if not text or "://" in text or "/" in text:
+        return None
+    if text in LOCAL_HOSTS:
+        return text
+    if ":" in text:      # 带端口的非回环地址不允许（端口不属于主机白名单）
         return None
     if not _DOMAIN_RE.match(text):
         return None

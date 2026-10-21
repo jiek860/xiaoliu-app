@@ -355,3 +355,22 @@ run.py
 
 调试：`trunk.log` 里搜 `[启动耗时]`；想恢复"全部就绪才显示"设
 `X6_BLOCKING_BOOT=1`。
+
+
+## 十三、插件标准 v1.0（2026-10-21）
+
+插件不是"能跑就算"，必须满足 8 条标准（全文见 `docs/PLUGIN_STANDARD.md`）：
+
+| 编号 | 标准 | 强制点 |
+|---|---|---|
+| S1 | 清单必填字段齐全 | 安装/下载前 |
+| S2 | `api_version=1.0` | `manifest_api_version()` |
+| S3 | `capabilities` 5 段齐全 | `validate_capabilities()` |
+| S4 | 只能用公共 core 模块 | AST 静态检查 |
+| S5 | sha256 + RSA 签名 | 验签后才落盘 |
+| S6 | 文件名/路径越界防护 | `safe_plugin_filename` |
+| S7 | 运行时经 broker 授权 | 每次能力调用 |
+| S8 | 风险/信任等级展示 | 插件市场 UI |
+
+当前合规：42/42 声明能力、42/42 已签名、0 个 legacy。
+契约测试 `tests/test_plugin_standard.py` 防止标准被悄悄放宽。

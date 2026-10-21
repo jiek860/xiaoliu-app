@@ -11,6 +11,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/agent_analyst"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": true,
     "depends": [],
     "size": 257,
@@ -29,6 +53,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/agent_coder"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": true,
     "depends": [],
     "size": 271,
@@ -47,6 +95,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/agent_planner"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": true,
     "depends": [],
     "size": 278,
@@ -65,6 +137,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/anomaly_detector"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 3147,
@@ -99,6 +195,30 @@
     ],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/auto_updater"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": true,
     "depends": [],
     "size": 5868,
@@ -117,6 +237,34 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": true,
+        "domains": [
+          "localhost",
+          "127.0.0.1"
+        ],
+        "methods": [
+          "GET",
+          "POST"
+        ]
+      },
+      "filesystem": {
+        "read": [],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 20301,
@@ -135,6 +283,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/cache"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 4385,
@@ -183,6 +355,30 @@
     ],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/calendar"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 2035,
@@ -201,6 +397,35 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [],
+        "write": []
+      },
+      "process": {
+        "enabled": true,
+        "allow_argv": [
+          [
+            "python"
+          ],
+          [
+            "py"
+          ]
+        ]
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 3326,
@@ -222,6 +447,28 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": true
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 9415,
@@ -240,9 +487,38 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": true,
+        "domains": [
+          "duckduckgo.com",
+          "html.duckduckgo.com",
+          "www.bing.com",
+          "api.search.brave.com"
+        ],
+        "methods": [
+          "GET"
+        ]
+      },
+      "filesystem": {
+        "read": [],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": true,
     "depends": [],
-    "size": 10448,
+    "size": 10612,
     "sha256": "e0d1c68aed50fc84d9b3eb26e903a097c19d3be6d84aa30e8ce7a353491bd434",
     "signature": "16487118c9dd0b08b92cbc0947e0a178050bbdca8bc6726cacda549ac97e92a03fa216e0ec0ab169b2bd685771d08d82c5241d34abc488f82b643a211c20a3864e4078b4c0f9dc2040f55a47750a7964ae3166ba9b682c6eccb835f4011a27e58a76920d09fd0e53f46cbcdf7e49fbe8f0f9a035bb480a65795dd7dfe143793a28f3b892bf491c66f991d4ddbc1d77edff6ce15f9c3f27bd9e586d224cafa9018028295658fcb4535b0fa31f38b72736f5d452e5d2725f1220bde6a8021a3f0e0ec889e2ee1e2baa09713a370dc4f98254dd61d949727db82933531a1e807ae031e00dbb339694caea380b7c09a15ec4f3ed7b5d54ec375e604c9b3e92b17784"
   },
@@ -261,6 +537,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/error_lib"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 9019,
@@ -279,6 +579,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/file_upload"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 5052,
@@ -297,6 +621,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/forgetting_curve"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 4341,
@@ -315,6 +663,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/group_chat"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": true,
     "depends": [],
     "size": 16394,
@@ -360,6 +732,30 @@
     ],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/group_loop"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 4879,
@@ -391,6 +787,30 @@
     ],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/group_parallel"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 3774,
@@ -409,6 +829,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/hot_reload"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 12426,
@@ -467,6 +911,30 @@
     ],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/image_ocr"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 5203,
@@ -578,9 +1046,33 @@
     ],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/knowledge_qa"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
-    "size": 14981,
+    "size": 16393,
     "sha256": "91c099ba3f69e1401bbce43c2c1456f1eb951b75859aaefe5b808355f2c8c9b2",
     "signature": "7a8bd62c67aa0d657b219fb36d754ca4476b8390d204128445ace048fde04632cdf1bb167666876075510b2ce1257ba0ffb0f9bb9d263de0a24bc9151eaebc94016abff948d08c0cf6b4844f1cf7583999f51cb5f7ec718a6f7499f9bb6abd0beb6a569f5d9f92c5a60858549141e5efc60d2cfe650cf99b9ba66d040279f9fe5d537eb256eb190fadd4a386f9583d9a169a70bd5b3236ced3c17891dd2ed39c0e5478d4fe7c2cfbf8b93ecc781677645df26a5cafe041fdb6318eccb1d4c9685b13fa4c0c5eb4ba442c7fe6ccdca29f8f9381c7aeb7da404ef879e309dac7722df40d52f98240bf1b2f37ffbb5c6a734e23a11cddabf76d8026a4c17e0ba361"
   },
@@ -625,6 +1117,30 @@
     ],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/learning_loop"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 14160,
@@ -643,9 +1159,36 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": true,
+        "domains": [
+          "localhost",
+          "127.0.0.1"
+        ],
+        "methods": [
+          "POST"
+        ]
+      },
+      "filesystem": {
+        "read": [],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
-    "size": 16271,
+    "size": 20797,
     "sha256": "c7b59f9b3da1203a9df0fee58c183fc16b9dc3c497d7d0f98f91970212e8b6f1",
     "signature": "50eee12cec07580e49c5bdcb7587276164fc6c35e8bc0c4e03cea60ff7954724551aaf6010d8df5edaf158eba766099245e8d0360f405297b9d3d7ac9a28f9106edf957dacad9161e58f70e111b881ecc00411cb36c5af0f92a767775a3c7562fc20aefe38d51d8064970def182f1fcd612223590086cc4113f52db67ae170d26adf88a0b07eb7de51808df61b99e72a03b9868e30628b0fbfbb028672bd5f8f03d3295f2197ea78785e47f5052106553bd521f87eda05691a3a1ae4c52db3045c7f649bf544c5db4db3eb9c51641ecb572d935843a320f60192d38ad603f123386ec07ba7a1df6a9f6a20677c78ae4d901ffb5377c43b5937a423078175b606"
   },
@@ -661,9 +1204,33 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/mcp_server"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
-    "size": 18387,
+    "size": 19004,
     "sha256": "4218a901e1782607f2a1b7442ce019bf7aeb6eb61d14e069b3875b6c3e7af6d2",
     "signature": "24777fe93e1d59138a9a9878e1b9b2b81f03bc283da48ae31790e47f61167a78b43165f68b7d2c304864300b05fef0dd1c92b8576df3d8efdd9cf6863c7603e5beb95f484f8a8a43b3312f3fec46e18cfab0fa5558529a8447f3a8191e93f5525f233929d3877947280ebc05cb673dcc111f084d2c3010ccbdb6517ee41f0cd46820e4fe858edabbe0848d38302697def20eec9f44b878c8f2448dcea2356df688f2d4d6f2c71bf772e8a8017a9ca02daa3a5a0487f115b714902f8fb4bcf0b6eb0389d4a4eda669070ca27038d40fde1425c1f6613dc18bfe1321c0b6bcb9f4c4be7934ebf01a4e670963b67bc9a00d655183d4af6cf04e91a0540b26800f96"
   },
@@ -679,6 +1246,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/memory_cards"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 12964,
@@ -697,6 +1288,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/memory_loop"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 11518,
@@ -715,6 +1330,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/multimodal"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": true,
     "depends": [],
     "size": 7442,
@@ -764,6 +1403,30 @@
     ],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/notes"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 1970,
@@ -782,6 +1445,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/personality"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": true,
     "depends": [],
     "size": 1868,
@@ -800,9 +1487,33 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/plugin_market"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
-    "size": 26958,
+    "size": 27735,
     "sha256": "2e595de9df86ad776933459177f24e62cb0e3344298b0e6c930caa67d8fe6be6",
     "signature": "008c36a64d221cff36e163ccc886233b40a4837735c3b5e164bd92b4c6ee53dc7e2207ae2f4acec64cb70a56d5a16523272e72e7d232870f712f1cd9415299af1aa5f4aa963ec53a14fd6dacf8d50af1ac3eb34265fa8af47ec966a25c9f5704a676431070af2eb9e23cb2a4139aafc1543a9c5402329ad2afbe38b6f96cac2ebcd196787bed7331a23fc750d32a5427fe507cb9a2097548d43d6ad5cc850748b3639f1966ad26747480fd3533d78cdd6f2167a69e93eb4f9b644731c80f59d732e3be4c295ea79ca26072e0238f4f2167fec6604bd6aa19da1a373613efb2e41bea1032a4f0d78b262a8108fad0a50e653c984d469b4877767561eff471b404"
   },
@@ -818,6 +1529,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/realtime_chat"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 2304,
@@ -836,9 +1571,33 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/scheduler"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
-    "size": 10413,
+    "size": 10458,
     "sha256": "010b84a0381f1589ebd3aa091b416343b49ecf9d0fbb631844e0ea6205d5a707",
     "signature": "602c51312a3bc1d328008ed388b07c452c1af81f57a3c1388ef036a01c31218480f614d4919462c6ea2d38e3bc01a1fb23128949d22bccb8968355fa41e61f0c1c4662c944bc3bc0cf1da07f92d9e2b1edc3e7e10c67c57e908f1d690df1ec15ba2e0e1e33d67fff7b30a4d0e14c17baab37cd8096d6cb6099494512d39f64fd931c1b6da1c9a0dc3b5583fc5e1ac69aa86100ea59e3eafe324ca618e9450fd4d5eb6b9b63077b8c276400978acb9e96a61b9b7628bf344677b62eaf3b418b49454452b49646d724c50ca31c677bf57df5d27718498104ba9b1ae27dba8074f5962fd6558008cb4d644b24d2598a424765773c055a469cde06508dac1e50a3fe"
   },
@@ -854,6 +1613,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/self_reflect"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": true,
     "depends": [],
     "size": 7684,
@@ -872,6 +1655,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/skill_capture"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": true,
     "depends": [],
     "size": 4084,
@@ -890,6 +1697,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/smart_router"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": true,
     "depends": [],
     "size": 7040,
@@ -908,6 +1739,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/stt"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 7406,
@@ -943,6 +1798,30 @@
     ],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/task_loop"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 7135,
@@ -961,6 +1840,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/task_planner"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 7013,
@@ -1022,6 +1925,30 @@
     ],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/todo"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 2334,
@@ -1040,9 +1967,33 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/tool_caller"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": true,
     "depends": [],
-    "size": 26708,
+    "size": 29862,
     "sha256": "4f1018222f84394d369ef9557fecac1e2bc2087de76e00be3a9d8fbd5c6a4979",
     "signature": "3ab9bdbeb90364c8f9100fbbc41fe255f4e8032a89dead9979ab53db4faa623bf717ba94c940cbff40e7de1e7ff70fff2c3404d012b1c6059fa0572169f887162836581039daa7eafbab40c95f5d772e8c08b28f246b142aff143629ba89172e75d46b4af5313199b461271ea88289669515f73facaeaf08253a1520624e6936cdd9aa7cf95301752a3f510043f5132ae16d23bb488fe47dd948e1fe79959bbeeeb537e81b82ac6307912f6a27065f1815e95dc800dfaa375a5a64af60c816b2e435abce08d79b079b4bdfcd541944faa69fa479451ee41fec2e0a533d4f5040dca8657b5d91f3f442048766174f65d6ac56cbd97870da57a14412ab50e27a1e"
   },
@@ -1090,6 +2041,30 @@
     ],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/translate"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 3878,
@@ -1108,6 +2083,30 @@
     "tools": [],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/tts"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
     "size": 1653,
@@ -1144,9 +2143,37 @@
     ],
     "api_version": "1.0",
     "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": true,
+        "domains": [
+          "wttr.in",
+          "api.open-meteo.com",
+          "geocoding-api.open-meteo.com"
+        ],
+        "methods": [
+          "GET"
+        ]
+      },
+      "filesystem": {
+        "read": [],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": []
+      }
+    },
     "needs_model": false,
     "depends": [],
-    "size": 1877,
+    "size": 1973,
     "sha256": "188b3381d1a2f79e7cba4d075d44db4959d50579e90309bd13c81af2846864c5",
     "signature": "741fe7fe0a5fca6e053fd8944d4a607b3e8b31fa835447d94c81e61d896fe4d91713b14a1e1bb39501eb05d2770664e3c4adaf31c0452efc1bc284bd830cf6b1f9855453f8ba921921e512f181d53ee506d4d45212bd9ec00e2473ccf6882d40ff41a3813ffe0bbcedd8ec9c72311b0b3ad8150a23b16e14791de1fe11cb1891e34d16865286819cb4e0359270847ee0e356122beda33535a77f3c8ec206e0acc88bbf0eb9efdd78aa96b3a52661230c996c395c489de23bda3aa9385edd6b22ffaeee3150102379b9a0a18de9b9407b1cd92f1b71f65b404115d57f8eb87de74fe1e74e1190cd066cdf89962cf3d6075b5e0bdd632e2d0ed8f684cf17973a2b"
   }

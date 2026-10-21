@@ -1,5 +1,8 @@
 ﻿# Isolated Plugin SDK
 
+> 完整的强制性规范（清单必填字段、能力 5 段、依赖边界、签名、风险等级）
+> 见 **`docs/PLUGIN_STANDARD.md`**。本文只讲怎么写一个插件。
+
 Plugins run through a broker/worker boundary. They do not receive `trunk`,
 `os`, `subprocess`, raw filesystem paths or API keys.
 
