@@ -120,7 +120,7 @@ class HotReload(BaseModule):
             try:
                 os.remove(test_file)
             except OSError:
-                pass
+                pass  # 静默是故意的：临时文件清理失败不影响主流程
 
     def reload_module(self, name):
         """沙盒验证后热更新；加载/构造失败自动回滚旧版本
