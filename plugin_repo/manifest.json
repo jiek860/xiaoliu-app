@@ -6,7 +6,7 @@
     "cls": "AgentAnalyst",
     "desc": "子智能体：分析官",
     "group": "智能体",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -32,11 +32,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": true,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 257,
     "sha256": "cf9ceccbdcce5030f1ff7df5dba6ff904b51379cbd5041193b04d1910dabff53",
     "signature": "2096ad58b3e2d61f2ad33046b59025010bbfbdeba9c889f9c8475d3a79c02cf4167ac806f0ceb35b99d3d8dfa99aee3c9050b02e8b254a76699f9a5d83ea545de4698fd243cfb0372ff26bf925dec544067c4aa15f8d25c701ce08636051ebcefafb89897d12fec44137c37314b39f4dfa96e9f4c70baa44a6e496bf67a7cd3ea0959efd07b001779a9ca0a82d76cd296251dff625fbd84c8e204ca6d0b8f7a2a780ebfe1aaceb9bdd9b78f198cfc342d053fd62de57832ca9dfdbe2c03c188c72adb16d5fda623aa899d44946d8452d4c30d780ba528a1df8112dfa9dd2b40968b5941dd686a2b8335c88ff187c43f8d867ed290b749ad85490ce86a0d0570b"
@@ -48,7 +54,7 @@
     "cls": "AgentCoder",
     "desc": "子智能体：编程小匠",
     "group": "智能体",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -74,11 +80,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": true,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 271,
     "sha256": "42e796b99accb0b21e0cc7258cf6fce036753945250a1df8790409d6b0794333",
     "signature": "537a40e8b07808d99838c64c4110b7239c8ed269a7abafd15f359bf46fbebf9409b3906bcf36d0428d1e1d1a036d9c20d37e11e4401a9c5fb293ee3d9cf98f4423115e622ae62db1cc6b7b94f9859936fefc097b38cc8f0f55e5ad0f953677cc51f132bc54edd3ba9df04b9446910d77e28be757d03172c5281c6e6817ed13136db166acc92cc662b322e189e962d023066f96f0b9647c3c11370a23fb34f8a5cc9904e7e3407b867f29534d04d8e7fac72c8407fd7343f230435ed864994c9231d5d6f5a298c338b1c2925f9dbe025e6832af63eb9d7f80717d24f597dcdd4f3e9107c40314f22c4374e63c99886dd30b676978480d513eb35a3eae7e570717"
@@ -90,7 +102,7 @@
     "cls": "AgentPlanner",
     "desc": "子智能体：策划师",
     "group": "智能体",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -116,11 +128,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": true,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 278,
     "sha256": "052bf6331641794068e3f45d69f79382ab368b505dc588335729f864ef87aa02",
     "signature": "4634b0385dcc818c6297e5813f51144681d983884c1805b4a5351924f1fec7058854f312ccf0518e3c22871d30a80c2a9139c600a623f02c2a15b5067d1d8fdff1efb21144a8d2de36401e60bc85df643b285f3618da8b2c679d14436bf5314d7e01721f04e6e0d327f2b200538089fed52ce141aa470d6405ddf475878763cd79526c52a6de46d924467bb709c4387751e2fc67380c1fae47d6ae323091c49d33566cb073971315d02178cd0c1d33789742832e33fe39ba62ed84429da0053b3ec9355c522c0d738818f8266e3065206a9b47d3fc4be660f9d08c4632a96608816207a228b3f40440b5990db9ab831c7dd335e709accdd6abc05e3b933fd88e"
@@ -132,7 +150,7 @@
     "cls": "AnomalyDetector",
     "desc": "L135异常检测 v7.0 - LLM检测回答异常",
     "group": "学习记忆",
-    "version": "7.0",
+    "version": "7.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -158,11 +176,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 3147,
     "sha256": "93275d99dfe9cc2bf44d3992b6224e9a44914a5b7b11c50637c0e3e47505f280",
     "signature": "5c098933e537fe8d7ba7b8eb6f8b2d37e9a87c6158b4b69d674298d2134a6b340344120f7f52967a4ba1c89f0a7c31946dc59f62f3dd7d918f20d7368d76fb512f592328e0625384fc790712032db95fe17b7fd3e0cbe35ecc7f8938327076d71b58a0ce2c2c37dde966b1c1fc9283ca8ae17e73fa3695ba3d5af8a496b31e83676fd7dc050f63a518946f12d37364d7835b25f87f6caa468d363575944c89997310693991527b61814b461f7c21b814f7e58eb47921e001cb82bc1037b13bf2bb4941020c7bd1b5dcc067a304a09cf04afcf660f0482a445b149c204ca492c59af1d7cfe53c14cb0fe0c64ffe3eb12b86aa578b68c3caacd275024853a5d769"
@@ -174,7 +198,7 @@
     "cls": "AutoUpdater",
     "desc": "自动更新 v5.0 - 沙盒验证+自动备份+回滚+性能分析",
     "group": "工程系统",
-    "version": "5.0",
+    "version": "5.0.0",
     "button": null,
     "tools": [
       {
@@ -216,11 +240,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": true,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 5868,
     "sha256": "b0ac96ae3b220dc21ab09fb5ada3bdc589c67f0f0e6734f8565a21a6ab9b6031",
     "signature": "6a21a9a51c54f56fc3615ae214534120e4f78d6206e5bd4ed697077962655ebabe3a5e52d3ac19a53a6dee0251efa51d452096b7f1fc36b38ad06b102552752ffab3e293a2a474ab8ef7dbaa57ff304d8f49a9e46abbaa25b6125a5d2aed320550d470451c971ce7be3570c30681f9dd27de42b2443aad439048cb7ce4c72f7a2fb54ff14e56e65dbc7974ba417997ec11ab0b41f3631e6f67580f2680835da39b4869c6939853a3d4044f53eb089437ffd9bed9a45e84831b71bee8675ce81bf0e1d5495134e4235aad2ee775a11d58d5c4f9ed3c7109d3808582f278fce76623e4bce892dbcd57814dc26e4dce07718404ae856f121602467f4f8ed2132834"
@@ -232,7 +262,7 @@
     "cls": "Browser",
     "desc": "浏览器操作 v2.0 - 打开网页 + 点击 + 输入 + 截图 + 滚动 + 历史",
     "group": "联网检索",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -262,11 +292,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L2",
+    "risk_level": "medium",
     "size": 20301,
     "sha256": "8aea61b49fb9b45dd7b1b7d1d1ea5998c6f18f471862e4e6b89d88d847eeb8b2",
     "signature": "753f56232d36d256d708a8f7954514a2147ccd2d40edc8569c95788dfb079af2f63c16a3ffd50c0d28f25addd5e95a6ab165efe9d779306b74e4139916dea8ef192ab857206e5885a712b5a48790433487553ba374e0253ed6ba530da47123da069274fed75c70ccd898b7c422067c7101b020ce1ed3ff1ab6dc0be47c07ecbc38fd0ffd5c01cba68a16fae7004cec5a24ecb1570dbe7ab9f5777ae7a9f66c0efd46ebfd5296bf1331e995fae2ff0fac9ff6b7ebf99415924a5e8bef8020ef3d1666d4949a6c8e661a0ff8d498889eb59798e1829fe99be6e3fa0aa84d20c2dc0356c4ff0fc64a35f5ba5063ec87e7b32147de961387d1e0c1a4cb7a5928e5a6"
@@ -278,7 +314,7 @@
     "cls": "DiskCache",
     "desc": "磁盘缓存模块 - 把常用问答存到硬盘，重复问题秒回",
     "group": "工程系统",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -304,11 +340,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 4385,
     "sha256": "f335b84d26d3a2eb2f9a305b6e75b44abeb1f34618afe294fdd080f7b3c866ea",
     "signature": "653a7587de875beda86f40760df72e7535263b0da72c00cfd385b691f289187f142d76f0ce25f1f8c13db61f4bb2f206a109b540181e170b12a757f024658c32082bdd33d73293f7e0de7f6358e0c0e62aa4251925e9710503887732da4dc386bd20db7b5e4352bffc95f11a96fc0bba1070eb74e492eb460be880e60e9b6de513b04eb4ab2108b82323757b814961e34117d36ed4ddacfbb8c644a1d9df8ff830f003dbc6cb6e2b7a8bd7a50aefa5e4eaebdab4e30e518e73ae73a2f6b1465be6fa30e7e22635c3a241858db3600465ada8cf484646fc1ce8edb657ffdecff5561df6f65c7535255d9ca0243131e31deebbe7d7c71dbac494e279370c52772f"
@@ -320,7 +362,7 @@
     "cls": "Calendar",
     "desc": "v26-7.1: 日历工具",
     "group": "学习记忆",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [
       {
@@ -376,11 +418,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 2035,
     "sha256": "3327251fe5f9b320755c20bcdb5fa0f2ca276e125690f9179abb2a36bea459f0",
     "signature": "8a2dee73d1b9a079d115ff8f5852d2afa1c55fc840e8fb5fef58b1070ac9b14b9b0783fe9ae0d72ef7e1463ff1e7688abf44935f4939d778d7cc5c2442d099353a3f4b9aa49bf3ed44907789940f52cbc7edcd46b2fb559ebca5f99e2a8ce08b79b7264d6cec36ed369d18f0ac49781b834a6ed99e668b296ff04eefef5cae8ae70c841af6545637d9333ca846b4ee538314b133fb3ebdf4583b2c01fd6a2811466359d39600528830cef0bf5c7ac7e6b4f28587d9f023ef3227405cbd4c29eb43afe77dd5188414c213c5654da145f0f5f7066ef1b7aa902656248c6baedf0f27c865fc2e60dc4e31058a96a6962ffe6dfd6a8703e6d654c8cbf0ca2e04229c"
@@ -392,7 +440,7 @@
     "cls": "CodeExecutor",
     "desc": "代码执行器 v7.0 - 在staging目录跑代码",
     "group": "工程系统",
-    "version": "7.0",
+    "version": "7.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -423,11 +471,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L3",
+    "risk_level": "high",
     "size": 3326,
     "sha256": "a9851c9126a232c23129f0a165a641f07d41966b472e33ac0a8376b39adb56cd",
     "signature": "1ef3a282ba3c798b63139f08a689ea01f8771df9613d307cd0fbca5500f31488289b3dd47d02081609960d4093c4e723f737e5b2bda81ce5bf10240c323392719a23f6c7e570ea6e3208cad50785636aafa58af8be2d0eced35be1d4b84351c8940d2a5d5e25d05030fe878997847404ad648f922814fcc21e3bd618ab956a25968e5f359f848786cdef8b99cbbf190f05304a2076968094faedae2bef87af5c78094aa3d0abfed16f730e3a5353f1b725c85111449f16e096d237736003df46efb3a4d3f695e41352fc061e8aa72e2f47e36964a62369f5e0468d78f6328ee76aa646bcc548d3c13d5b24ca3bdfe772a3b0f3f134c0bc23ba304ac15b04a0c5"
@@ -439,7 +493,7 @@
     "cls": "ComputerController",
     "desc": "电脑操作 v11.0 - 完整本地电脑操控",
     "group": "电脑控制",
-    "version": "11.0",
+    "version": "11.0.0",
     "button": {
       "label": "🖥️ 电脑控制",
       "action": "gui:computer_dialog"
@@ -466,11 +520,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L3",
+    "risk_level": "high",
     "size": 9415,
     "sha256": "31ca8e2929bf68ee81d12b9cfb466f31c6802715f54f5d48dc2a4e3afe0ffba3",
     "signature": "83dd6cffbba6b827ddf75a11e15fcd98cb8bd11c9fe1f87d6549c769762b09395257459b9f43ac51f605dd9259ba27040ae77659e865a95cd3077cc9cbe952368ba5dc9c11ccc977419035f5bcbd4699378a4189a912e0f9a2b01f47e194fe69d71f1ec6c622e6b22676e0059494b3d92ceca54483b32b6926050f47e546abffcb7aadbb117343670a53ded8d39273d2395fb9edacbd222e684715618fa5d1826921a85138ba6a49e47d0fa476b330ce2756c5801156942a678affdf76c629db32b47d8bf7e78a49327c528362902c8361ce5f69570e3e12d97e3c46b1a015963ce884decc0d7b971151064243a45f317c040061d7f9037b083571a004e33012"
@@ -482,7 +542,7 @@
     "cls": "DeepSearch",
     "desc": "深度搜索 v7.1 - DuckDuckGo + 真读网页 + LLM总结",
     "group": "联网检索",
-    "version": "7.1",
+    "version": "7.1.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -513,14 +573,20 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": true,
     "depends": [],
-    "size": 10612,
-    "sha256": "e0d1c68aed50fc84d9b3eb26e903a097c19d3be6d84aa30e8ce7a353491bd434",
-    "signature": "16487118c9dd0b08b92cbc0947e0a178050bbdca8bc6726cacda549ac97e92a03fa216e0ec0ab169b2bd685771d08d82c5241d34abc488f82b643a211c20a3864e4078b4c0f9dc2040f55a47750a7964ae3166ba9b682c6eccb835f4011a27e58a76920d09fd0e53f46cbcdf7e49fbe8f0f9a035bb480a65795dd7dfe143793a28f3b892bf491c66f991d4ddbc1d77edff6ce15f9c3f27bd9e586d224cafa9018028295658fcb4535b0fa31f38b72736f5d452e5d2725f1220bde6a8021a3f0e0ec889e2ee1e2baa09713a370dc4f98254dd61d949727db82933531a1e807ae031e00dbb339694caea380b7c09a15ec4f3ed7b5d54ec375e604c9b3e92b17784"
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L2",
+    "risk_level": "medium",
+    "size": 10716,
+    "sha256": "1ef53388e3acc9a5c46232a41ba851717569f6f1ddd55b3412363eece555207d",
+    "signature": "04e4a85cba70c4fd1f3ebeadfc230f7a2c584fa39f9f653bac8abc0605ce09fade4027344c6a0ca619be6ab6720f24d240a00326dba3683be72d73f371cd29d93ec6f03ad6448b3eed2432a222950a13cf547bdc8153dc316ac93b33ae0c74d4b030bdbbee01f1e6c850d2f144e71a23dcce9563da2af331ec15b4c23391841999f24033b6bbb2728b59c6205c02ec5cd4deb753b30450b70250679cef546d5569a0091006c2d199b7395df2dd73dc6babb1f433a077b14cfd6993d7f67856ae68e347a58da0c95da7cb3a1b0cf829a1b79d78374184714b8f23abb637db3908f728bf2654b3da8a5f9e23ef428682e6b5d93c62c5e1f608e38801d3790b511e"
   },
   {
     "name": "error_lib",
@@ -529,7 +595,7 @@
     "cls": "ErrorLibrary",
     "desc": "错误库 v10.0 - 错误记录+LLM分析原因+修复方案+沙盒验证",
     "group": "工程系统",
-    "version": "10.0",
+    "version": "10.0.0",
     "button": {
       "label": "🛠️ 错误库",
       "action": "list"
@@ -558,11 +624,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 9019,
     "sha256": "acce6dd887d20bd40067d75bf30a31f3b099b87fc597971a5639b149619e0e85",
     "signature": "60dae1c3b2a4edac90ebaf7fb878fd07c93cfbb5d50c12129a258ad6431cc7edaae95a459ed817c531c9c4f38764ec752bf7d1f847ef2fa48461469e7ffaef8542f74045545148b63c3a06193a705ab9c6331ecdbdaa60448e52eba08699b65bce091a4702dc88e4ea40b65f6ea14dd5ced7a71048c583270567b74a41a2ac7497dfa018c358ccf78038cb37dd7a99db1411bbb00297adda51ff15990da7df93386cea4c86cd495a9960d4368c417ec8761b8097a2086f385f73f2332d3f02225d65f75ae6ab754f4a78b3fa2e3f42de5cb9495c84aef7aa4979078529644777c65a9cefe3aa83002f2fdca9b6fd1f570e7991e97985260fff6cf28f670c2ce7"
@@ -574,7 +646,7 @@
     "cls": "FileUpload",
     "desc": "文件上传 v7.0 - 读PDF/Word/Excel/TXT",
     "group": "工程系统",
-    "version": "7.0",
+    "version": "7.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -600,11 +672,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 5052,
     "sha256": "73c7526f4170a71cd346e985f97e37f025cb2614e3605d121592328c1c481b48",
     "signature": "475dd4316d7346436e09b9dd1abad9c260d0d7019e287d3285cded52b3900fdc66867bc64b068c1b254db3599a3b51f2bbff9bfcee2da0e6a6713dcef1ac86c96440bf3ea167563f5317e53680341758cee9afb7f0b7fa0540e040af18ba5225aa4cf81cceeba977619791bbb72ae447c8a3edebb5c481c9aaa13bd82597fec386b0533c37b67857f926485996bd6bd1a1fc412c20ebb82c63184d06e74f2dd6f7fe6289a46427a10dce8ec7d9af234ead52c2820b22dc68ca668368a64da7df044c89fe3473daeb6aaf22446463e4ee2e5997d873aaf60059e18263506225c2c60d46b46b35d1552e67327a018005c94d76a4774244b491bc0a8e4c8dda959c"
@@ -616,7 +694,7 @@
     "cls": "ForgettingCurve",
     "desc": "L42遗忘曲线 v7.0 - 艾宾浩斯遗忘+记忆衰减",
     "group": "学习记忆",
-    "version": "7.0",
+    "version": "7.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -642,11 +720,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 4341,
     "sha256": "dee53666e868ba26ae31ff4ac5f68346328f5143bccfd9555546a9bddca65686",
     "signature": "211e850809bd0ff39f4d732e3609819c21a43b227586ef26bb0a26161de3936cb27ff7652082f99e95ec76acbc0ae20c1e77db34dfe3c63e24f3b1bd3034b06f82d9a63f75f20b961d8f5ba65dc993d974e0a331609009dc06be47a504174f6eb1864d82bdbec7135e557b4ca70deca915281b76212cda282e241ceb9e04254a389d74cc2d187abc173dd2355130f5dce4450786118cfbfd823bebbe8feda978eddd0777bbb6bfde733b2ab96940fe1d2b50f2d9e83dd429ed662d686a00e7e5b76bca42ecd476b2e2cf56c9beb27e29d6b4008c9acfc7eeb2cbc37f707240ee38f3005228b0ee85952b012e806f3ef0cbac5f38abade87a7bf6c0550d01dfcf"
@@ -658,7 +742,7 @@
     "cls": "GroupChat",
     "desc": "真·多智能体群聊：小七/小八/小九并行回复，独立人设与记忆",
     "group": "智能体",
-    "version": "16.0",
+    "version": "16.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -684,11 +768,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": true,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 16394,
     "sha256": "75484cbf669a63d8c0c798389114042af4f0435240af04f6b0250ea4414d8948",
     "signature": "118654225c78ddf44b88f274b0db6a1474ee078232f25b1724a53651b2b0a66d11fe9aa533d42b02b9eacc72ec1c1743db836536b097e0bc567caead1ea953c05b6fc09700be42756c84caedec6a3334a6bc50431505bd43a3d140da209bc2c757a908d159bbaea7e5e9e9bc7b00fa45f28c093ab2ee497b1a9c58567e04f6fe6539fb6f8aacc5fc8fa52c88b4137d9b29f2bdbc7e043ffe8c18aa7245ca0a963e75a36a9d24944fb029da5882784413c655c4aa615756325dcdd5b59e6355051010009bd0aafd682b74cea519a9965a9b538bf0052eeb3b822a47a5b414dff4351f69a89be19100f8254bc5cfc8c619d3468768ce36843198c4dd2800de214e"
@@ -700,7 +790,7 @@
     "cls": "GroupChatPipeline",
     "desc": "群聊闭环 v2.1 - 智能路由 + 群聊组合 + 异常检测 + 反馈 + 统计 + 重置 + 导出",
     "group": "智能体",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [
       {
@@ -753,11 +843,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 4879,
     "sha256": "eaa7c9141db2cfee8372521dc75566512fcb33aaaf526b3977a574e715a76597",
     "signature": "860e26e8c472bde1168983364e2ce65f3bbc9a3738b1d845be0aaf9fa8c611f95e43a9455f70100c93e1654bd8f0264e459913c4c9a229ad43482cf9f93626ccc7cccb9d07be4c8d97abfaf8ebca6db59ceef85fbfc991800365e4c54ee29664a5cc72fd4a1ed839e1c3011812673d0902fb2b760c425573e5df7c39dac936c9a849d780afe37f9a4e877631f2ee0ca41f64b21184cef3344de28af3b10b5a2223564c32b75910b37f046a4767cc047c0eb9f056148f41a79d67fbba336e3fdd7632ec734678464e7e2229207a6fd830ebbc065f926633d2b750cfa5a2675089c257b4ca68b371e3b851616a71b0aed0ec494a5a36823b630d1702050ec35ec4"
@@ -769,7 +865,7 @@
     "cls": "GroupChatParallel",
     "desc": "群聊并行 v2.1 - 多角色对话 + 角色列表 + 历史记录 + 统计 + 清空",
     "group": "智能体",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [
       {
@@ -808,11 +904,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 3774,
     "sha256": "d437b7a3efe21eb08d366737f8e5ef812abb4637c5d899d3df4bdbf7bcbf2bcc",
     "signature": "2ced3cced6544cc3663768fe2cf73b5a45dcd0d92e7a7d3baa1c6aace3f3ec089538bb8f0e87c5aa5b1e9bb5951fe103e46bbac0293fdffb0b05affad881f54d59c38c77fe0578607d59c5fb3f3267addaae5a3a12f1a377393e0d181abceb74f2c3f9b9c61c914cd99c640baf5e091cfbc8ccd56714bc9e7e20f1398226fa2ef61fadbafb4dd11c20ba133e53e186a0cf3a2a57f6cea2ffbdeff5359827dc8c31ea33ed095af2179b08cec99e5b4b2291858af2d45727dc6f17cb49a7f3df27706e5546dbdf3bc52fa05c86f2cf533667b0b0daca174c3d3f23375a2732192e137c8fa0ee10e85c1ee67645275cf07a3d93c2da3c37e57f957ccc1b4b3b58d0"
@@ -824,7 +926,7 @@
     "cls": "HotReload",
     "desc": "热更新模块 v5.1 - 沙盒验证+自动加载+错误弹窗",
     "group": "工程系统",
-    "version": "5.1",
+    "version": "5.1.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -850,12 +952,18 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
-    "size": 12426,
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 12493,
     "sha256": "5855a689d70e26091e6138ff1ec68ddbc2b597bb63557e468be9df4ad93b07ec",
     "signature": "35a171f252b9401331d0f30eeaea1a25dcd484d3842978ced235d767f5122128f6c5b67a16b27edbfa55b20d7bf1f618c32b4b81c2effc3158306f849f31907252f517132cc427bf69d1bcb06077880601687734013cdcb6edad57f5bd6ad0e8d0baa8a6d653e4cb328f949d782379957f68716a6e8918a185fc6f118c4b2122e51eec8c19669888ad16d67cdeb76a63c97328d77d585854234013ce4657eab81fefac23f92034c60a0d52b1b25d38230cd378f4bd32cbdc935130516167c038ae2a911fa7ca2de65c0dd04e584267b6f2d5c10e140bbc5b7286bae1f22e672ba4de771349cba985d2d6a91c21d566da6ce4198d1acb77904090120aefa55ed2"
   },
@@ -866,7 +974,7 @@
     "cls": "OCR",
     "desc": "图片识别 v2.1 - OCR文字识别 + 历史记录 + 可用性检查 + 统计 + 清空 + 导出",
     "group": "联网检索",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [
       {
@@ -932,11 +1040,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 5203,
     "sha256": "1a749fefb2d31de02937e136fa29a78948ec9097bf02b7b67d6e228740e1a1f7",
     "signature": "02dbb95ba0923d91369afb624c3649794261d595e85bc54a679fbdaa0b02529823ab54da87341d6d0497ad002c97cc561d942b18164925fc9b3125aa85c39c85047f7e6857d5a43b63b97c3ae33d5ae80d0c67d46297173b81511658836a108d8ddc25e8af9c1dc23ddada31d41ea69f709606f71626c88eea89072f8c96a50463bc5ff47a70bf14fe4edd13cabe5518e32233c6765098c37970fe11d21f0002f882c97734c9b0667574528c78e1ac249dc7838681ad1b061deae46709cdd220be95ff3864688c5a297a89d1186bc27121621e000cbc8d376a7b9f026ab914b71ea12ec7c28918480e366721a107b819029fda5f51d1b19c32a1e2c42b62649b"
@@ -948,7 +1062,7 @@
     "cls": "KnowledgeQnA",
     "desc": "RAG引擎 v7.0 - 向量检索+知识图谱+LLM总结",
     "group": "联网检索",
-    "version": "7.0",
+    "version": "7.0.0",
     "button": null,
     "tools": [
       {
@@ -1067,11 +1181,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 16393,
     "sha256": "91c099ba3f69e1401bbce43c2c1456f1eb951b75859aaefe5b808355f2c8c9b2",
     "signature": "7a8bd62c67aa0d657b219fb36d754ca4476b8390d204128445ace048fde04632cdf1bb167666876075510b2ce1257ba0ffb0f9bb9d263de0a24bc9151eaebc94016abff948d08c0cf6b4844f1cf7583999f51cb5f7ec718a6f7499f9bb6abd0beb6a569f5d9f92c5a60858549141e5efc60d2cfe650cf99b9ba66d040279f9fe5d537eb256eb190fadd4a386f9583d9a169a70bd5b3236ced3c17891dd2ed39c0e5478d4fe7c2cfbf8b93ecc781677645df26a5cafe041fdb6318eccb1d4c9685b13fa4c0c5eb4ba442c7fe6ccdca29f8f9381c7aeb7da404ef879e309dac7722df40d52f98240bf1b2f37ffbb5c6a734e23a11cddabf76d8026a4c17e0ba361"
@@ -1083,7 +1203,7 @@
     "cls": "LearningPipeline",
     "desc": "学习闭环 v13.0 - 多方向学习库：编程/拟人化/自主化/自我进化/多智能体 轮换学习",
     "group": "学习记忆",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [
       {
@@ -1138,11 +1258,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 14160,
     "sha256": "2354ede22eb08410df26fd99c316b1a38fa42b5e522a67fa41e7854e0b7ca386",
     "signature": "5ec2c48a0ce31c6d22080a4d93bd4326adc59bc45c5756d6b414e8d916955a35eddaedce84f6ed6831a97ee00a1a0de9023bdc39e3679a7072a5e987072a5cb9f48e9e7739b1349955865af505e3f2e1ebb5c11c4235587f49c5e24feab4e26781f8d541a40b26ec858305b3f2da4773755c2cb417adf0128842acfb6eba86da6f084e04c97c5b928bb11dfe59a4b1fed00aac00bacc8afb9931307742146e643cd44d0a851c61084d3b334f27ab6e51bfec56782db22fcbf4917c20c5e9b8a74a8ec2d3279b4a27739ff1c85227f16d55625ba3bed176745f786ad19abcf62ba4686a018dd4d5cdf95b76e610ba69906f30b5726eb5c0e632d64063cabd1574"
@@ -1154,7 +1280,7 @@
     "cls": "MCPClient",
     "desc": "MCP客户端 v2.0 - 连接外部MCP服务器 + 调用工具 + 添加/删除/测试 + 历史 + 统计",
     "group": "联网检索",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -1183,14 +1309,20 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
-    "size": 20797,
-    "sha256": "c7b59f9b3da1203a9df0fee58c183fc16b9dc3c497d7d0f98f91970212e8b6f1",
-    "signature": "50eee12cec07580e49c5bdcb7587276164fc6c35e8bc0c4e03cea60ff7954724551aaf6010d8df5edaf158eba766099245e8d0360f405297b9d3d7ac9a28f9106edf957dacad9161e58f70e111b881ecc00411cb36c5af0f92a767775a3c7562fc20aefe38d51d8064970def182f1fcd612223590086cc4113f52db67ae170d26adf88a0b07eb7de51808df61b99e72a03b9868e30628b0fbfbb028672bd5f8f03d3295f2197ea78785e47f5052106553bd521f87eda05691a3a1ae4c52db3045c7f649bf544c5db4db3eb9c51641ecb572d935843a320f60192d38ad603f123386ec07ba7a1df6a9f6a20677c78ae4d901ffb5377c43b5937a423078175b606"
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L2",
+    "risk_level": "medium",
+    "size": 21217,
+    "sha256": "27fd570e6e54c01bf5da94727e0060206899f5d9b36298326b318d3732ec2480",
+    "signature": "07c35e9c6c664f9d532fbcb5dcece8f1fe3a69c4e143655a41b421321b964bef7b0cf8a239fb3770e0799fc5ebd718e5a2555f52187132cd0ece85e5b0cf0fa92ef6123ffc42c8f2839057ef7a16485ac2c03264460f93304040db2afd5b6bd60e91cfb1b93271c8838e86c757719200ced84f3d3fde5f14b06b6d438c553986e19d458c10417896febbac90f3f07e901d88bf4becbd6c7bd0bf3c37cc5aaff9926f1b68566ca2d7fcd349a7018c2e1676c5a068114fe388ef080630cfcce6885c1bb0dfca3a7b4a4261e90522696f66f40303e6d8b9e3761dd0fa85359eda8209c80ef3f0144038faab93f69a35c03b6190a3d367d80af2966b4c03a000b039"
   },
   {
     "name": "mcp_server",
@@ -1199,7 +1331,7 @@
     "cls": "MCPServer",
     "desc": "MCP服务器 v7.0 - 暴露程序能力给外部MCP客户端",
     "group": "联网检索",
-    "version": "7.0",
+    "version": "7.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -1225,14 +1357,20 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
-    "size": 19004,
-    "sha256": "4218a901e1782607f2a1b7442ce019bf7aeb6eb61d14e069b3875b6c3e7af6d2",
-    "signature": "24777fe93e1d59138a9a9878e1b9b2b81f03bc283da48ae31790e47f61167a78b43165f68b7d2c304864300b05fef0dd1c92b8576df3d8efdd9cf6863c7603e5beb95f484f8a8a43b3312f3fec46e18cfab0fa5558529a8447f3a8191e93f5525f233929d3877947280ebc05cb673dcc111f084d2c3010ccbdb6517ee41f0cd46820e4fe858edabbe0848d38302697def20eec9f44b878c8f2448dcea2356df688f2d4d6f2c71bf772e8a8017a9ca02daa3a5a0487f115b714902f8fb4bcf0b6eb0389d4a4eda669070ca27038d40fde1425c1f6613dc18bfe1321c0b6bcb9f4c4be7934ebf01a4e670963b67bc9a00d655183d4af6cf04e91a0540b26800f96"
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 19496,
+    "sha256": "afe02336774c486c64c1c9ff7add9c9cb1cb61a195b79ea949652997f90a99d2",
+    "signature": "7bfe5683da5bc49c3cad6df1a846cf6b84ea46b1bbfe1fb4ebea9f36b400ac6ff9eb5cf1eacd1bd194003672cc91017b0fe011c0bf14d29e0dd681ab5d480a342d3e0c5bd260b8672126bf38bf885fabcbf2a40db9016ecd63cd128a2611611c913e5d8f7a2066c3bb8d78c4891b2e860e2a07049c4abae40faac5b019d91559a81b100e09ce94f273e7c750aeae229f18c2575c2e65c31f6c3260444f7669764e9e394b6e1699b550c1ccb220520bafde7732afa0634ef15fb967d003bcebf25104df4d592e1f44322dc4bb5f982a6ce66ab7de6c41bb0a8abfef9b5da29a4dc6619a762eb124e0e622597cce190aba1547570d1db9655980eeeea8b0b5444d"
   },
   {
     "name": "memory_cards",
@@ -1241,7 +1379,7 @@
     "cls": "MemoryCards",
     "desc": "每5轮对话自动总结结构化记忆卡",
     "group": "记忆",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -1267,11 +1405,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 12964,
     "sha256": "97d263deadb6bad78ac1a2225f1a737ec60b8c60bdcffa83dc5aee0808ad3333",
     "signature": "604c521fbcfa61b05111c73db54953c6b2641b0713c5de9a03c3a976b7811b1de85e7ee32238a1f1440c79c2d7fd6f060bbe917d1af9724dd322de15f9f1f8b7c79a24152abee943923b1f49de99e2e2d6fceb0e222ed5a7ea24a83c134c26460c768e72b7b1022b44f351fe183ddd4cad88d377d89c80da19e055d21cf891d7afcae24cf201e903d719a9c2ea62ee4633bef4c58dbac0470fd58338c00c704e0e143965afb5b754c2625294c757d9e5786491196defa01952ed72fee3463bdb8983cc5dd2964dcd0c2f3b9a744c58d741827dbb75599a7ef7154da9bcaa9cda970616f5f985fe523130c6bfba75794f8fba389cf282e0ee5836e99014ea4049"
@@ -1283,7 +1427,7 @@
     "cls": "MemoryPipeline",
     "desc": "记忆闭环 v12.0 - 编排者：对话→记忆卡总结→遗忘曲线安排→到期复习→检索增强",
     "group": "学习记忆",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -1309,14 +1453,20 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
-    "size": 11518,
-    "sha256": "8faecc4e9f9a0c0f92d4960a598bcec3b9c5eaf8b8bdf366b195c50aa0c0e8c0",
-    "signature": "2804161961f88775cbbaec461d7594e5eaf1c11497bd9123aa9a4fba872949866a42b25ffccf08a14d56064eeb49f6f48c3f5549e6cf8467f49643cadbc8d84cd9a55a24c72c9064c40b96b5e743c91988f8f27fba35a07ce906333c9d22295eda1a4a58eef0a81b2dd6135c83db7f1a655f2d3f0b9fc0b9a5d6c4849f06b5b5e262dcd620e526021015cfb59fdfebdfe4a10525d7b8027c1e86be3ce79defc09066434b579b10ecb22a12c1f26b3893fa53f01a642cf68dd99a3b42437e3c7a560cd10ed34e953bae58a96e063504c8a9e6d548c49792e2100b2bc3d98672fdce9fe8dc3ecb35256555b74a87df393299e58fda0a3abeca7d148dca8e680ae9"
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 12149,
+    "sha256": "374d9dd8ecb5784dcb1b7f079c8edc4c333b14d20032fbe848980c38d8522716",
+    "signature": "6a161df58a099d8c82c95cd814fbdfa125063897b0d345cfd44f936a4fc1974538b297bb67b2eca666e06941f0f4b79f3229d1c4f0bcb55324b1f314355d38e00075902cf716989222fbf6c4b50e0c2484cf0719e49e95c764e4c273f8ab4d2b2b5f7ee37f4a4b7fd2fc993f1fe5840c2f058218a1f18aaf70d493c8801804a108033191df4d26fc716b938fef202a7a6b465363140b3754175222e4ccb073314e5fa399dcac79dafe8d006eb7d39a4b7e612ea30d21b8f34b47638f7b4f6bdd9e363fe1a463df2b5e78fe86b36ec4e0f3585827d687281231745bbf4f90601864b83411d632f94bc2bfb77889bbe9773b5a65cadb6a94bc12e6edae1ddbd6bc"
   },
   {
     "name": "multimodal",
@@ -1325,7 +1475,7 @@
     "cls": "Multimodal",
     "desc": "多模态 v7.0 - 图片理解（通过Ollama视觉模型）",
     "group": "联网检索",
-    "version": "7.0",
+    "version": "7.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -1351,14 +1501,20 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": true,
     "depends": [],
-    "size": 7442,
-    "sha256": "e82f1e38d2c03d984e3465747042bc0191f2834167526cb5483f9f1237cd016f",
-    "signature": "175c120c31e4d0fccbce5ca137f52767d3f1eb3eb9005c91634522ca2d68429bbf53f947370de7a42d6c9d2f394c836b0cade8a1854b3fbeedd98c843c3c168d4502bb5e4ca09a9db0b8940a358f4570dd2daa53175b85d0f3931f1391b699c9b549c05e7a46899178a321f5ab4de246a94288304f998862766103f55fb14714161289018535d86fbd8eaae304bcac469e8e7f04ccb304e0e22a98c266467a8a95c94f45b95bc01b8ca6a886fb5197e0d7e0158f7224f6c4f9d157faad35771d2b2b7c53c8002521afeb8d1a07d5a839de339b3af689229b7b74fb7ee31683eb40d467a10f77447d199e83c11f2b4e8bc1c5dce95cc783fb370c0570f54d3161"
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 7640,
+    "sha256": "ed2d65c0fd2f6f05ded95442e0bba86080a5c5da673dcd9ea881f90a6a52e06a",
+    "signature": "7e3f94b98cd2412d2c1af7ca5bb1d091ae9c7881291334c71049e10c57073b0eb9b7276fdb67498da89dfb20ca299c59ac8095fe0512e257ffafd0aefe7c0e12f32dcc1ad6a9857457a742b418b028dbf4430151040ac1aac2cd24f1e75cb397c45199e88f4f2df19ce92947cd4b233f44d3190f0a4aff06218a8ad0076eddbc9280de395e69ce8a5e925bda117d39b1201c1c16ce5ac0a792efde33e1ac9fbfb94eca6a3ad2f27fbb3cc33155fa4c3bb24f6c14ab6581ebf37a0401a60fb6d1251363a6b87ef07a9193c49e64dd2af0126b73d626837e61851e80e5c6146565fd7889c8d13d971d28b9b688ffa116228ef9f9ebbf3e48ccc24a932a8d88ce6d"
   },
   {
     "name": "notes",
@@ -1367,7 +1523,7 @@
     "cls": "Notes",
     "desc": "v26-7.1: 笔记工具",
     "group": "学习记忆",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [
       {
@@ -1424,14 +1580,20 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
-    "size": 1970,
-    "sha256": "470f3657517b57997d10f08d4905eb47b6b0c1dab4179852d6fff37e2538665f",
-    "signature": "3735069a1295c73dd50deac641c262e2830d522309af0726c8bf5f0f4a8d5b1fab55e1ca019ca833cbb34b335d3272ab663ef3a707dcf55818415a1f20a6f3c6c024b42ee69e008119305f58852f812b9f399edf576b9e17e04190e17df816f7bcbc9880786babad983be26f754d4d1ad6b9bb4ae9d80bd731544fb28eed0159769a53138c22b83b561311119f36895548f788e2a3f2edfdb8157c5767df4e3093ec4a20748667434485248487ef737ba2aab562a476cc520186cda59b6ca1806d3a571e9d355ba4727baa924e120803d07dab456e6964233e00b69f980e40a917c5ea4a7ff7caa89af1526aa3d6d76bcf03b1c968bda63fa98e2cd232ab5b4b"
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 2450,
+    "sha256": "3a191e9f499b079b817b9e8b56ab9efa756e8de057c8d168714cafed82d154c3",
+    "signature": "7e3535ba0719fa2d06f7cfd7d9b361e436ad66df881ce2791fdae441acb322fefc094bc967eadfcc56112d3395bffd5e14e0ee6b71d6429a0ebf2e5ed791066d774e7ded81c227148076d26c2f23c124aee1aa36d97e78f6e87707995a932a8d0439ea1a0b55c94339fcb9b6c85d62062154a9e93c91059c3880630bd435c82addb91e46b762e7dfd706e5d704fcccb5bc56b64864786c44372c6e3e138a3af9257d6bdd6de4b0225cd313ee5937b57a4fac46a2b94c3fde10fed3165a473b60206bbe5c6f9fc7d715bfa866e9e0a228e656c21b2858c1cb67ea8c962c62b338f786b661ca79ced1e54adfd549fa67d1ee2ec2e8e34f905babee77be5c1a151d"
   },
   {
     "name": "personality",
@@ -1440,7 +1602,7 @@
     "cls": "PersonalityEngine",
     "desc": "l45_personality v1.0 - 小6拟人化全套",
     "group": "认知心理",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -1466,11 +1628,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": true,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 1868,
     "sha256": "7d332428c75d8cc5a791e5db139d30b7189a16149afc0d9444159ff2c50cce65",
     "signature": "8f48a5d0f724f2964104647fdb3aa69198f16b68cb00f3acd7b4be4ae5f9c42321a67f63d002f94577ba47f5d0fd1696c78a577388ddfbc0e476753a619542f381f5b929219d3d38498608a1f15720dbc87d15f989475ce01b7d38b9f998597fb270ec14aaddfef1be6435b14e664d0cd748b153a8745362bf8d4291bd64d9fe5e11d3dc53697e2675ee3316e5c46dffe3cb44a0b89cb190ea608ff19c61f8a0d9f9fd55eef3c82a628add0d73a2740c96c74f790b344b1cb7dd8836cb15c9c6a623fa59ca7c61b748cf983e6077830c9853a862d1fd3fa2ab17d21c99a8c07d45151c5e0e666c25ba55003b27dd3205ea5ab1dd9df3c661999647c0b5b15696"
@@ -1482,7 +1650,7 @@
     "cls": "PluginMarket",
     "desc": "插件市场 v1.0 - PluginMarket",
     "group": "其他",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -1508,12 +1676,18 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
-    "size": 27735,
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 27802,
     "sha256": "c147011644c98b7404d1fea64cc8531e77baa00dc1198645007f68b98dbf5877",
     "signature": "5a14d9645649eb838d86f58695d05fbcea7b9a1a2ba128b406ff2ddd4b97a8a74840e7fa41882f6a87e6934e5feb8d9827f9f3c8d7053c9fcf7120dcd8aca56fcc0cb1618fe2e451f55512a745e50e22954adb1739ec6a596339c1c447ed378feb8c08acae4723a0ee536b14a4b8538490a375cf5da93b4dfdd219ad9e206e17b2283fe6eb4a68b3e17ed89fe6c2f687fa1217274e5a4f7657daaaea9d7ee0bbb542642926789ba50662a8253462a626ba3979d7b436a6272a56defc93b388851e9df023af1e28b9b2a758de841f3e9dbb69430a3d9a9b898998af8b03ab56b9e8c7ed742fe6bc5afe517e34b2c390cf2121460b70c5b2ef288c93f2d5a54369"
   },
@@ -1524,7 +1698,7 @@
     "cls": "RealtimeChat",
     "desc": "实时对话模块 v2.1",
     "group": "系统服务",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -1550,11 +1724,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 2304,
     "sha256": "c75d3b68265152ef067db9bdc7822a22928d5db8c21dbf44439676df98e1c056",
     "signature": "51ecc569291c41360d7dbcd8c06e668452b15c9f31eafc9b7d116b7df8c51009cff8c0b9415c87b6210755b14ff4e72ade5bcc9418e13fb59c598626d6bec10af575767bee362697c811256b900e528489002a4e6ed7b070ae313f87186c926b14e56445a7c29298fd95de266358267e137d83f449b049f1192f8e5e0fc87e98e82c2f722d10226c414f1c24438a795c93469c8f02a061af522d4f603afa5117dd349d7eb1d71a40d15f67fa696fd8f27112faf370efd16bd1ecb0a00f5715f29933bc5d89a67f17463bb5461f64b0b757185d533ca75144cae829e982b7e02349d9df0c433b89995bc0512dc3ac7242b5c41b0ec1aa90620fa387d1a31d45cf"
@@ -1566,7 +1746,7 @@
     "cls": "Scheduler",
     "desc": "定时调度 v10.0 - 真24小时后台：定时备份+主动学习+巡检+热更新检测",
     "group": "工程系统",
-    "version": "10.0",
+    "version": "10.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -1592,11 +1772,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 10458,
     "sha256": "010b84a0381f1589ebd3aa091b416343b49ecf9d0fbb631844e0ea6205d5a707",
     "signature": "602c51312a3bc1d328008ed388b07c452c1af81f57a3c1388ef036a01c31218480f614d4919462c6ea2d38e3bc01a1fb23128949d22bccb8968355fa41e61f0c1c4662c944bc3bc0cf1da07f92d9e2b1edc3e7e10c67c57e908f1d690df1ec15ba2e0e1e33d67fff7b30a4d0e14c17baab37cd8096d6cb6099494512d39f64fd931c1b6da1c9a0dc3b5583fc5e1ac69aa86100ea59e3eafe324ca618e9450fd4d5eb6b9b63077b8c276400978acb9e96a61b9b7628bf344677b62eaf3b418b49454452b49646d724c50ca31c677bf57df5d27718498104ba9b1ae27dba8074f5962fd6558008cb4d644b24d2598a424765773c055a469cde06508dac1e50a3fe"
@@ -1608,7 +1794,7 @@
     "cls": "ReflectEngine",
     "desc": "自我反思 v7.1 - LLM打分+记录教训+影响下次",
     "group": "认知心理",
-    "version": "7.1",
+    "version": "7.1.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -1634,14 +1820,20 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": true,
     "depends": [],
-    "size": 7684,
-    "sha256": "e4db6ef80dca39e4437cafea1ad75b5f44c55b6f5502712913b8b000cab501d0",
-    "signature": "399a4e9396856acbdfbfa91425ce83ab76e24700cf873126554c5b26cbe90e13f97b15efb01422b4d7530041cbfbc1a4bc303792c296e59ca0aa3a016ae79a6d2d19f1d149a75458a8a82506ddc4df38d496d9228fce3b86e0fbe7b2205ed2492f0d7da6e088ffb0eec0900bd42d79855670bef6cd975c61926c20c58d1ea573a96449dfbe71dcec5e5178ae99d062c58b02c42f8617ecc1162e36bc90d8371acbff6d91dd192753277de3fdd8234299d4ff75ce5747612cbf96954629ce82305f48925568541b6846b89b531f9d0de8053d7318446e414d52bb1f44cadbe50ea902022c2bdbafdede62e9de8b1d7ddb12dca40eb8c4fe3b74301b911e812269"
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 8200,
+    "sha256": "9c004b85919b77e06dd4f2480c7929bcc828b9ad13bf438a271459421870e28f",
+    "signature": "03585371f9c8547ba5f18768a766e2669fd02dee2cd3e7a382d937a999187166be90966dcd6d540a906250fa2902b6d5404750e4a8a7352663a179b6b99d409173ce1ce96799987422d863a0ea377cf77519b32512a92d61b112821b3b7c70b4a23c872f812715d9bd3d0d577ef9878147d50ea1c77ce0f3934e4cf2d747284e58fd4f954ad54d2fad9545ea58f28742939fcb100151c6fa99caa3003ce530048a1c5b84dcfcfa9fa576c4448e645207922c7d5f7b228905b17a72e9e6cd53ed0b5a4e13aa4002cfb50310e61fe245080c125da355775d795e58dfcef3447038350f4ac6e6dded894fb6f0c7a9f0b4d71489529e997d90e1d09bc3e0d9b5c690"
   },
   {
     "name": "skill_capture",
@@ -1650,7 +1842,7 @@
     "cls": "SkillCapture",
     "desc": "技能沉淀 - 成功任务自动存成SKILL.md",
     "group": "学习记忆",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -1676,14 +1868,20 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": true,
     "depends": [],
-    "size": 4084,
-    "sha256": "61be2b3aca2a67b3699832eab78ccd7406c5f4b936ab2e91cee5af7165e12027",
-    "signature": "6ead62ba0179251ff787abccd4f37fe06b8d02e0a115642958b31728cd10b044c9c47c4d483f49163ff2afab018bf4e875c4ee2ec497aa86b07fbbde46502764552a5bde1d0dc43aff509b8005440ef170b18c4ff50dfc1e7c3fc38b240a09d00ca914fcbabfd41258686ec48dc260ddcb581f48cc777115a190fd6b0b3bb4ec4544f3f126a4917c3929c10258283d52cc92eacb20606b04c6a64ea6b24783c08d5724d39f916897d99cf473a3959b9e55df495bef5345a476422969183d564726929c8632ab087e07304676e223af01d7ba58c5bd8dec76756d6a12aa42390ecf0b84c336ec09ac5c042119dce20e367d9321464a6b979a1b959617102e8449"
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 4750,
+    "sha256": "6657cbe95acb64986de9500ef743a0c215c6d50950217382c992b62d45f5fe85",
+    "signature": "17096d13a50dfede7e22c044a11cf615c376964ac216e550b7955c9d05c61f9591f158f35c1de1cf4c532334dae50dbde558a86efb579a7e26e8960669259c93169c219905ffdb3793dbfff58455349761e91663e61558c427ad610840a71a68bf97f687be51ad9c203c1aced2583ac5b244b394a34f654b1a27f73ed7778bb7b096d646d3c0de76db449804a5b3847a28f2f7f380ab132c18a5ebc0e303a98bf9e883b5e40dcdee3c40ad1d04d6a965dcdfd89c9e9b9bab08866f3280245545d3a5d43658de6885e935bc1cf61da5203f724c137d62ece2f37e7e957b4df10b47a27455d9c682c1b7f6811fa2e854f30084fb212e1f07109b09e22016f3151e"
   },
   {
     "name": "smart_router",
@@ -1692,7 +1890,7 @@
     "cls": "SmartRouter",
     "desc": "智能路由 v10.0 - LLM真意图识别+路由缓存+反馈学习+置信度阈值",
     "group": "工程系统",
-    "version": "10.0",
+    "version": "10.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -1718,14 +1916,20 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": true,
     "depends": [],
-    "size": 7040,
-    "sha256": "5fa00ff45a62d3052294cb011d2c3f180b8d452ef98ea0b50f033e9f0f16778d",
-    "signature": "72133a483dba27a84a632971e48f8eae55b9eb3b909854b9f6bb03e804979797e66f09dbabd09125323c5f0f78f3d09c92daefa405ea36a9747543a1db9694c4b03e5d1e201ad3acb9667703a72162721ea9ffa3bdde6c9a47887f1e7938282c45d798739dc5203f6a8983740c98edb30800604efe4565f185f0ce489662ed425fe75fd35f9d048ee735579b5344ada5a27d787c3133679c6d4daf36ff00a6300611cc347d5d2945251c434feef1843d3e4e032b1281d9d70fb9ade4fcf2e5104bfffd5bf0f8d3f8d017ab12ae27857370a521497503dcf4f2d2d651e1e78d80c31270ef8fdad5c8a8dc657b94fa348fa21603b1f5d61a83204ce73e6cd186bb"
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 7551,
+    "sha256": "3c752e076fe08f1dda382fcf3f57e217b35cb512992070a2ad23deb1d1c02626",
+    "signature": "6789fe143fdfd417bc22e66a2dc97dd0da95ce6caf283ad8aba97e815b9e7f69e756952ab5831efdec6262426ec269bdde253f2b5a425a804a1dc62f75e021d96c5bd9b8a48d5f92cbcf84fd5ad1bff71ee8df986edd4593409cadd8401b743cafca60f3c5badec75d62f78e9a8b3082795b495af268a02f9fe3bece00e7ac3c2e3094caead76c64d9503d150081dba3e9d3489e8745e4c45edae8b62df19f4fc04305ce5253d8deb9b275213601d2baa78cf98cf8d9c2a69be4cb00ffe7aa20dc14ddb870ef0a920dfeb24e400883b6b55cbcd3ffa8be5b7f79c3c4302883f0bd82dfe3730d5d26585d58a5d23d1c7d1fc788a79b713e3179a607ed7a3611d4"
   },
   {
     "name": "stt",
@@ -1734,7 +1938,7 @@
     "cls": "Voice",
     "desc": "语音识别模块 v2.0 - 完整版",
     "group": "系统服务",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -1760,14 +1964,20 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
-    "size": 7406,
-    "sha256": "4ccb9ecaea3acb7651c232f6ac303c4664b4ea7311d69238b1acbcadd38acf5a",
-    "signature": "6f4e3f73460aac2f282c8ebe11c4c3f9509abc259ea5b021e4bbef846bfa9867e477d92caf879af51f727b1005f932500b930ff92a12bc0753c8e1d5a75be087b023565afbb0880bd740d6c85a5fdb2fce591602bfe11ef6a0d2ebdf609a00b43dc2a7cd1d39f8cc02289f330f136d3d0bd0b833e0012474f0b3aa18795d924776d7defe7f2a505461ca37b5731918a1b9f982ed880310783e13fa0fdbd63aaee3fc6e9ad08e121fa9ab733283e9549969e6b8529ac47debf55ece09ef68b3e626cc510add45bc21233cf4d5bdc50e6564543b2df56a4cbc327235758b4079e0efa6f3f1aa1bca62e03f0bf1e35937d741660da8012c269ff820324adcf45988"
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 7539,
+    "sha256": "d26e7e2f3bc844ca7357599876a9d44dd44d7cb3408039f13d753df717992695",
+    "signature": "658025fd37443f64244afdd3797f01f106ef751f00165427391547389d0cc05359c51eed30db943344c3fc2c5d45aa4a48ee4dea63ce5817db474033d26770dfa02a0ebb86c54be81a3910faa378cbbfa86ab6dbc118233947cb3a12b054f74af6eb71d64d8bbe79a9c36e6e6b3468de52e6a6389d53250345ba665461f7db8dfe7d3860b5fbe40b5f2abe4fd7221b1fc7485252a54603dfcc47211a435d853a4929ccceb9cd40e9b07cda1cef136e04079b9cc00c46637aafa2d4073829f0d0234d6a674b6cc2e087d34eca00deeee3b50a70b7a7ec0c530157ee3e75ad959814cf38b75b16ed0bedcee3840fd11fc4508385d0fddae4101313875371d88c74"
   },
   {
     "name": "task_loop",
@@ -1776,7 +1986,7 @@
     "cls": "TaskPipeline",
     "desc": "任务闭环 v13.0 - 云端开真自主循环，本地保持简单拆步",
     "group": "工程系统",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [
       {
@@ -1819,14 +2029,20 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
-    "size": 7135,
-    "sha256": "73daffa193b72359e935c907faf824ec8cd800aef10d88d8ac28a59d1a664f5b",
-    "signature": "3b4db44f8dbf7b34eaf9d5a73d49f8b38b31d68d29675f892a084e90ae91b8e51716541b8d8f47296efd4e01b7d93cf6d4d2f5091d2fcbdc7e3faef892fddbcf0fc652a410db758b0025f70302196bec04d14f7e212938cebdae332c152ac5ba5d5cfdc74fc35ff2d04e37eda3b22de2614a197179969bb47ddc2cdd6222dc5a645708e998db2699bf94ca0c1ec236c808ae5ff57083ce59eb14f233602eb3eff578bd76242d522a8cf85d3b289c0ce4702009221d9bad1c93ad7c5ef3d7722efab8105eaff39e2ba748fe6b753831f03766c268444cf8adca6c32ec831b1bd8770b25122bfdb470122715e6bd5341102e72f736e623c0d51953912f624db451"
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 7638,
+    "sha256": "88380f4b7e720ff9122cf873ad67776bfc2201ee2d4ed3d1ed51d3ea986cc80d",
+    "signature": "3368f12d7ca6ad001bb5281888d552d703df6229156e442e697380fdcdabfac1b351eb9fd2e3d6357a83d0578444e38e8acd027e3d8c6125fad1d88ae7b4c49eb2e5646b83322ea24b548b2ea5ed4ce7dceb9f95590c92067644a89226c6a8eff450310e0063836c58bdbcc4d53520eeafb3d4557a0a6cffe12a30baa2f407c09d6d158c2045a11074c324f33de9428a4aba1c9ad841dc694ab62a518245938b58a507f46bc738c7a619131d69e4a4cdb96720b58ba018223a14369bc5af34ba14e186067c92e09014c9189d60742ea04355d343f3f16adc636ce86e8ac971fd7503b12d91463c04e5a2515eddd9fa499220bdaddb6266fdc50965da8dd880b7"
   },
   {
     "name": "task_planner",
@@ -1835,7 +2051,7 @@
     "cls": "TaskPlanner",
     "desc": "任务规划器 v10.0 - 真多步任务：LLM拆步+并行执行+子智能体委派+断点续做+质量评分",
     "group": "工程系统",
-    "version": "10.0",
+    "version": "10.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -1861,14 +2077,20 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
-    "size": 7013,
-    "sha256": "9f661cee4e427e5e1eb4776fe5902a66b05721064d195066cf631391b8a6c32f",
-    "signature": "8736d13a42930796a72f665bb6206216be30ffdcd64b6f78668e8f5548c8bdbdfd8069f38b9141d52196b6c64e98b2cdf05781095b530279eff290e634cb2aca7bc513e7699fe890a5ca5f875ad4d216f9fa349b1f748a76feaa10cf1306c148b49d4665f4c3f90402c4a05f382760eb6b40c3e05ba81c4f1e1d428f23f17f10988c5c4eb25437bb764ce19956a326de86b599e7c21529972711860f493117e4dababfe87cd897b99e03b359d605a71bb33744f376cff08f024422e548ab979b62d856c42a78786c4f40b22ffba3cecdee126c62a1d8e64ae3bd298caa4ec4756cb1867c3ba64ea74e6ecb35e1af1258987045d4241d60f44ca3e0c5cabeac2f"
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 7503,
+    "sha256": "c57e33436ca4b36409349aca457cd5bcaefe7195e5f9dc3cdf62afe91407dec6",
+    "signature": "1241c51ac6eed9015196ca9adeb8b2c03da3c62b9b325b94f307758edc8d43d4b240fbd5ad4166f4a924010f01282b784220af02e50849f1203b856fa347e77e95bd56eeecc773dfb69c7f64836d11ef5740fc9618b9550aeac958341e3c8a90f6e717e06f3e15bbaa8230693d6dbbb65056c424aae13dd83e3f99a8a4cdf1d60af58b0e42bb284e25fae3d4eee68cfb12691f6f9d9f5a90007ea36ce66efc0141393fd091a4fa889029fc1ad8bc17c343ac0aa0ef60882e94687049ca99f47bb6deeaf4fe7b86def6ab68d02f43579801ed5a727da448abcdad99e0abc77d1d82a6d12a6260197a296db92aaffb8f3d4eb528d88bc286939761fc1b0b41af3d"
   },
   {
     "name": "todo",
@@ -1877,7 +2099,7 @@
     "cls": "Todo",
     "desc": "v26-7.1: TODO待办工具",
     "group": "学习记忆",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [
       {
@@ -1946,14 +2168,20 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
-    "size": 2334,
-    "sha256": "84b7ecae5a768ef8f065404d124da5a605b0662a6b483ebfc2aeca442239faf0",
-    "signature": "7225395d3fc1c0b64332016dfe2f8c7cbb495809d82067f1a84a0e033035e5579cbf6d17ec9163ce8b0de111c9992befc710a587de5078d6269d583f3c177c89ba2a9d356e2a86cb041df8f2497c8aa582263660e26222d3ead4f72a4c7b0a7b15c9239e8caa470bcc31163be1dab7b32837af1655b888004073eb639e87ad04a21492c5f440a8981ab4c5abe72671e82eb505f8ef66257bb6eab6e30616be9ae0d6e448a89e4b5ebd6490f620f78d2ad02b66a2788ee826c7f8869a321090cb213397099ee49444b80afa71a5992840b6115ae8c75c09036ee4cee7520ba8e1b90246014657985d2fd7ad60eba5d89f2cd459f2fec4d360432fa041e83aceea"
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 2812,
+    "sha256": "9f59f7534ecdad4a3b004ad7f339fc7706eb7a9ea29de8b55c768f3d29255f31",
+    "signature": "3281e52d8a29a026e9884cc37a40460a00ef9875aef0b6f0987cd8d2c1bc95d9935ce2f1a7f5a5731434a57fbe4e0c7ea72824b7937c218c2b4aa699eb81761eaf1fde6499a01f6c097f71a0876bb54c1b94be6e05de5f644280a9e8fd160b3e0199deaaca75592fc9a64d87e1cb60e9c344de4ba75dc46168f4daa66fdb5a7043b63172004f2b642d428121f611107444d4236f927d0f16503a0235f6070e3bd73f6285ab58dc25cab169f5d88a759018b6be31d1c55395bea620a073f3b01beafd3dfc5dce9575d86c517cf77854ace0d17869d5a1645ecfe77ff5cd5e4dba9acb14c12fe1b1ff877b1293b868fca291c0632bda8722a7e064b7383555f15b"
   },
   {
     "name": "tool_caller",
@@ -1962,7 +2190,7 @@
     "cls": "ToolCaller",
     "desc": "工具调用器 v10.0 - LLM真决定用哪个工具+多工具串联+结果学习",
     "group": "工程系统",
-    "version": "10.0",
+    "version": "10.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -1988,11 +2216,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": true,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 29862,
     "sha256": "4f1018222f84394d369ef9557fecac1e2bc2087de76e00be3a9d8fbd5c6a4979",
     "signature": "3ab9bdbeb90364c8f9100fbbc41fe255f4e8032a89dead9979ab53db4faa623bf717ba94c940cbff40e7de1e7ff70fff2c3404d012b1c6059fa0572169f887162836581039daa7eafbab40c95f5d772e8c08b28f246b142aff143629ba89172e75d46b4af5313199b461271ea88289669515f73facaeaf08253a1520624e6936cdd9aa7cf95301752a3f510043f5132ae16d23bb488fe47dd948e1fe79959bbeeeb537e81b82ac6307912f6a27065f1815e95dc800dfaa375a5a64af60c816b2e435abce08d79b079b4bdfcd541944faa69fa479451ee41fec2e0a533d4f5040dca8657b5d91f3f442048766174f65d6ac56cbd97870da57a14412ab50e27a1e"
@@ -2004,7 +2238,7 @@
     "cls": "Translator",
     "desc": "翻译 v2.1 - 8种语言翻译 + 批量翻译 + 历史记录 + 语言列表 + 清空 + 统计 + 导出",
     "group": "联网检索",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [
       {
@@ -2062,11 +2296,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
     "size": 3878,
     "sha256": "bf09d24553d2a2c30217f52dc50ca2e1fbc8273d288d00784320adfb185ab648",
     "signature": "19a56410f248a68ea317bb90b9c655adf0c69496f6c712bbf8bb71e3d9dacf6dbb09ceb2c82e69fd94d5fcdfb98b6763e0503bb01c1a389953767909c4107f8775e652d1b98367baa827781ed0881a051cac4bae0cf167320e06f27a693db293299d06627e4d0c436c151f543d66ff59f35b5f4686ca8a4d3a467b9eb41475dbaef876d377ef510b2f9be55a5bcfd5253277da235ca13fcfb2f8b70ef264773402496bee94cbabf7cb16bdce4684b7a3f167c0333c542928c44da5501fa4526d5997efaacd5c26fae7f9f9d4bfe1ff1c7ad76fc79c4b968bcbb9347b96133d8b3abbdce98f7aa01838a35d0710a25c5a424edcf79292e319df300a64844403b2"
@@ -2078,7 +2318,7 @@
     "cls": "TTS",
     "desc": "TTS文字转语音模块 - 用edge-tts朗读",
     "group": "系统服务",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [],
     "api_version": "1.0",
@@ -2104,14 +2344,20 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
-    "size": 1653,
-    "sha256": "32953e1221aca00d0283c28723cec707aa515e7354f18de8c5499a836417a41c",
-    "signature": "8204512c22a1ddd9e7f88956c258b2f695e52012bf63f473791b651ff7f6d25b8e9b175526b629eab872938c55c9a96dbcf33ba21c9e7b614f118a94b2868bbdc42722057b0f6948651f4d9f52d03c13ab4f261069ebcfed517f43f6b8fc34217e55b278ecd09743602fddb4ebce7fd2d5f8dfd4c9267a9bd934876f554f96c69399339fae638a60870683f8d97b4612f509f55d305282c649a9c9ab26dc13aba71011d17483e47c06c70ca72cda4cd7cf2ce5a294d4a4bb9e915cf6b8ce4c8b4cd7d9ca5119521afd9a0662c4b83e66a771ad8abf2e0785f63023244701c97895081237096dae5cbad452f7bf09b06edb97614156567342a1e0ffb656b5e94a"
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 1848,
+    "sha256": "4f8cd124e24f78f956b5527f213ccacd922cb51ddbaf1c4b797146892a749191",
+    "signature": "3ee452d7813bbf5b63e301baa5b32acc09f1d2258ea35da8a8a309c505a868f88b3c53383046a5a7b8a721e2fe3669a554b9f42724f45860c75c773f16399c3ea55b3afd428574f18bffabbe462a3e76259a3db1428142a726fac484b12c1a2b9f7191523897e4a29adbb37dc62c8375ef80553ce5194296698f5b5013f86b4f27563b820712ae9e3f842cc0fb62faf452f10f8eb616426fee5b29542d3f555c68d5dac1631356c53bf69864554f556df62f3bf88ad5519c4af90cfab9bb8a3962e1f3198ac1fe826cc3726e3c0d409b8d4a862401dd54ddf1b1d8921ea3d2d8fc0b1bcb494838744e29c23696388c069f643f672b8bda315a2bf8b3e5775e49"
   },
   {
     "name": "weather",
@@ -2120,7 +2366,7 @@
     "cls": "Weather",
     "desc": "v26-7.1: 天气工具（wttr.in）",
     "group": "联网检索",
-    "version": "1.0",
+    "version": "1.0.0",
     "button": null,
     "tools": [
       {
@@ -2168,11 +2414,17 @@
       },
       "config": {
         "read_secrets": false,
-        "public_keys": []
+        "public_keys": [],
+        "secret_names": []
       }
     },
     "needs_model": false,
     "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L2",
+    "risk_level": "medium",
     "size": 1973,
     "sha256": "188b3381d1a2f79e7cba4d075d44db4959d50579e90309bd13c81af2846864c5",
     "signature": "741fe7fe0a5fca6e053fd8944d4a607b3e8b31fa835447d94c81e61d896fe4d91713b14a1e1bb39501eb05d2770664e3c4adaf31c0452efc1bc284bd830cf6b1f9855453f8ba921921e512f181d53ee506d4d45212bd9ec00e2473ccf6882d40ff41a3813ffe0bbcedd8ec9c72311b0b3ad8150a23b16e14791de1fe11cb1891e34d16865286819cb4e0359270847ee0e356122beda33535a77f3c8ec206e0acc88bbf0eb9efdd78aa96b3a52661230c996c395c489de23bda3aa9385edd6b22ffaeee3150102379b9a0a18de9b9407b1cd92f1b71f65b404115d57f8eb87de74fe1e74e1190cd066cdf89962cf3d6075b5e0bdd632e2d0ed8f684cf17973a2b"

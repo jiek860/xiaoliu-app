@@ -13,6 +13,9 @@ class TTS(BaseModule):
     def __init__(self, trunk=None):
         super().__init__(trunk)
         self.base = getattr(trunk, "base", None) or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        # v2.1: 临时产物必须落在 data/plugin_data/<插件名>/ 内
+        self.sandbox = os.path.join(self.base, "data", "plugin_data", "tts")
+        os.makedirs(self.sandbox, exist_ok=True)
         self.voice = "zh-CN-XiaoxiaoNeural"
         self._count = 0
 
@@ -25,7 +28,7 @@ class TTS(BaseModule):
         if not text:
             return {"ok": False, "error": "空文本"}
         try:
-            tmp = os.path.join(tempfile.gettempdir(), "xiao6_tts.mp3")
+            tmp = os.path.join(self.sandbox, "xiao6_tts.mp3")
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             loop.run_until_complete(self._tts_async(text[:500], tmp))

@@ -49,6 +49,8 @@ ERROR_CATALOG = {
     "PLUGIN_UPSTREAM_ERROR": {"retryable": True, "zh": "上游返回错误"},
     "PLUGIN_RATE_LIMITED": {"retryable": True, "zh": "被限流"},
     "PLUGIN_RESOURCE_EXHAUSTED": {"retryable": True, "zh": "资源耗尽"},
+    "PLUGIN_CIRCUIT_OPEN": {"retryable": True, "zh": "插件已熔断"},
+    "PLUGIN_CLOSE_TIMEOUT": {"retryable": True, "zh": "关闭超时"},
     # 契约/内部类
     "PLUGIN_BAD_OUTPUT": {"retryable": False, "zh": "返回格式不符合契约"},
     "PLUGIN_NOT_IMPLEMENTED": {"retryable": False, "zh": "尚未实现"},

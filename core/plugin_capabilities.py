@@ -28,7 +28,8 @@ def default_capabilities():
         "filesystem": {"read": [], "write": []},
         "process": {"enabled": False, "allow_argv": []},
         "ui_control": {"enabled": False},
-        "config": {"read_secrets": False, "public_keys": []},
+        "config": {"read_secrets": False, "public_keys": [],
+                   "secret_names": []},
     }
 
 
@@ -52,12 +53,30 @@ def _bool(value, default=False):
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
+_LOOPBACK_RE = re.compile(r"^(localhost|127\.0\.0\.1|\[::1\]|::1)(?::(\d{1,5}))?$")
+
+
 def _clean_domain(value):
+    """校验并规范化域名。
+
+    v2.1 S3 端口规则：
+      * 回环地址允许显式端口（如 127.0.0.1:5000、localhost:8080）
+      * 非回环地址一律不允许带端口
+    """
     text = str(value or "").strip().lower().rstrip(".")
     if not text or "://" in text or "/" in text:
         return None
-    if text in LOCAL_HOSTS:
-        return text
+    m = _LOOPBACK_RE.match(text)
+    if m:
+        port = m.group(2)
+        if port is not None:
+            try:
+                if not (0 < int(port) <= 65535):
+                    return None
+            except ValueError:
+                return None
+            return text
+        return m.group(1).replace("[", "").replace("]", "")
     if ":" in text:      # 带端口的非回环地址不允许（端口不属于主机白名单）
         return None
     if not _DOMAIN_RE.match(text):
@@ -177,7 +196,7 @@ def _validate_process(raw, errors, warnings):
 
 
 def _validate_config(raw, errors, warnings):
-    out = {"read_secrets": False, "public_keys": []}
+    out = {"read_secrets": False, "public_keys": [], "secret_names": []}
     if raw is None:
         return out
     if not isinstance(raw, dict):
@@ -192,6 +211,17 @@ def _validate_config(raw, errors, warnings):
             errors.append("secret-looking config key cannot be public: %s" % key)
         elif key not in out["public_keys"]:
             out["public_keys"].append(key)
+    for item in _as_list(raw.get("secret_names")):
+        name = str(item or "").strip()
+        if not name:
+            errors.append("config.secret_names contains an empty name")
+        elif not re.match(r"^[A-Za-z0-9_.-]{1,64}$", name):
+            errors.append("config.secret_names has an invalid name: %r" % (item,))
+        elif name not in out["secret_names"]:
+            out["secret_names"].append(name)
+    if out["read_secrets"] and not out["secret_names"]:
+        warnings.append("config.read_secrets=true 但未列 secret_names，"
+                        "将拒绝读取任何凭据")
     if out["read_secrets"]:
         warnings.append("config.read_secrets grants access to secret material")
     return out

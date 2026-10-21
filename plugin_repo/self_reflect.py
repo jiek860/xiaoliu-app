@@ -28,7 +28,15 @@ class ReflectEngine(BaseModule):
         super().__init__(trunk)
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or "."
-        self.history_path = os.path.join(self.base, "data", "reflect_history.json")
+        # v2.1: 插件持久化必须落在 data/plugin_data/<插件名>/ 内
+        _sdir = os.path.join(self.base, "data", "plugin_data", "self_reflect")
+        os.makedirs(_sdir, exist_ok=True)
+        self.history_path = os.path.join(_sdir, "reflect_history.json")
+        _legacy = os.path.join(self.base, "data", "reflect_history.json")
+        if not os.path.exists(self.history_path) and os.path.exists(_legacy):
+            try: os.replace(_legacy, self.history_path)
+            except OSError:  # 静默是故意的：旧数据迁移失败不阻断主流程
+                pass
         self.history = self._load()
         self.reflect_count = 0
 

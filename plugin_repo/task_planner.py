@@ -20,7 +20,14 @@ class TaskPlanner(BaseModule):
         self.base = getattr(trunk, "base", None) or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.running = False
         self.tasks = {}  # {task_id: {goal, steps, results, status}}
-        self.task_dir = os.path.join(self.base, r"data\tasks")
+        # v2.1: 插件持久化必须落在 data/plugin_data/<插件名>/ 内
+        self.task_dir = os.path.join(self.base, "data", "plugin_data", "task_planner", "tasks")
+        os.makedirs(os.path.dirname(self.task_dir), exist_ok=True)
+        _old_tasks = os.path.join(self.base, "data", "tasks")
+        if not os.path.exists(self.task_dir) and os.path.isdir(_old_tasks):
+            try: os.rename(_old_tasks, self.task_dir)
+            except OSError:  # 静默是故意的：旧目录迁移失败不阻断主流程
+                pass
         os.makedirs(self.task_dir, exist_ok=True)
         self._load_tasks()
 

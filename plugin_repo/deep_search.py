@@ -99,7 +99,8 @@ class DeepSearch(BaseModule):
         try:
             html = self._get(url, timeout=6)
             return self._clean(html)[:max_len]
-        except:
+        except Exception:
+            # 静默是故意的 - 单页正文抓取是 best-effort，失败只当无摘要
             return ""
 
     def _is_code_query(self, q):

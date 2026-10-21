@@ -56,6 +56,20 @@ class PluginBroker:
         self._id = 0
         self._alive = False
         self.last_error = ""
+        # v2.1 N13：熔断与资源上限
+        try:
+            from core.plugin_limits import PluginLimits
+            self.limits = PluginLimits()
+        except Exception:
+            self.limits = None
+        # v2.1 N15：插件审计
+        try:
+            from core.plugin_audit import PluginAudit
+            self.audit = PluginAudit(self.base)
+        except Exception:
+            self.audit = None
+        self.version = ""
+        self.session_id = ""
 
     # ------------------------------------------------------------ lifecycle
     def start(self):
@@ -182,7 +196,39 @@ class PluginBroker:
                 slot["error"] = {"message": "plugin worker exited"}
                 slot["event"].set()
 
+    def _audit_event(self, action, capability="", allowed=True, detail="",
+                     extra=None):
+        """写插件审计（v2.1 N15）。失败不影响主流程。"""
+        audit = getattr(self, "audit", None)
+        if audit is None:
+            return None
+        try:
+            return audit.record(
+                plugin=self.plugin_name, action=action,
+                capability=capability, allowed=allowed, detail=detail,
+                version=getattr(self, "version", ""),
+                session_id=getattr(self, "session_id", ""),
+                extra=extra)
+        except Exception:  # 静默是故意的 - 审计失败不得阻断主流程（N15）
+            return None
+
+    def set_identity(self, version="", session_id=""):
+        """由安装器/调度器注入版本与会话 id，用于审计字段。"""
+        self.version = str(version or "")[:40]
+        self.session_id = str(session_id or "")[:64]
+        return {"ok": True}
+
     def call_plugin(self, args=None, timeout=None):
+        # N13：熔断检查必须放在 start() **之前** —— 熔断状态下不该再尝试
+        # 拉起 worker，否则真实原因会被"worker 启动失败"盖住。
+        _limits = getattr(self, "limits", None)
+        if _limits is not None:
+            blocked = _limits.before_call()
+            if blocked is not None:
+                self._audit_event("call", "circuit", False,
+                                  blocked["error"]["message"],
+                                  {"code": blocked["error"]["code"]})
+                raise PluginBrokerError(blocked["error"]["message"])
         if not self._alive and not self.start():
             raise PluginBrokerError(self.last_error or "worker is not running")
         with self._lock:
@@ -195,10 +241,21 @@ class PluginBroker:
         if not slot["event"].wait(float(timeout or self.timeout)):
             with self._lock:
                 self._pending.pop(rid, None)
+            _limits = getattr(self, "limits", None)
+            if _limits is not None:
+                _limits.after_call(False, "timeout")
+            self._audit_event("call", "run", False, "timeout")
             raise TimeoutError("plugin run timed out")
         if slot.get("error") is not None:
             err = slot["error"]
-            raise PluginBrokerError(str(err.get("message") if isinstance(err, dict) else err))
+            msg = str(err.get("message") if isinstance(err, dict) else err)
+            if _limits is not None:
+                _limits.after_call(False, msg)
+            self._audit_event("call", "run", False, msg[:200])
+            raise PluginBrokerError(msg)
+        if _limits is not None:
+            _limits.after_call(True)
+        self._audit_event("call", "run", True, "ok")
         return slot.get("result")
 
     # ------------------------------------------------------------ capability requests
@@ -248,6 +305,8 @@ class PluginBroker:
             return self._process_run(params)
         if method == "config.get_public":
             return self._config_get(params.get("key"))
+        if method == "config.get_secret":
+            return self._config_get_secret(params.get("name"))
         if method == "audit.record":
             return self._audit(str(params.get("event") or "")[:500])
         raise PermissionError("unknown broker method: %s" % method)
@@ -281,6 +340,15 @@ class PluginBroker:
         data = str(text or "").encode("utf-8")
         if len(data) > self.max_output_bytes:
             raise ValueError("write exceeds max_output_bytes")
+        _limits = getattr(self, "limits", None)
+        if _limits is not None:
+            blocked = _limits.check_write(len(data))
+            if blocked is not None:
+                self._audit_event("capability", "filesystem", False,
+                                  blocked["error"]["message"])
+                raise PermissionError(blocked["error"]["message"])
+        self._audit_event("capability", "filesystem", True,
+                          "write:%s" % os.path.basename(target))
         mode = "ab" if append else "wb"
         with open(target, mode) as f:
             f.write(data)
@@ -293,7 +361,16 @@ class PluginBroker:
             raise PermissionError("only http/https URLs are allowed")
         from urllib.parse import urlparse
         domain = (urlparse(url).hostname or "").lower()
+        _limits = getattr(self, "limits", None)
+        if _limits is not None:
+            blocked = _limits.check_network()
+            if blocked is not None:
+                self._audit_event("capability", "network", False,
+                                  blocked["error"]["message"])
+                raise PermissionError(blocked["error"]["message"])
         self._authorize("network", domain=domain, method=method)
+        self._audit_event("capability", "network", True,
+                          "%s %s" % (method, domain))
         try:
             from core.net_guard import get_net_guard
             d = get_net_guard(self.trunk).check(
@@ -318,6 +395,8 @@ class PluginBroker:
     def _process_run(self, params):
         argv = [str(x) for x in (params.get("argv") or [])]
         self._authorize("process", argv=argv)
+        self._audit_event("capability", "process", True,
+                          "run:%s" % " ".join(argv)[:120])
         job = None
         try:
             p = subprocess.Popen(
@@ -345,9 +424,46 @@ class PluginBroker:
         key = str(key or "")
         self._authorize("config", key=key)
         cfg = getattr(self.trunk, "config", {}) or {}
-        return cfg.get(key)
+        value = cfg.get(key)
+        self._audit_event("capability", "config", True,
+                          "get_public:%s" % key)
+        return value
+
+    # 凭据读取：只有声明了 config.read_secrets 才允许（v2.1 S3/S7）
+    SECRET_NAME_RE = None
+
+    def _config_get_secret(self, name):
+        """经 broker 代理读取凭据。
+
+        - 必须声明 capabilities.config.read_secrets = true，否则拒绝；
+        - 只允许读取 manifest 中 config.public_keys 之外的、宿主机密白名单内的键；
+        - 返回值**不写审计原文**，审计只记录"读取了哪个名字"。
+        """
+        import re as _re
+        cfg = (self.capabilities or {}).get("config") or {}
+        if not cfg.get("read_secrets"):
+            self._audit_event("capability", "config", False,
+                              "get_secret refused: read_secrets not declared")
+            raise PermissionError(
+                "capabilities.config.read_secrets 未声明，禁止读取凭据")
+        name = str(name or "").strip()
+        if not _re.match(r"^[A-Za-z0-9_.-]{1,64}$", name):
+            raise PermissionError("凭据名不合法")
+        allowed = set(cfg.get("secret_names") or [])
+        if allowed and name not in allowed:
+            self._audit_event("capability", "config", False,
+                              "get_secret refused: %s not in secret_names" % name)
+            raise PermissionError("该凭据未在 secret_names 中声明: " + name)
+        self._authorize("config", key="secret:" + name)
+        store = getattr(self.trunk, "config", {}) or {}
+        value = store.get(name)
+        self._audit_event("capability", "config", True,
+                          "get_secret:%s" % name)
+        return value
 
     def _audit(self, event):
+        """插件主动上报的审计事件（走 v2.1 N15 统一格式）。"""
+        self._audit_event("plugin", "", True, event)
         try:
             from core.audit_log import AuditLog
             AuditLog(self.base).append({
