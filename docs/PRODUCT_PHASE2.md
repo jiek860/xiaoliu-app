@@ -139,3 +139,22 @@ CHANGELOG、FAQ.txt、使用说明-小白版.txt、模型教程.txt、检测手�
 
 验收：1331 passed / 2 skipped，覆盖率 60.48%；修复前后截图对比见
 `tests/test_font_and_dialogs.py` 覆盖的 11 个断言。
+
+
+## 2026-10-21 二次修复：白屏真正原因（centralWidget 被清空）
+
+上一节记录的是"字体缺失"这一类白屏；本次截图属于**另一类**：
+
+| 现象 | 根因 | 修复 |
+|---|---|---|
+| 状态栏正常、中间完全空白 | `on_finished` 调了 `setCentralWidget(None)`，把 `build_ui()` 装好的主界面拆掉 | 仅 `setParent(None)` + `deleteLater()` 处理占位页 |
+
+回归守卫：
+
+- `test_boot_finished_never_clears_central_widget`（AST）
+- `test_boot_finished_keeps_central_widget`（行为）
+- 旧测试 `assert w.cleared is True` 已改为 `is False`
+
+同步文档：`使用说明-小白版.txt`（白屏两类判断法）、`FAQ.txt`（Q27~Q29）、
+`检测手册.txt`（2.6b 界面完整性检查）、`ARCHITECTURE.md`（启动收尾两条铁律）、
+`CHANGELOG.md`、`部署步骤.md`、`开发者须知-密钥与发版.md`。

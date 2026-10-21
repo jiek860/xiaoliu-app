@@ -1,5 +1,32 @@
 # 版本变更记录
 
+### 修复：启动完成后主界面被清空（真正的白屏原因，2026-10-21）
+
+上一轮修字体是必要的，但**不是这次白屏的原因**。日志里
+`字体就绪(151)` 说明字体早已正常，问题出在启动收尾：
+
+```python
+# gui/app_pyqt.py::_make_boot_callbacks.on_finished（旧代码）
+ph.deleteLater()
+window.setCentralWidget(None)      # ← 把 build_ui() 刚装好的整张界面拆掉
+```
+
+`build_ui()` 已通过 `setCentralWidget(central)` 装好主界面，
+`on_finished` 紧接着又清空它，于是窗口只剩标题栏和状态栏 ——
+与"底部文字正常、中间全白"的截图完全一致。
+
+修复：占位页只从父级摘下（`setParent(None)` + `deleteLater()`），
+**不再动 centralWidget**。
+
+回归测试（防回弹）：
+- `test_boot_finished_never_clears_central_widget`：AST 检查 `on_finished`
+  内不得出现 `setCentralWidget`。
+- `test_boot_finished_keeps_central_widget`：跑完回调后 `centralWidget()` 仍存在。
+- 修正旧测试 `assert w.cleared is True` 为 `is False` ——
+  那条断言当初把 bug 当成了正确行为。
+
+验证：1355 passed / 2 skipped；截图确认侧栏、聊天区、输入框、按钮全部渲染。
+
 ### 第二阶段产品能力 + 文档/教程同步（2026-10-20）
 
 - 新增 8 类模型服务商适配：OpenAI、Anthropic、Gemini、OpenRouter、

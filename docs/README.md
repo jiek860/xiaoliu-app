@@ -1,6 +1,6 @@
 # docs 文档索引
 
-更新日期：2026-10-20（第二阶段文档/教程同步）  
+更新日期：2026-10-21（启动/白屏修复同步）  
 适用版本：v25.2.23
 
 ## 一、主文档（优先阅读）
@@ -77,7 +77,11 @@
    - `docs/70_兼容性与数据迁移.md`
    - `使用说明-小白版.txt`
    - `gui/tutorial_dialog.py` / `gui/onboarding_wizard.py`
-6. 发布前运行：
+6. 启动/界面相关改动后追加：
+   ```powershell
+   py -3 -m pytest tests/test_boot_controller.py tests/test_font_and_dialogs.py tests/test_startup_speed.py -q
+   ```
+7. 发布前运行：
    ```powershell
    py -3 -m pytest tests/test_docs_consistency.py tests/test_user_docs_intact.py -q
    py -3 tools/check_version.py
@@ -87,7 +91,7 @@
    py -3 tools/sync_package.py --dry-run
    py -3 tools/sync_package.py
    ```
-7. 文档/教程同步范围：
+8. 文档/教程同步范围：
    - 根目录 `README.md` / `README_EN.md` / `ARCHITECTURE.md` / `CHANGELOG.md`
    - 用户文档 `使用说明-小白版.txt` / `FAQ.txt` / `模型教程.txt` /
      `检测手册.txt` / `部署步骤.md` / `开发者须知-密钥与发版.md`

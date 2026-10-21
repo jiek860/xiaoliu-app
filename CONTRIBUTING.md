@@ -78,3 +78,15 @@ scripts\check_envs.ps1
 - 数据迁移改为 v0v1v2 逐级执行，先备份、坏行保留、失败不覆盖。
 - 插件清单新增 `api_version: "1.0"` 和 `first_party`，安装前检查 core 依赖边界。
 
+
+
+## 启动相关改动的约定（2026-10-21）
+
+1. `gui/app_pyqt.py` 的 `on_finished` 里**不允许**调用 `setCentralWidget`
+   —— 会清空 `build_ui()` 装好的主界面（曾导致整屏白）。
+2. 任何 `QFontDatabase` 访问前先判断 `QGuiApplication.instance()`。
+3. 启动路径改动请同时跑：
+   ```powershell
+   py -3 -m pytest tests/test_boot_controller.py tests/test_font_and_dialogs.py tests/test_startup_speed.py -q
+   ```
+4. 提交前跑 `py -3 tools/sync_package.py`，保证打包源与开发目录一致。
