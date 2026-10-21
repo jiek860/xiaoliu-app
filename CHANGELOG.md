@@ -1,5 +1,36 @@
 # 版本变更记录
 
+### 插件标准 v1.0 落地（2026-10-21）
+
+**问题**：标准其实早就存在（`core/plugin_api.py` + `core/plugin_capabilities.py`），
+但 42 个官方模块**全部没有声明 capabilities**，每个都落进 legacy/默认拒绝，
+清单里的能力声明形同虚设。
+
+**修复**：
+
+- `tools/rebuild_modules_repo.py` 新增 `capabilities_of()`：按模块真实依赖生成
+  标准能力声明（最小权限 + 高风险显式化）。
+- 生成结果**5 段齐全**（network / filesystem / process / ui_control / config）；
+  修复了此前合并时漏 `filesystem` 段的问题。
+- 改为**以生成结果为准**，不再沿用旧清单里不完整的声明。
+- `core/plugin_capabilities.py`：域名白名单显式允许回环地址
+  `localhost` / `127.0.0.1` / `::1`（连本地模型/MCP/浏览器调试端口必需），
+  带端口的任意主机仍然拒绝。
+- 42 个模块重新签名并发布到 `plugin_repo/`。
+
+**合规结果**：
+
+```text
+模块总数 42 / 声明 capabilities 42 / 5 段齐全 42
+已签名 42 / api_version 1.0 42 / 清单+源码校验通过 42 / legacy 0
+```
+
+**新增文档与契约测试**：
+
+- `docs/PLUGIN_STANDARD.md`：插件标准 v1.0 全文（S1~S8）
+- `tests/test_plugin_standard.py`：17 条契约测试（必填字段、能力完整性、
+  签名、依赖边界、回环地址、高风险显式声明）
+
 ### 修复：启动完成后主界面被清空（真正的白屏原因，2026-10-21）
 
 上一轮修字体是必要的，但**不是这次白屏的原因**。日志里

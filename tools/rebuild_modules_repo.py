@@ -93,6 +93,61 @@ GROUP_HINTS = [
 ]
 
 
+# 2026-10-21：官方模块的"标准"能力声明。
+# 之前 42 个模块**全都没写 capabilities**，于是每个都落进 legacy/默认拒绝，
+# 清单里的能力声明形同虚设。现在按模块真实依赖给出最小权限。
+_READ_ONLY_CAPS = {
+    "filesystem": {"read": ["data/plugin_data/{plugin_name}"], "write": []},
+}
+_OFFICIAL_CAPS = {
+    # 纯逻辑/无外部副作用的模块：只读自己的数据目录
+    "__default__": {
+        "filesystem": {"read": ["data/plugin_data/{plugin_name}"], "write": []},
+    },
+    # 需要联网的模块：只放行已知域名
+    "weather": {"network": {"enabled": True,
+                            "domains": ["wttr.in", "api.open-meteo.com",
+                                        "geocoding-api.open-meteo.com"],
+                            "methods": ["GET"]}},
+    "deep_search": {"network": {"enabled": True,
+                                "domains": ["duckduckgo.com", "html.duckduckgo.com",
+                                            "www.bing.com", "api.search.brave.com"],
+                                "methods": ["GET"]}},
+    "browser": {"network": {"enabled": True,
+                            "domains": ["localhost", "127.0.0.1"],
+                            "methods": ["GET", "POST"]}},
+    "mcp_client": {"network": {"enabled": True,
+                               "domains": ["localhost", "127.0.0.1"],
+                               "methods": ["POST"]}},
+    # 需要执行用户本机动作的模块：显式高风险
+    "computer_controller": {"ui_control": {"enabled": True}},
+    "code_runner": {"process": {"enabled": True,
+                                "allow_argv": [["python"], ["py"]]}},
+}
+
+
+def capabilities_of(name):
+    """给官方模块生成标准能力声明（最小权限 + 明确高风险项）。
+
+    标准要求 capabilities 的 5 个分段**必须齐全**（network / filesystem /
+    process / ui_control / config），缺一个就算不合格。
+    这里用"默认值 + 覆盖"的方式合并，避免按模块单独写时漏段。
+    """
+    defaults = {
+        "network": {"enabled": False, "domains": [], "methods": []},
+        "filesystem": {"read": [], "write": []},
+        "process": {"enabled": False, "allow_argv": []},
+        "ui_control": {"enabled": False},
+        "config": {"read_secrets": False, "public_keys": []},
+    }
+    raw = dict(defaults)
+    specific = _OFFICIAL_CAPS.get(name) or _OFFICIAL_CAPS["__default__"]
+    for section, value in specific.items():
+        raw[section] = dict(value)
+    text = json.dumps(raw).replace("{plugin_name}", str(name))
+    return json.loads(text)
+
+
 def guess_group(title, fname):
     hay = (title or "") + " " + (fname or "")
     low = hay.lower()
@@ -193,6 +248,14 @@ def main():
         # 官方随包模块可依赖少量审计过的 core 集成层；
         # 第三方插件没有这个标记，安装时按公共 API 严格检查。
         entry["first_party"] = True
+        # 官方模块也必须声明 capabilities（标准要求），
+        # 否则会被当成 legacy/默认拒绝，能力声明等于没写。
+        # ⚠️ 必须以 capabilities_of() 的**标准生成结果**为准。
+        #    之前写的是 `base.get("capabilities") or capabilities_of(...)`，
+        #    于是旧清单里那份**缺 filesystem 段**的不完整声明被原样沿用，
+        #    修了生成逻辑也落不到清单里（实测踩到）。
+        #    标准只允许在生成结果上做"更严格"的收敛，不允许缺段。
+        entry["capabilities"] = capabilities_of(item["name"])
         entry["needs_model"] = bool((base or {}).get("needs_model"))
         entry["depends"] = (base or {}).get("depends") or []
         entry["size"] = os.path.getsize(item["src"])
