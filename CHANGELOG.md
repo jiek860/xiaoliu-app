@@ -1644,6 +1644,25 @@ tools/check_*.py          没有删除操作
 - 实时对话流水线、截图识字GLM-4V接入、磁盘缓存秒回重复问题
 - 功能中心、历史记录窗口、代码编辑器模块
 
+### 修复：启动完成后主界面被清空（真正的白屏原因，2026-10-21）
+
+上一轮修字体是必要的，但**不是你看到的那个白屏**。日志里
+`字体就绪(151)` 说明字体早就正常了，问题出在启动收尾这一步：
+
+```python
+# gui/app_pyqt.py::_make_boot_callbacks.on_finished（旧代码）
+ph.deleteLater()
+window.setCentralWidget(None)      # ← 把 build_ui() 刚装好的整张界面拆掉
+```
+
+`build_ui()` 在 `BootController` 里已经 `setCentralWidget(central)` 装好了主界面，
+紧接着 `on_finished` 又把它清空，于是窗口只剩标题栏和状态栏 ——
+和你截图里"中间全白、底部文字正常"完全一致。
+
+修复：占位页只从父级摘下（`setParent(None)` + `deleteLater()`），
+**不再动 centralWidget**。新增两条回归测试（AST 静态检查 + 行为级检查）
+钉死这个行为。
+
 ### 依赖安全升级（2026-10-21）
 
 - pip-audit 新披露 9 条漏洞：`certifi 2026.10.18`（1 条）与 `Pillow 12.3.0`（8 条）。
