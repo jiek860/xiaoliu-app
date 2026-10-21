@@ -14,16 +14,20 @@ from PyQt5.QtCore import Qt
 
 def show_login_dialog(parent, trunk, base, on_login_success):
     """登录对话框。返回 True=登录成功"""
-    # 登录前再次检查协议
+    # 协议已经在主窗口的引导链里确认过（见 JarvisWindow._do_login_flow）。
+    # 这里**不再重复弹协议框** —— 以前两处都查，用户会连着看到两次协议，
+    # 也是"启动一堆弹窗"的来源之一。
     try:
         from core.agreement import Agreement
-        from gui.agreement_dialog import AgreementDialog
-        ag = Agreement(trunk)
-        if ag.need_show():
-            dlg = AgreementDialog(trunk, parent)
-            dlg.exec_()
-            if not dlg.agreed:
-                return False
+        if Agreement(trunk).need_show():
+            parent_hint = getattr(parent, "_agreement_pending", None)
+            if parent_hint is not False:
+                # 没有走主窗口引导链（例如单独调用）时才自己补一次
+                from gui.agreement_dialog import AgreementDialog
+                dlg = AgreementDialog(trunk, parent)
+                dlg.exec_()
+                if not dlg.agreed:
+                    return False
     except Exception as e:
         _x6_swallowed(__name__, e)
         pass

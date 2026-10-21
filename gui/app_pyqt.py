@@ -173,6 +173,19 @@ def run_pyqt(startup=None):
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     app = QApplication(sys.argv)
     app.setApplicationName("小6智能助手")
+
+    # ⚠️ 必须在建任何控件之前修字体。
+    # 实测：字体族数为 0 时 Qt 不报错，只是把**每个字都画成空白**，
+    # 用户看到的现象就是"主界面全白、只有几个色块"。见 core/font_bootstrap.py
+    try:
+        from core import font_bootstrap
+        font_state = font_bootstrap.ensure_fonts(app)
+        if not font_state.get("ok"):
+            print("[字体] " + str(font_state.get("reason")))
+        if startup is not None:
+            startup.mark("字体就绪(%d)" % int(font_state.get("after") or 0))
+    except Exception as e:
+        print("[字体] 自愈失败: %s" % str(e)[:120])
     if startup is not None:
         startup.mark("QApplication 就绪")
 

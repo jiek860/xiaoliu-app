@@ -125,3 +125,17 @@ CHANGELOG、FAQ.txt、使用说明-小白版.txt、模型教程.txt、检测手�
     python run.py        # 看 trunk.log 里的 [启动耗时] 一行
 
 新增测试：`tests/test_startup_speed.py`（打点单调性、看门狗快启、骨架不建 Trunk）。
+
+
+## 2026-10-21 界面白屏 / 弹窗 / 行号修复
+
+| 现象 | 根因 | 修复 |
+|---|---|---|
+| 主界面全是空白块 | Qt 字体族数为 0，Qt 不报错只画空白 | 新增 `core/font_bootstrap.py`，启动时注册系统字体并设默认字体 |
+| 启动连弹多个窗 | 协议/登录/向导三处各自 `exec_()`，时间重叠且重复查协议 | 串行引导链，一次只弹一个 |
+| 新用户看不到配模型向导 | `show_onboarding` 被删但仍在被 import | 恢复该函数并 `mark_done` |
+| 代码编辑器刷 AttributeError | `self.viewport().contentOffset()` 不存在 | 改用 `self.contentOffset()` 并兜住绘制异常 |
+| 无界面环境自检崩溃 | 直接访问 `QFontDatabase` | 先检查 `QGuiApplication.instance()` |
+
+验收：1331 passed / 2 skipped，覆盖率 60.48%；修复前后截图对比见
+`tests/test_font_and_dialogs.py` 覆盖的 11 个断言。

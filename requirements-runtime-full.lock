@@ -4,7 +4,7 @@ aiosignal==1.4.0
 anyio==4.15.1
 attrs==26.1.0
 av==18.1.0
-certifi==2026.10.18
+certifi==2026.10.19
 cffi==2.1.1
 charset-normalizer==3.5.2
 click==8.5.0
@@ -35,7 +35,7 @@ opencv-python==5.0.0.93
 openpyxl==3.1.5
 packaging==26.3
 parso==0.8.7
-pillow==12.3.0
+pillow==13.0.0
 playwright==1.64.0
 propcache==0.5.4
 protobuf==7.36.2

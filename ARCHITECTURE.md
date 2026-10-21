@@ -320,6 +320,8 @@ run.py
   ├─ auto_report.start()  -> crash_watchdog.spawn()   ← 独立进程，先跑
   └─ gui.app_pyqt.run_pyqt(startup)
        ├─ QApplication（约 70~120ms）
+       ├─ core.font_bootstrap.ensure_fonts(app)   ← 字体为 0 时注册系统字体
+       │     （否则 Qt 会把每个字画成空白 —— 表现为"界面全白"）
        ├─ JarvisWindow(boot_signal=False) 只建骨架 -> show()（约 160~200ms 可见）
        └─ BootController（QTimer 后置）
             ├─ Trunk() 核心模块并行注册

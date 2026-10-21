@@ -375,3 +375,32 @@ class OnboardingWizard(
         l3.addWidget(self.lbl_final)
         l3.addStretch(1)
         self.addPage(p3)
+
+def show_onboarding(trunk, parent=None):
+    """弹出首次设置向导；返回 True 表示用户走完了向导。
+
+    ⚠️ 这个函数曾经被删掉，但 `gui/main_window.py` 和
+    `gui/mixins/dialog_mixin.py` 还在 `from gui.onboarding_wizard import
+    needs_onboarding, show_onboarding` —— 于是每次启动都会在日志里留下
+    "首次引导检查失败: cannot import name 'show_onboarding'"，而且
+    **新用户永远看不到配模型向导**（模型没配好就发消息没反应）。
+    这里恢复它，并保持原来的返回语义：走完 -> True，取消/关闭 -> False。
+    """
+    try:
+        wiz = OnboardingWizard(trunk, parent)
+    except Exception:
+        # 向导自己构造失败不该拦住程序启动
+        try:
+            if trunk is not None:
+                trunk._log("首次向导打开失败")
+        except Exception:  # 静默是故意的
+            pass
+        return False
+    from PyQt5.QtWidgets import QDialog
+    finished = wiz.exec_() == QDialog.Accepted
+    if finished:
+        try:
+            mark_done(trunk)
+        except Exception as e:
+            _x6_swallowed(__name__, e)
+    return bool(finished)
