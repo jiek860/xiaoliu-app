@@ -131,12 +131,18 @@ def _make_boot_callbacks(window, startup):
             _x6_swallowed(__name__, e, "best-effort fallback")
 
     def on_finished(ok, message):
+        # ⚠️ 这里**绝对不能** setCentralWidget(None)。
+        #    骨架页只是一个占位 QLabel；真正的主界面在 BootController 里由
+        #    build_ui() 通过 setCentralWidget(central) 装好的。之前这里多写了一句
+        #    setCentralWidget(None)，启动完成的瞬间就把刚装好的整张界面拆掉了 ——
+        #    用户看到的就是"窗口还在、状态栏还在、中间全白"。
+        #    现在只把占位页从它自己的父级上摘下来，主界面保持不动。
         try:
             ph = getattr(window, "_boot_placeholder", None)
             if ph is not None:
+                ph.setParent(None)
                 ph.deleteLater()
                 window._boot_placeholder = None
-                window.setCentralWidget(None)
         except Exception as e:  # 静默是故意的 - 占位页已销毁就跳过
             _x6_swallowed(__name__, e, "best-effort fallback")
         if startup is not None:

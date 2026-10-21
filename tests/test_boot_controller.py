@@ -110,8 +110,11 @@ def test_resolve_startup_and_callbacks(qapp, monkeypatch):
         def __init__(self):
             self.msgs = []
             class _Ph:
-                def deleteLater(self):
+                def setParent(self, *_a):
                     pass
+
+                def deleteLater(self):
+                    self.deleted = True
             self._boot_placeholder = _Ph()   # 真窗口才有占位页
             self.central = "x"
             self.trunk = None
@@ -126,6 +129,7 @@ def test_resolve_startup_and_callbacks(qapp, monkeypatch):
             return Bar()
 
         def setCentralWidget(self, _w):
+            # 启动完成时**不允许**动 centralWidget（会清空主界面）
             self.cleared = True
 
     w = W()
@@ -133,7 +137,7 @@ def test_resolve_startup_and_callbacks(qapp, monkeypatch):
     on_progress("加载中")
     assert w.msgs and w.msgs[-1] == "加载中"
     on_finished(True, "已就绪")
-    assert w.cleared is True
+    assert w.cleared is False, "启动完成回调清空了 centralWidget（会导致白屏）"
     assert w.msgs[-1] == "已就绪"
 
 
@@ -147,6 +151,9 @@ def test_boot_callbacks_progress_with_placeholder(qapp):
 
         def setText(self, t):
             self.text = t
+
+        def setParent(self, *_a):
+            self.parent_cleared = True
 
         def deleteLater(self):
             self.deleted = True
@@ -168,11 +175,13 @@ def test_boot_callbacks_progress_with_placeholder(qapp):
             pass
 
     w = W()
+    ph = w._boot_placeholder
     on_progress, on_finished = ap._make_boot_callbacks(w, None)
     on_progress("正在加载核心模块…")
     assert w._boot_placeholder.text.startswith("正在加载")
     on_finished(True, "ok")
     assert w._boot_placeholder is None
+    assert ph.deleted is True
 
 
 def test_trunk_start_llm_workers_is_deferred(monkeypatch):

@@ -219,3 +219,50 @@ def test_code_editor_line_numbers_use_valid_api():
     assert "self.viewport().contentOffset" not in calls, \
         "viewport 是 QWidget，没有 contentOffset（曾导致 paintEvent 崩溃）"
     assert any("self.contentOffset" in c for c in calls)
+
+
+def test_boot_finished_never_clears_central_widget():
+    """启动完成的回调**不能**把主界面拆掉。
+
+    真实故障：on_finished 里调用了 setCentralWidget(None)，
+    启动完成的瞬间把 build_ui() 刚装好的整张界面清空 —— 窗口还在、
+    状态栏还在、中间全白。这条测试钉死这个行为。
+    """
+    import ast
+    path = os.path.join(BASE, "gui", "app_pyqt.py")
+    src = open(path, encoding="utf-8").read()
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "on_finished":
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
+                    assert sub.func.attr != "setCentralWidget", (
+                        "on_finished 里不能调用 setCentralWidget —— "
+                        "会把刚装好的主界面清空")
+            return
+    raise AssertionError("找不到 on_finished")
+
+
+def test_boot_finished_keeps_central_widget(qapp):
+    """行为级验证：跑完启动回调后，centralWidget 仍然存在且不是占位页。"""
+    import gui.app_pyqt as ap
+    from gui.main_window import JarvisWindow
+    from core import font_bootstrap as fb
+
+    fb.ensure_fonts(qapp)
+    w = JarvisWindow(boot_signal=False)
+    try:
+        class Ph:
+            def setParent(self, *_a):
+                pass
+
+            def deleteLater(self):
+                pass
+        w._boot_placeholder = Ph()
+        w.setCentralWidget(w.centralWidget())  # 保证有个 central
+
+        on_progress, on_finished = ap._make_boot_callbacks(w, None)
+        on_finished(True, "ok")
+        assert w.centralWidget() is not None, "启动完成后主界面被清空了"
+    finally:
+        w.close()
