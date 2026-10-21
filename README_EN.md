@@ -63,3 +63,20 @@ python run.py
 - Usage and estimated-cost dashboard.
 
 See `docs/PRODUCT_PHASE2.md` and `docs/PLUGIN_SDK.md`.
+
+
+## Startup and blank-window troubleshooting (2026-10-21)
+
+Startup shows a window skeleton in ~0.2s, then assembles the real UI in the
+background (~1s), so a brief "starting..." placeholder is expected.
+
+If the window looks blank, check the status bar first:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Status bar OK, centre empty | Main central widget was cleared (old bug) | Update to the latest build |
+| All glyphs render as empty boxes | Qt sees zero font families | `core/font_bootstrap.ensure_fonts()` registers system fonts automatically |
+| Stuck on "starting..." | UI assembly failed | Check `data/logs/trunk.log` for "启动失败" |
+
+Search `trunk.log` for `[启动耗时]` to see font count, window-visible time and
+UI-assembly time for each launch.

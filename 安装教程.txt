@@ -69,3 +69,13 @@ A: 打开 "打开控制台.bat" 看错误信息
 - PDF/Word/Excel/PPT/OCR 解析需要可选组件：双击 scripts\install_optional.bat。
 - 浏览器自动化需要：py -3 -m playwright install chromium。
 - 打包源同步：py -3 tools\sync_package.py（发布前必须跑）。
+
+
+2026-10-21 补充：安装后首次启动的预期
+- 先出现窗口骨架（可能短暂显示"正在启动…"），约 1 秒内变成完整界面。
+- 若界面全白：
+  · 底部状态栏有字 → 主界面被清空，更新到最新版本。
+  · 文字全是空白方块 → 字体问题，用 设置 → 系统 → 深度自检 查看"字体"行。
+- 依赖变化：可选依赖里 Pillow 已升级到 13.x；
+  只装核心依赖（install.bat）的用户不受影响，
+  需要用截图/OCR 的用户请重新跑一次 scripts\install_optional.bat。

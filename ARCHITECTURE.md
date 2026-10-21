@@ -327,8 +327,31 @@ run.py
             ├─ Trunk() 核心模块并行注册
             ├─ 模块星图导出丢后台线程
             ├─ _init_from_trunk() 补挂 UI/账号/定时器
+            │     └─ build_ui() → setCentralWidget(central)  ← 主界面在这里装好
             └─ 1 秒后补启 LLM 看门狗与模型预热
 ```
+
+### ⚠️ 启动收尾的两条铁律（都是踩过的坑）
+
+1. **`on_finished` 里禁止调用 `setCentralWidget`。**
+   骨架页只是占位 QLabel；`build_ui()` 已经装好主界面，再调
+   `setCentralWidget(None)` 会把整张界面拆掉，表现为
+   "标题栏还在、状态栏还在、中间全白"。
+   正确做法：`ph.setParent(None)` + `ph.deleteLater()`。
+   守卫：`tests/test_font_and_dialogs.py` 与 `tests/test_boot_controller.py` 里的 AST 断言。
+
+2. **没有 `QApplication` 时不能碰 `QFontDatabase`。**
+   否则 Qt 报 "Must construct a QGuiApplication before accessing
+   QFontDatabase"，随后进程 0xC0000409 硬退出。
+   统一走 `core/font_bootstrap._gui_app()` 判断。
+
+### 白屏的两类现场（排查时先分类）
+
+| 现象 | 含义 | 处理 |
+|---|---|---|
+| 状态栏有字、中间空白 | 主界面被清空（代码 bug） | 检查 `on_finished` 是否动了 centralWidget |
+| 连按钮文字都是空白块 | Qt 字体族为 0 | `core/font_bootstrap.ensure_fonts()` 是否执行 |
+| 一直停在"正在启动…" | BootController 未完成 | 看日志"启动失败"，检查 `_init_from_trunk` 异常 |
 
 调试：`trunk.log` 里搜 `[启动耗时]`；想恢复"全部就绪才显示"设
 `X6_BLOCKING_BOOT=1`。
