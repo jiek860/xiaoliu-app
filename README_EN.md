@@ -80,3 +80,49 @@ If the window looks blank, check the status bar first:
 
 Search `trunk.log` for `[启动耗时]` to see font count, window-visible time and
 UI-assembly time for each launch.
+
+
+---
+
+## Updates (2026-10-22)
+
+### Workbench
+
+The editor, agent journey and AI code agent are merged into a single window:
+
+```text
++--------------+----------------------------------+
+| File tree     | Editor (multi-file tabs)          |
+|              +----------------------------------+
+|              | AI panel (AgentDock)              |
++--------------+----------------------------------+
+| Run output                                        |
++--------------------------------------------------+
+```
+
+- No feature tabs; the editor's tabs only represent files.
+- `Ctrl+J` toggles the AI panel, `F11` toggles fullscreen.
+- The AI panel can be popped out into a separate window for dual monitors.
+
+### VM -> physical host model access
+
+When the app runs inside a VM and Ollama runs on the physical host:
+
+```json
+{
+  "security": {
+    "allow_lan_hosts": ["192.168.1.2:11434"],
+    "allow_lan_cidrs": ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"]
+  }
+}
+```
+
+Private addresses are denied by default (SSRF protection). Only
+`local_model` / `local_mcp` / `local_health` purposes are allowed by the
+whitelist; public IPs and generic network requests remain blocked.
+
+### Confirm once
+
+Agreement, login state, onboarding and MCP command trust are remembered.
+Destructive actions (overwrite/delete file, shutdown, run command) are
+**always** confirmed.

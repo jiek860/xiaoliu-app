@@ -69,3 +69,44 @@ powershell -ExecutionPolicy Bypass -File tools/configure_branch_protection.ps1
 5. 发布该签名产物，不重新构建。
 
 任何无法提供证据的门禁，一律视为 red。
+
+
+---
+
+## 2026-10-22 门禁调整
+
+### 新增测试文件
+
+```text
+tests/test_workbench.py             26 项  工作台
+tests/test_dialog_singleton.py       5 项  窗口复用
+tests/test_backend_lifecycle.py      5 项  线程/定时器收尾
+tests/test_ui_and_backend_bugs.py   37 项  巡检 5 个 BUG + 局域网放行
+tests/test_mcp_trust.py             21 项  MCP 信任
+tests/test_startup_consent.py       27 项  启动确认 + 登录恢复
+tests/test_status_lights.py         12 项  本地/云端指示灯
+tests/test_code_sandbox_contract.py 11 项  代码沙盒返回契约
+```
+
+### 覆盖率
+
+| 指标 | 值 |
+|---|---|
+| 全量测试 | 1604 passed / 2 skipped |
+| 变更行覆盖率 | 71.44%（门槛 70%） |
+| 总覆盖率 | 62.78% |
+
+### 本轮修掉的 4 个 CI 专属问题
+
+| 问题 | 根因 | 处理 |
+|---|---|---|
+| `test_no_nondaemon_threads` 失败 | 把 pytest 自身 `pytest_timeout` 线程当成泄漏 | 排除框架线程 |
+| Bandit B104 | `0.0.0.0` 出现在**判断**而非绑定 | `# nosec B104` + 理由 |
+| `verify_signature --all` 失败 | 仓库 manifest 是未签名源 | 区分源态/发布态 |
+| `test_embed_success` 偶发失败 | 后台线程也调 `/api/embeddings`（预期行为） | 不数全局计数 |
+
+### 重要原则
+
+CI 检出的是**入库源**（`modules_repo/manifest.json` 的 `sha256`/`signature` 为空），
+不是发布产物。任何"必须已签名"的断言都要走
+`tools/check_plugin_repo.py`（针对发布产物），不能在 CI 里硬断言。

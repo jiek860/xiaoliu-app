@@ -593,3 +593,39 @@ core.release_sign  core._deprecated
 | `tests/test_plugin_contract.py` | 42 模块批量契约（29 项） |
 | `tests/test_plugin_standard_v21.py` | v2.1 组件单测（19 项） |
 | `templates/plugin_contract_test.py` | 单插件模板 |
+
+
+---
+
+## 13. v2.1 落地核对（2026-10-22）
+
+| 条款 | 落地 | 位置 |
+|---|---|---|
+| §0.3 分级 L1/L2/L3 | ✅ | `core/plugin_tier.py` |
+| S1 manifest 必填 | ✅ 42/42 | `modules_repo/manifest.json` |
+| S2 api_version | ✅ | `core/plugin_api.py` |
+| S3 capabilities + 回环端口 | ✅ | `core/plugin_capabilities.py` |
+| S4 依赖边界 | ✅ | AST 扫描 + `check_plugin_deps.py` |
+| S5 签名 RSA2048 | ✅ 42/42 | `tools/verify_signature.py` |
+| S6 路径越界 | ✅ | `check_plugin_security.py --paths` |
+| S7 运行时隔离 | ✅ | `core/plugin_broker.py` |
+| S8 信任等级 | ✅ | `core/plugin_registry.py` |
+| N6 结构化错误 | ✅ | `core/plugin_errors.py` |
+| N8 双层契约测试 | ✅ | `test_plugin_standard.py` + `test_plugin_contract.py` |
+| N13 熔断/限额 | ✅ | `core/plugin_limits.py` |
+| N15 审计 | ✅ | `core/plugin_audit.py` |
+
+### 当前实测
+
+```text
+模块 42 · 质量门禁 error 0
+分级一致 42/42
+签名有效 42/42（RSA 2048）
+依赖无环
+```
+
+### 仍未落地（P0）
+
+1. 仓库 LICENSE 文件
+2. 插件级 README / API.md / AGENTS.md
+3. manifest `requires` 依赖声明字段

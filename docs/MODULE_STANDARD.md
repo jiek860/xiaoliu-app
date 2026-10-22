@@ -127,3 +127,35 @@ LICENSE
 构建/发布脚本
 插件 manifest 或 MCP 服务配置（按形态提供）
 ```
+
+
+---
+
+## 对照结论（2026-10-22 现状）
+
+本文件是外部《模块级程序标准 v1.0》原文，作为基线保留。
+小6 的实际落地见 `docs/PLUGIN_STANDARD.md` 与根目录 `插件标准.txt`。
+
+### 落地情况摘要
+
+| 条款组 | 状态 | 落地位置 |
+|---|---|---|
+| 1.x 接口契约 | ✅ | `core/tool_contract.py` + manifest |
+| 2.x 封装边界 | ✅ | `PUBLIC_CORE_MODULES` 白名单 |
+| 3.x 依赖管理 | 🟡 | 全局锁文件有；插件级 `requires` 待补 |
+| 4.x 生命周期 | ✅ | `core/module_lifecycle.py`（start/stop/health） |
+| 5.x 配置安全 | ✅ | capabilities + `get_secret` 代理 |
+| 6.x 错误可观测 | ✅ | `core/plugin_errors.py`（18 个错误码）+ 审计 |
+| 7.x 文档 | 🟡 | 全局文档齐全；插件级 README/AGENTS 待补 |
+| 8.x 测试 | ✅ | 框架级 + 插件级双层契约测试 |
+| 9.x 版本发布 | ✅ | SemVer 三段式 + RSA 签名 + 仓库 LICENSE 待补 |
+
+### 门禁命令
+
+```powershell
+py -3 tools/check_plugin_quality.py     # 42 模块，error 必须为 0
+py -3 tools/check_plugin_tier.py        # L1/L2/L3 推导一致
+py -3 tools/check_plugin_deps.py --ast  # 依赖边界 + 环检测
+py -3 tools/check_plugin_security.py    # 配置/路径/密钥/L3 专项
+py -3 tools/verify_signature.py --all   # RSA 签名 + 公钥位数
+```

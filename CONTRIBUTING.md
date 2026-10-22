@@ -90,3 +90,68 @@ scripts\check_envs.ps1
    py -3 -m pytest tests/test_boot_controller.py tests/test_font_and_dialogs.py tests/test_startup_speed.py -q
    ```
 4. 提交前跑 `py -3 tools/sync_package.py`，保证打包源与开发目录一致。
+
+
+---
+
+## 新增门禁与约定（2026-10-22）
+
+### 提交前必跑
+
+```powershell
+.venv\Scripts\python.exe -m ruff check core gui modules/installed
+.venv\Scripts\python.exe tools/check_silent.py        # 静默异常棘轮
+.venv\Scripts\python.exe tools/check_threads.py       # 子线程不得碰控件
+.venv\Scripts\python.exe tools/check_file_sizes.py    # 单文件 <= 600 行
+.venv\Scripts\python.exe tools/check_buttons.py       # 按钮预算 168
+.venv\Scripts\python.exe tools/check_shapes.py        # 结构漂移
+.venv\Scripts\python.exe -m pytest tests/ -q
+```
+
+### 三条容易被忽略的规则
+
+**1. 子线程不能碰 Qt 控件**
+
+```python
+# 错误：崩溃或渲染错乱
+threading.Thread(target=lambda: label.setText("x")).start()
+
+# 正确：发信号回主线程
+self.someSignal.emit("x")
+```
+
+**2. `threading.Timer` 必须设 daemon**
+
+```python
+timer = threading.Timer(1.0, fn)
+timer.daemon = True        # 否则进程退出会挂住
+timer.start()
+```
+
+**3. 弹窗不要放在可测逻辑里**
+
+```python
+# 错误：offscreen 测试会阻塞/崩溃
+def start(self):
+    if not goal:
+        QMessageBox.information(...)   # 阻塞
+        return
+
+# 正确：校验与弹窗分离
+def can_start(self) -> bool:
+    return bool(self.goal)
+
+def start(self):
+    if not self.can_start():
+        self.timeline.appendPlainText("请先描述要做什么")
+        return
+```
+
+### 开窗必须走单例
+
+```python
+def mcp_dialog(self):
+    return self._singleton_dialog("mcp_dialog", "gui.mcp_dialog", "MCPDialog")
+```
+
+否则连点按钮会开出多个窗口（实测 3 次 → 3 个窗口）。

@@ -67,3 +67,63 @@ Python worker 内仍可能存在解释器层面的逃逸路径；因此：
 - 任一 URL 非 HTTPS、带内嵌凭据或主机不在白名单，整组源拒绝使用。
 - 所有源下载到的内容都必须通过同一 RSA 签名校验；验签失败不会落盘。
 - 远程下载不存在 `allow_unsigned_plugins` 放行路径。
+
+
+---
+
+## 局域网访问策略（2026-10-22 更新）
+
+### 默认拒绝
+
+`core/net_guard.py` 对私有地址默认拒绝（SSRF 防护）：
+
+```text
+http://192.168.1.2:11434/...  purpose=network       → 拒绝：私有/回环/保留地址
+```
+
+### 两类显式放行
+
+| 配置 | 粒度 | 写法 |
+|---|---|---|
+| `security.allow_lan_hosts` | 单台主机 | `"192.168.1.2"` 或 `"192.168.1.2:11434"` |
+| `security.allow_lan_cidrs` | 整个网段 | `"192.168.0.0/16"` |
+
+两者取并集。只对下列 purpose 生效：
+
+```text
+local_model / local_mcp / local_health
+```
+
+### 判断顺序
+
+```text
+1. purpose 不在 _LOCAL_PURPOSES          → 拒绝
+2. host 为回环（127.0.0.1/localhost/::1） → 按端口规则
+3. host 落在 allow_lan_cidrs 私有网段     → 放行
+4. host 精确匹配 allow_lan_hosts          → 按是否带端口
+5. 其他                                   → 拒绝
+```
+
+### 硬性限制（代码级）
+
+```python
+if not (ip.is_private and not ip.is_loopback):
+    return False      # 公网 IP 永不进入 CIDR 放行分支
+```
+
+即使配置了 `0.0.0.0/0` 也无法放行公网地址。
+
+### 实际部署场景
+
+```text
+虚拟机（程序）192.168.10.128  ──NAT──>  物理机（Ollama）192.168.1.2:11434
+```
+
+必须在 `allow_lan_cidrs` 里声明 `192.168.0.0/16`，否则本地模型请求被拒，
+程序会一直退化为云端模式。
+
+### 配套修复
+
+`core/llm_cloud.local_model_purpose()` 按主机名匹配 `ollama_url`，
+不再用字符串前缀判断 —— 否则 `127.0.0.1` 与 `localhost` 写法不一致
+会让本地请求被当成云端请求，进而被网络守卫拒绝。
