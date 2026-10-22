@@ -94,3 +94,19 @@ class GraphRAG:
             if any(w in comm.get("summary", "") for w in question.split()):
                 relevant.append(comm)
         return {"question": question, "relevant_communities": relevant[:5]}
+
+    def run(self, *a):
+        """标准入口：构建社区摘要"""
+        return self.build()
+
+    def start(self):
+        """启动（占位）"""
+        return {'ok': True}
+
+    def stop(self):
+        """停止（占位）"""
+        return {'ok': True}
+
+    def health(self):
+        """健康检查"""
+        return {'ok': True}

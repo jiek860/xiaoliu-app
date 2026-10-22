@@ -103,3 +103,15 @@ class WorkflowRunner:
             time.sleep(float(step.get("seconds", 1)))
             return "done"
         return f"未知 action: {action}"
+
+    def start(self):
+        """启动（占位）"""
+        return {'ok': True}
+
+    def stop(self):
+        """停止（占位）"""
+        return {'ok': True}
+
+    def health(self):
+        """健康检查"""
+        return {'ok': True}
