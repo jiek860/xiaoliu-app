@@ -54,7 +54,7 @@ class KnowledgeQnA(BaseModule):
          "readonly": True,
          "hints": ["知识库统计", "知识库用了多少"]},
         {"name": "kqa_import_file", "method": "import_file",
-         "desc": "导入 PDF/Word/Excel/PPT/文本到知识库，并建立来源引用",
+         "desc": "导入文档到知识库（PDF/Word/Excel）",
          "args": {"path": "文件路径"},
          "confirm": True,
          "hints": ["导入文档", "导入知识库", "上传PDF", "导入Word"]},
