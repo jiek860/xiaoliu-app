@@ -192,6 +192,54 @@
     "signature": "5c098933e537fe8d7ba7b8eb6f8b2d37e9a87c6158b4b69d674298d2134a6b340344120f7f52967a4ba1c89f0a7c31946dc59f62f3dd7d918f20d7368d76fb512f592328e0625384fc790712032db95fe17b7fd3e0cbe35ecc7f8938327076d71b58a0ce2c2c37dde966b1c1fc9283ca8ae17e73fa3695ba3d5af8a496b31e83676fd7dc050f63a518946f12d37364d7835b25f87f6caa468d363575944c89997310693991527b61814b461f7c21b814f7e58eb47921e001cb82bc1037b13bf2bb4941020c7bd1b5dcc067a304a09cf04afcf660f0482a445b149c204ca492c59af1d7cfe53c14cb0fe0c64ffe3eb12b86aa578b68c3caacd275024853a5d769"
   },
   {
+    "name": "api_server",
+    "title": "HTTP API",
+    "file": "api_server.py",
+    "cls": "ApiServer",
+    "desc": "P2-1: HTTP API 服务 - REST 接口 + Webhook 出站",
+    "group": "其他",
+    "version": "1.0.0",
+    "button": null,
+    "tools": [],
+    "api_version": "1.0",
+    "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/api_server"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": [],
+        "secret_names": []
+      }
+    },
+    "needs_model": false,
+    "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 2939,
+    "sha256": "6605e925c79fc5837bd03925c291c385a74e9646baedafde76b5b158d0cd4121",
+    "signature": "23896888f8b547d90041380cd9f627280dafdd85df616d0a478b41b7353e0dbdf79004dc12973dea693673ac866b59ccc12d2b99dc2364fb136d2c1b9892893bd70ebefd48a64892fbd99ca21d52dfc538cb13773bbc493fd6357b06060567bb00fb669a7ce129ffa4aaa75a177251d406d6a0b38d993b4eb7dab2a14202986ca0134799a41f344f25f1b41471179f4ec5f514f88ae7938de82cd9660ba8093a46f6a56e478be33bb27ee5054b7b4ecb2f15a7722b0e48b2ce879bc33e8473d79feceab6d6a3c0098caea162b929811803adb165cd35cac5061a6510d677e03d05da928dd98d8333bb4ce3a2b2dc36f6586e9d546f9900c1a76303b7c8bb3c7d"
+  },
+  {
     "name": "auto_updater",
     "title": "自动更新",
     "file": "auto_updater.py",
@@ -485,6 +533,77 @@
     "size": 4208,
     "sha256": "c04db3e50ce96a763b49e4ada79d8933f2807af0c7fc18b27da6d5f51a329467",
     "signature": "48a59a18c5a31c195fd252fe02fae83c75ac188a4f9e1eaba6ebb48a6323da55c8c091f26390f5ce4530a74da4b53977a736b4c4df9158286f016dfd83f957c96173c3f5daddb4a45a243c8813f0d86ad50be7763f1e8baefcc30379991ecbc6a70db8a078dadbc7fb805201a9355abe526ba740ef999ea34c2f508bbfdf2d5fd3df94ebad017edc986233ccd274eb4366e5fc81c7f5625d98025e2b3ef3a2ec2c66a1eab2d6f9e34ddf4c52594ae28fbbfdd57e2c4d68d8ee14a265d1c53eac751a8b511c3fe591530355b9e48754d8077db310132cf47e3b37a58fea243b99e40de9812d85ff1847f631e4db393312e9f5c8b92c5586763d421ab1da0b7c6a"
+  },
+  {
+    "name": "coder_pro",
+    "title": "代码专家",
+    "file": "coder_pro.py",
+    "cls": "CoderPro",
+    "desc": "coder_pro：git-first 代码 Agent 包装",
+    "group": "工程系统",
+    "version": "1.0.0",
+    "button": null,
+    "tools": [
+      {
+        "name": "coder_task",
+        "method": "run_task",
+        "desc": "让 AI 修改代码：探索项目→生成patch→审批→跑测试→修复",
+        "args": {
+          "goal": "要完成的代码任务，如：修复登录bug、加导出功能",
+          "project_path": "项目根目录，不填用当前目录"
+        },
+        "readonly": false,
+        "danger": true,
+        "confirm": true,
+        "risk": "exec",
+        "hints": [
+          "写代码",
+          "改bug",
+          "修复",
+          "重构",
+          "code",
+          "编程",
+          "patch"
+        ]
+      }
+    ],
+    "api_version": "1.0",
+    "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/coder_pro"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": [],
+        "secret_names": []
+      }
+    },
+    "needs_model": false,
+    "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 3682,
+    "sha256": "d6fae94f4ca4d137da96e9c0de1adb650bfe248f7096d8ba1c1e5c8a822d2a3f",
+    "signature": "65833db40fd5a4beb46b865aee05acfe7ed993f061d9825c534c8974c0e55911dd3f72ebd762659e16f70570353ba51af22bfe935946c80e7d9f306d47c3398452e77826ea15966192ad77a9fa5ea889af6734cd75c6836ac59d1f3d50729e995561cd46cac50711f5f03124f703e18e4b28f5e7ec544926ce6e7162dd107ba95ad23cb1b3e8082f8540bba6e141668dde120b5ffaee0d9f92ffad340954d24ed77c246559d9ae2cab3f491d193f265beb720bd382004b86f5e11b581ad5667c46564b5a9f8b8c800467ca8ab63fbfc9ff196c761f8d5f8dbce93d5f0343d465eba61b6d2e2472f1482bacc845cd3591de81205143e36f40db503f3473eb2610"
   },
   {
     "name": "computer_controller",
@@ -801,6 +920,54 @@
     "size": 4341,
     "sha256": "dee53666e868ba26ae31ff4ac5f68346328f5143bccfd9555546a9bddca65686",
     "signature": "211e850809bd0ff39f4d732e3609819c21a43b227586ef26bb0a26161de3936cb27ff7652082f99e95ec76acbc0ae20c1e77db34dfe3c63e24f3b1bd3034b06f82d9a63f75f20b961d8f5ba65dc993d974e0a331609009dc06be47a504174f6eb1864d82bdbec7135e557b4ca70deca915281b76212cda282e241ceb9e04254a389d74cc2d187abc173dd2355130f5dce4450786118cfbfd823bebbe8feda978eddd0777bbb6bfde733b2ab96940fe1d2b50f2d9e83dd429ed662d686a00e7e5b76bca42ecd476b2e2cf56c9beb27e29d6b4008c9acfc7eeb2cbc37f707240ee38f3005228b0ee85952b012e806f3ef0cbac5f38abade87a7bf6c0550d01dfcf"
+  },
+  {
+    "name": "graph_rag",
+    "title": "知识图谱摘要",
+    "file": "graph_rag.py",
+    "cls": "GraphRAG",
+    "desc": "P2-3: GraphRAG 社区摘要",
+    "group": "联网检索",
+    "version": "1.0.0",
+    "button": null,
+    "tools": [],
+    "api_version": "1.0",
+    "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/graph_rag"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": [],
+        "secret_names": []
+      }
+    },
+    "needs_model": false,
+    "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 3543,
+    "sha256": "db760037295aa1ace9fae18bb0ec3bfec1d772b6ab3abbd05bbfd93dc2334b0f",
+    "signature": "86e918048dbb1835b2c5cac8937fa3747d795f9a0e45bb30f6a9af17c3e1ca5988255d0808647ba0d7dd62c9964f48cf30442e49ac743f373d47d20dc8a41619798691cbe0f464df9a07d028f235690b764c1e4db25a0a7cd28a102d5465b04e29992992e37a7bc99203b234414a8294522492915af0ff49dfdd7a9acf8c980c0e21a26a595301926167653c884d7b1988da8776b84a9b163fd883faae93d21cdf44fa89e5208bc1c2ad515610d7309228a559a0243f74bebd1a464c23e9760362c6b1b83d7e7e7df87c7b154e15df3a95b6b763a0b1e74f55ce4d5aaab6a66cc4f7573b86e9665f8c7a7e258681bdcff0e89d77c98017f46c083657a8359349"
   },
   {
     "name": "group_chat",
@@ -2495,5 +2662,120 @@
     "size": 1973,
     "sha256": "188b3381d1a2f79e7cba4d075d44db4959d50579e90309bd13c81af2846864c5",
     "signature": "741fe7fe0a5fca6e053fd8944d4a607b3e8b31fa835447d94c81e61d896fe4d91713b14a1e1bb39501eb05d2770664e3c4adaf31c0452efc1bc284bd830cf6b1f9855453f8ba921921e512f181d53ee506d4d45212bd9ec00e2473ccf6882d40ff41a3813ffe0bbcedd8ec9c72311b0b3ad8150a23b16e14791de1fe11cb1891e34d16865286819cb4e0359270847ee0e356122beda33535a77f3c8ec206e0acc88bbf0eb9efdd78aa96b3a52661230c996c395c489de23bda3aa9385edd6b22ffaeee3150102379b9a0a18de9b9407b1cd92f1b71f65b404115d57f8eb87de74fe1e74e1190cd066cdf89962cf3d6075b5e0bdd632e2d0ed8f684cf17973a2b"
+  },
+  {
+    "name": "web_agent",
+    "title": "网页智能体",
+    "file": "web_agent.py",
+    "cls": "WebAgent",
+    "desc": "P1-4: 浏览器 Agent - 截图→看页面→决定→执行→验证",
+    "group": "智能体",
+    "version": "1.0.0",
+    "button": null,
+    "tools": [
+      {
+        "name": "browse",
+        "method": "browse",
+        "desc": "打开网页并截图，让 AI 看页面内容",
+        "args": {
+          "url": "要打开的网址",
+          "goal": "要完成的任务，如：登录、搜索、填表"
+        },
+        "readonly": false,
+        "hints": [
+          "网页",
+          "浏览器",
+          "上网",
+          "打开网站",
+          "browse",
+          "web"
+        ]
+      }
+    ],
+    "api_version": "1.0",
+    "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/web_agent"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": [],
+        "secret_names": []
+      }
+    },
+    "needs_model": false,
+    "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 2525,
+    "sha256": "61682e91407da3f6e44e9653699f92f12b5780bfea3c699d855004194511f3d2",
+    "signature": "03fd3f6144fbc1f2fe56ba57162fdca73ab8e91e71e7d383eb95e583f46506c7e7d0a7db9db4d562a8ed2e9125686cf7e5b85daa3c64c83f8c612dde9fa9b100e9ad3eb8593a85ff0f47594b417190860f385cf03f2735262b6216d1219fd9ea050f800013bff78d2c58afb476483fed02d4b9e5efd362ab03595483da2d2968d8aaacef483f08e477b6350acfe3708e85254b99f99a232d1be05e37bf590449721ff7e7bc66ab5a62dc13d00457f2eb0abd61913cc07eb1aa0680dd67c7ff2fd341911f07a2becdc607531c78725f3260ee6506814ef23122e438f8e0d46eff12893b245db5d717bd8373aa1acd7dd94c46bde6f706b46d78e9297f9ccb0023"
+  },
+  {
+    "name": "workflow_runner",
+    "title": "工作流",
+    "file": "workflow_runner.py",
+    "cls": "WorkflowRunner",
+    "desc": "P1-1: 轻量工作流 DSL（不做拖拽画布）",
+    "group": "其他",
+    "version": "1.0.0",
+    "button": null,
+    "tools": [],
+    "api_version": "1.0",
+    "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/workflow_runner"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": [],
+        "secret_names": []
+      }
+    },
+    "needs_model": false,
+    "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 3855,
+    "sha256": "f85e3e9095ab80c8df087c478b3e5232ec1a6a96df230bb401e20b9e7fcdcb85",
+    "signature": "37d9ddff6e4c045a69cb7ebf2e68e54ea6d846ba4a177538d4f69998b2465a853b7bfbf0e33a7c82db6eaded114f8c8cb48f37e8d40d49eb13da4ae44f743a7d35e70b550b1a37512f72ea11e88f407ecce65c209e003b0381b88ff77572140061c0eddbabdd643906b2f7dca119f0a506ec726ac15f02d566cb2e8291ab444191130de5a2f8a8bddb0b6d3f013af9805a468c330ed16dc8ca3fda9bf48b8d10dcf090a49442029ec1c013642d571aa7e9bcea2e2b0679e54218bf53e643ebc05a0fa7195e162377ed75592e79cfe9efb03c8615f2dd179c744b48b7d47bb72d42c7b646bb68250d73f9581a1945136eb5b5c21d40f1a88985daef03b939c570"
   }
 ]

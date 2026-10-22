@@ -27,7 +27,7 @@ class GraphRAG:
         """简单社区检测：连通分量"""
         # 建邻接表
         adj = {}
-        for s, p, o in triples:
+        for s, _p, o in triples:
             adj.setdefault(s, set()).add(o)
             adj.setdefault(o, set()).add(s)
         # BFS 找连通分量

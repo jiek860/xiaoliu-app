@@ -43,6 +43,11 @@ LAZY_MAP = {
     "plugin_market":    ("plugin_market",    "PluginMarket",        "插件市场"),
     "mcp_client":       ("mcp_client",       "MCPClient",           "MCP客户端"),
     "mcp_server":       ("mcp_server",       "MCPServer",           "MCP服务"),
+    "coder_pro":        ("coder_pro",        "CoderPro",            "代码专家"),
+    "workflow_runner":  ("workflow_runner", "WorkflowRunner",      "工作流"),
+    "web_agent":        ("web_agent",       "WebAgent",            "网页智能体"),
+    "api_server":       ("api_server",      "ApiServer",           "HTTP API"),
+    "graph_rag":        ("graph_rag",       "GraphRAG",            "知识图谱摘要"),
     # ===== L 模块 =====
     "self_reflect":     ("self_reflect",     "ReflectEngine",       "自我反思"),
     "anomaly_detector": ("anomaly_detector", "AnomalyDetector",     "异常检测"),
