@@ -482,7 +482,7 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L3",
     "risk_level": "high",
-    "size": 3326,
+    "size": 4208,
     "sha256": "c04db3e50ce96a763b49e4ada79d8933f2807af0c7fc18b27da6d5f51a329467",
     "signature": "48a59a18c5a31c195fd252fe02fae83c75ac188a4f9e1eaba6ebb48a6323da55c8c091f26390f5ce4530a74da4b53977a736b4c4df9158286f016dfd83f957c96173c3f5daddb4a45a243c8813f0d86ad50be7763f1e8baefcc30379991ecbc6a70db8a078dadbc7fb805201a9355abe526ba740ef999ea34c2f508bbfdf2d5fd3df94ebad017edc986233ccd274eb4366e5fc81c7f5625d98025e2b3ef3a2ec2c66a1eab2d6f9e34ddf4c52594ae28fbbfdd57e2c4d68d8ee14a265d1c53eac751a8b511c3fe591530355b9e48754d8077db310132cf47e3b37a58fea243b99e40de9812d85ff1847f631e4db393312e9f5c8b92c5586763d421ab1da0b7c6a"
   },
@@ -534,6 +534,73 @@
     "size": 9415,
     "sha256": "31ca8e2929bf68ee81d12b9cfb466f31c6802715f54f5d48dc2a4e3afe0ffba3",
     "signature": "83dd6cffbba6b827ddf75a11e15fcd98cb8bd11c9fe1f87d6549c769762b09395257459b9f43ac51f605dd9259ba27040ae77659e865a95cd3077cc9cbe952368ba5dc9c11ccc977419035f5bcbd4699378a4189a912e0f9a2b01f47e194fe69d71f1ec6c622e6b22676e0059494b3d92ceca54483b32b6926050f47e546abffcb7aadbb117343670a53ded8d39273d2395fb9edacbd222e684715618fa5d1826921a85138ba6a49e47d0fa476b330ce2756c5801156942a678affdf76c629db32b47d8bf7e78a49327c528362902c8361ce5f69570e3e12d97e3c46b1a015963ce884decc0d7b971151064243a45f317c040061d7f9037b083571a004e33012"
+  },
+  {
+    "name": "deep_research",
+    "title": "深度研究",
+    "file": "deep_research.py",
+    "cls": "DeepResearch",
+    "desc": "深度研究 Agent v1.0 - 多跳联网研究，带引用报告",
+    "group": "联网检索",
+    "version": "1.0.0",
+    "button": null,
+    "tools": [
+      {
+        "name": "research",
+        "method": "research",
+        "desc": "多跳联网研究一个问题，输出带引用编号的详细报告（60秒内）",
+        "args": {
+          "topic": "要研究的问题或主题，如：PyQt5 最佳实践、RAG 框架对比"
+        },
+        "readonly": true,
+        "hints": [
+          "研究",
+          "调研",
+          "深度搜索",
+          "对比",
+          "分析",
+          "report",
+          "research"
+        ]
+      }
+    ],
+    "api_version": "1.0",
+    "first_party": true,
+    "capabilities": {
+      "network": {
+        "enabled": false,
+        "domains": [],
+        "methods": []
+      },
+      "filesystem": {
+        "read": [
+          "data/plugin_data/deep_research"
+        ],
+        "write": []
+      },
+      "process": {
+        "enabled": false,
+        "allow_argv": []
+      },
+      "ui_control": {
+        "enabled": false
+      },
+      "config": {
+        "read_secrets": false,
+        "public_keys": [],
+        "secret_names": []
+      }
+    },
+    "needs_model": false,
+    "depends": [],
+    "license": "LicenseRef-Xiao6-Proprietary",
+    "author": "小6",
+    "min_host_version": "25.2.23",
+    "plugin_tier": "L1",
+    "risk_level": "low",
+    "size": 11979,
+    "sha256": "f534a6f8ef9e95364190d1dbe98923a4a8a92319494a2484d06888a7ac0601cf",
+    "signature": "7936e9e10b873223bb53c1c050b0898fd3739019be69fb7687b4fb9dc8dff0d37dddcac0bec063fbbd2a34e7f85cc4e0d184135f40914334c6d16a4c199f0fab7175575aa19d565b6b6cd78e1696a49ca844a788d2d902974982cd2d385a34e2ca87570281abb7fbf2e4847eb1ef81f6b6b07e2231e968928af048e8c62f1f27ffc57ee23f944f7529be89be23dae68d69d5d7c83c352262444f4111bfe6e9fa982fbdf3dd61a55a244a391c80e7e7572af776d6d88f1f7507458075212b0f8a74518149de51aeae2739b18fbd37e2dfdd77b1fa78739cf4f6f1484d6bedc3c9861290d9871b5bfd351f793b834c746a7f069f4a2341b51a50f863e4cfbafea2"
   },
   {
     "name": "deep_search",
@@ -1320,7 +1387,7 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L2",
     "risk_level": "medium",
-    "size": 21217,
+    "size": 25815,
     "sha256": "06a4d0902357e4692002e48afa60140609d435d6ec1ee2f0c80b15a2263f8e8b",
     "signature": "268c42a2e2a3f8e7d29c144b2c1a23f625dd94e63dc5a718519cdc927a940fd7ce6eaed136e93f2aedf55af8728d9bc3230868a93226653a010fbff952458fcae0b5c5c986b25d54e1f753616c4a10a03982bb92b63898573617fed2114f7eda5f76c2b7f579ad7c8d1e4f422005c1953fb58cfab918e57ac8c275bf2591b1c4045da8b7ae6f3f1111f6546797a143b1e697718076155b0c1fb6591a65b926ba0b483b5f7340332ffa6db1d4e60d4ea9c30e94e0a1812827d0d4bcbd8b2af05210e9729beba245c26f697ee5d828218a3451a967e15ef140126a9ff8432cb39edaee3b8c8d0cd9c13626417c906ce425c0fb967306750529d5c1a852d810bb74"
   },
@@ -1512,7 +1579,7 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 7640,
+    "size": 7854,
     "sha256": "dab967d1e23fa63c31db696f431b3d72930dc215d0edab00e320ce7bae1f26ac",
     "signature": "1f4d209b5c921657f69b55fdbe6314b3d02ace99887c4145e69f9e86c8c55c2129cc29f3aff0bb06c08e8cfc178901e21dcd006e8a1d41c12a7662141f6abcc927dbc934f34899b4b6536fe7e94e369f167a0023d6e751ef5d834b4cbc7fb25ba0318698e0ca8d732aecee94a0af53b7d209a9739dcee4968991f619b43b05e65ad3f3a25511499714c21bd95f1a9354419bdc99f3d60817f8d1e8663cf835fb35b43132ad6df0b6c98a23f840a64ed553b6ae27d5c17cb47110a30c394e39062de55d445a3ec702ad92317951860046dd2c62d3ee2ffcff216a9933182d022003fb27ef65d85d8018e105a35335d0a733542ad052112202743768b0fadb7285"
   },

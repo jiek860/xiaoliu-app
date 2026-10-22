@@ -1,9 +1,11 @@
-﻿name: Portable Build
+﻿# ci-policy: no-pull-request
+name: Portable Build
 
 on:
   workflow_dispatch:
-  pull_request:
   push:
+    branches: [main]
+    tags: ['v*']
     paths:
       - "core/**"
       - "modules/**"

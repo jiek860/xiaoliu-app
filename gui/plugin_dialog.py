@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """插件市场窗口 - 网格卡片/安装/卸载/热加载"""
 import os, sys, importlib, threading
 from core.plugin_capabilities import plugin_manifest_info
@@ -21,10 +21,22 @@ def show_plugin_dialog(parent, dlg, trunk, open_mcp=None, show_components=None):
         可选组件 -> 设置 -> 系统 -> 可选组件
     """
     d, l = dlg("🧩 插件市场", w=880, h=700)
-    pm = trunk._load_lazy("plugin_market")
+
+    # 加载 plugin_market 会扫描模块目录 + 读清单，实测慢。
+    # 这里先不重复加载：主窗口启动时已经加载过就在 modules 里，
+    # 没有才去加载（只有第一次打开才会走这条路）。
+    pm = getattr(trunk, "modules", {}).get("plugin_market")
+    if pm is None:
+        pm = trunk._load_lazy("plugin_market")
     if not pm:
         QMessageBox.information(d, "插件市场", "插件市场模块加载失败")
         return
+
+    _build_market(d, l, trunk, pm, dlg, open_mcp, show_components)
+
+
+def _build_market(d, l, trunk, pm, dlg, open_mcp=None, show_components=None):
+    """真正构建插件市场界面（原 show_plugin_dialog 的主体）。"""
 
     head = QHBoxLayout()
     status = QLabel("🧩 正在扫描模块...")

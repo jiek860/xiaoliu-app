@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """统一 UI 功能注册表。
 
 这个模块只描述功能是什么、属于哪一组、在哪种模式可见，不依赖 Qt。
@@ -131,6 +131,12 @@ _FEATURES = [
             False, "全局搜索所有会话", "search_btn", "search_dialog"),
     Feature("knowledge_graph", "知识图谱", "🕸", "资料", (ADVANCED,), 385,
             False, "查看知识图谱", "graph_btn", "graph_dialog"),
+    Feature("deep_research", "深度研究", "🔬", "资料", (ADVANCED,), 388,
+            False, "多跳联网研究，带引用报告", "research_btn", "research_dialog"),
+    Feature("trace_view", "Trace 回看", "📊", "开发", (ADVANCED,), 389,
+            False, "任务时间树回看，失败步骤标红", "", "trace_view_dialog"),
+    Feature("roles", "群聊角色", "👥", "工具", (ADVANCED,), 395,
+            False, "管理群聊角色人设和触发关键词", "", "roles_dialog"),
 
     # 这些是命令面板/头像菜单里的页面入口，不要求常驻控件
     Feature("start_task", "开始任务", "▶", "任务", MODES, 390,
@@ -164,7 +170,7 @@ MORE_MENU_GROUPS = (
     )),
     ("资料", (
         "knowledge_base", "history", "memory", "search", "stats",
-        "knowledge_graph",
+        "knowledge_graph", "deep_research",
     )),
     ("工具", (
         "model_selector", "workbench", "computer_agent",

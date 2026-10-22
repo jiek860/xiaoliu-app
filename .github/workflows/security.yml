@@ -1,11 +1,14 @@
-﻿name: Security Audit
+﻿# ci-policy: no-pull-request
+name: Security Audit
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
   schedule:
     - cron: "41 3 * * 1"
+  push:
+    paths:
+      - "requirements*.txt"
+      - "requirements*.lock"
 
 permissions:
   contents: read
