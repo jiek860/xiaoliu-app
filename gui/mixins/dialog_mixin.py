@@ -260,6 +260,10 @@ class DialogMixin:
         """消息搜索：全局搜索所有会话"""
         return self._open_simple_dialog("search_dialog", "SearchDialog")
 
+    def research_dialog(self):
+        """深度研究：多跳联网研究，带引用报告"""
+        return self._open_simple_dialog("research_dialog", "ResearchDialog")
+
     def update_dialog(self):
         """检查更新 / 回滚 / 更新历史"""
         return self._open_simple_dialog("update_dialog", "UpdateDialog")

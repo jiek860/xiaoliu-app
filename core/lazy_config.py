@@ -11,6 +11,7 @@ LAZY_MAP = {
     "forgetting_curve": ("forgetting_curve", "ForgettingCurve",     "遗忘曲线"),
     # ===== 搜索 =====
     "deep_search":      ("deep_search",      "DeepSearch",          "深度搜索"),
+    "deep_research":    ("deep_research",    "DeepResearch",        "深度研究"),
     # ===== 电脑控制 =====
     "computer_controller": ("computer_controller", "ComputerController", "电脑控制"),
     # ===== 语音 =====
