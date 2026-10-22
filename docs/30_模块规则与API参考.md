@@ -1,4 +1,4 @@
-﻿# 小6智能体  模块规则与 API 参考
+# 小6智能体  模块规则与 API 参考
 
 版本：v25.2.23  
 更新日期：2026-10-19  
@@ -26,11 +26,11 @@
 >
 > | 事实源 | 内容 | 现状 |
 > |---|---|---|
-> | `core/lazy_config.py` | 模块登记表 | **66 个模块** |
+> | `core/lazy_config.py` | 模块登记表 | **72 个模块** |
 > | `core/rules_engine.py` | 规则定义 | **63 条规则** |
 > | `core/core_caps.py` | core 侧能力声明 | 19 条 |
-> | `core/module_caps.py` | 能力注册表（合并两来源） | 46 条能力 |
-> | `modules_repo/manifest.json` | 插件清单（RSA 签名） | 42 条 |
+> | `core/module_caps.py` | 能力注册表（合并两来源） | 49 条能力 |
+> | `modules_repo/manifest.json` | 插件清单（RSA 签名） | 45 条 |
 >
 > **本文已知对不上的地方（点名列出，不藏）**
 >
@@ -815,10 +815,10 @@ tc._dispatch(info, args, query, tool_name)
 
 ### 八、LAZY_MAP 与能力
 
-- 模块登记：`core/lazy_config.py` 的 `LAZY_MAP`，当前 66 个。
+- 模块登记：`core/lazy_config.py` 的 `LAZY_MAP`，当前 72 个。
 - 规则定义：`core/rules_engine.py`，当前 63 条。
-- 能力注册：`core/module_caps.py`，当前 46 条。
-- 插件清单：`modules_repo/manifest.json`，当前 42 条。
+- 能力注册：`core/module_caps.py`，当前 49 条。
+- 插件清单：`modules_repo/manifest.json`，当前 45 条。
 
 新增能力时：
 

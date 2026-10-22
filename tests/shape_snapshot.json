@@ -1,5 +1,5 @@
 {
-  "LAZY_MAP.size": 66,
+  "LAZY_MAP.size": 72,
   "LAZY_MAP.value_arity": [
     3
   ],
@@ -143,7 +143,7 @@
       ]
     }
   },
-  "manifest.count": 42,
+  "manifest.count": 48,
   "manifest.keys": [
     "api_version",
     "author",

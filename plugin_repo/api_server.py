@@ -83,3 +83,11 @@ class ApiServer:
 
     def is_running(self):
         return self._server is not None
+
+    def run(self, *a):
+        """标准入口：启动 HTTP 服务"""
+        return self.start()
+
+    def health(self):
+        """健康检查"""
+        return {'ok': self.is_running()}
