@@ -8,7 +8,7 @@
 
 ## 一、一句话架构
 
-**微核 + 星型拓扑**：一个 `Trunk` 当总线，66 个模块挂在它周围，
+**微核 + 星型拓扑**：一个 `Trunk` 当总线，72 个模块挂在它周围，
 **模块之间不许互相 import**，全部走 `trunk.call()`。
 
 ```
@@ -41,12 +41,12 @@ double-click 启动PyQt.bat
       └─ ④ gui.app_pyqt.run_pyqt()
          └─ Trunk.__init__()
             ├─ 读 config（data/config.json，没有就用 config.default.json 生成）
-            ├─ 按 LAZY_MAP 登记 66 个模块（**只是登记，不 import**）
+            ├─ 按 LAZY_MAP 登记 72 个模块（**只是登记，不 import**）
             ├─ 起后台线程：_bg_loop / _idle_worker（无条件）
             └─ 3 秒后 _start_background()：定时任务 / MCP / 预热 / 自动备份
 ```
 
-**懒加载**：66 个模块里常驻的只有 8 个，其余**第一次被调用时才 import**。
+**懒加载**：72 个模块里常驻的只有 8 个，其余**第一次被调用时才 import**。
 好处是启动快；代价是"某个模块有语法错"要等到用它才发现
 （`tools/check_shapes.py` 就是防这个的）。
 
@@ -166,7 +166,7 @@ py -3 tools/check_repo_sync.py                # 验证一致
 |---|---|---|
 | 1 | `run.py` | 启动顺序（只有 130 行） |
 | 2 | `core/trunk.py` | 微核：注册 / 懒加载 / call / reply |
-| 3 | `core/lazy_config.py` | 66 个模块的登记表（LAZY_MAP） |
+| 3 | `core/lazy_config.py` | 72 个模块的登记表（LAZY_MAP） |
 | 4 | `core/pipeline/reply_pipeline.py` | 主链路四步 |
 | 5 | `core/pipeline/context_builder.py` | 检索 + 选工具 |
 | 6 | `core/tool_caller.py` | 分发 + 安全分级 |
@@ -372,7 +372,7 @@ run.py
 | S7 | 运行时经 broker 授权 | 每次能力调用 |
 | S8 | 风险/信任等级展示 | 插件市场 UI |
 
-当前合规：42/42 声明能力、42/42 已签名、0 个 legacy。
+当前合规：48/48 声明能力、48/48 已签名、0 个 legacy。
 契约测试 `tests/test_plugin_standard.py` 防止标准被悄悄放宽。
 
 ---

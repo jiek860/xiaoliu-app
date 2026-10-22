@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
 """P2-3: GraphRAG 社区摘要
 
-轻量实现（不用 networkx，内置 BFS 社区检测）：
+轻量实现（不用 networkx，内置 BFS 社区检测）
+
+不负责的事项：
+  - 不负责知识图谱构建（由 knowledge_graph 做）
+  - 不负责向量检索（由 vector_store 做）
+  - 不负责 LLM 调用（由 trunk.modules.llm 做）：
   1. 从知识图谱拿三元组
   2. 简单社区检测（连通分量）
   3. LLM 给每个社区写摘要

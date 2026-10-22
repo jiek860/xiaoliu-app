@@ -121,7 +121,7 @@ Azure 应显示 deployment（模型框）和 API version 输入。
 命令：
   py -3 tools\check_plugin_repo.py
   py -3 tools\check_plugin_api.py
-预期：42/42 签名文件验证通过；42/42 插件 API 契约通过。
+预期：48/48 签名文件验证通过；48/48 插件 API 契约通过。
 远程插件默认开关：data\config.json 中 plugin_remote_install=false。
 开启后仍必须 HTTPS、主机白名单和 RSA 签名。
 
@@ -130,7 +130,7 @@ Azure 应显示 deployment（模型框）和 API version 输入。
   py -3 tools\check_diff_coverage.py --coverage coverage.json --base origin/main
   py -3 tools\check_pyinstaller_warnings.py --warn build\xiao6\warn-xiao6.txt
 预期：changed-lines coverage >= 70%；missing-module 全部已分类。
-当前本地参考：1292 passed / 2 skipped；总覆盖率约 60.36%；
+当前本地参考：1632 passed / 2 skipped（2026-10-23 分文件全量）；
 PyInstaller 约 370 文件 / 148.6 MB。
 
 【2.1 双击启动】
@@ -981,7 +981,7 @@ CI/CD：pre-commit、GitHub Actions、GitLab CI
 
 六、按钮预算
   py -3 tools/check_buttons.py
-  预期：创建点 168 + 表行 0 = 估算控件 168
+  预期：创建点 178 + 表行 0 = 估算控件 178
 
 ================================================================================
 巡检修复说明（2026-10-22）
@@ -1082,3 +1082,26 @@ py -3 -m pytest tests/test_workbench.py -q
   · 全局样式里不得出现 padding: 10px
   · 按钮实际高度 >= 文字高度 + 8
   · 工作台所有按钮高度 >= 文字高度 + 4
+
+================================================================================
+全程序检测与按钮验收（2026-10-22）
+================================================================================
+一、全量测试
+  py -3 -m pytest tests/ -q
+  本轮结果：1632 passed / 2 skipped / 0 failed（共 1634 用例，136 个测试文件）
+
+二、按钮文字与接线
+  py -3 -m pytest tests/test_gui_smoke.py::test_main_window_assembles -q
+  预期：1 passed
+  检查点：主窗口按钮文字非空 / clicked 已接线 / 38 个面板入口全部 callable
+
+三、模块与方法链接
+  py -3 tools/check_lazy_imports.py       → 72/72 编译+导入通过
+  py -3 tools/check_shapes.py             → 55 处 call 目标 + 166 处属性访问通过
+  py -3 tools/check_repo_sync.py          → 48/48 清单、签名、验签通过
+
+四、文档与打包
+  py -3 -m pytest tests/test_docs_consistency.py tests/test_user_docs_intact.py -q
+  py -3 tools/sync_package.py --dry-run
+  py -3 tools/sync_package.py
+  详细记录见 docs/81_全程序检测与UI按钮验收报告_2026-10-22.md

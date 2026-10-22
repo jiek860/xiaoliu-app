@@ -31,7 +31,15 @@ class CoderPro(BaseModule):
          "danger": True,
          "confirm": True,
          "risk": "exec",
-         "hints": ["写代码", "改bug", "修复", "重构", "code", "编程", "patch"]},
+         "hints": ["写代码", "改bug", "修复", "重构", "code", "编程", "patch"],
+         "contract": {
+             "params": {"goal": {"type": "string"}, "project_path": {"type": "string"}},
+             "returns": {"type": "object"},
+             "errors": ["PLUGIN_INTERNAL_ERROR", "PLUGIN_NEEDS_CONFIRM"],
+             "side_effects": ["filesystem_write", "process"],
+             "description": "让 AI 修改代码，带审批和 git 快照",
+             "not_responsible": ["不负责写测试用例", "不负责代码审查"]
+         }},
     ]
 
     MAX_ROUNDS = 3

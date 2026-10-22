@@ -291,10 +291,10 @@ py -3 -m pytest tests/test_plugin_standard.py tests/test_module_standard.py -q
 - 返回 `{"错误": ...}` 旧式文本
 - `version` 非语义化三段式
 
-当前实测（2026-10-21）：
+当前实测（2026-10-22）：
 
 ```text
-模块 42 · error 0 · warn 125 → 门禁通过
+模块 48 · error 0 · warn 142 → 门禁通过
 ```
 
 ---
@@ -316,7 +316,7 @@ py -3 -m pytest tests/test_plugin_standard.py tests/test_module_standard.py -q
     tests/             单元 + 契约 + 错误路径测试
 ```
 
-注：官方 42 个模块当前为"平铺 + 统一 manifest"形态，
+注：官方 48 个模块当前为"平铺 + 统一 manifest"形态，
 上面的目录结构是**新增插件**的推荐形态，存量模块逐步迁移。
 
 ---
@@ -352,7 +352,7 @@ api_version = 1.0       42 / 42
 清单+源码校验通过       42 / 42
 legacy（未声明能力）    0
 质量门禁 error          0
-质量门禁 warn           125（逐步收敛，不阻塞发布）
+质量门禁 warn           81（逐步收敛，不阻塞发布）
 ```
 
 高风险显式声明：
@@ -445,7 +445,7 @@ legacy（未声明能力）    0
 
 - **必填**：`license` / `author` / `min_host_version` / `plugin_tier` / `risk_level`
 - **条件必填**：`dev_depends` / `optional_depends` / `homepage` / `changelog_url` / `data_version`
-- 当前实测：**42/42** 全部具备
+- 当前实测：**48/48** 全部具备
 
 ### 13.9 发布与门禁命令（全部必须通过）
 
@@ -462,15 +462,15 @@ py -3 -m pytest tests/test_plugin_standard.py tests/test_plugin_standard_v21.py 
 
 ### 13.10 插件级契约测试（N8.2b）
 
-- `tests/test_plugin_contract.py`　框架级批量契约测试（42 模块）
+- `tests/test_plugin_contract.py`　框架级批量契约测试（48 模块）
 - `templates/plugin_contract_test.py`　单个插件的契约测试模板
 - 覆盖：入口可实例化 / tools 方法存在 / 生命周期幂等 / stats JSON 可序列化
 
-### 13.11 当前实测（2026-10-21）
+### 13.11 当前实测（2026-10-22）
 
 ```text
-模块 42 · 质量门禁 error 0 · 分级一致 42/42 · 依赖无环
-签名有效 42/42（RSA 2048） · 安全检查 error 0
+模块 48 · 质量门禁 error 0 · 分级一致 48/48 · 依赖无环
+签名有效 48/48（RSA 2048） · 安全检查 error 0
 测试：test_plugin_standard 17 · v21 19 · contract 29 全通过
 ```
 
@@ -566,7 +566,7 @@ core.release_sign  core._deprecated
 - `core/plugin_errors.py`：18 个结构化错误码 + `retryable` + `context`
 - `core/module_lifecycle.py`：`start/stop/health` 幂等状态机
 - `core/tool_contract.py`：工具 contract 字段校验
-- `tools/check_plugin_quality.py`：42 模块质量门禁（error 必须为 0）
+- `tools/check_plugin_quality.py`：48 模块质量门禁（error 必须为 0）
 - 基类升级：`BaseModule` 继承 `LifecycleMixin`，新增 `NOT_RESPONSIBLE` 与 `describe()`；
   `agent_generic` 同步继承 `BaseModule`。
 - 门禁首跑发现的真实问题：3 个 agent 模块缺 run；3 处 except pass 无理由；
@@ -590,7 +590,7 @@ core.release_sign  core._deprecated
 
 | 测试 | 覆盖 |
 |---|---|
-| `tests/test_plugin_contract.py` | 42 模块批量契约（29 项） |
+| `tests/test_plugin_contract.py` | 48 模块批量契约（29 项） |
 | `tests/test_plugin_standard_v21.py` | v2.1 组件单测（19 项） |
 | `templates/plugin_contract_test.py` | 单插件模板 |
 
@@ -602,11 +602,11 @@ core.release_sign  core._deprecated
 | 条款 | 落地 | 位置 |
 |---|---|---|
 | §0.3 分级 L1/L2/L3 | ✅ | `core/plugin_tier.py` |
-| S1 manifest 必填 | ✅ 42/42 | `modules_repo/manifest.json` |
+| S1 manifest 必填 | ✅ 48/48 | `modules_repo/manifest.json` |
 | S2 api_version | ✅ | `core/plugin_api.py` |
 | S3 capabilities + 回环端口 | ✅ | `core/plugin_capabilities.py` |
 | S4 依赖边界 | ✅ | AST 扫描 + `check_plugin_deps.py` |
-| S5 签名 RSA2048 | ✅ 42/42 | `tools/verify_signature.py` |
+| S5 签名 RSA2048 | ✅ 48/48 | `tools/verify_signature.py` |
 | S6 路径越界 | ✅ | `check_plugin_security.py --paths` |
 | S7 运行时隔离 | ✅ | `core/plugin_broker.py` |
 | S8 信任等级 | ✅ | `core/plugin_registry.py` |
@@ -618,9 +618,9 @@ core.release_sign  core._deprecated
 ### 当前实测
 
 ```text
-模块 42 · 质量门禁 error 0
-分级一致 42/42
-签名有效 42/42（RSA 2048）
+模块 48 · 质量门禁 error 0
+分级一致 48/48
+签名有效 48/48（RSA 2048）
 依赖无环
 ```
 
