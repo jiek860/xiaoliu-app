@@ -47,3 +47,47 @@
 - 8 小时长稳报告。
 - Bandit triage、pip-audit、SBOM、license 报告。
 - Authenticode 签名验证截图或命令输出。
+
+
+---
+
+## 发布前验收补充（2026-10-22）
+
+### 一、虚拟机 / 物理机分离部署
+
+```powershell
+# 物理机
+setx OLLAMA_HOST 0.0.0.0:11434     # 重启 Ollama 生效
+ipconfig                            # 记 IPv4，如 192.168.1.2
+```
+
+```text
+程序：设置 → 模型 → ollama_url = http://192.168.1.2:11434
+      右键「检测本地模型」→ 信任当前主机
+      预期："已检测到 N 个模型"
+```
+
+自动化验收：
+
+```powershell
+py -3 -m pytest tests/test_ui_and_backend_bugs.py -q   # 37 passed
+```
+
+必查断言：
+- 未声明的局域网地址 → 拒绝
+- 已声明地址 + `purpose=network` → 仍然拒绝
+- 公网 IP（8.8.8.8）→ 拒绝
+
+### 二、启动确认
+
+```powershell
+py -3 -m pytest tests/test_startup_consent.py -q       # 27 passed
+```
+
+### 三、后台收尾
+
+```powershell
+py -3 -m pytest tests/test_backend_lifecycle.py -q     # 5 passed
+```
+
+手工验证：关闭主窗口后任务管理器不应残留 `python.exe`。
