@@ -271,3 +271,42 @@ py -3 tools/run_eval.py
 3. 将浏览器 DOM 与 UIA 的候选统一成同一套 Accessibility 树；
 4. 将代码 Agent 接入编辑器当前文件/选区/诊断；
 5. 做安装包的最小运行版 / 完整版双分发，降低首次下载成本。
+
+
+---
+
+## 闭环的 UI 承载（2026-10-22）
+
+Agent 闭环（计划 → 执行 → 审批 → 回滚）现在有统一的可视化承载：
+
+```text
+gui/workbench_dialog.AgentDock
+  ├─ goal        目标输入
+  ├─ start/pause/cancel   执行控制
+  ├─ timeline    实时步骤（事件流）
+  └─ _approve()  diff / 电脑动作审批（DiffReviewDialog）
+```
+
+底层仍是 `core/agent_orchestrator.AgentOrchestrator`：
+
+```text
+route(goal) → code / computer / chat
+  code     → CodeAgent（patch 审批）
+  computer → ComputerAgent（动作审批）
+```
+
+### 关键约束
+
+| 约束 | 原因 |
+|---|---|
+| 审批回调 fail-closed | diff 打不开时必须拒绝，不能默认放行 |
+| 不阻塞 UI 线程 | 事件通过 `event_cb` 回主线程追加到 timeline |
+| 暂停 / 取消 可随时触发 | 长任务必须能立刻停手 |
+
+### 测试
+
+```powershell
+py -3 -m pytest tests/test_workbench.py -q    # 26 passed
+```
+
+覆盖：正常完成、失败结果、异常、暂停/继续、取消、文件上下文传递。

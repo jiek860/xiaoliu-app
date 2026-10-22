@@ -99,3 +99,27 @@ rebuild 后质量门禁复验发现 10 个模块（mcp_client/mcp_server/memory_
 1. memory_cards / personality 数据布局迁移（需联动 core/gui，等待用户决策）
 2. 能力声明滞后项（见第四节，建议随下次 manifest 推导统一收敛）
 3. git 提交/推送未执行：下载源本地镜像已同步，但发布到 GitHub 公共下载源需 git commit + push，按约定待用户确认后执行
+
+
+---
+
+## 审计后续（2026-10-22）
+
+审计发现的差距中，本轮已补:
+
+| 项 | 状态 |
+|---|---|
+| 分级与风险自动推导 | ✅ `core/plugin_tier.py` |
+| 结构化错误码 | ✅ `core/plugin_errors.py` |
+| 生命周期幂等 | ✅ `core/module_lifecycle.py` |
+| 工具 contract 校验 | ✅ `core/tool_contract.py` |
+| 审计日志格式 | ✅ `core/plugin_audit.py` |
+| 熔断与资源上限 | ✅ `core/plugin_limits.py` |
+
+仍待补（与 `插件标准.txt` 第十五节一致）：
+
+```text
+P0  LICENSE / 插件级 README / requires 字段
+P1  配置优先级 / manifest 驱动卸载 / 插件 CHANGELOG
+P2  遥测出口 / 插件目录化 / 工具 contract 全覆盖
+```

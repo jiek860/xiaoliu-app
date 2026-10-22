@@ -425,3 +425,26 @@ P2
 ================================================================================
 文档同步：2026-10-21 / 插件标准 v2.1 / 事实源以代码为准
 ================================================================================
+
+
+--------------------------------------------------------------------------------
+十五、v2.1 落地状态（2026-10-22）
+--------------------------------------------------------------------------------
+    分级推导        core/plugin_tier.py         L1=36 L2=4 L3=2
+    结构化错误      core/plugin_errors.py       18 个错误码
+    生命周期        core/module_lifecycle.py    start/stop/health 幂等
+    工具契约        core/tool_contract.py       已接入门禁
+    审计日志        core/plugin_audit.py        N15 八字段
+    熔断限流        core/plugin_limits.py       5 次/60s + 配额
+    信任管理        core/mcp_trust.py           命令哈希白名单
+    签名校验        tools/verify_signature.py   RSA 2048 + CRL
+
+    门禁命令（全部必须通过）：
+        py -3 tools/check_plugin_quality.py
+        py -3 tools/check_plugin_tier.py
+        py -3 tools/check_plugin_deps.py --ast
+        py -3 tools/check_plugin_security.py
+        py -3 tools/verify_signature.py --all
+
+    注意：modules_repo/manifest.json 入库时是**未签名源**，
+         发布前必须跑 tools/sign_modules.py 再验证。
