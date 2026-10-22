@@ -44,7 +44,7 @@ class ChatMixin:
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
         
-        # 统一 Agent 路由：明确的代码/电脑任务先建议进入 Agent 旅程。
+        # 统一 Agent 路由：明确的代码/电脑任务先建议进入工作台。
         try:
             from core.agent_router import route_goal
             route = route_goal(
@@ -56,8 +56,8 @@ class ChatMixin:
                 r = QMessageBox.question(
                     self, "检测到可执行的 Agent 任务",
                     "这看起来适合交给「%s」。\n\n%s\n\n"
-                    "要打开统一 Agent 旅程吗？\n"
-                    "（可在里面暂停、人工接管、审批和一键撤销）"
+                    "要打开工作台执行吗？\n"
+                    "（AI 面板在编辑器下方，可暂停、人工接管、审批 diff、一键撤销）"
                     % (label, route.get("reason", "")),
                     QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
                 if r == QMessageBox.Yes:

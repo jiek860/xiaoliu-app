@@ -1058,3 +1058,15 @@ CI/CD：pre-commit、GitHub Actions、GitLab CI
     · 8.8.8.8 / 1.1.1.1（公网）必须拒绝
     · purpose=network 的普通请求仍然拒绝
     · 非法 CIDR 被忽略，不影响其他规则
+
+
+================================================================================
+入口合并检测（2026-10-22）
+================================================================================
+py -3 -m pytest tests/test_workbench.py -q
+预期：30 passed
+
+关键断言：
+  · feature_registry 里只有 workbench，没有 code_editor / agent_journey / code_agent
+  · 主界面按钮文字含"工作台"，且不存在"代码编辑器/Agent 旅程/AI 代码 Agent"
+  · 旧 id 仍能通过 ALIASES 解析（避免历史调用失效）

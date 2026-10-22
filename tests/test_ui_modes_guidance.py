@@ -61,7 +61,7 @@ def test_advanced_keeps_all_original_capabilities():
     assert simple <= advanced
     # 需求里明确点名的能力，高级模式必须仍然在
     for fid in ("module_buttons", "realtime_chat", "model_selector",
-                "code_editor", "security_center", "plugin_market", "mcp",
+                "workbench", "security_center", "plugin_market", "mcp",
                 "memory", "logs", "task_center"):
         assert fid in advanced
         assert is_visible(fid, ADVANCED)
@@ -79,7 +79,7 @@ def test_more_menu_covers_other_features_without_duplicates():
         "头像和更多菜单重复了入口"
     # 原来的低频能力必须仍在更多的分组里
     for fid in ("task_center", "security_center", "plugin_market", "mcp",
-                "model_selector", "code_editor", "memory", "logs",
+                "model_selector", "workbench", "memory", "logs",
                 "command_palette", "onboarding", "feedback"):
         assert fid in more_ids
 

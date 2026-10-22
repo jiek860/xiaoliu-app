@@ -420,3 +420,33 @@ core/auth.py               session.json（只存账号名，启动重新验签�
 
 `ALWAYS_ASK` 里列出的操作（覆盖/删除文件、关机、执行命令等）
 即便被写入记录也会被 `should_ask()` 强制返回 True。
+
+
+---
+
+## 入口注册表（2026-10-22）
+
+`core/feature_registry.py` 是**所有主界面入口的唯一真相源**，
+`gui/build_ui.py` 只按它渲染，不自己写第二套可见性规则。
+
+### 单入口原则
+
+编辑能力合并后只保留一个 Feature：
+
+```python
+Feature("workbench", "工作台", "🧰", "工具", (ADVANCED,), 140,
+        False, "编辑器 + AI 面板同屏…", "editor_btn", "open_workbench")
+```
+
+历史 id（`code_editor` / `agent_journey` / `code_agent`）通过
+`ALIASES` 映射到 `workbench`，保证旧调用不失效。
+
+### 为什么保留别名而不是直接删
+
+| 使用方 | 影响 |
+|---|---|
+| 命令面板全文搜索 | 用户仍可能搜到旧词 |
+| 历史文档/教程 | 引用旧名 |
+| 测试/脚本 | 按旧 id 断言 |
+
+删别名会造成"入口消失"式回归，因此保留转发。
