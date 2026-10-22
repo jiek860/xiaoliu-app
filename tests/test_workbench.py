@@ -340,3 +340,63 @@ def test_toolbar_button_is_workbench(app):
             w.close()
         except Exception:  # 静默是故意的
             pass
+
+
+# ---------------- 文字不被压扁（全局 padding 回归） ----------------
+def test_global_button_padding_leaves_room_for_text(app):
+    """回归：全局 QPushButton 的 padding 曾经是 10px。
+
+    工作台工具条按钮高度只有 24~27px，24 - 20(上下padding) - 2(边框)
+    = 2px 留给文字，中文被压成一条横线（"文字显示不全"）。
+    这里断言 padding 不超过 6px，且最小高度够放一行 13px 中文。
+    """
+    from PyQt5.QtGui import QFontMetrics
+    from PyQt5.QtWidgets import QPushButton
+    from gui.style import STYLE
+
+    app.setStyleSheet(STYLE)
+    assert "padding: 10px" not in STYLE, "全局按钮 padding 又变回 10px 了"
+    b = QPushButton("▶ 开始")
+    b.show()
+    app.processEvents()
+    fm = QFontMetrics(b.font())
+    assert b.height() >= fm.height() + 8, (
+        "按钮高度 %d 放不下一行 %dpx 文字" % (b.height(), fm.height()))
+    b.close()
+
+
+def test_workbench_buttons_have_enough_height(app):
+    from PyQt5.QtCore import QCoreApplication
+    from PyQt5.QtGui import QFontMetrics
+    from PyQt5.QtWidgets import QAbstractButton
+
+    from gui.style import STYLE
+    from gui.workbench_dialog import WorkbenchWindow
+
+    app.setStyleSheet(STYLE)
+
+    class T:
+        base = BASE
+        config = {}
+
+        def __init__(self):
+            self.modules = {}
+
+    wb = WorkbenchWindow(T())
+    try:
+        wb.show()
+        app.processEvents()
+        tight = []
+        for b in wb.findChildren(QAbstractButton):
+            if not b.text():
+                continue
+            fm = QFontMetrics(b.font())
+            if b.height() < fm.height() + 4:
+                tight.append((b.text()[:16], b.height(), fm.height()))
+        assert not tight, "这些按钮高度不足以显示文字: %s" % tight
+    finally:
+        try:
+            wb.close()
+        except Exception:  # 静默是故意的
+            pass
+        QCoreApplication.processEvents()

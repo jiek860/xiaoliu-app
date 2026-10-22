@@ -65,7 +65,7 @@ class AgentDock(QWidget):
         self.hint.setStyleSheet("color:#667085;font-size:11px;")
         head.addWidget(self.hint, 1)
         self.expand_btn = QPushButton("⛶ 弹出")
-        self.expand_btn.setFixedHeight(24)
+        self.expand_btn.setFixedHeight(28)
         self.expand_btn.setToolTip("把 AI 面板弹出为独立窗口（可放到第二块屏幕）")
         self.expand_btn.clicked.connect(self.wb.toggle_ai_popup)
         head.addWidget(self.expand_btn)
@@ -87,7 +87,7 @@ class AgentDock(QWidget):
         self.cancel_btn.clicked.connect(self.cancel)
         self.cancel_btn.setEnabled(False)
         for b in (self.start_btn, self.pause_btn, self.cancel_btn):
-            b.setFixedHeight(26)
+            b.setFixedHeight(30)
             btns.addWidget(b)
         btns.addStretch(1)
         row.addLayout(btns)

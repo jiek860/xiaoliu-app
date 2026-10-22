@@ -1,4 +1,4 @@
-# 小6智能体  模块规则与 API 参考
+﻿# 小6智能体  模块规则与 API 参考
 
 版本：v25.2.23  
 更新日期：2026-10-19  
@@ -864,7 +864,69 @@ rt.increase_budget(task["id"], seconds=120, steps=4, tokens=5000)
 - `trunk.get_task_runtime()` 是全局唯一任务运行时入口。
 - `TaskRuntime.increase_budget()` 用于超时/预算不足后的增加预算并继续。
 - `gui/guidance.py` 提供失败状态到唯一下一步的映射。
-- 头像菜单只用 `AVATAR_MENU_IDS`；其余入口由 `MORE_MENU_GROUPS` 分组生成。
+- 头像菜单只用 `AVATAR_MENU_IDS`（4 个：update/settings/login/tutorial）；其余入口由 `MORE_MENU_GROUPS` 分组生成。
+- `FEATURES` 共 41 个，`MORE_MENU_GROUPS` 只收录 28 个，剩 13 个走主界面按钮。
+- 不加 `MORE_MENU_GROUPS` 时 Ctrl+K 命令面板能搜到，但"更多"菜单里看不到。
+
+
+### 新增 UI 入口的正确写法（2026-10-22）
+
+加一个新窗口入口需要同时改 4 个地方，少一个都看不到或报错：
+
+```python
+# 1. core/feature_registry.py 的 _FEATURES list 末尾 append：
+Feature("deep_research", "深度研究", "🔬", "资料", (ADVANCED,), 235,
+        False, "多跳联网研究，带引用报告", "", "open_research_dialog"),
+
+# 2. MORE_MENU_GROUPS 对应分组的 tuple 里加 id（不加则菜单里看不到）：
+("资料", ("knowledge_base", "history", "memory", "search", "stats",
+          "knowledge_graph", "deep_research")),   # ← 加在这里
+
+# 3. core/lazy_config.py 的 LAZY_MAP 加一行：
+"deep_research": ("deep_research", "DeepResearch", "深度研究"),
+
+# 4. 新 GUI 窗口 gui/xxx_dialog.py：
+#    - 子线程不碰 Qt 控件（check_threads.py 会拦）
+#    - 按钮数触发 check_buttons.py 棘轮（只许降不许升）
+#    - 新文件不超 600 行（check_file_sizes.py）
+#    - 新工具必须声明 hints 字段（check_tools.py 强制）
+```
+
+注意：
+- `SIMPLE_PRIMARY_IDS` 固定 7 个（简单模式首屏按钮），不要随便加。
+- `AVATAR_MENU_IDS` 固定 4 个，不要随便加。
+- 按钮预算是棘轮：新文件不在 per_file 里直接报"新增"失败。确认必要后跑 `check_buttons.py --rebase` 重建基线，不是手动加配额。
+- 新增 `except Exception: pass` 必须在上方写 `# 静默是故意的：<理由>`，否则 check_silent 失败。
+
+
+### 提交前 14 步门禁（check.bat）
+
+每批交付前跑 `check.bat`，共 14 步，全绿才能提交：
+
+```
+ 1  compileall 语法检查
+ 2  pytest tests/
+ 3  密钥合规检查（私钥不能随程序分发）
+ 4  check_version.py（权威来源 core/version.py）
+ 5  check_buttons.py + check_tools.py
+ 6  check_threads.py
+ 7  check_repo_sync.py
+ 8  check_lazy_imports.py
+ 9  check_types.py（Ruff + Mypy）
+10  run_agent_e2e.py
+11  check_file_sizes.py
+12  check_plugin_api.py
+13  check_runtime_compat.py
+14  migrate_data.py --dry-run
+```
+
+动了 modules/installed/ 还要走：
+```
+  tools/rebuild_modules_repo.py --apply   （必须加 --apply，默认 dry-run）
+  tools/sign_modules.py
+  tools/sync_plugin_repo.py --apply
+  tools/check_plugin_repo.py
+```
 
 
 ---

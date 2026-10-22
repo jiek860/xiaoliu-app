@@ -1,5 +1,35 @@
 # 版本变更记录
 
+### 修复：工作台按钮文字显示不全（2026-10-22）
+
+**现象**：工作台工具条上的按钮只显示一条横线，看不到中文。
+
+**根因**：`gui/style.py` 全局 `QPushButton` 的 `padding: 10px`
+（上下各 10px），而工具条按钮 `setFixedHeight(24~27)`：
+
+```text
+24px - 20px(上下padding) - 2px(边框) = 2px 留给文字
+```
+
+13px 的中文只剩 2px，被裁成一条横线。
+
+**修复**
+
+| 位置 | 变更 |
+|---|---|
+| `gui/style.py` QPushButton | `padding: 10px` → `4px 12px`，新增 `min-height: 24px` |
+| `gui/style.py` QCheckBox | 新增 `min-height: 22px` + `padding: 2px 4px` |
+| `gui/workbench_dialog.py` | 固定高度 24→28、26→30（给不同 DPI 留余量） |
+
+**新增回归测试**
+
+```text
+test_global_button_padding_leaves_room_for_text
+test_workbench_buttons_have_enough_height
+```
+
+断言全局样式里不得再出现 `padding: 10px`，且按钮高度 >= 文字高度 + 8。
+
 ### 虚拟机连物理机大模型 + 局域网放行 + 向量库容错（2026-10-22）
 
 **1. 虚拟机 / 物理机分离部署支持**

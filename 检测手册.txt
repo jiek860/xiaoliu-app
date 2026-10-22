@@ -1070,3 +1070,15 @@ py -3 -m pytest tests/test_workbench.py -q
   · feature_registry 里只有 workbench，没有 code_editor / agent_journey / code_agent
   · 主界面按钮文字含"工作台"，且不存在"代码编辑器/Agent 旅程/AI 代码 Agent"
   · 旧 id 仍能通过 ALIASES 解析（避免历史调用失效）
+
+
+================================================================================
+文字截断检测（2026-10-22）
+================================================================================
+py -3 -m pytest tests/test_workbench.py -q
+预期：32 passed
+
+关键断言：
+  · 全局样式里不得出现 padding: 10px
+  · 按钮实际高度 >= 文字高度 + 8
+  · 工作台所有按钮高度 >= 文字高度 + 4
