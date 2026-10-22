@@ -69,17 +69,16 @@ _FEATURES = [
             False, "实时语音对话", "realtime_btn", "_rt_toggle"),
     Feature("model_selector", "模型选择", "🤖", "工具", (ADVANCED,), 130,
             False, "切换本地 / 云端模型", "model_btn", "switch_model"),
-    Feature("code_editor", "代码编辑器", "</>", "工具", (ADVANCED,), 140,
-            False, "打开代码编辑器", "editor_btn", "open_code_editor"),
-    Feature("code_agent", "代码 Agent", "AI", "开发", (ADVANCED,), 145,
-            False, "项目理解、多文件 patch、diff 审批、测试回修",
-            "code_agent_btn", "code_agent_dialog"),
+    # 2026-10-22：代码编辑器 / Agent 旅程 / AI 代码 Agent 三个入口
+    # 合并为「🧰 工作台」一个入口（同一窗口内：左文件树 + 右上编辑器 +
+    # 右下 AI 面板）。旧的三个 action 名保留为别名，见下方 ALIASES，
+    # 避免历史代码/文档/命令面板里的调用失效。
+    Feature("workbench", "工作台", "🧰", "工具", (ADVANCED,), 140,
+            False, "编辑器 + AI 面板同屏：改代码、让 AI 改、看 diff 都在一个窗口",
+            "editor_btn", "open_workbench"),
     Feature("computer_agent", "电脑 Agent", "PC", "工具", (ADVANCED,), 147,
             False, "观察屏幕、生成跨应用计划、执行并验证",
             "computer_agent_btn", "computer_agent_dialog"),
-    Feature("agent_journey", "Agent 旅程", "", "常用", MODES, 148,
-            False, "一个输入框自动路由到代码/电脑 Agent，过程可暂停、接管、回滚",
-            "agent_journey_btn", "agent_journey_dialog"),
     Feature("login", "登录", "🔑", "常用", (ADVANCED,), 150,
             False, "登录 / 切换账号", "login_btn_sb", "show_login"),
     Feature("clear_chat", "清空聊天", "🗑", "常用", (ADVANCED,), 160,
@@ -168,7 +167,7 @@ MORE_MENU_GROUPS = (
         "knowledge_graph",
     )),
     ("工具", (
-        "model_selector", "code_editor", "agent_journey", "code_agent", "computer_agent",
+        "model_selector", "workbench", "computer_agent",
         "realtime_chat", "voice_chat", "calendar", "computer_control", "bot",
         "components",
     )),
@@ -187,8 +186,18 @@ MORE_MENU_GROUPS = (
 )
 
 
+# 旧 feature id -> 新 id。合并入口后，历史代码/命令面板/文档里
+# 仍可能按旧名字查找，这里统一转发，避免"入口消失"。
+ALIASES = {
+    "code_editor": "workbench",
+    "agent_journey": "workbench",
+    "code_agent": "workbench",
+}
+
+
 def get_feature(feature_id: str):
-    return FEATURES.get(feature_id)
+    fid = ALIASES.get(feature_id, feature_id)
+    return FEATURES.get(fid)
 
 
 def feature_ids_for_mode(mode: str) -> Tuple[str, ...]:

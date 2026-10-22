@@ -433,9 +433,12 @@ def _build_composer(win):
     btn_row.addWidget(win.model_btn)
     btn_row.addStretch(1)
 
-    win.editor_btn = _small_button("</> 代码编辑器", "打开代码编辑器")
+    # 2026-10-22：三个入口（编辑器 / Agent 旅程 /  AI 代码 Agent）
+    # 合并为「🧰 工作台」一个按钮，点击打开同一窗口。
+    win.editor_btn = _small_button(
+        "🧰 工作台", "编辑器 + AI 面板同屏（Ctrl+J 收起 AI，F11 全屏）")
     win.editor_btn.setFixedHeight(30)
-    win.editor_btn.clicked.connect(win.open_code_editor)
+    win.editor_btn.clicked.connect(win.open_workbench)
     btn_row.addWidget(win.editor_btn)
 
     win.send_btn = QPushButton("发送")
