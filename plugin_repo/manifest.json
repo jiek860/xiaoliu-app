@@ -204,7 +204,7 @@
       {
         "name": "auto_update",
         "method": "run_auto_update",
-        "desc": "自更新闭环：取问题→生成建议→编程小匠打补丁→沙盒验证→弹窗确认→部署",
+        "desc": "自更新：分析问题→打补丁→验证→确认→部署",
         "args": {},
         "confirm": true,
         "bg": true,
@@ -251,9 +251,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 5868,
-    "sha256": "b0ac96ae3b220dc21ab09fb5ada3bdc589c67f0f0e6734f8565a21a6ab9b6031",
-    "signature": "6a21a9a51c54f56fc3615ae214534120e4f78d6206e5bd4ed697077962655ebabe3a5e52d3ac19a53a6dee0251efa51d452096b7f1fc36b38ad06b102552752ffab3e293a2a474ab8ef7dbaa57ff304d8f49a9e46abbaa25b6125a5d2aed320550d470451c971ce7be3570c30681f9dd27de42b2443aad439048cb7ce4c72f7a2fb54ff14e56e65dbc7974ba417997ec11ab0b41f3631e6f67580f2680835da39b4869c6939853a3d4044f53eb089437ffd9bed9a45e84831b71bee8675ce81bf0e1d5495134e4235aad2ee775a11d58d5c4f9ed3c7109d3808582f278fce76623e4bce892dbcd57814dc26e4dce07718404ae856f121602467f4f8ed2132834"
+    "size": 5826,
+    "sha256": "290fd5deaf030aa9c349ea825c318baee1ae8de603e49d1c800d2cbb918f4e21",
+    "signature": "6396fbb39d95833da9858e6c413ad5d19b86c27a8da0eb04bb4c77558e98083e9268b528fbfc7860bab97a8681e857a1435c087c9a2a16a542e4aab594035f4a29e77b4b40d9c1c0db5dd147e628ebc5b3ca9b1f343649190fea6053ea649c7e4c646d8154652fa9f6e67ced6bbc5190dc0f3dca679b19032b4236a534e3396789d49e7069bdff39f72c786970bc5046141ce47fa84b783613a1de078ea95ed583f466fb47dcee1a6f8ec7afdaa34562650e03cb0042e823c62b9dd1264863c3a3d6360852e534b8b4653829ba4ee77e2d36fa67f0cce0b73287691e7487c4cb263322b05f4f5cea30989cb2cf589b33d4b62872b6eedb0cac3f270675d2cadf"
   },
   {
     "name": "browser",
@@ -1200,7 +1200,7 @@
       {
         "name": "kqa_import_file",
         "method": "import_file",
-        "desc": "导入 PDF/Word/Excel/PPT/文本到知识库，并建立来源引用",
+        "desc": "导入文档到知识库（PDF/Word/Excel）",
         "args": {
           "path": "文件路径"
         },
@@ -1259,9 +1259,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 16393,
-    "sha256": "91c099ba3f69e1401bbce43c2c1456f1eb951b75859aaefe5b808355f2c8c9b2",
-    "signature": "7a8bd62c67aa0d657b219fb36d754ca4476b8390d204128445ace048fde04632cdf1bb167666876075510b2ce1257ba0ffb0f9bb9d263de0a24bc9151eaebc94016abff948d08c0cf6b4844f1cf7583999f51cb5f7ec718a6f7499f9bb6abd0beb6a569f5d9f92c5a60858549141e5efc60d2cfe650cf99b9ba66d040279f9fe5d537eb256eb190fadd4a386f9583d9a169a70bd5b3236ced3c17891dd2ed39c0e5478d4fe7c2cfbf8b93ecc781677645df26a5cafe041fdb6318eccb1d4c9685b13fa4c0c5eb4ba442c7fe6ccdca29f8f9381c7aeb7da404ef879e309dac7722df40d52f98240bf1b2f37ffbb5c6a734e23a11cddabf76d8026a4c17e0ba361"
+    "size": 16369,
+    "sha256": "0291c1c771a3c7fcc14607c0dba763521c005d9160de3ca744804940b6d9ef4e",
+    "signature": "64b1b8bb13cbccaca02a78ae27d9bffcabdc85bef82292b6fffaa9c14c39d8b7b0c0757e4db8e53ae9a67fa128e800f55d29c07d23d22aff7f72fab4bcf10bed705f535b58b019771e10859afee27b3d1de3e0f2314475e4512a67d1eb1b08af882f21aa3a94de6d289a0e11cf602872a709d07f104ca434e4bff7819fda4d66a0ee04d5912ceb43e7dbcc00ece537e40b7d91e04e06b2c194ceb497f63105fd8bccecae2472296385ea28e9ba56179641f52106cbee5bb238ef0af63677790525c7b02b86180d035bbaf2d3b0c147387eab1311ef35f2a0284497c1840b7ce4faf9a38b5d46762c767177584563cc86f986fccef5538c2514ffb9dd849d4b61"
   },
   {
     "name": "learning_loop",

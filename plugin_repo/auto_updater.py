@@ -36,7 +36,7 @@ class AutoUpdater(
 
     TOOLS = [
         {"name": "auto_update", "method": "run_auto_update",
-         "desc": "自更新闭环：取问题→生成建议→编程小匠打补丁→沙盒验证→弹窗确认→部署",
+         "desc": "自更新：分析问题→打补丁→验证→确认→部署",
          "args": {},
          "confirm": True,
          # bg：这条要跑几分钟。聊天触发时 _dispatch 是被回复流程**同步**调用的
