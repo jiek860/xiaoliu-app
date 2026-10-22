@@ -363,4 +363,3 @@ class ChatMixin:
                 self.session_list.addItem(it)
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
-
