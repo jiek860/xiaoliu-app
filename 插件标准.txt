@@ -309,7 +309,7 @@ S-RISK     风险自动分级
     清单+源码校验通过       42 / 42
     legacy（未声明能力）    0
     质量门禁 error          0
-    质量门禁 warn           125（逐步收敛，不阻塞发布）
+    质量门禁 warn           81（逐步收敛，不阻塞发布）
 
 高风险显式声明：
     computer_controller   ui_control.enabled = true

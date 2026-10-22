@@ -153,7 +153,7 @@ LICENSE
 ### 门禁命令
 
 ```powershell
-py -3 tools/check_plugin_quality.py     # 42 模块，error 必须为 0
+py -3 tools/check_plugin_quality.py     # 48 模块，error 必须为 0
 py -3 tools/check_plugin_tier.py        # L1/L2/L3 推导一致
 py -3 tools/check_plugin_deps.py --ast  # 依赖边界 + 环检测
 py -3 tools/check_plugin_security.py    # 配置/路径/密钥/L3 专项
