@@ -374,3 +374,49 @@ run.py
 
 当前合规：42/42 声明能力、42/42 已签名、0 个 legacy。
 契约测试 `tests/test_plugin_standard.py` 防止标准被悄悄放宽。
+
+---
+
+## 工作台架构（2026-10-22）
+
+### 分层
+
+```text
+┌─────────────────────────────────────────────────────┐
+│ gui/workbench_dialog.py                             │
+│   WorkbenchWindow（QMainWindow）                     │
+│     ├─ QSplitter(H)  左文件树 | 右内容               │
+│     └─ QSplitter(V)  上编辑器 | 下 AgentDock         │
+├─────────────────────────────────────────────────────┤
+│ 复用组件                                             │
+│   gui/code_editor_dialog.py  （编辑器，已内嵌）       │
+│   gui/diff_dialog.py         （diff 审批）           │
+│   gui/agent_timeline.py      （步骤时间线）           │
+├─────────────────────────────────────────────────────┤
+│ 能力层（未改动）                                      │
+│   core/agent_orchestrator.py  路由 + 调度             │
+│   core/code_agent.py          代码改动                │
+│   core/computer_agent.py      电脑操作                │
+└─────────────────────────────────────────────────────┘
+```
+
+### 关键设计决策
+
+| 决策 | 理由 |
+|---|---|
+| 不用功能页签 | 用户要求同屏可见；页签会隐藏上下文 |
+| 编辑器复用而非重写 | 语法高亮、jedi 补全、多文件标签已验证 |
+| AgentDock 委托 orchestrator | 与旧"Agent 旅程"共用同一能力层，无重复实现 |
+| 接入方式 | 旧入口（`open_code_editor` / `agent_journey_dialog` / `code_agent_dialog`）全部转发到 `open_workbench()` |
+| 按钮精简 | 收起→Ctrl+J，全屏→F11；只保留"开始/暂停/取消/弹出"这类必须即时点击的动作 |
+
+### 启动确认架构
+
+```text
+core/startup_consent.py    启动期确认记录（可记住项 + 永不记住项）
+core/mcp_trust.py          MCP 命令信任（按命令哈希）
+core/auth.py               session.json（只存账号名，启动重新验签）
+```
+
+`ALWAYS_ASK` 里列出的操作（覆盖/删除文件、关机、执行命令等）
+即便被写入记录也会被 `should_ask()` 强制返回 True。

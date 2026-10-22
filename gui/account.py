@@ -18,6 +18,32 @@ class AccountManager:
         self.username = "guest"
         self.session = "default"
 
+    def try_restore_login(self):
+        """启动时自动恢复上次登录态。
+
+        只在"确实已激活且验签通过"时才成功；任何失败都返回原因，
+        由调用方决定是弹登录框还是提示。
+        """
+        try:
+            r = self.trunk.call("auth", "restore_session")
+        except Exception as e:  # 静默是故意的 - 恢复失败就走正常登录
+            _x6_swallowed(__name__, e)
+            return {"ok": False, "原因": "auth 不可用: %s" % str(e)[:80]}
+        # auth.restore_session() 返回 (ok, user, reason) 三元组
+        if isinstance(r, (tuple, list)) and len(r) >= 2:
+            ok, user = bool(r[0]), str(r[1] or "")
+            why = str(r[2] if len(r) > 2 else "")
+        elif isinstance(r, dict):
+            ok = bool(r.get("ok"))
+            user = str(r.get("user") or "")
+            why = str(r.get("原因") or "")
+        else:
+            ok, user, why = False, "", "auth 返回了无法识别的结果"
+        if ok and user:
+            self.username = user
+            return {"ok": True, "user": user}
+        return {"ok": False, "原因": why or "恢复登录失败"}
+
     def current_username(self):
         try:
             r = self.trunk.call("auth", "whoami")

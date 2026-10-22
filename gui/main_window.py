@@ -170,6 +170,16 @@ class JarvisWindow(
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
 
+        # 9.0 按已保存的配置回填"本地/云端"指示灯。
+        # ⚠️ 修复：以前只有 switch_model() 内部会改灯的颜色，
+        #    所以**重启后**指示灯停在 build_ui 的初始值（本地绿、云端灰），
+        #    用户上次选的"云端模型"看起来像没保存。现在启动即回读。
+        try:
+            from gui.status_lights import paint_from_config
+            paint_from_config(self)
+        except Exception as e:  # 静默是故意的 - 指示灯回填失败不阻断启动
+            _x6_swallowed(__name__, e, "best-effort fallback")
+
         # ===== 协议确认 =====
         # ⚠️ 以前在 __init__ 里同步 exec_()，于是启动瞬间会**连着弹三个框**：
         #    协议 -> 登录 -> 首次向导（登录框里还会再查一次协议）。
@@ -273,10 +283,22 @@ class JarvisWindow(
         if os.environ.get("X6_DISABLE_LOGIN_PROMPT") == "1":
             self._after_agreement_login()
             return
-        if getattr(self, "_agreement_pending", False):
+        # 启动期确认"只问一次"：协议同意过就跳过（见 core/startup_consent.py）
+        base = getattr(self, "base", ".")
+        try:
+            from core import startup_consent as _sc
+            _agreed_before = _sc.is_granted(base, "agreement")
+        except Exception:  # 静默是故意的 - 记录读不到就按"没同意"处理
+            _sc = None
+            _agreed_before = False
+        if _agreed_before and not getattr(self, "_agreement_pending", False):
+            self._agreement_pending = False
+        elif getattr(self, "_agreement_pending", False):
             if not self._confirm_agreement():
                 QApplication.quit()
                 return
+            if _sc is not None:
+                _sc.grant(base, "agreement", "用户在启动时同意协议")
         self._after_agreement_login()
 
     def _confirm_agreement(self):
@@ -304,6 +326,18 @@ class JarvisWindow(
         """协议之后：登录 -> 首次向导，两个框绝不重叠。"""
         if os.environ.get("X6_DISABLE_LOGIN_PROMPT") == "1":
             return
+        # 先尝试恢复上次登录（auth.restore_session 会重新验签/查过期）
+        restored = {"ok": False}
+        if not self.account.current_username():
+            try:
+                restored = self.account.try_restore_login()
+            except Exception:  # 静默是故意的 - 恢复失败就走正常登录
+                restored = {"ok": False}
+            if restored.get("ok"):
+                try:
+                    self.trunk._log("已自动恢复登录: %s" % restored.get("user"))
+                except Exception as e:  # 静默是故意的
+                    _x6_swallowed(__name__, e, "best-effort fallback")
         try:
             while not self.account.current_username():
                 try:
@@ -336,8 +370,38 @@ class JarvisWindow(
             from gui.onboarding_wizard import needs_onboarding, show_onboarding
             if needs_onboarding(self.trunk):
                 show_onboarding(self.trunk, self)
+                try:
+                    from core import startup_consent as _sc
+                    _sc.grant(getattr(self, "base", "."), "onboarding",
+                              "用户走完首次配置向导")
+                except Exception as e:  # 静默是故意的 - 记录失败不影响引导结果
+                    _x6_swallowed(__name__, e, "best-effort fallback")
         except Exception as e:  # 静默是故意的
             try:
                 self.trunk._log("首次引导检查失败: %s" % str(e)[:60])
             except Exception as e:  # 静默是故意的
                 _x6_swallowed(__name__, e, "best-effort fallback")
+
+    def closeEvent(self, event):
+        """关闭窗口时停掉后台定时器与线程。
+
+        修复的真实问题（2026-10-22）：本类原来**没有 closeEvent**，
+        于是 3 个 QTimer（活动徽章 1s / 主动关怀 10min / 状态刷新 3min）
+        在窗口关闭后仍在跑，后台线程数从 7 不下降。
+        这会让"关掉界面但程序没退干净"或退出时卡住。
+        """
+        for name in ("_activity_timer", "_proactive_timer", "_status_timer"):
+            timer = getattr(self, name, None)
+            if timer is not None:
+                try:
+                    timer.stop()
+                except Exception as e:  # 静默是故意的 - 停不掉也要继续关窗
+                    _x6_swallowed(__name__, e, "best-effort fallback")
+        # 通知 trunk 收尾（停插件 worker / MCP 子进程 / 后台线程）
+        try:
+            stopper = getattr(self.trunk, "shutdown", None)
+            if callable(stopper):
+                stopper()
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        super().closeEvent(event)

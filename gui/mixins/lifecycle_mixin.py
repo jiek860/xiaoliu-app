@@ -98,12 +98,17 @@ class LifecycleMixin:
         box.setWindowTitle("确认操作")
         box.setIcon(QMessageBox.Question)
         box.setText("要执行这个操作吗？")
-        box.setInformativeText("操作: %s\n详情: %s" % (action, detail))
+        box.setInformativeText(
+            "操作: %s\n详情: %s" % (action, detail))
         box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         box.setDefaultButton(QMessageBox.No)
         cb = QCheckBox("本次运行内不再询问同类操作")
         box.setCheckBox(cb)
-        permanent = box.addButton("永久允许", QMessageBox.AcceptRole)
+        permanent = box.addButton("永久允许（不再询问）", QMessageBox.AcceptRole)
+        permanent.setToolTip(
+            "把这条命令的哈希记入信任列表，以后启动不再弹窗。\n"
+            "命令内容一旦改变（如换了参数），哈希随之改变，会重新询问 —— 这是安全设计。\n"
+            "可在「设置 → MCP 信任管理」里查看或撤销。")
         box.exec_()
         clicked = box.clickedButton()
         if clicked is permanent:

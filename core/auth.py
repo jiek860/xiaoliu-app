@@ -225,11 +225,77 @@ class Auth:
         d["last_login"] = time.time()
         self._ensure_user_dir(username)
         self._save()
+        self.remember_session(username)      # 下次启动自动恢复
         role = (self.team.users.get(username, {}) if self.team else {}).get(
             "role", "viewer")
         return {"ok": True, "user": username, "role": role}
 
     def logout(self):
+        self.current_user = None
+        try:
+            path = os.path.join(os.path.dirname(self.db_path), "session.json")
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError as e:  # 静默是故意的 - 删不掉也不影响退出
+            _x6_swallowed(__name__, e)
+        return {"ok": True}
+
+    # ---------------------------------------------------------- 记住登录态
+    def _session_path(self):
+        return os.path.join(os.path.dirname(self.db_path), "session.json")
+
+    def remember_session(self, username):
+        """把"当前登录用户"记到磁盘，下次启动自动恢复。
+
+        安全说明：
+          * 只存账号名，**不存密码/激活码**（激活码仍在 users.json 里验签）；
+          * 恢复时必须重新走 login() 的完整校验（激活状态、验签、过期、
+            团队禁用），任何一步失败都回到未登录 —— 不是"无条件信任"；
+          * 文件放在 data/users/ 下，与 users.json 同目录。
+        """
+        try:
+            path = self._session_path()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"last_user": str(username or ""),
+                           "time": time.strftime("%Y-%m-%d %H:%M:%S")},
+                          f, ensure_ascii=False, indent=2)
+            os.replace(tmp, path)
+            return True
+        except OSError as e:
+            _x6_swallowed(__name__, e)
+            return False
+
+    def last_user(self):
+        """读取上次登录的账号名（不做任何信任判断）。"""
+        try:
+            with open(self._session_path(), encoding="utf-8") as f:
+                return str(json.load(f).get("last_user") or "")
+        except (OSError, ValueError, AttributeError):
+            return ""
+
+    def restore_session(self):
+        """启动时尝试恢复上次登录。返回 (ok, user, reason)。
+
+        ⚠️ 必须走 login() 重新校验，不能直接把 current_user 设成账号名。
+        """
+        user = self.last_user()
+        if not user:
+            return False, "", "没有上次登录记录"
+        r = self.login(user)
+        if r.get("ok"):
+            return True, user, ""
+        return False, user, str(r.get("msg") or "恢复登录失败")
+
+    def forget_session(self):
+        """退出登录 / 撤销自动登录。"""
+        try:
+            path = self._session_path()
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError as e:
+            _x6_swallowed(__name__, e)
         self.current_user = None
         return {"ok": True}
 

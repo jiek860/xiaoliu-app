@@ -48,12 +48,23 @@ class PostProcessor:
             if not blocks:
                 return answer
             res = cr.run(blocks[0][:2000], timeout=8)
-            v = "运行成功" if res.get("成功") else "运行失败"
+            # 兼容两种返回契约：新版有 "成功"，旧版只有 returncode。
+            ok = res.get("成功")
+            if ok is None:
+                ok = res.get("returncode") == 0
+            out = str(res.get("输出") or res.get("stdout") or "")
+            err = str(res.get("错误") or res.get("stderr") or "")
+            # ⚠️ 判断顺序很重要：先处理"成功但无输出"，
+            #    因为 code_runner 对无输出会返回 "(无输出)" 占位字符串，
+            #    只判断 not out.strip() 会漏掉它。
+            if ok and (not out.strip() or out.strip() == "(无输出)"):
+                # 只有函数定义、没有任何输出：代码本身没问题，
+                # 但"验证"没有实际执行到逻辑，明确告知而不是报"失败"。
+                v = "通过（仅定义未调用，未产生输出）"
+            else:
+                v = "运行成功" if ok else "运行失败"
             answer += "\n\n（沙盒验证%s：%s%s）" % (
-                v,
-                str(res.get("输出", ""))[:120],
-                str(res.get("错误", ""))[:80],
-            )
+                v, out[:120], err[:80])
             self.trunk._log(f"代码沙盒验证: {v}")
         except Exception as e:
             self.trunk._log(f"代码验证失败: {e}")

@@ -40,7 +40,8 @@ import threading
 from PyQt5.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout,
                              QLabel, QPushButton, QListWidget, QListWidgetItem,
                              QMessageBox, QTabWidget, QWidget, QFormLayout,
-                             QLineEdit, QComboBox)
+                             QLineEdit, QComboBox, QTableWidget,
+                             QTableWidgetItem)
 from PyQt5.QtCore import Qt, pyqtSignal
 
 
@@ -111,6 +112,8 @@ class MCPDialog(QDialog):
         tabs = QTabWidget()
         tabs.addTab(self._build_servers_tab(), "🔌 服务器")
         tabs.addTab(self._build_presets_tab(), "⚡ 预置服务器")
+        from gui.mcp_trust_view import MCPTrustPanel
+        tabs.addTab(MCPTrustPanel(self.trunk, self), "🔐 信任管理")
         tabs.addTab(self._build_reference_tab(), "📋 配置参考")
         lay.addWidget(tabs, stretch=1)
 

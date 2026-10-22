@@ -21,27 +21,43 @@ class CodeExecutor(BaseModule):
         """在进程级沙箱中运行 Python 代码。"""
         from core.sandbox import run_python
         r = run_python(str(code or ""), timeout=self.timeout)
+        # ⚠️ 返回契约必须统一（2026-10-21 修）：
+        #    历史实现只在失败时给中文键（"错误"），成功时只给 stdout/
+        #    returncode，**没有 "成功" 字段**。而 pipeline 的
+        #    post_processor.verify_code() 读的是 res.get("成功")，
+        #    于是每次"沙盒验证"都被判成"运行失败"—— 即使代码本身跑通了。
+        #    现在两条路径都带齐：成功(bool) / 输出 / 错误 / stdout /
+        #    stderr / returncode / 沙箱。
+        stdout = r.get("stdout", "") or ""
+        stderr = r.get("stderr", "") or ""
+        base = {
+            "stdout": stdout,
+            "stderr": stderr,
+            "returncode": r.get("returncode"),
+            "沙箱": "进程级",
+        }
         if r.get("timed_out"):
             self.fail_count += 1
-            result = {"错误": f"超时（{self.timeout}秒），进程树已终止"}
+            result = dict(base, **{
+                "成功": False,
+                "输出": stdout[:500],
+                "错误": "超时（%s秒），进程树已终止" % self.timeout,
+            })
         elif r.get("ok"):
             self.success_count += 1
-            result = {
-                "stdout": r.get("stdout", ""),
-                "stderr": r.get("stderr", ""),
-                "returncode": r.get("returncode"),
-                "沙箱": "进程级",
+            result = dict(base, **{
+                "成功": True,
+                "输出": (stdout or "(无输出)")[:500],
+                "错误": stderr[:200],
                 "耗时": r.get("duration"),
-            }
+            })
         else:
             self.fail_count += 1
-            result = {
-                "stdout": r.get("stdout", ""),
-                "stderr": r.get("stderr", ""),
-                "returncode": r.get("returncode"),
-                "错误": r.get("stderr", "")[:200] or "执行失败",
-                "沙箱": "进程级",
-            }
+            result = dict(base, **{
+                "成功": False,
+                "输出": stdout[:500],
+                "错误": stderr[:200] or "执行失败",
+            })
 
         self.history.append({
             "代码": str(code or "")[:50],

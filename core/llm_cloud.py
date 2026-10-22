@@ -14,12 +14,69 @@ except ImportError:
         return None
 
 
+def _is_local_target(url, base_url=""):
+    """判断请求目标是不是"本机服务"（本地模型 / 本地 MCP）。
+
+    为什么不能只比较 startswith(base_url)
+    ------------------------------------
+    真实故障（2026-10-22 日志）：
+        "本地模型失败，切云端: 私有/回环/保留地址"
+    原因是 base_url 配的是 127.0.0.1，而实际请求发往 localhost，
+    startswith 对不上 -> 被当成 cloud_model -> 网络守卫把回环地址拒了
+    -> 本地模型永远不可用，只能一直走云端。
+
+    这里改成按**目标主机**判断：只要 host 是回环/本机，就按 local 处理，
+    与 base_url 的写法（127.0.0.1 / localhost / ::1，带不带端口）无关。
+    """
+    import urllib.parse
+    try:
+        host = (urllib.parse.urlparse(str(url or "")).hostname or "").lower()
+    except ValueError:
+        return False
+    # 这里是**判断**请求目标是不是本机，不是在绑定监听地址（Bandit 误报）。
+    if host in ("127.0.0.1", "localhost", "::1", "0.0.0.0"):  # nosec B104
+        return True
+    base = str(base_url or "").strip()
+    return bool(base) and str(url or "").startswith(base)
+
+
+def local_model_purpose(trunk, url):
+    """判断一次请求该用哪个网络 purpose。
+
+    只要目标主机是本机（回环）**或**用户在本地模型配置里填的那台机器
+    （典型：虚拟机连物理机的 Ollama），就按 local_model 处理，
+    否则按 cloud_model。
+
+    这一点很关键：purpose 决定了网络守卫是否放行私有地址。
+    用错就会像之前那样"本地模型永远失败，一直切云端"。
+    """
+    import urllib.parse
+    try:
+        host = (urllib.parse.urlparse(str(url or "")).hostname or "").lower()
+    except ValueError:
+        return "cloud_model"
+    if host in ("127.0.0.1", "localhost", "::1"):
+        return "local_model"
+    cfg = getattr(trunk, "config", {}) or {}
+    for key in ("ollama_url", "local_url", "local_base_url"):
+        raw = str(cfg.get(key) or "")
+        if not raw:
+            continue
+        try:
+            c_host = (urllib.parse.urlparse(raw).hostname or "").lower()
+        except ValueError:
+            continue
+        if c_host and c_host == host:
+            return "local_model"
+    return "cloud_model"
+
+
 class LLMCloudMixin:
     def _post(self, url, **kwargs):
         """所有 requests.post 的统一出口，先过网络策略。"""
         try:
             from core.net_guard import get_net_guard
-            purpose = "local_model" if str(url).startswith(self.base_url) else "cloud_model"
+            purpose = local_model_purpose(getattr(self, "trunk", None), url)
             d = get_net_guard(self.trunk).check(
                 url, module="llm_client", purpose=purpose, method="POST")
             if not d.get("allow"):
