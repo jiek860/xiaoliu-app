@@ -1027,3 +1027,120 @@ SQLite 事务 + `x6_meta`；失败不覆盖原文件。
 - `verify_snapshot(before, after, expectation)`
 - `repair_strategy(action, result, attempt=0)`
 - `core.model_pricing.estimate_cost(model, tokens_in, tokens_out, ...)`
+
+---
+
+## 新增模块 API（2026-10-22）
+
+### core/startup_consent.py
+
+```python
+CONSENT_ITEMS = ("agreement", "onboarding", "mcp_trust", "plugin_caps")
+ALWAYS_ASK = ("覆盖文件", "删除文件", ..., "按控件名点击")
+
+load(base) -> dict                 读取记录
+save(base, consents) -> (ok, err)  原子写入
+is_granted(base, item) -> bool
+grant(base, item, detail="") -> (ok, err)
+revoke(base, item=None) -> (ok, err)
+summary(base) -> {"granted": [...], "pending": [...], "always_ask": [...]}
+should_ask(base, item) -> bool      ALWAYS_ASK 永远返回 True
+```
+
+### core/mcp_trust.py
+
+```python
+command_hash(command) -> str       sha256(cmd)[:16]
+trust_path(base) -> str            含旧路径迁移
+load_trusted(base) -> set[str]
+save_trusted(base, hashes) -> (ok, err)
+is_trusted(base, command) -> bool
+```
+
+### core/auth.py 新增
+
+```python
+remember_session(username) -> bool        只存账号名
+last_user() -> str
+restore_session() -> (ok, user, reason)   重新验签，失败即未登录
+forget_session() -> dict
+```
+
+### gui/workbench_dialog.py
+
+```python
+WorkbenchWindow(trunk, parent=None)
+    .editor_open_files() -> list[str]     当前打开的文件
+    .open_path(path) -> bool
+    .set_goal(text)
+    .toggle_ai()               Ctrl+J
+    .toggle_ai_popup()         弹出/收回 AI 面板
+    .toggle_fullscreen()       F11
+
+AgentDock(workbench)
+    .current_goal() -> str
+    .can_start() -> bool
+    .start() / toggle_pause() / cancel()
+```
+
+### gui/mcp_trust_view.py
+
+```python
+MCPTrustPanel(trunk, parent=None)
+    .refresh()        不加载 mcp_client 时读配置兜底
+    .trust_all()      一键永久信任
+    .revoke_all()     撤销全部
+```
+
+---
+
+## 局域网信任 API（2026-10-22）
+
+### core/lan_trust.py
+
+```python
+entry_of(url) -> str                # "http://192.168.1.2:11434" -> "192.168.1.2:11434"
+current_hosts(trunk) -> list[str]
+trust_host(trunk, url=None) -> (ok, msg)
+revoke_host(trunk, entry) -> (ok, msg)
+describe(trunk) -> str              # 给界面用的一行摘要
+```
+
+`trust_host()` 在 `save_config()` 返回 False 时**必须**返回失败，
+不能假装成功（否则用户以为信任了，下次仍连不上）。
+
+### core/net_guard.py 新增
+
+```python
+_trusted_lan_hosts() -> set[str]
+_is_trusted_lan(host, port) -> bool
+```
+
+### core/llm_cloud.py 新增
+
+```python
+local_model_purpose(trunk, url) -> "local_model" | "cloud_model"
+```
+
+按主机名匹配 `ollama_url` / `local_url` / `local_base_url`，
+避免用字符串前缀判断导致的误判。
+
+---
+
+## 网段放行 API（2026-10-22）
+
+### core/net_guard.py 新增
+
+```python
+_lan_cidrs() -> list[str]            # 读 security.allow_lan_cidrs
+_in_lan_cidr(host) -> bool           # 判断 host 是否落在私有网段声明内
+_is_trusted_lan(host, port) -> bool  # CIDR 或精确主机，任一命中即 True
+```
+
+`_in_lan_cidr()` 的两道保护：
+
+```python
+ip = ipaddress.ip_address(host)        # 域名会先 gethostbyname 解析
+if not (ip.is_private and not ip.is_loopback):
+    return False                        # 公网 IP 永不进入此分支
+```

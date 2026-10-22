@@ -79,3 +79,26 @@ A: 打开 "打开控制台.bat" 看错误信息
 - 依赖变化：可选依赖里 Pillow 已升级到 13.x；
   只装核心依赖（install.bat）的用户不受影响，
   需要用截图/OCR 的用户请重新跑一次 scripts\install_optional.bat。
+
+================================================================================
+补充：MCP 服务器需要 uv（2026-10-22）
+================================================================================
+程序有 4 个 MCP 服务器：
+  · 文件系统     npx 启动（需要 Node.js）
+  · 网页抓取     uvx 启动（需要 uv）
+  · Git         uvx 启动（需要 uv）
+  · SQLite      uvx 启动（需要 uv）
+
+装 uv 的两种方式：
+
+  方式一（推荐，用程序自带的 Python）：
+    .venv\Scripts\python.exe -m pip install uv
+
+  方式二（官方安装器）：
+    powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+装完检查：
+    .venv\Scripts\uvx.exe --version
+    应输出类似：uvx 0.13.5
+
+装好后不用配环境变量：程序会自动把 .venv\Scripts 加进 MCP 子进程的 PATH。

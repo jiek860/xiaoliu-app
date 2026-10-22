@@ -39,7 +39,14 @@ class TrunkBackgroundMixin:
                 _x6_swallowed(__name__, e, "best-effort fallback")
 
         try:
-            threading.Timer(max(0.0, float(delay)), _run).start()
+            # ⚠️ threading.Timer 默认 daemon=False —— 进程会等它跑完才退出。
+            #    实测：关闭主窗口后线程数停在 7 不下降，其中一个就是这里的
+            #    Timer（Thread-7, daemon=False）。预热只是"尽快开始"，
+            #    不需要阻止退出，必须显式设成 daemon。
+            timer = threading.Timer(max(0.0, float(delay)), _run)
+            timer.daemon = True
+            timer.name = "llm-warmup-timer"
+            timer.start()
         except Exception as e:
             _x6_swallowed(__name__, e, "best-effort fallback")
 

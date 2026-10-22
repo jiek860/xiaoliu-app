@@ -64,7 +64,10 @@ class DialogMixin:
         # （它们是重复入口，能力已归到注册表的 crash_export / migrate_export，
         #  命令面板搜"导出"就能找到）。这里不再传自己的那份实现，
         # 免得同一件事有两个真相。
-        show_log_dialog(self, self._dlg, self.base, self.import_data)
+        return self._singleton_fn_dialog(
+            "log_dialog",
+            lambda: show_log_dialog(self, self._dlg, self.base,
+                                    self.import_data))
 
     def plugin_dialog(self):
         from gui.plugin_dialog import show_plugin_dialog
@@ -74,12 +77,73 @@ class DialogMixin:
                            self.mcp_dialog, self.show_components)
 
     def mcp_dialog(self):
-        from gui.mcp_dialog import MCPDialog
-        MCPDialog(self.trunk, self).show()
+        """打开 MCP 面板。重复点击复用同一个窗口，不会开出一堆。"""
+        return self._singleton_dialog("mcp_dialog", "gui.mcp_dialog",
+                                      "MCPDialog")
+
+    def _singleton_fn_dialog(self, key, opener):
+        """函数式开窗入口的单例复用。
+
+        show_log_dialog / show_plugin_dialog 这类函数**不返回窗口**，
+        但它们内部用 self._dlg(...) 构造，所以靠 _dlg 的缓存复用。
+        这里只负责"不要重复调用 opener 造成重复构造"。
+        """
+        cache = getattr(self, "_fn_dialog_cache", None)
+        if cache is None:
+            cache = {}
+            self._fn_dialog_cache = cache
+        d = cache.get(key)
+        if d is not None:
+            try:
+                d.show()
+                d.raise_()
+                d.activateWindow()
+                return d
+            except RuntimeError:
+                cache.pop(key, None)
+        result = opener()
+        if result is not None:
+            cache[key] = result
+        return result
+
+    def _singleton_dialog(self, key, module, cls_name):
+        """按 key 复用窗口：已存在就 raise+activate，否则新建。
+
+        修复的真实问题（2026-10-22）：连点三次 MCP 按钮会开出 3 个窗口，
+        用户得一个个关。所有 _dialog 入口都应走这里。
+        """
+        try:
+            import importlib
+            cls = getattr(importlib.import_module(module), cls_name)
+        except Exception as e:  # 静默是故意的 - 模块坏了就提示而不是崩
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "打开失败", str(e)[:160])
+            return None
+        cache = getattr(self, "_dialog_cache", None)
+        if cache is None:
+            cache = {}
+            self._dialog_cache = cache
+        d = cache.get(key)
+        if d is not None:
+            try:
+                d.show()
+                d.raise_()
+                d.activateWindow()
+                return d
+            except RuntimeError:
+                # 底层 C++ 对象已销毁（用户关掉了），重建
+                cache.pop(key, None)
+        try:
+            d = cls(self.trunk, self)
+        except TypeError:
+            d = cls(self.trunk)
+        cache[key] = d
+        d.show()
+        d.raise_()
+        return d
 
     def bot_dialog(self):
-        from gui.bot_dialog import BotDialog
-        BotDialog(self.trunk, self).show()
+        return self._singleton_dialog("bot_dialog", "gui.bot_dialog", "BotDialog")
 
     def security_center_dialog(self):
         from gui.security_center_dialog import SecurityCenterDialog
@@ -123,8 +187,25 @@ class DialogMixin:
     # 后台的 knowledge_graph / knowledge_qa / vector_store 照常运行。
 
     def history_dialog(self):
+        """历史记录窗口（签名不同：需要 account，所以单独处理单例）。"""
+        cache = getattr(self, "_dialog_cache", None)
+        if cache is None:
+            cache = {}
+            self._dialog_cache = cache
+        d = cache.get("history_dialog")
+        if d is not None:
+            try:
+                d.show()
+                d.raise_()
+                d.activateWindow()
+                return d
+            except RuntimeError:
+                cache.pop("history_dialog", None)
         from gui.history_dialog import HistoryDialog
-        HistoryDialog(self.trunk, self.account, self).show()
+        d = HistoryDialog(self.trunk, self.account, self)
+        cache["history_dialog"] = d
+        d.show()
+        return d
 
     # ---------------- 以下 9 个窗口原本是"孤儿" ----------------
     # 它们写好了、类也完整，但全项目没有任何地方能打开它们（实测过：
@@ -297,8 +378,7 @@ class DialogMixin:
 
     def open_code_editor(self):
         try:
-            from gui.code_editor_dialog import CodeEditorDialog
-            CodeEditorDialog(self.trunk).show()
+            self.open_workbench()
         except Exception as e:
             QMessageBox.warning(self, "编辑器", "打开失败: " + str(e)[:80])
 
@@ -308,10 +388,12 @@ class DialogMixin:
             QMessageBox.information(self, "提示", "AI 还没给过代码")
             return
         try:
-            from gui.code_editor_dialog import CodeEditorDialog
-            d = CodeEditorDialog(self.trunk)
-            d.set_code(codes[-1])
-            d.show()
+            wb = self.open_workbench()
+            editor = getattr(wb, "_editor", None) if wb is not None else None
+            if editor is None or not hasattr(editor, "set_code"):
+                return
+            # 工作台里的编辑器已内嵌，不需要 show()，只需把代码塞进新标签
+            editor.set_code(codes[-1])
         except Exception as e:
             QMessageBox.warning(self, "编辑器", str(e)[:80])
 
@@ -358,14 +440,15 @@ class DialogMixin:
         except Exception as e:
             _x6_swallowed(__name__, e)
             pass
-        if "云端" in item:
-            self.model_btn.setText("🔄 模型:云端")
-            self._status_local.setStyleSheet("color:#666;font-size:11px;padding:0 10px;")
-            self._status_cloud.setStyleSheet("color:#0f0;font-size:11px;padding:0 10px;")
-        else:
-            self.model_btn.setText("🔄 模型:本地路由")
-            self._status_local.setStyleSheet("color:#0f0;font-size:11px;padding:0 10px;")
-            self._status_cloud.setStyleSheet("color:#0f0;font-size:11px;padding:0 10px;")
+        # 统一走 status_lights：之前本地/云端两个灯**同时**变绿是 bug。
+        try:
+            from gui.status_lights import paint
+            paint(item, getattr(self, "_status_local", None),
+                  getattr(self, "_status_cloud", None),
+                  getattr(self, "model_btn", None),
+                  getattr(self, "model_status_label", None))
+        except Exception:  # 静默是故意的 - 指示灯刷新失败不影响模型切换
+            pass
 
     def _bg_call(self, result, fn, label="处理"):
         result.setPlainText("▶ %s中，请稍候（后台执行，界面不卡）..." % label)

@@ -237,6 +237,80 @@ class MCPClient(BaseModule):
         except Exception as e:  # 静默是故意的 - 信任写入失败不影响本次确认
             _x6_swallowed(__name__, e)
 
+    # ---------------------------------------------------------- 信任管理（v1.2）
+    # 实际逻辑在 core/mcp_trust.py（mcp_client.py 有 600 行上限）
+    def trust_report(self):
+        """列出所有服务器及其信任状态（给设置界面用）。"""
+        from core.mcp_sandbox import startup_manifest
+        from core.mcp_trust import load_trusted
+        trusted = load_trusted(getattr(self.trunk, "base", "."))
+        rows = []
+        for srv in self.servers:
+            if not srv.get("command"):
+                continue
+            try:
+                m = startup_manifest(dict(srv, cwd=srv.get("cwd")))
+            except Exception:  # 静默是故意的 - 单个服务器解析失败不影响其他
+                continue
+            h = m["command_sha256"]
+            rows.append({"name": srv.get("name"), "command": m["command"],
+                         "hash": h, "trusted": h in trusted,
+                         "reason": "已永久信任" if h in trusted else "首次启动需确认"})
+        return {"servers": rows, "trusted_total": len(trusted)}
+
+    def trust_all_servers(self):
+        """一键永久信任当前全部 MCP 服务器。"""
+        from core.mcp_sandbox import startup_manifest
+        from core.mcp_trust import load_trusted, save_trusted, trust_path
+        hashes = []
+        for srv in self.servers:
+            if not srv.get("command"):
+                continue
+            try:
+                hashes.append(startup_manifest(
+                    dict(srv, cwd=srv.get("cwd")))["command_sha256"])
+            except Exception:  # 静默是故意的
+                continue
+        if not hashes:
+            return {"ok": False, "原因": "没有可信任的 stdio 服务器"}
+        base = getattr(self.trunk, "base", ".")
+        merged = load_trusted(base) | set(hashes)
+        ok, err = save_trusted(base, merged)
+        if not ok:
+            return {"ok": False, "原因": err}
+        self._session_trusted.update(hashes)
+        self._audit({"subject": "mcp:trust:all", "decision": "allow",
+                     "result": "always", "reason": ",".join(hashes)[:300]})
+        return {"ok": True, "已信任": len(hashes), "文件": trust_path(base)}
+
+    def revoke_trust(self, server_name=None):
+        """撤销信任：不给名字则清空全部。"""
+        from core.mcp_sandbox import startup_manifest
+        from core.mcp_trust import load_trusted, save_trusted, trust_path
+        base = getattr(self.trunk, "base", ".")
+        try:
+            if server_name is None:
+                path = trust_path(base)
+                if os.path.exists(path):
+                    os.remove(path)
+                self._session_trusted.clear()
+                self._audit({"subject": "mcp:trust:revoke",
+                             "decision": "allow", "result": "all",
+                             "reason": "用户清空信任"})
+                return {"ok": True, "已撤销": "全部"}
+            for srv in self.servers:
+                if srv.get("name") != server_name or not srv.get("command"):
+                    continue
+                h = startup_manifest(dict(srv, cwd=srv.get("cwd")))["command_sha256"]
+                ok, err = save_trusted(base, load_trusted(base) - {h})
+                if not ok:
+                    return {"ok": False, "原因": err}
+                self._session_trusted.discard(h)
+                return {"ok": True, "已撤销": server_name}
+        except Exception as e:  # 静默是故意的 - 撤销失败要返回原因而非崩
+            return {"ok": False, "原因": str(e)[:80]}
+        return {"ok": False, "原因": "未找到服务器 %s" % server_name}
+
     def _confirm_startup(self, srv, cwd):
         cb = getattr(self.trunk, "confirm_cb", None)
         if not cb:
@@ -254,7 +328,15 @@ class MCPClient(BaseModule):
             scope = scope_cb("启动 MCP 服务器 %s" % srv.get("name"), detail)                 if callable(scope_cb) else None
             if scope in ("once", "session", "always"):
                 if scope == "always":
+                    # ⚠️ 写盘失败必须让用户知道，否则"永久允许"看起来生效了
+                    #    但下次启动照样弹窗（历史问题）。
+                    before = command_hash in self._trusted_commands()
                     self._save_trusted_command(command_hash)
+                    if not before and command_hash not in self._trusted_commands():
+                        with self._lock:
+                            self.conn_errors.append(
+                                "%s: 永久信任写入失败（%s）"
+                                % (srv.get("name"), self._trust_path()))
                 elif scope == "session":
                     self._session_trusted.add(command_hash)
                 self._audit({"subject": "mcp:trust:" + str(srv.get("name")),
@@ -264,7 +346,11 @@ class MCPClient(BaseModule):
             if scope_cb:
                 return False
             return bool(cb("启动 MCP 服务器 %s" % srv.get("name"), detail))
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e, "best-effort fallback")
+            with self._lock:
+                self.conn_errors.append("%s: 确认流程异常 %s"
+                                        % (srv.get("name"), str(e)[:80]))
             return False
 
     def _audit(self, event):

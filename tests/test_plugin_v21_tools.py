@@ -133,19 +133,28 @@ def test_verify_signature_reports_missing_source(tmp_path):
 
 
 def test_verify_signature_crl_blocks(tmp_path):
+    """吊销列表命中时必须拒绝。
+
+    ⚠️ 不能依赖 manifest 里已有的 signature：CI 检出的是**未签名源**，
+       meta["signature"] 为空，那样断言会被前面"未签名"分支提前命中，
+       测不到 CRL 逻辑。这里用一个自造的签名串直接走 verify_one。
+    """
     import verify_signature as vs
     from core.plugin_signer import PluginSigner
+
     meta = json.load(open(os.path.join(BASE, "modules_repo", "manifest.json"),
                           encoding="utf-8-sig"))[0]
     signer = PluginSigner(BASE)
     raw = open(os.path.join(BASE, "modules_repo", meta["file"]), "rb").read()
     digest = signer.calc_hash_bytes(raw)
+
+    fake_signature = "FAKE-SIGNATURE-FOR-CRL-TEST"
     fake = {"name": meta["name"], "file": meta["file"],
-            "sha256": digest, "signature": meta["signature"]}
-    r = vs.verify_one(fake, signer, {"signatures": [meta["signature"]],
+            "sha256": digest, "signature": fake_signature}
+    r = vs.verify_one(fake, signer, {"signatures": [fake_signature],
                                      "keys": []})
     assert r["ok"] is False
-    assert any("吊销" in e for e in r["errors"])
+    assert any("吊销" in e for e in r["errors"]), r["errors"]
 
 
 def test_check_plugin_deps_parse_and_cycles():

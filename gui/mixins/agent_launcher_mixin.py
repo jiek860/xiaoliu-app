@@ -28,36 +28,43 @@ class AgentLauncherMixin:
 
     def agent_journey_dialog(self, goal=None):
         """统一 Agent 入口：一个输入框自动路由到代码/电脑/对话。"""
+        # 2026-10-22：三窗口融合为工作台，AI 面板就在编辑器下方。
         try:
-            from gui.agent_journey_dialog import AgentJourneyDialog
-            d = AgentJourneyDialog(self.trunk, self, self.base)
+            d = self.open_workbench()
+            if d is None:
+                return None
             if goal:
-                try:
-                    d.goal.setPlainText(str(goal))
-                except Exception as e:  # 静默是故意的 - Agent 防御性回退，不阻塞主流程
-                    _x6_swallowed(__name__, e, "best-effort fallback")
-            if not hasattr(self, "_agent_journey_dialogs"):
-                self._agent_journey_dialogs = []
-            self._agent_journey_dialogs.append(d)
-            d.show()
-            d.raise_()
+                d.set_goal(str(goal))
             return d
         except Exception as e:
             QMessageBox.warning(self, "Agent 旅程", "打不开：" + str(e)[:120])
             return None
 
     def code_agent_dialog(self):
+        # 2026-10-22：三窗口融合为工作台。
         try:
-            from gui.code_agent_dialog import CodeAgentDialog
-            d = CodeAgentDialog(self.trunk, self, self.base)
-            if not hasattr(self, "_code_agent_dialogs"):
-                self._code_agent_dialogs = []
-            self._code_agent_dialogs.append(d)
-            d.show()
-            d.raise_()
+            d = self.open_workbench()
+            if d is not None:
+                d.set_goal("请修改当前打开的文件，改完自动跑测试。")
             return d
         except Exception as e:  # 静默是故意的
             QMessageBox.warning(self, "代码 Agent", "打不开：" + str(e)[:120])
+            return None
+
+    def open_workbench(self):
+        """打开（或复用）统一工作台。三个旧入口都走这里。"""
+        try:
+            from gui.workbench_dialog import WorkbenchWindow
+            wb = getattr(self, "_workbench", None)
+            if wb is None:
+                wb = WorkbenchWindow(self.trunk, self)
+                self._workbench = wb
+            wb.show()
+            wb.raise_()
+            wb.activateWindow()
+            return wb
+        except Exception as e:
+            QMessageBox.warning(self, "工作台", "打不开：" + str(e)[:160])
             return None
 
     def _set_command_palette_shortcut(self, text):

@@ -21,7 +21,7 @@ import json
 import threading
 import urllib.request
 
-from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtCore import QObject, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QComboBox, QCheckBox, QMessageBox, QInputDialog, QTabWidget, QWidget,
@@ -114,7 +114,19 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
                 try:
                     url = trunk.config.get(
                         "ollama_url", "http://localhost:11434").rstrip("/")
-                    req = urllib.request.Request(url + "/api/tags")
+                    probe_url = url + "/api/tags"
+                    # ⚠️ 必须走网络守卫：否则"虚拟机连物理机"这种
+                    #    局域网地址会被这里绕过策略直接请求，行为和真实
+                    #    聊天请求（走守卫）不一致 —— 本机显示未连接但聊天能用，
+                    #    或者本机显示已连接但聊天被拦。
+                    from core.net_guard import get_net_guard
+                    _d = get_net_guard(trunk).check(
+                        probe_url, module="settings", purpose="local_model")
+                    if not _d.get("allow"):
+                        raise PermissionError(
+                            "网络策略拒绝: %s（可在设置里把该主机加入信任）"
+                            % _d.get("reason"))
+                    req = urllib.request.Request(probe_url)
                     data = json.loads(
                         safe_open_url(req, timeout=3).read())
                     models = [m["name"] for m in data.get("models", [])]
@@ -130,6 +142,34 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
                              name="settings-model-probe").start()
 
         check_btn.clicked.connect(check_local)
+
+        def trust_current_host():
+            """把当前 ollama_url 的主机加入局域网信任白名单。
+
+            实现在 core/lan_trust.py（本文件有 600 行上限）。
+            """
+            from PyQt5.QtWidgets import QMessageBox
+            from core.lan_trust import trust_host
+            ok, msg = trust_host(trunk)
+            if ok:
+                QMessageBox.information(d, "已信任", msg)
+            else:
+                QMessageBox.warning(d, "失败", msg)
+
+        # 不新增按钮（按钮预算限制）。"信任当前主机"放在检测按钮的右键菜单里：
+        # 这是一个低频配置项，且和"检测本地模型"是同一个心智模型。
+        check_btn.setContextMenuPolicy(Qt.CustomContextMenu)
+        check_btn.setToolTip(
+            "检测本地模型（右键可把当前主机加入局域网信任）")
+
+        def _show_trust_menu(pos):
+            from PyQt5.QtWidgets import QMenu
+            menu = QMenu(check_btn)
+            menu.addAction("信任当前主机（虚拟机连物理机时用）",
+                           trust_current_host)
+            menu.exec_(check_btn.mapToGlobal(pos))
+
+        check_btn.customContextMenuRequested.connect(_show_trust_menu)
         ollama_lbl = QLabel(" 正在检测 Ollama")
         lay.addWidget(ollama_lbl)
 
@@ -144,7 +184,19 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
             try:
                 url = trunk.config.get(
                     "ollama_url", "http://localhost:11434").rstrip("/")
-                req = urllib.request.Request(url + "/api/tags")
+                probe_url = url + "/api/tags"
+                from core.net_guard import get_net_guard
+                _d = get_net_guard(trunk).check(
+                    probe_url, module="settings", purpose="local_model")
+                if not _d.get("allow"):
+                    text = " Ollama 被网络策略拦截（%s）" % str(
+                        _d.get("reason"))[:40]
+                    try:
+                        probe.done.emit(text)
+                    except Exception as e:  # 静默是故意的
+                        _x6_swallowed(__name__, e)
+                    return
+                req = urllib.request.Request(probe_url)
                 data = json.loads(
                     safe_open_url(req, timeout=3).read())
                 text = " 已检测到 %d 个模型" % len(data.get("models", []))
@@ -456,19 +508,13 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
 
     # ================= 保存 =================
     def _safe_set_model_ui(mode_text):
-        if model_btn is None:
-            return
+        # 之前这里**无条件**把云端灯设成绿色，导致选本地时云端也亮。
+        # 现在统一交给 gui.status_lights.paint 处理。
         try:
-            model_btn.setText(
-                " 模型:云端" if "云端" in mode_text else " 模型:本地路由")
-            if local_light is not None:
-                local_light.setStyleSheet(
-                    "color:#666;" if "云端" in mode_text else "color:#0f0;")
-            if cloud_light is not None:
-                cloud_light.setStyleSheet("color:#0f0;")
+            from gui.status_lights import paint
+            paint(mode_text, local_light, cloud_light, model_btn, parent.model_status_label)
         except Exception as e:
             _x6_swallowed(__name__, e)
-            pass
 
     def do_save():
         try:
