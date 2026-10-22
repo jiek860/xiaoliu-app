@@ -292,3 +292,51 @@ def test_approve_returns_bool(wb):
     # 审批回调必须返回布尔（失败时 fail-closed 为 False）
     r = wb.ai_dock._approve("code", "diff --git ...")
     assert r in (True, False)
+
+
+# ---------------- 入口合并：只保留一个「工作台」 ----------------
+def test_feature_registry_has_single_workbench():
+    from core.feature_registry import FEATURES
+    assert "workbench" in FEATURES
+    f = FEATURES["workbench"]
+    assert "工作台" in f.label
+    assert f.action == "open_workbench"
+
+
+def test_old_feature_ids_removed_from_menu():
+    """三个旧入口必须从菜单里消失，只留 workbench。"""
+    from core.feature_registry import MORE_MENU_GROUPS
+    ids = [i for _g, group in MORE_MENU_GROUPS for i in group]
+    for old in ("code_editor", "agent_journey", "code_agent"):
+        assert old not in ids, "%s 仍在菜单里" % old
+    assert "workbench" in ids
+
+
+def test_old_feature_ids_still_resolve_as_alias():
+    """旧 id 保留为别名，避免历史调用/文档失效。"""
+    from core.feature_registry import get_feature
+    for old in ("code_editor", "agent_journey", "code_agent"):
+        f = get_feature(old)
+        assert f is not None, "%s 解析失败" % old
+        assert f.label == "工作台"
+
+
+def test_toolbar_button_is_workbench(app):
+    """主界面工具条只保留一个「工作台」按钮。"""
+    import os as _os
+    _os.environ["X6_DISABLE_LOGIN_PROMPT"] = "1"
+    from PyQt5.QtWidgets import QPushButton
+    from gui.main_window import JarvisWindow
+    w = JarvisWindow()
+    try:
+        w.show()
+        app.processEvents()
+        assert "工作台" in w.editor_btn.text()
+        texts = [b.text() for b in w.findChildren(QPushButton)]
+        for old in ("代码编辑器", "Agent 旅程", "AI 代码 Agent"):
+            assert not any(old in x for x in texts), "残留旧按钮: %s" % old
+    finally:
+        try:
+            w.close()
+        except Exception:  # 静默是故意的
+            pass

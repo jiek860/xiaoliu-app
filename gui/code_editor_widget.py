@@ -275,7 +275,7 @@ class CodeEditWidget(QPlainTextEdit):
         act_ask = m.addAction("🤖 问小6（选中代码）")
         act_comment = m.addAction("💬 注释/取消注释")
         act_run = m.addAction("▶ 运行此文件")
-        act_agent = m.addAction(" 交给 Agent 旅程（当前文件/选区）")
+        act_agent = m.addAction(" 交给工作台 AI（当前文件/选区）")
         act = m.exec_(e.globalPos())
         if act == act_ask:
             txt = self.textCursor().selectedText() or self.toPlainText()

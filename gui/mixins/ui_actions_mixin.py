@@ -18,7 +18,7 @@ class UIActionsMixin:
     def _show_plus_menu(self):
         menu = QMenu(self)
         a_upload = menu.addAction("上传文件")
-        a_editor = menu.addAction("送代码编辑器")
+        a_editor = menu.addAction("送工作台")
         a_shot = menu.addAction("区域截图")
         a_export = menu.addAction("导出聊天记录")
         a_tts = menu.addAction("自动朗读开关")
