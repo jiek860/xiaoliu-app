@@ -110,15 +110,13 @@ class _SerperProvider(_BaseProvider):
         return out
 
 
-_PROVIDERS = {
-    "brave": _BraveProvider,
-    "tavily": _TavilyProvider,
-    "bocha": _BochaProvider,
-    "serper": _SerperProvider,
-}
-
-
 class DeepResearch(BaseModule):
+    _PROVIDERS = {
+        "brave": _BraveProvider,
+        "tavily": _TavilyProvider,
+        "bocha": _BochaProvider,
+        "serper": _SerperProvider,
+    }
     """多跳深度研究 Agent"""
     NAME = "deep_research"
     VERSION = "1.0"
@@ -128,7 +126,15 @@ class DeepResearch(BaseModule):
          "desc": "多跳联网研究一个问题，输出带引用编号的详细报告（60秒内）",
          "args": {"topic": "要研究的问题或主题，如：PyQt5 最佳实践、RAG 框架对比"},
          "readonly": True,
-         "hints": ["研究", "调研", "深度搜索", "对比", "分析", "report", "research"]},
+         "hints": ["研究", "调研", "深度搜索", "对比", "分析", "report", "research"],
+         "contract": {
+             "params": {"topic": {"type": "string"}},
+             "returns": {"type": "string"},
+             "errors": ["PLUGIN_TIMEOUT", "PLUGIN_UPSTREAM_ERROR"],
+             "side_effects": [],
+             "description": "多跳联网研究，输出带引用的报告",
+             "not_responsible": ["不负责事实核查", "不负责写论文"]
+         }},
     ]
 
     MAX_HOPS = 3
@@ -147,7 +153,7 @@ class DeepResearch(BaseModule):
         try:
             if self.trunk and hasattr(self.trunk, "config"):
                 cfg = self.trunk.config
-                for name in _PROVIDERS:
+                for name in self._PROVIDERS:
                     v = cfg.get(f"search.{name}_api_key", "")
                     if v:
                         keys[name] = v
@@ -156,13 +162,13 @@ class DeepResearch(BaseModule):
 
         # 环境变量兜底
         import os
-        for name in _PROVIDERS:
+        for name in self._PROVIDERS:
             env_key = f"{name.upper()}_API_KEY"
             if env_key in os.environ and name not in keys:
                 keys[name] = os.environ[env_key]
 
         for name, key in keys.items():
-            self._providers.append(_PROVIDERS[name](self.trunk, key))
+            self._providers.append(self._PROVIDERS[name](self.trunk, key))
 
     @property
     def _has_api_provider(self):

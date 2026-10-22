@@ -1,0 +1,198 @@
+{
+  "schema_version": "1.0",
+  "total_warn": 102,
+  "modules": {
+    "agent_analyst": {
+      "warn_baseline": 1,
+      "strict": false
+    },
+    "agent_coder": {
+      "warn_baseline": 1,
+      "strict": false
+    },
+    "agent_planner": {
+      "warn_baseline": 1,
+      "strict": false
+    },
+    "anomaly_detector": {
+      "warn_baseline": 1,
+      "strict": false
+    },
+    "api_server": {
+      "warn_baseline": 0,
+      "strict": false
+    },
+    "auto_updater": {
+      "warn_baseline": 3,
+      "strict": false
+    },
+    "browser": {
+      "warn_baseline": 3,
+      "strict": false
+    },
+    "cache": {
+      "warn_baseline": 2,
+      "strict": false
+    },
+    "calendar": {
+      "warn_baseline": 3,
+      "strict": false
+    },
+    "code_runner": {
+      "warn_baseline": 1,
+      "strict": false
+    },
+    "coder_pro": {
+      "warn_baseline": 2,
+      "strict": false
+    },
+    "computer_controller": {
+      "warn_baseline": 2,
+      "strict": false
+    },
+    "deep_research": {
+      "warn_baseline": 1,
+      "strict": false
+    },
+    "deep_search": {
+      "warn_baseline": 2,
+      "strict": false
+    },
+    "error_lib": {
+      "warn_baseline": 1,
+      "strict": false
+    },
+    "file_upload": {
+      "warn_baseline": 2,
+      "strict": false
+    },
+    "forgetting_curve": {
+      "warn_baseline": 2,
+      "strict": false
+    },
+    "graph_rag": {
+      "warn_baseline": 0,
+      "strict": false
+    },
+    "group_chat": {
+      "warn_baseline": 2,
+      "strict": false
+    },
+    "group_loop": {
+      "warn_baseline": 3,
+      "strict": false
+    },
+    "group_parallel": {
+      "warn_baseline": 4,
+      "strict": false
+    },
+    "hot_reload": {
+      "warn_baseline": 2,
+      "strict": false
+    },
+    "image_ocr": {
+      "warn_baseline": 4,
+      "strict": false
+    },
+    "knowledge_qa": {
+      "warn_baseline": 4,
+      "strict": false
+    },
+    "learning_loop": {
+      "warn_baseline": 5,
+      "strict": false
+    },
+    "mcp_client": {
+      "warn_baseline": 3,
+      "strict": false
+    },
+    "mcp_server": {
+      "warn_baseline": 4,
+      "strict": false
+    },
+    "memory_cards": {
+      "warn_baseline": 1,
+      "strict": false
+    },
+    "memory_loop": {
+      "warn_baseline": 2,
+      "strict": false
+    },
+    "multimodal": {
+      "warn_baseline": 2,
+      "strict": false
+    },
+    "notes": {
+      "warn_baseline": 3,
+      "strict": false
+    },
+    "personality": {
+      "warn_baseline": 1,
+      "strict": false
+    },
+    "plugin_market": {
+      "warn_baseline": 2,
+      "strict": false
+    },
+    "realtime_chat": {
+      "warn_baseline": 1,
+      "strict": false
+    },
+    "scheduler": {
+      "warn_baseline": 1,
+      "strict": false
+    },
+    "self_reflect": {
+      "warn_baseline": 1,
+      "strict": false
+    },
+    "skill_capture": {
+      "warn_baseline": 2,
+      "strict": false
+    },
+    "smart_router": {
+      "warn_baseline": 1,
+      "strict": false
+    },
+    "stt": {
+      "warn_baseline": 2,
+      "strict": false
+    },
+    "task_loop": {
+      "warn_baseline": 4,
+      "strict": false
+    },
+    "task_planner": {
+      "warn_baseline": 1,
+      "strict": false
+    },
+    "todo": {
+      "warn_baseline": 4,
+      "strict": false
+    },
+    "tool_caller": {
+      "warn_baseline": 2,
+      "strict": false
+    },
+    "translate": {
+      "warn_baseline": 4,
+      "strict": false
+    },
+    "tts": {
+      "warn_baseline": 1,
+      "strict": false
+    },
+    "weather": {
+      "warn_baseline": 4,
+      "strict": false
+    },
+    "web_agent": {
+      "warn_baseline": 0,
+      "strict": false
+    },
+    "workflow_runner": {
+      "warn_baseline": 0,
+      "strict": false
+    }
+  }
+}

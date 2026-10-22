@@ -8,6 +8,11 @@
   GET  /v1/tasks/{id} 查任务状态
 
 用 Python 内置 http.server，不加 flask 依赖。
+
+不负责的事项：
+  - 不做用户认证和鉴权（后续加）
+  - 不做 Webhook 出站重试（后续加）
+  - 不做请求限流（后续加）
 """
 import json, os, threading, time
 from http.server import HTTPServer, BaseHTTPRequestHandler

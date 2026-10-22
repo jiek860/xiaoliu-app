@@ -404,6 +404,24 @@ def test_main_window_assembles():
         assert len(w.findChildren(QWidget)) > 10, "主窗口里控件太少，装配不完整"
         # Ctrl+K 快捷键（v25.2.0 加的，漏了 import 就会静默失效）
         assert hasattr(w, "_cmd_shortcut"), "Ctrl+K 快捷键没装上"
+
+        # 所有主界面按钮：必须有可读文字，且真的接了点击处理。
+        # 空文字 / 未接线按钮在截图里往往看不出来，用户点了才发现没反应。
+        from PyQt5.QtWidgets import QPushButton as _QPushButton
+        buttons = w.findChildren(_QPushButton)
+        assert len(buttons) >= 20, "主界面按钮少得反常：%d" % len(buttons)
+        empty = [b.objectName() or b.toolTip() for b in buttons
+                 if not (b.text() or "").strip()]
+        assert not empty, "存在无文字按钮：%s" % empty
+        unwired = [(b.text() or "").strip() for b in buttons
+                   if b.receivers(b.clicked) < 1]
+        assert not unwired, "存在没有点击处理的按钮：%s" % unwired
+
+        # 命令面板 / 设置窗口共用入口表：每一项都必须真实可调用，
+        # 不能出现 None 导致设置页按钮被静默置灰。
+        commands = w._panel_commands()
+        dead = [name for name, fn in commands.items() if not callable(fn)]
+        assert not dead, "命令面板/设置缺少入口：%s" % dead
     finally:
         try:
             w.close()

@@ -22,7 +22,15 @@ class WebAgent(BaseModule):
          "desc": "打开网页并截图，让 AI 看页面内容",
          "args": {"url": "要打开的网址", "goal": "要完成的任务，如：登录、搜索、填表"},
          "readonly": False,
-         "hints": ["网页", "浏览器", "上网", "打开网站", "browse", "web"]},
+         "hints": ["网页", "浏览器", "上网", "打开网站", "browse", "web"],
+         "contract": {
+             "params": {"url": {"type": "string"}, "goal": {"type": "string"}},
+             "returns": {"type": "object"},
+             "errors": ["PLUGIN_NOT_AVAILABLE"],
+             "side_effects": ["ui_control", "network"],
+             "description": "打开网页并截图，让 AI 看页面内容",
+             "not_responsible": ["不负责持久登录态", "不负责验证码识别"]
+         }},
     ]
 
     def __init__(self, trunk=None):

@@ -235,9 +235,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 3131,
-    "sha256": "f809b00e2bb9f4ad30a836f57e51545a2de6555adca8389808b44f059de05ee1",
-    "signature": "009fcf365f58958fab82301bf46265b664b80dae6db99015d1c0d584ecba82e8bc625fa1797bb69395860c57cc920a0c47889bd41cecd8a93d97a6e230fc1b9b350c41e2494696b14c4f0f7ded07317f6620f0d3ad1c0224c9c82bed127b661962e8c5865d765b18b9f8375df6257048fff9c74f3bd702ddd052db2dfeb98acf18e4e4b95a3e2d1dcb577b54a8ebad888a2cd44978293c005e8c734f340bf0f424933f225ea58e3d9d99abb4393db6c33a495ea8231057ca19d9d1771eb1706f5c7907213548f8abb66794b27bdb829a5f27583f9ea414a27283b29c261b90add0e640462e2df7b3327b27d25c723a35d2f01517514a4f66d1aac1a0a480c362"
+    "size": 3286,
+    "sha256": "a3c1749b683c283617d7f02c6fca579b6976fdbf6da46f2c9208db5dff836db5",
+    "signature": "4d5ed1227a5437f4f7c2b45d10aae8f83937136bfe3187d7a3b8bd610302428036f634917f39bee97188fca065f2b6a9abd0eca051caa5e955d946fd9fe7da599ee4b494a13ccdcb4aa1b897a32101be950e716588e2b1e86686ccbf44996e32ca8fd882489dd283e856a310cacbc9c3108c0a7671763357e6fdbe15189f17cc9595d0f8164326ed7dc9f3b73a4a411b9a1f66d45d9956007db4ce92064f1f68ab692a302309a474fcd83f548905e5ddaf7cc5b738318b398654cb97f47c3829e776ac4bf677dcd1597b400deaed2d7700c3f348bcfd1470d4719c55bc16fe028c9bb2abae0da8bbf2cefc36d93f2147962566129bf4644b0e288a68a093910a"
   },
   {
     "name": "auto_updater",
@@ -564,7 +564,33 @@
           "code",
           "编程",
           "patch"
-        ]
+        ],
+        "contract": {
+          "params": {
+            "goal": {
+              "type": "string"
+            },
+            "project_path": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_INTERNAL_ERROR",
+            "PLUGIN_NEEDS_CONFIRM"
+          ],
+          "side_effects": [
+            "filesystem_write",
+            "process"
+          ],
+          "description": "让 AI 修改代码，带审批和 git 快照",
+          "not_responsible": [
+            "不负责写测试用例",
+            "不负责代码审查"
+          ]
+        }
       }
     ],
     "api_version": "1.0",
@@ -601,9 +627,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 3682,
-    "sha256": "d6fae94f4ca4d137da96e9c0de1adb650bfe248f7096d8ba1c1e5c8a822d2a3f",
-    "signature": "65833db40fd5a4beb46b865aee05acfe7ed993f061d9825c534c8974c0e55911dd3f72ebd762659e16f70570353ba51af22bfe935946c80e7d9f306d47c3398452e77826ea15966192ad77a9fa5ea889af6734cd75c6836ac59d1f3d50729e995561cd46cac50711f5f03124f703e18e4b28f5e7ec544926ce6e7162dd107ba95ad23cb1b3e8082f8540bba6e141668dde120b5ffaee0d9f92ffad340954d24ed77c246559d9ae2cab3f491d193f265beb720bd382004b86f5e11b581ad5667c46564b5a9f8b8c800467ca8ab63fbfc9ff196c761f8d5f8dbce93d5f0343d465eba61b6d2e2472f1482bacc845cd3591de81205143e36f40db503f3473eb2610"
+    "size": 4149,
+    "sha256": "063de0288063354bc2289cd2ba507ebe1f741dd56410add92ed6e0b15d49ecac",
+    "signature": "58ca0c1a21060a755d6ba950fcdb1708cb37a710c23d902e1c7ff9cb08d14d2ed3c27308d366bc04a44c024dd93723a996ba22e201377a00ba4d0d1513a07fe14ae105aad9fd9799e007ca8447dcaedc5310c60fe6b1c3ea520be4b5a00566bfe0bdd29897ffd8b0643ae025525f78d7c8f8b1b196c09144c4d0fbf1c58cc091d5d39d3af3b011e300a71d16e00592390b8abc16cad73b7bcd926a92ecba467d30195afa1e9605b8fb41f6f8015ec03c3c3ea63147e6628dbe84bda6baed6f615a2d1a299c54b97d997e66e2e06c8832b55efec1e0d8e5d3a8de54f51dc36ad25564e66abe16f4f982592d050086cecaea759c198316f9fc80d6d18916de1281"
   },
   {
     "name": "computer_controller",
@@ -680,7 +706,27 @@
           "分析",
           "report",
           "research"
-        ]
+        ],
+        "contract": {
+          "params": {
+            "topic": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "string"
+          },
+          "errors": [
+            "PLUGIN_TIMEOUT",
+            "PLUGIN_UPSTREAM_ERROR"
+          ],
+          "side_effects": [],
+          "description": "多跳联网研究，输出带引用的报告",
+          "not_responsible": [
+            "不负责事实核查",
+            "不负责写论文"
+          ]
+        }
       }
     ],
     "api_version": "1.0",
@@ -717,9 +763,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 11979,
-    "sha256": "f534a6f8ef9e95364190d1dbe98923a4a8a92319494a2484d06888a7ac0601cf",
-    "signature": "7936e9e10b873223bb53c1c050b0898fd3739019be69fb7687b4fb9dc8dff0d37dddcac0bec063fbbd2a34e7f85cc4e0d184135f40914334c6d16a4c199f0fab7175575aa19d565b6b6cd78e1696a49ca844a788d2d902974982cd2d385a34e2ca87570281abb7fbf2e4847eb1ef81f6b6b07e2231e968928af048e8c62f1f27ffc57ee23f944f7529be89be23dae68d69d5d7c83c352262444f4111bfe6e9fa982fbdf3dd61a55a244a391c80e7e7572af776d6d88f1f7507458075212b0f8a74518149de51aeae2739b18fbd37e2dfdd77b1fa78739cf4f6f1484d6bedc3c9861290d9871b5bfd351f793b834c746a7f069f4a2341b51a50f863e4cfbafea2"
+    "size": 12735,
+    "sha256": "709877613d510a093881d0cbd42edf96560ef5a3ac30106a185b5f26367b2b5b",
+    "signature": "8818a60619be58eb4503e8d8917231ddf0bd29d90b945c9885d708d028a64fe790744a62c32793109c9b9df4cba1ce478618ca5989d4c298920e52cd183fce5f500d2dac252a37df3a1704caa45d6380546dddb611f425e796623c6de4441d3b43e399081a8934c3218bbb35bf07e2a8f5401959076e7a957a8cb8ae91a35b518e85a803a1e500ae0e038eef05a69dcf1bcd42468adcbff73c0af67349fd783332e77c2145c891da225dc849063c47cbc44372de32548f191c94e9a318262910999c1f15656a2e60ba834ca588d05e39490ed71dc0c6d427c0b6d018cca3fbcbdd61f24a867a311604a4363e7859905d767b3d719f14e4f7d640c5703528641c"
   },
   {
     "name": "deep_search",
@@ -965,9 +1011,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 3888,
-    "sha256": "dc7a9cbdda710255b997c5f8e457befcc342839d8f38a847e273b698e37e5fb0",
-    "signature": "66efce7f4a8e432e590bcfc8eee1c60eab0dc9833f49b3e51b6ca1f52207c153a2aad9503f48c081b0335d916c0cc8ff8b6b7d5b50f48ca0486fab252b51b61a20a1106a4c5fa7e77f4a5d2e7d4fffdde79ffb6c010e9de62d61cb0fe78819ee3b81662e33511188c611afd99261ec928e792ce89d395d6897778b938eba5c49938cc23898adb7061719cb8f1e90ae94f2e419a2886b3b2e8b07c7a4af505f01a9d11bc18ea756175885f86d98166137b2bc42df8a7c111d37da5712e59f1f12044681c50df5770a1c684efbf4216c05f170c256078bef7cc636d38585be9d77feef7f8dcc22fab9abab919d59dc5003f8838c045ae6e17b190a34ba5db1f940"
+    "size": 4080,
+    "sha256": "b912e220f895d603dcdb1f5aaaa49ce60c79549f414e63a455007cc72af6072e",
+    "signature": "3251f25aa0bada8380bedd8b4f9cf40a7fe4eb01345e473802918722385627dce8666853420593ce0e563d26194627e1f1787b9dbd84cad04e445178b36847ba2ffa00c3811b291ecec7db6340a979189ae3371b13f6465b11ba4fb8c15a00172ba211fa7614d2ac875b2087603176f428c0ad094c1c3a38e295c1a7a3cf34108c96852e6e071e2011bd593b021a0aad0b61302269c1d7d6a058e9db622673319415faaab536a7513a10bad3ae615e015482b8913b4f7bb934ef221fecbea22453cf06e2cdbad19aacaa3272841db5995b4603474f683867d723c290d475bfcb45634357a2a5356ba846814768440bc54df87ab7a4f6c35c1708f381903a53dd"
   },
   {
     "name": "group_chat",
@@ -2689,7 +2735,32 @@
           "打开网站",
           "browse",
           "web"
-        ]
+        ],
+        "contract": {
+          "params": {
+            "url": {
+              "type": "string"
+            },
+            "goal": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_NOT_AVAILABLE"
+          ],
+          "side_effects": [
+            "ui_control",
+            "network"
+          ],
+          "description": "打开网页并截图，让 AI 看页面内容",
+          "not_responsible": [
+            "不负责持久登录态",
+            "不负责验证码识别"
+          ]
+        }
       }
     ],
     "api_version": "1.0",
@@ -2726,9 +2797,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 2525,
-    "sha256": "61682e91407da3f6e44e9653699f92f12b5780bfea3c699d855004194511f3d2",
-    "signature": "03fd3f6144fbc1f2fe56ba57162fdca73ab8e91e71e7d383eb95e583f46506c7e7d0a7db9db4d562a8ed2e9125686cf7e5b85daa3c64c83f8c612dde9fa9b100e9ad3eb8593a85ff0f47594b417190860f385cf03f2735262b6216d1219fd9ea050f800013bff78d2c58afb476483fed02d4b9e5efd362ab03595483da2d2968d8aaacef483f08e477b6350acfe3708e85254b99f99a232d1be05e37bf590449721ff7e7bc66ab5a62dc13d00457f2eb0abd61913cc07eb1aa0680dd67c7ff2fd341911f07a2becdc607531c78725f3260ee6506814ef23122e438f8e0d46eff12893b245db5d717bd8373aa1acd7dd94c46bde6f706b46d78e9297f9ccb0023"
+    "size": 2956,
+    "sha256": "1ee393d8267315437adab56a1f4756edeb76f4ec3fdc4fdcf2ed1e0b2f3b52e4",
+    "signature": "643efcaad29565384f79ce72cd2b0b600dccd2ce14dd1bbdc54d38641c0d74617c233edcb51b8511583a73fd5ebb58d34648cee337e0aa22560ae2efe22d403b46425a215ad98ff8169947f314ec19bce15bbb78964240de7f968a3efeca189f1d17c474c6b61bbb92f219a9836b1471d897fed25abd6b6a91979627922af90ab209773bb6f35d98019f2053290a01ea244d642ab229a7d1ca5a58805e3fec87bf7d7bf69c6c1324c09f0b3c42ef783853f6dadd38ab0f9ad8699536bf1916ab22d304fed54e2f0b2ab66ee91cd5eef91c249e25a5490f14153d735ec4d318da74ae56e4e50e0acef5d39035371c33fc01b78d549840af7d38c39b18aa7c676a"
   },
   {
     "name": "workflow_runner",
@@ -2774,8 +2845,8 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 4099,
-    "sha256": "02780ed1ed6cbda7b022b0139021e097d3d0473d87b5bff7698144f189414248",
-    "signature": "48d2dd82816846ea0a6b684a814c8cf70ac7fb5dac5eabcb0e044dac4e2a416cbeede9f636a74baaf7f7004efbf9ff7b432391a3e5799586aaa2b6be0b8e8237da4516b8d31382bd9b585d5e0ba9cededfaf335df7e36519b5b1905dbd15c0206e34174d7a8bc92759f9f2d9edb5c437903b76d4470f732799d348eb199654bf770c4a94ad22988fd6cc42e5d50ebc65ff0978a289806b017ec381183817fe5526769dd5bc035c73bf28edda5a4435f8b2fd193c9b9d7fcc29cb5569728ee558d6f3d0090226a38d6e0470a74f0b7e66669b7f96ab1f9c29be8d3337123cdf3477e40318f43b1d3684857b54ff3ff0d058eb57a50878a27eb8e1a7b90190f6ec"
+    "size": 4322,
+    "sha256": "c769e99700b7954b1c9b310879d98483f38da31e3697fa5920729a2e44794cea",
+    "signature": "2e39163c09adba795dfaf2b8982364e43e1b742fa1f629a66fa05da319507b6aa5431d355a34997596d0f6c663bfc2a68581a479014af4ce3fafeaf5ba8c3c62398fb864108a0faeb5dd217653f5b612cc005c8e9a7b712b5ecdb4467575cd55330c6a8fa5697698a03fdb524ebe7af0ac32045b2f652c6b3092f4e0007192f3e0915be32163062845acffec89319ef3f453c8a196a5979514c6746004681b392530a8986072c3c1284ea2d4f6919109c1c7128abc5bb4bfe3f26528807181abb28929980f34a491351c1a1ba2b6e5d3c5874587508c57a8f2e8e79b70ca1f4200c38abaff53b394337489cba69c53f5bfc83d3fbb063cf381e5d89d5b91f128"
   }
 ]

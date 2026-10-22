@@ -1,7 +1,7 @@
 # 小6智能体  模块规则与 API 参考
 
 版本：v25.2.23  
-更新日期：2026-10-19  
+更新日期：2026-10-22
 文档定位：**开发者查阅模块/规则/能力与 Trunk API 的参考手册。**
 
 > 本文件由原《全模块规则体系》和《API 文档》合并。
@@ -30,13 +30,13 @@
 > | `core/rules_engine.py` | 规则定义 | **63 条规则** |
 > | `core/core_caps.py` | core 侧能力声明 | 19 条 |
 > | `core/module_caps.py` | 能力注册表（合并两来源） | 49 条能力 |
-> | `modules_repo/manifest.json` | 插件清单（RSA 签名） | 45 条 |
+> | `modules_repo/manifest.json` | 插件清单（RSA 签名） | 48 条 |
 >
 > **本文已知对不上的地方（点名列出，不藏）**
 >
 > | 位置 | 文档写的 | 实际 |
 > |---|---|---|
-> | 开头覆盖面 | 43 个注册模块 | **66 个** |
+> | 开头覆盖面 | 43 个注册模块（历史口径） | **72 个** |
 > | 别名映射 | `web_learner→proactive_learner` | 这条**已删除**（它指向的 `active_learning` 已退役）；真身从来不是 `proactive_learner` |
 > | 别名映射 | （未提） | 实际还有 `model_mode→本地路由` |
 > | C 组状态 | 标注"建议"、待落地后参数化 | **8 条都已有实现**（见下表） |
@@ -818,7 +818,7 @@ tc._dispatch(info, args, query, tool_name)
 - 模块登记：`core/lazy_config.py` 的 `LAZY_MAP`，当前 72 个。
 - 规则定义：`core/rules_engine.py`，当前 63 条。
 - 能力注册：`core/module_caps.py`，当前 49 条。
-- 插件清单：`modules_repo/manifest.json`，当前 45 条。
+- 插件清单：`modules_repo/manifest.json`，当前 48 条。
 
 新增能力时：
 

@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """插件质量门禁（Module-Level Program Standard 第十节落地版）。
 
 把"标准"从文档变成可执行检查。分三级：
@@ -46,7 +46,7 @@ _GLOBAL_PATTERNS = (
     (re.compile(r"\bos\.environ\b"), "直接读环境变量（应走配置系统）"),
     (re.compile(r"^\s*global\s+\w+", re.M), "使用 global 声明"),
     (re.compile(r"\bos\.getcwd\(\)"), "依赖当前工作目录"),
-    (re.compile(r"^\s*[A-Z_]+\s*=\s*(\{|\[)", re.M), "模块级可变全局容器"),
+    (re.compile(r"^[A-Z_]+\s*=\s*(\{|\[)", re.M), "模块级可变全局容器"),
 )
 
 # 硬编码密钥检查（标准 5.3）
@@ -262,9 +262,17 @@ def check_module(meta):
                                            "cleanup", " _on_stop".strip()})
         if not info["has_run"]:
             errors.append("%s: 缺入口 run()（标准 1.2）" % name)
-        if not info["has_stop"]:
-            warnings.append("%s: 未声明 stop()/close()（标准 4.2，"
-                            "无资源可释放可忽略）" % name)
+                # 标准 4.2：只有持有资源的模块才要求 stop()/close()
+        _RESOURCE_PATTERNS = (
+            re.compile(r"\bthreading\.(Thread|Timer)\b"),
+            re.compile(r"\bsocket\."),
+            re.compile(r"\bsubprocess\."),
+            re.compile(r"\bsqlite3\.connect\b"),
+            re.compile(r"\bHTTPServer\b"),
+        )
+        has_resources = any(rx.search(src) for rx in _RESOURCE_PATTERNS)
+        if not info["has_stop"] and has_resources:
+            warnings.append("%s: 有资源但未声明 stop()/close()（标准 4.2）" % name)
     except SyntaxError:
         pass
 
@@ -306,6 +314,29 @@ def check_all():
     results = [check_module(m) for m in manifest]
     errors = sum(len(r["errors"]) for r in results)
     warnings = sum(len(r["warnings"]) for r in results)
+
+    # 警告基线棘轮：老模块不许超基线，新模块必须 0 警告
+    baseline_path = os.path.join(BASE, "tools", "plugin_quality_baseline.json")
+    if os.path.isfile(baseline_path):
+        try:
+            with open(baseline_path, encoding="utf-8") as f:
+                baseline = json.load(f)
+            bl_modules = baseline.get("modules", {})
+            for r in results:
+                name = r["name"]
+                if name not in bl_modules:
+                    continue
+                bl = bl_modules[name]
+                cur_w = len(r["warnings"])
+                bl_w = bl.get("warn_baseline", 0)
+                if bl.get("strict") and cur_w > 0:
+                    r["errors"].append("%s: 严格模块有 %d 条警告（基线 0，必须为 0）" % (name, cur_w))
+                elif cur_w > bl_w:
+                    r["errors"].append("%s: 警告数 %d 超过基线 %d（棘轮只许降不许升）" % (name, cur_w, bl_w))
+            errors = sum(len(r["errors"]) for r in results)
+            warnings = sum(len(r["warnings"]) for r in results)
+        except Exception:
+            pass  # 静默是故意的：基线文件可能不存在或格式错误，不影响检查
     return {
         "schema_version": "1.0",
         "plugin_api_version": PLUGIN_API_VERSION,

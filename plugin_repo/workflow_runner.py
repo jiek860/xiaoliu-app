@@ -13,6 +13,9 @@
     - name: 第三步
       action: llm
       prompt: "综合结果写报告"
+不负责的事项：
+  - 不负责可视化拖拽编辑
+  - 不负责条件分支执行（后续加）
 """
 import os, json
 

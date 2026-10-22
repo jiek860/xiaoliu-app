@@ -92,7 +92,7 @@ tests/test_code_sandbox_contract.py 11 项  代码沙盒返回契约
 
 | 指标 | 值 |
 |---|---|
-| 全量测试 | 1604 passed / 2 skipped |
+| 全量测试 | 1632 passed / 2 skipped（2026-10-22 分文件全量） |
 | 变更行覆盖率 | 71.44%（门槛 70%） |
 | 总覆盖率 | 62.78% |
 
