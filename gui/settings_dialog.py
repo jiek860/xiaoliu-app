@@ -399,10 +399,6 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         lay.addWidget(_open_btn("", "语音对话",
                                 "实时语音对话：静音断句、可随时打断"))
         lay.addWidget(_open_btn("", "日历待办", "日历 + 待办 + 笔记"))
-        lay.addWidget(_open_btn("", "命令面板 (Ctrl+K)",
-                                "一个搜索框找所有能力和面板"))
-        lay.addWidget(_open_btn("", "模块星图",
-                                "全部模块的星型拓扑图"))
 
     def build_extensions(lay):
         lay.addWidget(QLabel(" 扩展"))
@@ -433,8 +429,6 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
                                 "模型没配好、它不回话时打开这个"))
         lay.addWidget(_open_btn("", "新手教程",
                                 "激活 / 配模型 / 聊天 / 兼容性与迁移速查"))
-        lay.addWidget(_open_btn("", "检查更新",
-                                "检查新版本 / 回滚 / 更新历史"))
         lay.addWidget(_open_btn("", "意见反馈", "给开发者留言"))
 
     def build_developer(lay):
@@ -442,8 +436,6 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         lay.addWidget(_open_btn("", "命令面板 (Ctrl+K)",
                                 "搜索所有能力和面板"))
         lay.addWidget(_open_btn("", "模块星图", "模块拓扑图"))
-        lay.addWidget(_open_btn("", "日志", "运行日志与错误",
-                                key="日志中心"))
 
     tabs = QTabWidget()
 
