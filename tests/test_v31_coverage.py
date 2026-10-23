@@ -340,3 +340,41 @@ def test_skill_registry_state_save_failure_is_tolerated(tmp_path):
     reg = SkillRegistry(_Trunk(base_file))
     reg._save_state()
     assert reg.list_all() == []
+
+
+def test_skills_market_more_branches(monkeypatch, tmp_path):
+    import core.skills_market as sm
+    assert not sm._valid_catalog({"x": 1})
+    assert not sm._valid_catalog(["notdict"])
+    assert not sm._valid_catalog([{"name": "x", "title": "x", "desc": "x",
+                                   "local_path": "x"}])
+    assert not sm._valid_catalog([{"name": "x", "title": "x", "desc": "x",
+                                   "sha256": "a"}])
+    valid = [{"name": "x", "title": "x", "desc": "x", "sha256": "a",
+              "download_url": "https://example.com/x"}]
+    class Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self):
+            import json
+            return json.dumps(valid).encode()
+    monkeypatch.setattr(sm.urllib.request, "urlopen", lambda *a, **k: Resp())
+    r = sm.fetch_remote_catalog()
+    assert r["ok"] and r["source"] == "remote"
+    monkeypatch.setattr(sm, "fetch_remote_catalog", lambda: {
+        "ok": True, "skills": [{"name": "x", "download_url": "http://bad",
+                                "sha256": "a"}]})
+    assert sm.download_skill("x", str(tmp_path))["ok"] is False
+    monkeypatch.setattr(sm, "fetch_remote_catalog", lambda: {
+        "ok": True, "skills": [{"name": "x", "local_path": "missing.x6skill",
+                                "sha256": "a"}]})
+    assert sm.download_skill("x", str(tmp_path))["ok"] is False
+
+
+def test_llm_local_remaining_branches():
+    from core.llm_local import LLMLocalMixin
+    assert LLMLocalMixin._normalize_ollama_messages(
+        [{"content": "plain"}])[0]["content"] == "plain"
+    assert LLMLocalMixin._normalize_ollama_messages(
+        [{"content": ["text", {"type": "text", "text": "x"}]}])[0]["content"] == "text\nx"
+    assert LLMLocalMixin._has_image([None, {"images": []}]) is False
