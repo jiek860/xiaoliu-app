@@ -30,10 +30,7 @@ class UIActionsMixin:
                 QMessageBox.warning(self, "Web 控制台",
                                     str(info.get("error") or "启动失败"))
                 return info
-            QMessageBox.information(
-                self, "Web 控制台",
-                "已启动。\n\n访问地址：\n%s\n\n注意：token 等同于临时密码，不要发给别人。"
-                % info.get("url", ""))
+            self._show_web_console_dialog(str(info.get("url", "")))
             return info
         except Exception as e:
             try:
@@ -42,6 +39,70 @@ class UIActionsMixin:
             except Exception:  # 静默是故意的：启动失败已尝试弹窗，二次提示失败不抛
                 pass
             return None
+
+
+    def _show_web_console_dialog(self, url):
+        """用可选中、可复制的输入框展示 Web 控制台地址。"""
+        from PyQt5.QtCore import QUrl
+        from PyQt5.QtGui import QDesktopServices
+        from PyQt5.QtWidgets import (QApplication, QDialog, QDialogButtonBox,
+                                     QLabel, QLineEdit, QVBoxLayout)
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Web 控制台")
+        dlg.setMinimumWidth(560)
+        layout = QVBoxLayout(dlg)
+        layout.addWidget(QLabel("已启动。访问地址（含临时 token）："))
+        edit = QLineEdit(url)
+        edit.setReadOnly(True)
+        edit.setCursorPosition(0)
+        edit.selectAll()
+        edit.setFocus()
+        layout.addWidget(edit)
+        tip = QLabel("token 等同于临时密码，不要发给别人。")
+        tip.setWordWrap(True)
+        layout.addWidget(tip)
+        buttons = QDialogButtonBox()
+        copy_btn = buttons.addButton("复制链接", QDialogButtonBox.ActionRole)
+        open_btn = buttons.addButton("打开浏览器", QDialogButtonBox.ActionRole)
+        close_btn = buttons.addButton(QDialogButtonBox.Close)
+        copy_btn.clicked.connect(
+            lambda: (QApplication.clipboard().setText(edit.text()),
+                     edit.selectAll()))
+        open_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(edit.text())))
+        close_btn.clicked.connect(dlg.accept)
+        dlg.exec_()
+
+
+    def set_dialog(self):
+        """设置窗口单例：未关闭时只把原窗口提到前面。"""
+        cache = getattr(self, "_dialog_cache", None)
+        if cache is None:
+            cache = {}
+            self._dialog_cache = cache
+        old = cache.get("settings_dialog") or getattr(self, "_settings_dialog", None)
+        if old is not None:
+            try:
+                if old.isVisible():
+                    old.show()
+                    old.raise_()
+                    old.activateWindow()
+                    return old
+            except RuntimeError:
+                self._settings_dialog = None
+        from gui.settings_dialog import show_settings_dialog
+        d = show_settings_dialog(
+            self, self._dlg, self.trunk, self.base,
+            getattr(self, "ai_name", "小6"),
+            getattr(self, "model_btn", None),
+            getattr(self, "_status_local", None),
+            getattr(self, "_status_cloud", None),
+            getattr(self, "chat", None), getattr(self, "input", None),
+            self._panel_commands(),
+        )
+        cache["settings_dialog"] = d
+        return d
 
     def open_skills_dialog(self):
         """打开技能管理（统一入口，供更多菜单/命令面板复用）"""

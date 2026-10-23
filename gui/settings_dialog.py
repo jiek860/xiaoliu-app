@@ -40,6 +40,9 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
     commands: {名称: 可调用}，由主窗口传入；缺入口时按钮置灰并说明。
     """
     d, l = dlg("设置", 680, 700)
+    if parent is not None:
+        # 让主窗口的 set_dialog() 能复用正在打开的设置窗口
+        parent._settings_dialog = d
     CMD = commands or {}
     simple = True
     try:
@@ -433,7 +436,9 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         lay.addWidget(_open_btn("", "检查更新",
                                 "检查新版本 / 回滚 / 更新历史"))
         lay.addWidget(_open_btn("", "意见反馈", "给开发者留言"))
-        lay.addWidget(QLabel("\n 开发者"))
+
+    def build_developer(lay):
+        lay.addWidget(QLabel(" 开发者"))
         lay.addWidget(_open_btn("", "命令面板 (Ctrl+K)",
                                 "搜索所有能力和面板"))
         lay.addWidget(_open_btn("", "模块星图", "模块拓扑图"))
@@ -457,7 +462,7 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         tabs.addTab(_scroll_tab("扩展", build_extensions), " 扩展")
         tabs.addTab(_scroll_tab("记录", build_records), " 记录")
         tabs.addTab(_scroll_tab("系统", build_system), " 系统")
-        tabs.addTab(_scroll_tab("开发者", build_system), " 开发者")
+        tabs.addTab(_scroll_tab("开发者", build_developer), " 开发者")
 
     # 设置搜索：按标签页内可见文字查找，命中后切到对应页并聚焦控件。
     search_row = QHBoxLayout()

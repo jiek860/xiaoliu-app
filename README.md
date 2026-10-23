@@ -180,7 +180,7 @@ ipconfig                            # 记下 IPv4 地址，如 192.168.1.2
 | **Agent 自学习** | 已落地 | 任务结束后捕获技能；聊天提示词中以独立 system 消息注入，避免挤掉用户输入 |
 | **web_agent 动作循环** | 部分落地 | DOM 可交互元素 + VLM 页面描述 → 执行 click/type/scroll/back；动作失败返回失败 |
 | **coder_pro Plan/Act** | 已落地 | 先出计划 → GUI 编辑/批准 → 计划拼进 CodeAgent goal 再执行 |
-| **Web 控制台** | 部分落地 | localhost + token；聊天/任务接口可用；WebSocket 需要安装 `websockets`，否则只使用 HTTP |
+| **Web 控制台** | 部分落地 | localhost + token；聊天/任务接口可用；弹窗地址可选中/复制/直接打开浏览器；WebSocket 需要安装 `websockets`，否则只使用 HTTP |
 | **Skills 市场** | 基础版 | 带 sha256 校验的本地目录和下载接口；远程目录地址已固定，UI 入口在技能管理「更多操作」 |
 | **SWE-bench runner** | 框架版 | 支持 clone/checkout/apply test patch/真实测试；样例数据需填 commit_hash，否则明确标为 skipped |
 | **多模态** | 部分落地 | 图片 base64 → OpenAI/Anthropic/Gemini/Ollama 四种请求格式；聊天历史暂不保存原图 |
