@@ -167,19 +167,6 @@ class DialogMixin:
         from gui.components_dialog import show_components_dialog
         show_components_dialog(self, self.base, self._install_component)
 
-    def set_dialog(self):
-        from gui.settings_dialog import show_settings_dialog
-        # 全容错：所有属性不存在就传None，绝对不报错
-        # commands 就是原来"功能中心"里的那批入口，现已并入设置按用途分标签页。
-        # 某个回调缺失时，设置里对应按钮会自动置灰。
-        show_settings_dialog(
-            self, self._dlg, self.trunk, self.base,
-            getattr(self, "ai_name", "小6"),
-            getattr(self, "model_btn", None), getattr(self, "_status_local", None), getattr(self, "_status_cloud", None),
-            getattr(self, "chat", None), getattr(self, "input", None),
-            self._panel_commands(),
-        )
-
     # center_dialog() 已移除：它那 8 个入口全部并入上面的设置窗口，
     # 按用途分成了 工具 / 扩展 / 记录 / 系统 四个标签页。
     # 只留一个空壳"功能中心"反而会让人以为里面还有东西。

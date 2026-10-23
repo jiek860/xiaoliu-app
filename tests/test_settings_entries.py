@@ -167,3 +167,68 @@ def test_settings_dialog_actually_enables_them(win):
                 dd.close()
             except Exception:
                 pass
+
+
+def test_system_and_developer_tabs_are_distinct(win, monkeypatch):
+    """系统页和开发者页不能复用同一个 builder（否则内容完全一样）。"""
+    from PyQt5.QtWidgets import QDialog, QTabWidget, QPushButton
+    import gui.settings_dialog as sd
+    from gui import ui_mode
+    monkeypatch.setattr(ui_mode, "get_ui_mode", lambda *a, **k: "advanced")
+
+    made = []
+
+    def _fake_dlg(title="", w=0, h=0):
+        from PyQt5.QtWidgets import QVBoxLayout
+        dd = QDialog()
+        dd.setWindowTitle(title or "设置")
+        lay = QVBoxLayout(dd)
+        made.append(dd)
+        return dd, lay
+
+    saved_exec = QDialog.exec_
+    QDialog.exec_ = lambda self: 0
+    try:
+        sd.show_settings_dialog(
+            win, _fake_dlg, win.trunk, BASE, "小6", None, None, None,
+            None, None, win._panel_commands())
+        tabs = made[0].findChild(QTabWidget)
+        labels = [tabs.tabText(i) for i in range(tabs.count())]
+        assert " 系统" in labels and " 开发者" in labels
+        sys_page = tabs.widget(labels.index(" 系统"))
+        dev_page = tabs.widget(labels.index(" 开发者"))
+        assert sys_page is not dev_page
+        sys_btns = [b.text() for b in sys_page.findChildren(QPushButton)]
+        dev_btns = [b.text() for b in dev_page.findChildren(QPushButton)]
+        assert any("系统" in t for t in sys_btns)
+        assert not any("命令面板" in t for t in sys_btns)
+        assert any("命令面板" in t for t in dev_btns)
+    finally:
+        QDialog.exec_ = saved_exec
+        for dd in made:
+            try:
+                dd.close()
+            except Exception:
+                pass
+
+
+def test_set_dialog_reuses_visible_window(win):
+    """重复点设置按钮时，不重复构造窗口。"""
+    from PyQt5.QtWidgets import QDialog
+    import gui.settings_dialog as sd
+
+    d = QDialog(win)
+    d.setWindowTitle("设置")
+    d.show()
+    win._settings_dialog = d
+    called = []
+    old = sd.show_settings_dialog
+    sd.show_settings_dialog = lambda *a, **k: called.append(1)
+    try:
+        out = win.set_dialog()
+        assert out is d
+        assert called == []
+    finally:
+        sd.show_settings_dialog = old
+        win._settings_dialog = None
+        d.close()
