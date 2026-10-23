@@ -49,7 +49,7 @@ def fetch_remote_catalog():
     try:
         req = urllib.request.Request(
             REMOTE_CATALOG_URL, headers={"User-Agent": "xiaoliu-app"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310 - URL is fixed HTTPS
             data = json.loads(resp.read().decode("utf-8"))
         if _valid_catalog(data):
             return {"ok": True, "skills": data, "source": "remote"}
@@ -95,7 +95,7 @@ def download_skill(skill_name, target_dir=None):
             return {"ok": False, "error": "只允许 HTTPS 技能下载地址"}
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "xiaoliu-app"})
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=30) as resp:  # nosec B310 - HTTPS validated below
                 data = resp.read()
             with open(tmp_zip, "wb") as f:
                 f.write(data)

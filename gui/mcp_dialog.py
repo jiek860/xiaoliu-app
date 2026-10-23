@@ -345,7 +345,7 @@ class MCPDialog(QDialog):
                 # 从 GitHub raw 拉取目录
                 url = "https://raw.githubusercontent.com/jiek860/xiaoliu-app/main/data/mcp_catalog.json"
                 req = urllib.request.Request(url, headers={"User-Agent": "xiaoliu-app"})
-                with urllib.request.urlopen(req, timeout=10) as resp:
+                with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310 - fixed HTTPS URL
                     data = resp.read().decode("utf-8")
                 presets = json.loads(data)
                 if _valid_presets(presets):
@@ -356,17 +356,11 @@ class MCPDialog(QDialog):
                     # MD5 签名校验：和上次存的对比
                     import hashlib
                     text = json.dumps(presets, ensure_ascii=False, indent=2)
-                    md5 = hashlib.md5(text.encode("utf-8")).hexdigest()
-                    sig_file = catalog_path + ".sig"
-                    old_md5 = ""
-                    if os.path.exists(sig_file):
-                        old_md5 = open(sig_file, "r").read().strip()
-                    if old_md5 and old_md5 != md5:
-                        # 变了就记日志（正常更新）
-                        pass
-                    # 存新的 MD5
+                    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+                    sig_file = catalog_path + ".sha256"
+                    # 这是本地缓存完整性记录，不是远程签名
                     with open(sig_file, "w", encoding="utf-8") as f:
-                        f.write(md5)
+                        f.write(digest)
 
                     with open(catalog_path, "w", encoding="utf-8") as f:
                         f.write(text)

@@ -173,9 +173,15 @@ def test_offline_readonly_really_works(name):
 
 
 @pytest.mark.parametrize("name", NETWORK_READONLY)
-def test_network_readonly_does_not_crash(name):
+def test_network_readonly_does_not_crash(name, monkeypatch):
     """依赖网络的能力：不要求成功（可能没网），但不能抛异常/崩"""
     _, caps, tc = _setup()
+    if name == "weather_now":
+        # 单测里不能真发 DNS/HTTPS 请求，否则 CI 会等网络超时
+        import modules.installed.weather as weather_mod
+        monkeypatch.setattr(
+            weather_mod, "safe_open_url",
+            lambda *a, **k: (_ for _ in ()).throw(OSError("offline test")))
     info = caps.get(name)
     assert info is not None, "%s 不在能力表里" % name
     args = {"text": "hello", "city": "北京"}

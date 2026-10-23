@@ -69,20 +69,19 @@ class SkillRegistry:
         return out
 
     def _verify_signature(self, path):
-        """简单签名验证：算文件 MD5，和存在 state 里的对比"""
+        """本地完整性校验：SHA256 对比；不是远程 RSA 签名。"""
         import hashlib
         if not os.path.isfile(path):
-            return True  # 目录型不用验
+            return True  # 目录型不做单文件完整性校验
         try:
             with open(path, "rb") as f:
-                md5 = hashlib.md5(f.read()).hexdigest()
+                digest = hashlib.sha256(f.read()).hexdigest()
             saved = self._state.get("signatures", {}).get(path)
-            if saved is None:
-                # 第一次见，存下来
-                self._state.setdefault("signatures", {})[path] = md5
+            if saved is None or not str(saved).startswith("sha256:"):
+                self._state.setdefault("signatures", {})[path] = "sha256:" + digest
                 self._save_state()
                 return True
-            return saved == md5
+            return saved == "sha256:" + digest
         except Exception:
             return True
 
