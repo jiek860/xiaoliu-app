@@ -21,10 +21,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.feature_registry import SIMPLE, ADVANCED, is_visible, primary_features
-from gui.chrome import (
-    attach_status_meta, build_activity_bar, build_main_tabs,
-    set_activity_advanced_visible,
-)
+from gui.chrome import attach_status_meta, build_main_tabs
 from gui.ui_mode import normalize_mode
 
 
@@ -512,9 +509,6 @@ def apply_ui_mode(win, mode=None):
         _visible(getattr(win, attr, None), not simple)
     # 简单模式不显示更多；切到高级模式后，低频入口统一收进更多。
     _visible(getattr(win, "more_btn", None), not simple)
-    # 活动栏同理：简单模式只留 对话/任务/资料/设置。
-    set_activity_advanced_visible(win, not simple)
-
     # 精简侧栏：简单模式只保留 对话/任务/资料/设置 四项
     if getattr(win, "nav_list", None) is not None:
         win.nav_list.setFixedHeight(160)
@@ -558,7 +552,6 @@ def build_ui(win):
     body = QHBoxLayout()
     body.setContentsMargins(0, 0, 0, 0)
     body.setSpacing(0)
-    body.addWidget(build_activity_bar(win))
     body.addWidget(_build_sidebar(win))
 
     right = _build_chat(win)
