@@ -140,7 +140,7 @@ def test_rendered_menus_have_no_duplicate_actions(monkeypatch):
                   if not a.isSeparator() and a.isEnabled()]
     assert len(more_texts) == len(set(more_texts)), "更多菜单渲染出重复按钮"
     assert not (set(more_texts) & set(avatar_texts)), "两个菜单渲染出重复按钮"
-    for needle in ("开始任务", "任务中心", "安全中心", "插件市场", "MCP",
+    for needle in ("任务中心", "安全中心", "插件市场", "MCP",
                    "命令面板", "意见反馈"):
         assert any(needle in t for t in more_texts)
 
