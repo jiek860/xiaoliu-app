@@ -1,5 +1,5 @@
 ﻿# -*- coding: utf-8 -*-
-"""主标签页 / 设置左分类的回归测试。"""
+"""活动栏 / 主标签页 / 设置左分类的回归测试。"""
 import os
 import sys
 import types
@@ -13,6 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5.QtWidgets import (  # noqa: E402
     QApplication, QDialog, QListWidget, QTabWidget, QVBoxLayout, QWidget,
 )
+from PyQt5.QtCore import Qt  # noqa: E402
 _APP = QApplication.instance() or QApplication([])
 
 
@@ -20,6 +21,26 @@ class Win(QWidget):
     def __init__(self):
         super().__init__()
         self.trunk = types.SimpleNamespace(base=BASE, config={}, modules={})
+        self.clicked = None
+
+    def _on_activity_clicked(self, item):
+        self.clicked = item.data(Qt.UserRole)
+
+
+def test_activity_bar_items_and_mode_visibility():
+    from gui.chrome import build_activity_bar, set_activity_advanced_visible
+
+    w = Win()
+    bar = build_activity_bar(w)
+    assert isinstance(bar, QListWidget)
+    assert bar.count() == 7
+    bar.itemClicked.emit(bar.item(0))
+    assert w.clicked == "chat"
+    set_activity_advanced_visible(w, False)
+    hidden = [bar.isRowHidden(i) for i in range(bar.count())]
+    assert hidden.count(True) == 3
+    set_activity_advanced_visible(w, True)
+    assert not any(bar.isRowHidden(i) for i in range(bar.count()))
 
 
 def test_main_tabs_reuse_and_close_panel():

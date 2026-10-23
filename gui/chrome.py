@@ -10,27 +10,31 @@ from __future__ import annotations
 
 import time
 
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QSize, QTimer
 from PyQt5.QtWidgets import (
-    QLabel, QListWidget, QListWidgetItem, QTabBar, QTabWidget, QWidget,
+    QLabel, QListWidget, QListWidgetItem, QStyle, QTabBar, QTabWidget, QWidget,
 )
 
-# (key, 图标, 提示, 是否只在高级模式显示)
+# (key, 标准图标, 提示, 是否只在高级模式显示)
+#
+# 这里刻意不用 emoji：Qt5 在 Windows 下对彩色 emoji 字体支持不稳定，
+# 实测离屏渲染整条轨道是空白的（图标全丢）。QStyle 的标准图标由系统主题
+# 提供，任何环境下都画得出来。
 ACTIVITY_ITEMS = (
-    ("chat", "💬", "对话", False),
-    ("task", "🧭", "任务", False),
-    ("resources", "📚", "资料", False),
-    ("memory", "🧠", "记忆", True),
-    ("mcp", "🔌", "MCP", True),
-    ("skills", "🧩", "技能", True),
-    ("settings", "⚙", "设置", False),
+    ("chat", QStyle.SP_MessageBoxInformation, "对话", False),
+    ("task", QStyle.SP_DialogApplyButton, "任务", False),
+    ("resources", QStyle.SP_DirIcon, "资料", False),
+    ("memory", QStyle.SP_FileDialogDetailedView, "记忆", True),
+    ("mcp", QStyle.SP_DriveNetIcon, "MCP", True),
+    ("skills", QStyle.SP_FileDialogListView, "技能", True),
+    ("settings", QStyle.SP_FileDialogInfoView, "设置", False),
 )
 
 _RAIL_STYLE = (
     "QListWidget#activityBar{background:#f7f8fa;border:none;"
     "border-right:1px solid #e0e0e0;outline:none;}"
     "QListWidget#activityBar::item{height:42px;border-radius:8px;"
-    "margin:2px 4px;font-size:17px;}"
+    "margin:2px 4px;}"
     "QListWidget#activityBar::item:hover{background:#eaf1ff;}"
     "QListWidget#activityBar::item:selected{background:#e3f2fd;}"
 )
@@ -40,13 +44,14 @@ def build_activity_bar(win):
     """构建窄图标轨道。点击后走 _on_activity_clicked，行为与菜单入口一致。"""
     bar = QListWidget()
     bar.setObjectName("activityBar")
-    bar.setFixedWidth(52)
+    bar.setFixedWidth(56)
+    bar.setIconSize(QSize(22, 22))
     bar.setStyleSheet(_RAIL_STYLE)
     bar.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     bar.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    for key, icon, tip, advanced in ACTIVITY_ITEMS:
-        item = QListWidgetItem(icon)
-        item.setTextAlignment(Qt.AlignCenter)
+    style = bar.style()
+    for key, std_icon, tip, advanced in ACTIVITY_ITEMS:
+        item = QListWidgetItem(style.standardIcon(std_icon), "")
         item.setToolTip(tip)
         item.setData(Qt.UserRole, key)
         item.setData(Qt.UserRole + 1, advanced)
