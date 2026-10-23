@@ -74,41 +74,10 @@ class UIActionsMixin:
         close_btn.clicked.connect(dlg.accept)
         dlg.exec_()
 
-
-    def set_dialog(self):
-        """设置窗口单例：未关闭时只把原窗口提到前面。"""
-        cache = getattr(self, "_dialog_cache", None)
-        if cache is None:
-            cache = {}
-            self._dialog_cache = cache
-        old = cache.get("settings_dialog") or getattr(self, "_settings_dialog", None)
-        if old is not None:
-            try:
-                if old.isVisible():
-                    old.show()
-                    old.raise_()
-                    old.activateWindow()
-                    return old
-            except RuntimeError:
-                self._settings_dialog = None
-        from gui.settings_dialog import show_settings_dialog
-        d = show_settings_dialog(
-            self, self._dlg, self.trunk, self.base,
-            getattr(self, "ai_name", "小6"),
-            getattr(self, "model_btn", None),
-            getattr(self, "_status_local", None),
-            getattr(self, "_status_cloud", None),
-            getattr(self, "chat", None), getattr(self, "input", None),
-            self._panel_commands(),
-        )
-        cache["settings_dialog"] = d
-        return d
-
     def open_skills_dialog(self):
         """打开技能管理（统一入口，供更多菜单/命令面板复用）"""
-        from gui.chrome import open_panel
-        return open_panel(self, "skills_dialog", "🧩 技能",
-                          "gui.skills_dialog", "SkillsDialog")
+        return self._singleton_dialog(
+            "skills_dialog", "gui.skills_dialog", "SkillsDialog")
 
     def _show_plus_menu(self):
         menu = QMenu(self)
