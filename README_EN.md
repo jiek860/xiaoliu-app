@@ -126,3 +126,11 @@ whitelist; public IPs and generic network requests remain blocked.
 Agreement, login state, onboarding and MCP command trust are remembered.
 Destructive actions (overwrite/delete file, shutdown, run command) are
 **always** confirmed.
+
+### Phase 2 v3.1 status
+
+- Skill registry/UI: import, export, enable/disable, confirm/reject; low-frequency actions moved into a menu.
+- Local Web console: localhost + temporary token; real task API; WebSocket is used when websockets is installed.
+- MCP preset catalog and skill market catalog are validated; skill downloads require sha256.
+- SWE-bench runner is a harness: cases without commit_hash are reported as skipped, not passed.
+- Multimodal image payloads are converted for OpenAI, Anthropic, Gemini and Ollama; chat history stores descriptions, not raw images.

@@ -1,5 +1,17 @@
 # 版本变更记录
 
+### 第二阶段 v3.1 完成与修复（2026-10-23）
+
+- 技能注入改为独立 system 消息，修复群聊 300 字截断导致用户原话丢失。
+- Skills 对话框入口接通；按钮从 7 个精简为「导入/导出/更多操作/关闭」，确认、拒绝、删除、市场安装收进菜单。
+- 新增 `core/skills_market.py`、`core/skills_catalog.json`、`skills_repo/*.x6skill`；下载包做 sha256 校验，解压做路径/数量/体积校验。
+- Web 控制台修复 query token 404；`/v1/tasks` 接真实 TaskRuntime；补 `websockets` 依赖并修正新版本 asyncio 启动方式。
+- MCP 目录刷新改回主线程 signal；目录项结构/命令前缀校验。
+- web_agent 增加 DOM 可交互元素摘要，动作失败返回 `ok=False`；browser 补 `back()`。
+- coder_pro 用户编辑后的计划会拼入 CodeAgent goal。
+- 多模态请求格式覆盖 OpenAI / Anthropic / Gemini / Ollama。
+- 侧栏高级快捷按钮精简：任务中心、命令面板保留，其余收进右上角「更多」。
+
 ### 修复：工作台按钮文字显示不全（2026-10-22）
 
 **现象**：工作台工具条上的按钮只显示一条横线，看不到中文。

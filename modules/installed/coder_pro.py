@@ -81,15 +81,73 @@ class CoderPro(BaseModule):
         ans = input("批准？(y/n): ").strip().lower()
         return ans == "y"
 
-    def run_task(self, goal, project_path=None):
-        """主入口：跑一次代码任务"""
+    def _make_plan(self, goal, root):
+        """Plan 阶段：让 LLM 先出执行计划"""
+        llm = self.trunk.modules.get("llm") if self.trunk else None
+        if not llm:
+            return {"ok": False, "error": "LLM未加载，无法出计划"}
+
+        prompt = """你是资深软件工程师。用户要完成这个任务：
+
+{goal}
+
+项目目录：{root}
+
+请先分析项目结构，然后给出一个清晰的执行计划，包括：
+1. 需要修改哪些文件（路径）
+2. 每个文件大概改什么
+3. 预计几步完成
+
+输出格式（markdown）：
+## 执行计划
+
+### 涉及文件
+- path/to/file1.py：做什么
+- path/to/file2.py：做什么
+
+### 步骤
+1. 第一步做什么
+2. 第二步做什么
+3. 第三步做什么
+
+请只输出计划，不要开始改代码。""".format(goal=goal, root=root)
+
+        try:
+            plan = llm.chat(prompt)
+            return {"ok": True, "plan": plan}
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:200]}
+
+    def run_task(self, goal, project_path=None, plan_mode=True):
+        """主入口：Plan/Act 模式
+
+        plan_mode=True（默认）：先出计划，用户批准后再执行
+        plan_mode=False：直接执行（旧行为）
+        """
         from core.code_agent import CodeAgent
 
         root = self._safe_root(project_path)
         if not os.path.isdir(root):
             return {"ok": False, "error": f"目录不存在: {root}"}
 
-        # git 快照（默认不自动 commit）
+        # Plan 阶段
+        plan = ""
+        if plan_mode:
+            plan_result = self._make_plan(goal, root)
+            if plan_result.get("ok"):
+                plan = plan_result.get("plan", "")
+
+                # 弹 GUI 对话框让用户确认/编辑计划
+                approved = True
+                if self.trunk and hasattr(self.trunk, "confirm_plan"):
+                    approved, plan = self.trunk.confirm_plan(plan, goal)
+
+                if not approved:
+                    return {"ok": False, "error": "用户取消了任务"}
+
+                # 用户批准了，继续执行（plan 可能被用户编辑过）
+
+        # Act 阶段：git 快照（默认不自动 commit）
         snapshot = self._git_snapshot(root)
 
         # 构造 CodeAgent
@@ -100,10 +158,15 @@ class CoderPro(BaseModule):
             event_cb=None,
         )
 
-        # 跑任务
+        # 跑任务（把用户批准的计划加到 goal 里，让 CodeAgent 按计划执行）
+        actual_goal = goal
+        if plan:
+            actual_goal = f"用户任务：{goal}\n\n已批准的执行计划（请按这个计划执行）：\n{plan}"
+
         try:
-            result = agent.run(goal, max_rounds=self.MAX_ROUNDS)
+            result = agent.run(actual_goal, max_rounds=self.MAX_ROUNDS)
             result["git_snapshot"] = snapshot
+            result["plan"] = plan
             return result
         except Exception as e:
             return {"ok": False, "error": str(e)[:200], "git_snapshot": snapshot}

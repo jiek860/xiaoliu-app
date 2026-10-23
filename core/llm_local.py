@@ -36,11 +36,52 @@ class LLMLocalMixin:
         return str(message)
 
     @staticmethod
+    def _normalize_ollama_messages(message):
+        """把 OpenAI 风格 content 列表转成 Ollama 的 text + images 字段。"""
+        if not isinstance(message, list):
+            return message
+        out = []
+        for m in message:
+            if not isinstance(m, dict):
+                out.append(m)
+                continue
+            content = m.get("content")
+            if not isinstance(content, list):
+                out.append(m)
+                continue
+            texts, images = [], []
+            for item in content:
+                if not isinstance(item, dict):
+                    texts.append(str(item))
+                    continue
+                if item.get("type") == "text":
+                    texts.append(str(item.get("text") or ""))
+                elif item.get("type") in ("image_url", "image"):
+                    u = item.get("image_url") or item.get("url") or ""
+                    if isinstance(u, dict):
+                        u = u.get("url") or ""
+                    if str(u).startswith("data:") and ";base64," in str(u):
+                        images.append(str(u).split(",", 1)[1])
+            nm = dict(m)
+            nm["content"] = "\n".join(texts)
+            if images:
+                nm["images"] = images
+            out.append(nm)
+        return out
+
+    @staticmethod
     def _has_image(message):
-        """messages list 中任一条带非空 images 字段（Ollama 视觉消息）"""
+        """messages list 中任一条带非空 images 字段或 image_url content。"""
         if isinstance(message, list):
             for m in message:
-                if isinstance(m, dict) and m.get("images"):
+                if not isinstance(m, dict):
+                    continue
+                if m.get("images"):
+                    return True
+                content = m.get("content")
+                if isinstance(content, list) and any(
+                        isinstance(x, dict) and x.get("type") in
+                        ("image_url", "image") for x in content):
                     return True
         return False
 
@@ -106,7 +147,7 @@ class LLMLocalMixin:
                 return "本地模型错误: 模型熔断中，请稍后重试"
             # 如果已经是list，直接用（消息 dict 内的 images 字段会随 JSON 一并发送给视觉模型）
             if isinstance(message, list):
-                msgs = message
+                msgs = self._normalize_ollama_messages(message)
             else:
                 msgs = [{"role": "user", "content": message}]
 

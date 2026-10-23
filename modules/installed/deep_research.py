@@ -39,7 +39,7 @@ class _BraveProvider(_BaseProvider):
             "X-Subscription-Token": self.api_key,
             "Accept": "application/json",
         })
-        with urllib.request.urlopen(req, timeout=8) as r:
+        with urllib.request.urlopen(req, timeout=8) as r:  # nosec B310 - fixed provider HTTPS endpoint
             data = json.loads(r.read())
         out = []
         for item in data.get("web", {}).get("results", [])[:n]:
@@ -58,7 +58,7 @@ class _TavilyProvider(_BaseProvider):
         body = json.dumps({"api_key": self.api_key, "query": query, "max_results": n}).encode()
         req = urllib.request.Request("https://api.tavily.com/search", data=body,
                                      headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=8) as r:
+        with urllib.request.urlopen(req, timeout=8) as r:  # nosec B310 - fixed provider HTTPS endpoint
             data = json.loads(r.read())
         out = []
         for item in data.get("results", [])[:n]:
@@ -78,7 +78,7 @@ class _BochaProvider(_BaseProvider):
         req = urllib.request.Request(url, headers={
             "Authorization": f"Bearer {self.api_key}",
         })
-        with urllib.request.urlopen(req, timeout=8) as r:
+        with urllib.request.urlopen(req, timeout=8) as r:  # nosec B310 - fixed provider HTTPS endpoint
             data = json.loads(r.read())
         out = []
         for item in data.get("webPages", {}).get("value", [])[:n]:
@@ -97,7 +97,7 @@ class _SerperProvider(_BaseProvider):
         body = json.dumps({"q": query, "num": n}).encode()
         req = urllib.request.Request("https://google.serper.dev/search", data=body,
                                      headers={"X-API-KEY": self.api_key, "Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=8) as r:
+        with urllib.request.urlopen(req, timeout=8) as r:  # nosec B310 - fixed provider HTTPS endpoint
             data = json.loads(r.read())
         out = []
         for item in data.get("organic", [])[:n]:

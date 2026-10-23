@@ -113,6 +113,42 @@ class LLMClient(
             return self._chat_cloud_only(message)
         return self._chat_local_route(message, inject_persona, force_model)
 
+    def chat_with_image(self, prompt, image_base64=None, image_path=None):
+        """多模态聊天：带图片（OpenAI messages list 格式，真的传 base64）
+
+        如果底层 API 支持多模态（如 GPT-4V、Claude 3），就能真的看图。
+        如果不支持，会报错，调用方自己降级。
+        """
+        import base64
+
+        # 如果只给了路径，读成 base64
+        if image_path and not image_base64:
+            try:
+                with open(image_path, "rb") as f:
+                    image_base64 = base64.b64encode(f.read()).decode("utf-8")
+            except Exception:  # 静默是故意的：图片读取失败时走纯文本降级
+                pass
+
+        if image_base64:
+            # 真正的多模态格式：messages list 带 image_url
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_base64}"}}
+                    ]
+                }
+            ]
+            try:
+                return self.chat(messages)
+            except Exception:  # 静默是故意的：多模态失败时降级纯文本
+                # 多模态不支持，降级到纯文本
+                pass
+
+        # 降级：纯文本
+        return self.chat(prompt)
+
     def stream_chat(self, message, on_token=None, force_model=None):
         """真流式：/api/chat stream=True 逐块接收，首字秒出；失败回退非流式"""
         try:

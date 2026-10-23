@@ -97,6 +97,37 @@ def _messages(messages):
     return out
 
 
+def _data_url_parts(item):
+    """把 OpenAI content 列表里的 text/image_url 拆成 (text, data_url)。"""
+    if not isinstance(item, dict):
+        return str(item), ""
+    typ = item.get("type")
+    if typ == "text":
+        return str(item.get("text") or ""), ""
+    if typ in ("image_url", "image"):
+        u = item.get("image_url") or item.get("url") or ""
+        if isinstance(u, dict):
+            u = u.get("url") or ""
+        return "", str(u)
+    return str(item.get("text") or ""), ""
+
+
+def _anthropic_content(content):
+    if not isinstance(content, list):
+        return str(content)
+    out = []
+    for item in content:
+        text, data_url = _data_url_parts(item)
+        if text:
+            out.append({"type": "text", "text": text})
+        if data_url.startswith("data:") and ";base64," in data_url:
+            meta, data = data_url.split(",", 1)
+            media = meta[5:].split(";", 1)[0] or "image/png"
+            out.append({"type": "image", "source": {
+                "type": "base64", "media_type": media, "data": data}})
+    return out or [{"type": "text", "text": ""}]
+
+
 def _anthropic_messages(messages):
     system = ""
     out = []
@@ -106,8 +137,23 @@ def _anthropic_messages(messages):
             system += str(m["content"]) + "\n"
             continue
         out.append({"role": "assistant" if role == "assistant" else "user",
-                    "content": str(m["content"])})
+                    "content": _anthropic_content(m["content"])})
     return system.strip(), out
+
+
+def _gemini_parts(content):
+    if not isinstance(content, list):
+        return [{"text": str(content)}]
+    out = []
+    for item in content:
+        text, data_url = _data_url_parts(item)
+        if text:
+            out.append({"text": text})
+        if data_url.startswith("data:") and ";base64," in data_url:
+            meta, data = data_url.split(",", 1)
+            mime = meta[5:].split(";", 1)[0] or "image/png"
+            out.append({"inline_data": {"mime_type": mime, "data": data}})
+    return out or [{"text": ""}]
 
 
 def _gemini_contents(messages):
@@ -118,7 +164,7 @@ def _gemini_contents(messages):
             system += str(m["content"]) + "\n"
             continue
         role = "model" if m["role"] == "assistant" else "user"
-        out.append({"role": role, "parts": [{"text": str(m["content"])}]})
+        out.append({"role": role, "parts": _gemini_parts(m["content"])})
     return system.strip(), out
 
 

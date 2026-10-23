@@ -91,6 +91,8 @@ _FEATURES = [
             "security_center_btn", "security_center_dialog"),
     Feature("plugin_market", "插件市场", "🔌", "插件/MCP", MODES, 190,
             False, "安装 / 卸载 / 热加载模块", "plugin_market_btn", "plugin_dialog"),
+    Feature("skills", "技能管理", "🧠", "工具", (ADVANCED,), 205,
+        False, "导入/导出技能，确认/拒绝自学习", "", "open_skills_dialog"),
     Feature("mcp", "MCP", "🧷", "插件/MCP", MODES, 200,
             False, "MCP 服务器管理", "mcp_btn", "mcp_dialog"),
     Feature("memory", "记忆", "🧠", "资料", MODES, 210,
@@ -133,6 +135,8 @@ _FEATURES = [
             False, "查看知识图谱", "graph_btn", "graph_dialog"),
     Feature("deep_research", "深度研究", "🔬", "资料", (ADVANCED,), 388,
             False, "多跳联网研究，带引用报告", "research_btn", "research_dialog"),
+    Feature("web_console", "Web 控制台", "🌐", "开发", (ADVANCED,), 386,
+            False, "手机/浏览器聊天与任务查看（localhost + token）", "", "open_web_console"),
     Feature("trace_view", "Trace 回看", "📊", "开发", (ADVANCED,), 389,
             False, "任务时间树回看，失败步骤标红", "", "trace_view_dialog"),
     Feature("roles", "群聊角色", "👥", "工具", (ADVANCED,), 395,
@@ -174,6 +178,7 @@ MORE_MENU_GROUPS = (
     )),
     ("工具", (
         "model_selector", "workbench", "computer_agent",
+        "skills",
         "realtime_chat", "voice_chat", "calendar", "computer_control", "bot",
         "components",
     )),
@@ -184,7 +189,7 @@ MORE_MENU_GROUPS = (
         "plugin_market", "mcp",
     )),
     ("开发", (
-        "command_palette", "logs", "system_check", "module_map",
+        "command_palette", "logs", "system_check", "module_map", "web_console",
     )),
     ("帮助", (
         "onboarding", "feedback",

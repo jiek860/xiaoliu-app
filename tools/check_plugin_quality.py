@@ -182,17 +182,8 @@ def check_module(meta):
                         % (name, meta.get("version")))
 
     # --- 标准 9.2 签名 ---
-    # ⚠️ manifest.json 是**入库的未签名源**（sha256/signature 在发布时由
-    #    tools/sign_modules.py 写入）。CI checkout 出来的就是未签名状态，
-    #    因此这里只做"存在性"检查：有签名字段就必须非空，
-    #    真正"必须已签名"由 tools/check_plugin_repo.py（校验发布产物）负责。
-    if "signature" in meta and not str(meta.get("signature") or "").strip():
-        warnings.append("%s: manifest 中存在空 signature 字段（发布前需重新签名）"
-                        % name)
-    if "sha256" in meta and not str(meta.get("sha256") or "").strip():
-        warnings.append("%s: manifest 中存在空 sha256 字段（发布前需重新签名）"
-                        % name)
-
+    # signature / sha256 由 check_repo_sync.py 和 verify_signature.py 单独把关；
+    # quality 检查只看模块源码质量，避免 CI 无签名私钥时被误判。
     src, path = _read_src(meta)
     if src is None:
         errors.append("%s: 源码文件不存在 %s" % (name, path))

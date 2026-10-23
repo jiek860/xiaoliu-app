@@ -187,15 +187,13 @@ def _build_sidebar(win):
 
     _adv_btn("task_center_btn", "🧭  任务中心", "统一任务页面",
              win.open_task_center)
-    _adv_btn("security_center_btn", "🛡  安全中心", "权限 / 网络 / 审计",
-             win.security_center_dialog)
-    _adv_btn("plugin_market_btn", "🔌  插件市场", "安装和管理模块",
-             win.plugin_dialog)
-    _adv_btn("mcp_btn", "🧷  MCP", "MCP 服务器管理", win.mcp_dialog)
-    _adv_btn("memory_btn", "🧠  记忆", "记忆时间线 / 图谱", win.memory_view_dialog)
-    _adv_btn("logs_btn", "📋  日志", "运行日志与错误", win.log_dialog)
-    _adv_btn("command_palette_btn", "⌘  命令面板", "Ctrl+K",
+    _adv_btn("command_palette_btn", "⌘  命令面板", "Ctrl+K / 搜索全部功能",
              win.command_palette)
+    _hint = QLabel(
+        "<span style='color:#98a2b3;font-size:11px;'>"
+        "安全中心 / 插件 / MCP / 记忆 / 日志 已收进右上角「更多」</span>")
+    _hint.setWordWrap(True)
+    av.addWidget(_hint)
 
     # 已安装模块自己声明的按钮
     try:

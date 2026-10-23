@@ -266,6 +266,41 @@ class Browser(BaseModule):
 
     @safe
     @_browser_thread
+    def back(self):
+        """返回上一页"""
+        if not self._page:
+            return {"错误": "先打开网页"}
+        try:
+            self._page.go_back()
+            time.sleep(0.5)
+            return {"ok": True}
+        except Exception as e:
+            return {"错误": str(e)[:80]}
+
+    @safe
+    @_browser_thread
+    def list_interactables(self, limit=40):
+        """列出页面上可交互元素，供 Agent 做 DOM-first 决策。"""
+        if not self._page:
+            return {"错误": "先打开网页"}
+        try:
+            items = self._page.eval_on_selector_all(
+                "button, input, textarea, select, a[href]",
+                """els => els.slice(0, %d).map((el, i) => ({
+                    index: i,
+                    tag: el.tagName.toLowerCase(),
+                    type: el.getAttribute('type') || '',
+                    id: el.id || '',
+                    name: el.getAttribute('name') || '',
+                    text: (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().slice(0, 80),
+                    href: el.getAttribute('href') || ''
+                }))""" % int(limit))
+            return {"ok": True, "元素": items}
+        except Exception as e:
+            return {"错误": str(e)[:80]}
+
+    @safe
+    @_browser_thread
     def wait(self, seconds=2):
         """等待"""
         time.sleep(seconds)

@@ -46,7 +46,7 @@ def test_forbidden_dirs_are_not_in_sync_list(name):
 
 def test_sync_list_is_minimal():
     """同步清单要够小 —— 安装包里每多一个文件，用户就多一分困惑"""
-    assert set(sp.DIRS) == {"core", "gui", "modules", "modules_repo", "libs"}, \
+    assert set(sp.DIRS) == {"core", "gui", "modules", "modules_repo", "skills_repo", "libs"}, \
         "同步目录清单变了：%s" % sp.DIRS
     for name in ("CHANGELOG.md", "docs", "README.md"):
         assert name not in sp.FILES, \

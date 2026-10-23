@@ -83,7 +83,30 @@ class TrunkReplyMixin:
 
             self._chat_in_progress = True  # 聊天中（含排队期）：后台闭环持续让路
             self._chat_active_until = time.time() + self._CHAT_ACTIVE_SEC
-            return self._reply_inner(user_input, on_token=on_token)
+
+            # 注入启用的技能提示词（自学习）
+            skill_prompt = ""
+            try:
+                sr = self.modules.get("skill_registry") if hasattr(self, "modules") else None
+                if sr is None:
+                    # 尝试从 lazy 加载
+                    try:
+                        from core.skill_registry import SkillRegistry
+                        sr = SkillRegistry(self)
+                    except Exception:
+                        sr = None
+                if sr and hasattr(sr, "get_enabled_prompts"):
+                    skill_prompt = sr.get_enabled_prompts()
+            except Exception as e:
+                _x6_swallowed(__name__, e, "skill inject failed")
+
+            # 技能提示词走独立 system 消息，绝不能拼到用户输入前面：
+            # 群聊角色/历史记忆会对用户输入做长度截断，拼前面会把用户原话挤掉。
+            self._active_skill_prompt = skill_prompt
+            try:
+                return self._reply_inner(user_input, on_token=on_token)
+            finally:
+                self._active_skill_prompt = ""
         except Exception as e:
             # 错误入库（可在「设置 → 系统」里查看/清空）+ 日志，聊天只给友好提示
             self._log("回复异常: " + str(e)[:200])
@@ -97,6 +120,35 @@ class TrunkReplyMixin:
             # P0-1: 无论成功失败都复位，防止后台闭环永久让路
             self._chat_in_progress = False
             self._chat_active_until = time.time() + self._CHAT_ACTIVE_SEC
+
+    def confirm_plan(self, plan_text, goal=""):
+        """弹 GUI 对话框让用户确认/编辑计划（coder_pro 用）
+
+        返回: (approved: bool, edited_plan: str)
+        """
+        # 先尝试弹 GUI 对话框
+        try:
+            from gui.plan_confirm_dialog import PlanConfirmDialog
+            # 找主窗口
+            from PyQt5.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app:
+                for w in app.topLevelWidgets():
+                    if w.isVisible():
+                        dlg = PlanConfirmDialog(plan_text, goal, parent=w)
+                        dlg.exec_()
+                        return dlg.is_approved(), dlg.get_edited_plan()
+        except Exception:  # 静默是故意的：无 GUI 时降级命令行确认
+            pass
+
+        # 没有 GUI 就降级：命令行确认
+        print("\n" + "="*60)
+        print("目标:", goal)
+        print("计划:")
+        print(plan_text)
+        print("="*60)
+        ans = input("确认执行？(y/n): ").strip().lower()
+        return ans == "y", plan_text
 
     def set_private_mode(self, on):
         """P1-21: 开启/关闭隐私模式（无痕会话）"""
