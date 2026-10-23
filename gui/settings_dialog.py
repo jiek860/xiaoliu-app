@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """设置窗口 v4.0  简单模式 3 页，高级模式完整分级。
 
 简单模式：
@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import (
     QScrollArea,
 )
 from gui.settings_widgets import (
-    make_category_nav, make_hint, make_open_button, make_scroll_tab, make_tab,
+    make_hint, make_open_button, make_scroll_tab, make_tab,
 )
 
 
@@ -399,6 +399,10 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         lay.addWidget(_open_btn("", "语音对话",
                                 "实时语音对话：静音断句、可随时打断"))
         lay.addWidget(_open_btn("", "日历待办", "日历 + 待办 + 笔记"))
+        lay.addWidget(_open_btn("", "命令面板 (Ctrl+K)",
+                                "一个搜索框找所有能力和面板"))
+        lay.addWidget(_open_btn("", "模块星图",
+                                "全部模块的星型拓扑图"))
 
     def build_extensions(lay):
         lay.addWidget(QLabel(" 扩展"))
@@ -429,6 +433,8 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
                                 "模型没配好、它不回话时打开这个"))
         lay.addWidget(_open_btn("", "新手教程",
                                 "激活 / 配模型 / 聊天 / 兼容性与迁移速查"))
+        lay.addWidget(_open_btn("", "检查更新",
+                                "检查新版本 / 回滚 / 更新历史"))
         lay.addWidget(_open_btn("", "意见反馈", "给开发者留言"))
 
     def build_developer(lay):
@@ -436,12 +442,10 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         lay.addWidget(_open_btn("", "命令面板 (Ctrl+K)",
                                 "搜索所有能力和面板"))
         lay.addWidget(_open_btn("", "模块星图", "模块拓扑图"))
+        lay.addWidget(_open_btn("", "日志", "运行日志与错误",
+                                key="日志中心"))
 
     tabs = QTabWidget()
-    # 左侧分类 + 右侧内容：QTabWidget 继续当页面容器（搜索和测试都依赖
-    # tabText/currentIndex），只隐藏自带标签条，用旁边的列表承担导航。
-    tabs.setDocumentMode(True)
-    tabs.tabBar().setVisible(False)
 
     def build_start(lay):
         mb = build_model(lay)
@@ -470,13 +474,7 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
     search_row.addWidget(search_box, 1)
     search_row.addWidget(search_result)
     l.addLayout(search_row)
-    # 左侧分类导航：条目直接取 tabText，搜索框切页时这里同步高亮。
-    category = make_category_nav(tabs)
-    body_row = QHBoxLayout()
-    body_row.setSpacing(10)
-    body_row.addWidget(category)
-    body_row.addWidget(tabs, 1)
-    l.addLayout(body_row, 1)
+    l.addWidget(tabs)
 
     def _search_settings():
         q = search_box.text().strip().lower()

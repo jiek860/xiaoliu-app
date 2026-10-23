@@ -130,7 +130,7 @@ Azure 应显示 deployment（模型框）和 API version 输入。
   py -3 tools\check_diff_coverage.py --coverage coverage.json --base origin/main
   py -3 tools\check_pyinstaller_warnings.py --warn build\xiao6\warn-xiao6.txt
 预期：changed-lines coverage >= 70%；missing-module 全部已分类。
-当前本地参考：1686 passed / 2 skipped（2026-10-23 分文件全量）；
+当前本地参考：1677 passed / 2 skipped（2026-10-23 分文件全量）；
 PyInstaller 约 370 文件 / 148.6 MB。
 
 【2.1 双击启动】
@@ -1088,7 +1088,7 @@ py -3 -m pytest tests/test_workbench.py -q
 ================================================================================
 一、全量测试
   py -3 -m pytest tests/ -q
-  本轮结果：1686 passed / 2 skipped / 0 failed（共 1688 用例，143 个测试文件）
+  本轮结果：1677 passed / 2 skipped / 0 failed（共 1679 用例，141 个测试文件）
 
 二、按钮文字与接线
   py -3 -m pytest tests/test_gui_smoke.py::test_main_window_assembles -q

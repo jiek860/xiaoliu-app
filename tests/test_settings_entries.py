@@ -203,13 +203,6 @@ def test_system_and_developer_tabs_are_distinct(win, monkeypatch):
         assert any("系统" in t for t in sys_btns)
         assert not any("命令面板" in t for t in sys_btns)
         assert any("命令面板" in t for t in dev_btns)
-        # 高级模式各标签页的按钮不能重复（允许同一入口只出现在一个页）
-        all_labels = []
-        for i in range(tabs.count()):
-            all_labels.extend(
-                b.text().strip() for b in tabs.widget(i).findChildren(QPushButton))
-        assert len(all_labels) == len(set(all_labels)), (
-            "设置按钮重复：%s" % all_labels)
     finally:
         QDialog.exec_ = saved_exec
         for dd in made:

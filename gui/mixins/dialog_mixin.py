@@ -77,10 +77,9 @@ class DialogMixin:
                            self.mcp_dialog, self.show_components)
 
     def mcp_dialog(self):
-        """打开 MCP 面板。重复点击切到同一个标签页，不再单开窗口。"""
-        from gui.chrome import open_panel
-        return open_panel(self, "mcp_dialog", "🔌 MCP",
-                          "gui.mcp_dialog", "MCPDialog")
+        """打开 MCP 面板。重复点击复用同一个窗口，不会开出一堆。"""
+        return self._singleton_dialog("mcp_dialog", "gui.mcp_dialog",
+                                      "MCPDialog")
 
     def _singleton_fn_dialog(self, key, opener):
         """函数式开窗入口的单例复用。
