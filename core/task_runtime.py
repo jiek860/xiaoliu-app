@@ -352,6 +352,31 @@ class TaskRuntime:
         self._save(task)
         self._emit(task, "completed")
 
+        # M1-自学习：任务完成后自动捕获技能（待确认）
+        try:
+            sc = self.trunk.modules.get("skill_capture") if self.trunk else None
+            if sc is None and self.trunk is not None:
+                try:
+                    sc = self.trunk._load_lazy("skill_capture")
+                except Exception:
+                    sc = None
+            if sc and hasattr(sc, "capture"):
+                r = sc.capture(
+                    task=task.get("goal", ""),
+                    result=task.get("final", ""),
+                    success=True,
+                    confirm=False,  # 待用户确认
+                )
+                # 把待确认技能名加到任务结果里，提示用户
+                if isinstance(r, dict) and "待确认" in r:
+                    pending_name = r["待确认"]
+                    task["final"] = (task.get("final", "") +
+                        "\n\n💡 这次做得不错？回复「确认 " + pending_name +
+                        "」把它存成技能，以后自动用。")
+                    self._save(task)
+        except Exception as e:
+            _x6_swallowed(__name__, e, "skill_capture auto capture")
+
     def _run_and_cleanup(self, task_id):
         try:
             self._run(task_id)

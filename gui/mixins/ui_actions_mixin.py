@@ -15,9 +15,43 @@ except ImportError:
 
 
 class UIActionsMixin:
+    def open_web_console(self):
+        """启动本地 Web 控制台并展示带 token 的访问地址。"""
+        try:
+            from PyQt5.QtWidgets import QMessageBox
+            srv = self.trunk.modules.get("api_server") if self.trunk else None
+            if srv is None and self.trunk is not None:
+                srv = self.trunk._load_lazy("api_server")
+            if not srv:
+                QMessageBox.warning(self, "Web 控制台", "api_server 模块未加载")
+                return None
+            info = srv.start()
+            if not info.get("ok"):
+                QMessageBox.warning(self, "Web 控制台",
+                                    str(info.get("error") or "启动失败"))
+                return info
+            QMessageBox.information(
+                self, "Web 控制台",
+                "已启动。\n\n访问地址：\n%s\n\n注意：token 等同于临时密码，不要发给别人。"
+                % info.get("url", ""))
+            return info
+        except Exception as e:
+            try:
+                from PyQt5.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Web 控制台", "启动失败: " + str(e)[:160])
+            except Exception:  # 静默是故意的：启动失败已尝试弹窗，二次提示失败不抛
+                pass
+            return None
+
+    def open_skills_dialog(self):
+        """打开技能管理（统一入口，供更多菜单/命令面板复用）"""
+        return self._singleton_dialog(
+            "skills_dialog", "gui.skills_dialog", "SkillsDialog")
+
     def _show_plus_menu(self):
         menu = QMenu(self)
         a_upload = menu.addAction("上传文件")
+        a_image = menu.addAction("📷 发图片")
         a_editor = menu.addAction("送工作台")
         a_shot = menu.addAction("区域截图")
         a_export = menu.addAction("导出聊天记录")
@@ -27,6 +61,8 @@ class UIActionsMixin:
             self.plus_btn.rect().bottomLeft()))
         if action == a_upload:
             self.upload_file()
+        elif action == a_image:
+            self.upload_image()
         elif action == a_editor:
             self.send_last_code_to_editor()
         elif action == a_shot:
@@ -40,6 +76,36 @@ class UIActionsMixin:
                     "开启" if self._auto_tts else "关闭"))
         elif action == a_ocr:
             self.chat.append("（截图识字功能开发中）")
+
+    def upload_image(self):
+        """发图片：选图片 → 描述图片 → 把描述加到输入框"""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择图片", "", "图片文件 (*.png *.jpg *.jpeg *.gif *.bmp)")
+        if not path:
+            return
+        self.chat.append("📷 已选择图片：" + path)
+        # 调 multimodal.describe_image() 描述图片
+        try:
+            mm = self.trunk.modules.get("multimodal") if self.trunk else None
+            if mm and hasattr(mm, "describe_image"):
+                self.chat.append("🔍 正在分析图片...")
+                r = mm.describe_image(path)
+                if isinstance(r, dict) and r.get("描述"):
+                    desc = r["描述"]
+                    # 把描述加到输入框（兼容 QLineEdit 和 QTextEdit）
+                    if hasattr(self.input, "toPlainText"):
+                        current = self.input.toPlainText()
+                        self.input.setPlainText(current + " [图片描述：" + desc[:200] + "...]")
+                    else:
+                        current = self.input.text()
+                        self.input.setText(current + " [图片描述：" + desc[:200] + "...]")
+                    self.chat.append("✅ 图片分析完成，描述已加到输入框")
+                else:
+                    self.chat.append("❌ 图片分析失败：" + str(r)[:100])
+            else:
+                self.chat.append("⚠️ multimodal 模块未加载，无法分析图片")
+        except Exception as e:
+            self.chat.append("❌ 图片分析出错：" + str(e)[:100])
 
     def _do_export(self):
         from PyQt5.QtWidgets import QMessageBox

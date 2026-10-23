@@ -15,6 +15,10 @@ class PromptAssembler:
         persona = self._compose_persona(pers_hint)
 
         messages = [{"role": "system", "content": persona}]
+        skill_prompt = str(getattr(self.trunk, "_active_skill_prompt", "") or "")
+        if skill_prompt:
+            messages.append({"role": "system",
+                             "content": skill_prompt[:2000]})
         if context:
             messages.append({"role": "system", "content": "相关知识: " + context})
 

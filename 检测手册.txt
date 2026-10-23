@@ -130,7 +130,7 @@ Azure 应显示 deployment（模型框）和 API version 输入。
   py -3 tools\check_diff_coverage.py --coverage coverage.json --base origin/main
   py -3 tools\check_pyinstaller_warnings.py --warn build\xiao6\warn-xiao6.txt
 预期：changed-lines coverage >= 70%；missing-module 全部已分类。
-当前本地参考：1632 passed / 2 skipped（2026-10-23 分文件全量）；
+当前本地参考：1653 passed / 2 skipped（2026-10-23 分文件全量）；
 PyInstaller 约 370 文件 / 148.6 MB。
 
 【2.1 双击启动】
@@ -981,7 +981,7 @@ CI/CD：pre-commit、GitHub Actions、GitLab CI
 
 六、按钮预算
   py -3 tools/check_buttons.py
-  预期：创建点 178 + 表行 0 = 估算控件 178
+  预期：创建点 184 + 表行 0 = 估算控件 184
 
 ================================================================================
 巡检修复说明（2026-10-22）
@@ -1088,7 +1088,7 @@ py -3 -m pytest tests/test_workbench.py -q
 ================================================================================
 一、全量测试
   py -3 -m pytest tests/ -q
-  本轮结果：1632 passed / 2 skipped / 0 failed（共 1634 用例，136 个测试文件）
+  本轮结果：1653 passed / 2 skipped / 0 failed（共 1655 用例，139 个测试文件）
 
 二、按钮文字与接线
   py -3 -m pytest tests/test_gui_smoke.py::test_main_window_assembles -q
@@ -1105,3 +1105,107 @@ py -3 -m pytest tests/test_workbench.py -q
   py -3 tools/sync_package.py --dry-run
   py -3 tools/sync_package.py
   详细记录见 docs/81_全程序检测与UI按钮验收报告_2026-10-22.md
+
+
+================================================================================
+第二阶段优化功能检测项（2026-10-23 修订）
+================================================================================
+
+一、MCP 精选目录
+  预期：
+    1. 打开 MCP 对话框时后台尝试更新目录，失败不崩溃
+    2. 目录项结构完整，命令只允许 npx/uvx/python/node
+    3. 后台更新完成后通过 Qt signal 回主线程刷新
+  检查点：
+    · gui/mcp_dialog.py 有 _valid_presets() / catalog_ready
+    · 断网时回退内置 DEFAULT_PRESETS
+    · 不在子线程里直接调用 _refresh_presets_list()
+
+二、自学习与技能管理
+  预期：
+    1. 任务结束后可生成待确认技能
+    2. 聊天时启用技能以独立 system 消息注入
+    3. 禁用技能后 load() 返回 None
+    4. Skills 对话框主按钮 <= 4 个，其余收进「更多操作」
+  检查点：
+    · core/skill_registry.py：enable/disable/get_enabled_prompts
+    · core/trunk_reply.py：_active_skill_prompt，不拼接 user_input
+    · gui/skills_dialog.py：导入 / 导出 / 更多操作 / 关闭
+
+三、web_agent 动作循环
+  预期：
+    1. 打开网页后截图，VLM 分析
+    2. 支持 click/type/scroll/back/done
+    3. 动作失败返回 ok=False，不伪报成功
+  检查点：
+    · modules/installed/web_agent.py
+    · modules/installed/browser.py 有 back()
+
+四、coder_pro Plan/Act
+  预期：
+    1. 先生成计划
+    2. 用户可编辑/批准
+    3. 编辑后的计划会拼入 CodeAgent goal
+  检查点：
+    · gui/plan_confirm_dialog.py
+    · core/trunk_reply.py confirm_plan()
+    · modules/installed/coder_pro.py actual_goal
+
+五、Web 控制台
+  预期：
+    1. start() 返回带 token 的 URL，GET /?token=... 返回 200
+    2. POST /v1/tasks 返回真实 TaskRuntime task_id
+    3. GET /v1/tasks/{id} 返回真实任务
+    4. 安装 websockets 后 /v1/ws 可连接；未安装时不能伪装可用
+  检查点：
+    · token 支持 ?token= 与 Authorization: Bearer
+    · /v1/health 不鉴权
+    · requirements.txt 包含 websockets
+
+六、Skills 市场
+  预期：
+    1. 远程目录失败时回退 core/skills_catalog.json
+    2. 下载技能包必须校验 sha256
+    3. 技能包解压校验路径、文件数、体积
+  检查点：
+    · core/skills_market.py
+    · skills_repo/*.x6skill
+    · core/skill_registry.py install_from_file()
+
+七、SWE-bench runner
+  预期：
+    1. 有 commit_hash/test_cmd 才执行
+    2. 缺数据必须标记 skipped，不能伪报 passed
+    3. 支持 checkout base commit 和 apply test patch
+  检查点：
+    · tests/eval/swe_bench/runner.py
+    · 当前 5 个样例 commit_hash 为空，应显示 skipped
+
+八、多模态
+  预期：
+    1. 图片读成 base64
+    2. OpenAI / Anthropic / Gemini / Ollama 四种格式都能转换
+    3. 聊天历史当前只保存描述，不保存原图
+  检查点：
+    · core/llm_client.py chat_with_image()
+    · core/llm_providers.py content 转换
+    · core/llm_local.py Ollama images 归一化
+
+九、新增集成测试
+  py -3 -m pytest tests/test_v31_integration.py -q
+  覆盖：
+    · SkillRegistry 禁用/安全解压
+    · Skills UI 入口与按钮简化
+    · web_agent 失败返回
+    · coder_pro 计划注入
+    · API token 与真实任务接口
+    · 多模态 provider 格式
+    · Skills 市场 sha256
+    · MCP 目录校验
+    · SWE-bench 缺数据 skipped
+
+质量门禁补充
+   py -3 tools/check_plugin_quality.py   # error=0
+   py -3 tools/check_buttons.py          # 按钮预算下降后 --rebase
+   py -3 tools/check_types.py            # Ruff + Mypy
+   py -3 tools/check_threads.py          # 子线程不得碰 Qt 控件

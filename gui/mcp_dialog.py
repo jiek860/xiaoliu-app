@@ -45,23 +45,87 @@ from PyQt5.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout,
 from PyQt5.QtCore import Qt, pyqtSignal
 
 
-# 预置 MCP 服务器（原来在 mcp_wizard_dialog.PRESETS）
-PRESETS = [
+# 预置 MCP 服务器（默认值，实际从 data/mcp_catalog.json 加载）
+DEFAULT_PRESETS = [
+    # ===== 文件与系统 =====
     {"name": "文件系统", "cmd": "npx -y @modelcontextprotocol/server-filesystem .",
-     "desc": "读写本地文件（14 个工具）", "transport": "stdio"},
-    {"name": "网页抓取", "cmd": "uvx mcp-server-fetch",
-     "desc": "抓取网页内容（1 个工具）", "transport": "stdio"},
+     "desc": "读写本地文件（14 个工具）", "transport": "stdio", "category": "文件系统"},
     {"name": "Git", "cmd": "uvx mcp-server-git --repository .",
-     "desc": "Git 仓库操作（12 个工具）", "transport": "stdio"},
-    # ⚠️ 这里必须钉住 mcp SDK 的版本：
-    #    mcp-server-sqlite 2025.4.25 还在用 1.x 的 @server.list_resources()，
-    #    而 uvx 默认会解析到 mcp 2.x，启动即崩：
-    #        AttributeError: 'Server' object has no attribute 'list_resources'
-    #    实测 --with "mcp<2" 可以正常起来（6 个工具）。
-    #    等上游适配了 2.x 就可以去掉这个 --with。
+     "desc": "Git 仓库操作（12 个工具）", "transport": "stdio", "category": "开发"},
     {"name": "SQLite", "cmd": 'uvx --with "mcp<2" mcp-server-sqlite --db-path data/chats.db',
-     "desc": "查询 SQLite 数据库（6 个工具，已钉住 mcp SDK 1.x）", "transport": "stdio"},
+     "desc": "查询 SQLite 数据库（6 个工具，已钉住 mcp SDK 1.x）", "transport": "stdio", "category": "数据库"},
+
+    # ===== 网络与搜索 =====
+    {"name": "网页抓取", "cmd": "uvx mcp-server-fetch",
+     "desc": "抓取网页内容（1 个工具）", "transport": "stdio", "category": "网络"},
+    {"name": "浏览器自动化", "cmd": "npx -y @modelcontextprotocol/server-puppeteer",
+     "desc": "控制 Chrome 浏览器，自动化操作网页", "transport": "stdio", "category": "网络"},
+    {"name": "Brave 搜索", "cmd": "npx -y @modelcontextprotocol/server-brave-search",
+     "desc": "联网搜索（需要 BRAVE_API_KEY）", "transport": "stdio", "category": "网络"},
+
+    # ===== 开发工具 =====
+    {"name": "GitHub", "cmd": "npx -y @modelcontextprotocol/server-github",
+     "desc": "GitHub 仓库 Issues/PR/代码搜索（需要 GITHUB_TOKEN）", "transport": "stdio", "category": "开发"},
+    {"name": "PostgreSQL", "cmd": "npx -y @modelcontextprotocol/server-postgres",
+     "desc": "查询 PostgreSQL 数据库", "transport": "stdio", "category": "数据库"},
+
+    # ===== 办公与效率 =====
+    {"name": "Google 日历", "cmd": "npx -y @modelcontextprotocol/server-gcal",
+     "desc": "读取和管理 Google 日历事件", "transport": "stdio", "category": "办公"},
+    {"name": "Google 邮箱", "cmd": "npx -y @modelcontextprotocol/server-gmail",
+     "desc": "读取和发送 Gmail 邮件", "transport": "stdio", "category": "办公"},
+    {"name": "Notion", "cmd": "npx -y @modelcontextprotocol/server-notion",
+     "desc": "读写 Notion 页面和数据库（需要 NOTION_TOKEN）", "transport": "stdio", "category": "办公"},
+    {"name": "Slack", "cmd": "npx -y @modelcontextprotocol/server-slack",
+     "desc": "读取 Slack 频道消息", "transport": "stdio", "category": "办公"},
+
+    # ===== 其他 =====
+    {"name": "时间/日期", "cmd": "npx -y @modelcontextprotocol/server-time",
+     "desc": "获取当前时间、时区转换", "transport": "stdio", "category": "工具"},
+    {"name": "记忆", "cmd": "npx -y @modelcontextprotocol/server-memory",
+     "desc": "跨会话持久记忆（知识图谱形式）", "transport": "stdio", "category": "工具"},
+    {"name": "天气", "cmd": "npx -y @modelcontextprotocol/server-weather",
+     "desc": "查询实时天气和预报", "transport": "stdio", "category": "工具"},
 ]
+
+
+_ALLOWED_CMD_PREFIXES = ("npx ", "uvx ", "python ", "node ")
+
+
+def _valid_presets(items):
+    """只接受结构完整、命令前缀受控的目录项，避免远程目录变成任意命令执行入口。"""
+    if not isinstance(items, list) or not items or len(items) > 100:
+        return False
+    for p in items:
+        if not isinstance(p, dict):
+            return False
+        if not all(str(p.get(k) or "").strip() for k in ("name", "cmd", "desc")):
+            return False
+        if not str(p["cmd"]).strip().lower().startswith(_ALLOWED_CMD_PREFIXES):
+            return False
+    return True
+
+
+def _load_presets():
+    """从 data/mcp_catalog.json 加载预置服务器列表"""
+    import os
+    try:
+        # 找 data 目录（相对于项目根）
+        base = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        catalog_path = os.path.join(base, "data", "mcp_catalog.json")
+        if os.path.exists(catalog_path):
+            with open(catalog_path, encoding="utf-8") as f:
+                presets = json.load(f)
+            if _valid_presets(presets):
+                return presets
+    except Exception as e:
+        _x6_swallowed(__name__, e, "load mcp_catalog.json failed")
+    # 失败了用默认值
+    return DEFAULT_PRESETS
+
+
+# 全局变量，加载一次
+PRESETS = _load_presets()
 
 # JSON 配置参考（原来在 dialog_mixin.show_mcp_market）
 REFERENCE = [
@@ -87,6 +151,7 @@ class MCPDialog(QDialog):
     """
 
     client_ready = pyqtSignal()
+    catalog_ready = pyqtSignal()
 
     def __init__(self, trunk, parent=None):
         super().__init__(parent)
@@ -97,8 +162,10 @@ class MCPDialog(QDialog):
         self.resize(780, 640)
         self._build_ui()
         self.client_ready.connect(self._refresh)
+        self.catalog_ready.connect(self._refresh_presets_list)
         self._refresh()                # 先用配置渲染，不碰客户端
         self._load_client_async()      # 客户端后台加载
+        self._update_catalog_async()   # 后台自动更新 MCP 目录
 
     # ------------------------------------------------------------ 界面
 
@@ -268,6 +335,60 @@ class MCPDialog(QDialog):
 
         threading.Thread(target=_work, daemon=True,
                          name="mcp-dialog-load").start()
+
+    def _update_catalog_async(self):
+        """后台自动从远程 GitHub 拉取最新的 mcp_catalog.json"""
+        def _work():
+            try:
+                import urllib.request
+                import os
+                # 从 GitHub raw 拉取目录
+                url = "https://raw.githubusercontent.com/jiek860/xiaoliu-app/main/data/mcp_catalog.json"
+                req = urllib.request.Request(url, headers={"User-Agent": "xiaoliu-app"})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    data = resp.read().decode("utf-8")
+                presets = json.loads(data)
+                if _valid_presets(presets):
+                    # 更新本地缓存
+                    base = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                    catalog_path = os.path.join(base, "data", "mcp_catalog.json")
+
+                    # MD5 签名校验：和上次存的对比
+                    import hashlib
+                    text = json.dumps(presets, ensure_ascii=False, indent=2)
+                    md5 = hashlib.md5(text.encode("utf-8")).hexdigest()
+                    sig_file = catalog_path + ".sig"
+                    old_md5 = ""
+                    if os.path.exists(sig_file):
+                        old_md5 = open(sig_file, "r").read().strip()
+                    if old_md5 and old_md5 != md5:
+                        # 变了就记日志（正常更新）
+                        pass
+                    # 存新的 MD5
+                    with open(sig_file, "w", encoding="utf-8") as f:
+                        f.write(md5)
+
+                    with open(catalog_path, "w", encoding="utf-8") as f:
+                        f.write(text)
+                    # 更新全局变量；Qt 控件刷新必须回主线程
+                    global PRESETS
+                    PRESETS = presets
+                    self.catalog_ready.emit()
+            except Exception as e:
+                _x6_swallowed(__name__, e, "auto update mcp catalog failed")
+
+        threading.Thread(target=_work, daemon=True,
+                         name="mcp-catalog-update").start()
+
+    def _refresh_presets_list(self):
+        """刷新预置服务器列表"""
+        self.preset_list.clear()
+        for p in PRESETS:
+            it = QListWidgetItem("📡 %s — %s\n      %s"
+                                 % (p["name"], p["desc"], p["cmd"]))
+            it.setData(Qt.UserRole, p)
+            self.preset_list.addItem(it)
+        self.preset_list.setCurrentRow(0)
 
     def _sync_client(self):
         """把配置变更推给客户端。

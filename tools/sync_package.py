@@ -56,7 +56,7 @@ FILES = ["run.py", "app.ico", "config.default.json",
 OPTIONAL_FILES = []
 
 # 要同步的目录
-DIRS = ["core", "gui", "modules", "modules_repo", "libs"]
+DIRS = ["core", "gui", "modules", "modules_repo", "skills_repo", "libs"]
 
 # 复制时排除的目录名
 SKIP = {"__pycache__", "retired", ".git", ".githooks", ".pytest_cache",

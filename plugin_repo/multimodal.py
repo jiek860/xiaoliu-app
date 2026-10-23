@@ -37,14 +37,25 @@ class Multimodal(BaseModule):
     # ===== 图片 =====
     @safe
     def describe_image(self, image_path):
-        """描述图片"""
+        """描述图片（完整版：图片 base64 传给多模态模型）"""
         if not os.path.exists(image_path):
             return {"错误": "图片不存在"}
         llm = self.trunk.modules.get("llm")
         if not llm:
             return {"错误": "LLM未加载"}
         try:
-            r = llm.chat(f"描述这张图片: {image_path}")
+            # 读图片成 base64
+            import base64
+            with open(image_path, "rb") as f:
+                img_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+            # 如果 LLM 支持多模态（chat_with_image 方法），就真的传图片
+            if hasattr(llm, "chat_with_image"):
+                r = llm.chat_with_image("描述这张图片", image_base64=img_b64)
+            else:
+                # 降级：只传路径
+                r = llm.chat(f"描述这张图片（路径: {image_path}）")
+
             self.describe_count += 1
             self.history.append({
                 "类型": "图片",

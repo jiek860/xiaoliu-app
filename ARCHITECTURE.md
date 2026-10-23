@@ -450,3 +450,13 @@ Feature("workbench", "工作台", "🧰", "工具", (ADVANCED,), 140,
 | 测试/脚本 | 按旧 id 断言 |
 
 删别名会造成"入口消失"式回归，因此保留转发。
+
+---
+
+## v3.1 增量架构（2026-10-23）
+
+- **技能层**：`core/skill_registry.py` 统一扫描 zip / captured / pending；`core/skills_market.py` 负责目录、下载和 sha256 校验；`core/skills_catalog.json` + `skills_repo/` 随包分发。
+- **注入层**：`core/trunk_reply.py` 将启用技能作为独立 system 消息注入，不再拼接 user_input，避免群聊 300 字截断时丢掉用户原话。
+- **浏览器层**：`web_agent` 先取可交互元素 DOM 摘要，再用 VLM 截图描述补足；动作失败返回 ok=False。
+- **Web 控制台**：`api_server` 使用 localhost + 临时 token；任务创建/查询接真实 TaskRuntime；WebSocket 依赖 `websockets`，缺失时明确降级。
+- **按钮精简**：侧栏高级入口只保留任务中心/命令面板，其余收进右上角「更多」；技能管理只保留导入/导出/更多/关闭，低频动作进菜单。

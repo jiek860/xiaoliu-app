@@ -1,6 +1,6 @@
 # 小6智能体  模块规则与 API 参考
 
-版本：v25.2.23  
+版本：v25.2.23
 更新日期：2026-10-22
 文档定位：**开发者查阅模块/规则/能力与 Trunk API 的参考手册。**
 
@@ -663,7 +663,7 @@
 
 ## 小6智能体  API 文档
 
-版本：v25.2.23  
+版本：v25.2.23
 更新日期：2026-10-19
 
 ### 一、核心入口
@@ -1206,3 +1206,139 @@ ip = ipaddress.ip_address(host)        # 域名会先 gethostbyname 解析
 if not (ip.is_private and not ip.is_loopback):
     return False                        # 公网 IP 永不进入此分支
 ```
+
+---
+
+## 新增模块 API 参考（2026-10-23，按当前代码校正）
+
+### core/skill_registry.py
+
+统一技能注册表：扫描 `.x6skill` 目录、自学习捕获的 markdown、待确认技能。
+
+```python
+from core.skill_registry import SkillRegistry
+
+reg = SkillRegistry(trunk)
+
+reg.list_all()                 # 返回 [{name, source, path, enabled, verified}]
+reg.load("skill_name")        # 返回 {prompt, tools, source}；禁用时返回 None
+reg.get_enabled_prompts()     # 供聊天 system prompt 注入
+reg.install_from_file("path/to/skill.x6skill")
+reg.export_to_file("skill_name", "out.x6skill")
+reg.enable("skill_name")
+reg.disable("skill_name")
+reg.delete("skill_name")
+```
+
+说明：`verified` 是本地 MD5 完整性记录，不是 RSA 签名；远程市场下载另行做 SHA256 校验。
+
+---
+
+### core/skills_market.py
+
+技能目录与下载。优先远程固定 GitHub raw 地址，失败回退 `core/skills_catalog.json`；下载后必须通过目录中的 sha256。
+
+```python
+from core.skills_market import fetch_remote_catalog, download_skill
+
+catalog = fetch_remote_catalog()
+result = download_skill("web_research")
+# result["zip_path"] 交给 SkillRegistry.install_from_file()
+```
+
+---
+
+### gui/plan_confirm_dialog.py
+
+```python
+from gui.plan_confirm_dialog import PlanConfirmDialog
+
+dialog = PlanConfirmDialog(plan_text="计划内容", goal="任务目标", parent=parent)
+dialog.exec_()
+if dialog.is_approved():
+    edited_plan = dialog.get_edited_plan()
+```
+
+---
+
+### gui/skills_dialog.py
+
+```python
+from gui.skills_dialog import SkillsDialog
+
+dialog = SkillsDialog(trunk, parent)
+dialog.exec_()
+```
+
+主按钮只保留：`导入`、`导出`、`更多操作`、`关闭`。
+确认/拒绝/删除/刷新/市场安装收进「更多操作」菜单，降低界面复杂度。
+
+---
+
+### modules/installed/api_server.py
+
+```python
+from modules.installed.api_server import ApiServer
+
+server = ApiServer(trunk, host="127.0.0.1", port=8765)
+info = server.start()
+# info["url"] 带一次性 token，例如 http://127.0.0.1:8765/?token=...
+server.stop()
+```
+
+端点：
+
+- `GET /`：聊天页
+- `GET /tasks`：任务列表页
+- `POST /v1/chat`：聊天
+- `POST /v1/tasks`：创建并启动真实 TaskRuntime 任务
+- `GET /v1/tasks/{id}`：查询真实任务
+- `GET /v1/ws`：WebSocket 任务推送；需要安装 `websockets`
+
+鉴权：支持 `?token=...` 或 `Authorization: Bearer ...`；`/v1/health` 不鉴权。
+
+---
+
+### modules/installed/web_agent.py
+
+```python
+from modules.installed.web_agent import WebAgent
+
+agent = WebAgent(trunk)
+result = agent.browse("https://example.com", "找到登录按钮并点击", max_steps=5)
+```
+
+支持动作：`click(selector)`、`type(selector, text)`、`scroll()`、`back()`、`done()`。
+动作失败会返回 `{"ok": False, "error": ...}`，不会静默当成成功。
+
+---
+
+### modules/installed/coder_pro.py
+
+```python
+from modules.installed.coder_pro import CoderPro
+
+coder = CoderPro(trunk)
+result = coder.run_task(
+    goal="修复登录 bug",
+    project_path="E:/myproject",
+    plan_mode=True,
+)
+```
+
+流程：生成计划 → `Trunk.confirm_plan()` → 用户编辑/批准 → 计划拼入 CodeAgent goal → 执行。
+`plan_mode=False` 可跳过计划确认。
+
+---
+
+### modules/installed/multimodal.py
+
+```python
+from modules.installed.multimodal import Multimodal
+
+mm = Multimodal(trunk)
+result = mm.describe_image("path/to/image.png")
+```
+
+图片会以 base64 传入 `LLMClient.chat_with_image()`；请求格式按 OpenAI、Anthropic、Gemini、Ollama 分别转换。
+当前聊天历史不保存原图，只保存描述结果。

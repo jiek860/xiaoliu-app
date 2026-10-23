@@ -187,6 +187,9 @@ def run(trunk, user_input, on_token=None):
     else:
         persona = pers_hint if pers_hint else "你是小6，住在用户电脑里的AI朋友。"
     messages = [{"role": "system", "content": persona}]
+    skill_prompt = str(getattr(trunk, "_active_skill_prompt", "") or "")
+    if skill_prompt:
+        messages.append({"role": "system", "content": skill_prompt[:2000]})
     if context:
         messages.append({"role": "system", "content": "相关知识: " + context})
     # P1-4: 自我反思教训注入——上次低分反思的真实教训直接影响本次 prompt

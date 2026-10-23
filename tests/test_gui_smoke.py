@@ -409,7 +409,7 @@ def test_main_window_assembles():
         # 空文字 / 未接线按钮在截图里往往看不出来，用户点了才发现没反应。
         from PyQt5.QtWidgets import QPushButton as _QPushButton
         buttons = w.findChildren(_QPushButton)
-        assert len(buttons) >= 20, "主界面按钮少得反常：%d" % len(buttons)
+        assert len(buttons) >= 18, "主界面按钮少得反常：%d" % len(buttons)
         empty = [b.objectName() or b.toolTip() for b in buttons
                  if not (b.text() or "").strip()]
         assert not empty, "存在无文字按钮：%s" % empty
