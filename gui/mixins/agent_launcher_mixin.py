@@ -13,18 +13,11 @@ except ImportError:
 
 class AgentLauncherMixin:
     def computer_agent_dialog(self):
-        try:
-            from gui.computer_agent_dialog import ComputerAgentDialog
-            d = ComputerAgentDialog(self.trunk, self)
-            if not hasattr(self, "_computer_agent_dialogs"):
-                self._computer_agent_dialogs = []
-            self._computer_agent_dialogs.append(d)
-            d.show()
-            d.raise_()
-            return d
-        except Exception as e:  # 静默是故意的
-            QMessageBox.warning(self, "电脑 Agent", "打不开：" + str(e)[:120])
-            return None
+        """电脑 Agent 已并入工作台 AI 面板。
+
+        AgentOrchestrator 会根据目标自动路由到代码/电脑动作，不再单独开窗。
+        """
+        return self.open_workbench()
 
     def agent_journey_dialog(self, goal=None):
         """统一 Agent 入口：一个输入框自动路由到代码/电脑/对话。"""

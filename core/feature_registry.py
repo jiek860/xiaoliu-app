@@ -170,14 +170,14 @@ AVATAR_MENU_IDS = (
 
 MORE_MENU_GROUPS = (
     ("任务", (
-        "start_task", "activity_center", "task_center", "scheduled_tasks",
+        "activity_center", "task_center",
     )),
     ("资料", (
         "knowledge_base", "history", "memory", "search", "stats",
         "knowledge_graph", "deep_research",
     )),
     ("工具", (
-        "model_selector", "workbench", "computer_agent",
+        "model_selector", "workbench",
         "skills",
         "realtime_chat", "voice_chat", "calendar", "computer_control", "bot",
         "components",
@@ -203,6 +203,8 @@ ALIASES = {
     "code_editor": "workbench",
     "agent_journey": "workbench",
     "code_agent": "workbench",
+    "computer_agent": "workbench",
+    "scheduled_tasks": "task_center",
 }
 
 
