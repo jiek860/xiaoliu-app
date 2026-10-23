@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """设置窗口 v4.0  简单模式 3 页，高级模式完整分级。
 
 简单模式：
@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import (
     QScrollArea,
 )
 from gui.settings_widgets import (
-    make_hint, make_open_button, make_scroll_tab, make_tab,
+    make_category_nav, make_hint, make_open_button, make_scroll_tab, make_tab,
 )
 
 
@@ -438,6 +438,10 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         lay.addWidget(_open_btn("", "模块星图", "模块拓扑图"))
 
     tabs = QTabWidget()
+    # 左侧分类 + 右侧内容：QTabWidget 继续当页面容器（搜索和测试都依赖
+    # tabText/currentIndex），只隐藏自带标签条，用旁边的列表承担导航。
+    tabs.setDocumentMode(True)
+    tabs.tabBar().setVisible(False)
 
     def build_start(lay):
         mb = build_model(lay)
@@ -466,7 +470,13 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
     search_row.addWidget(search_box, 1)
     search_row.addWidget(search_result)
     l.addLayout(search_row)
-    l.addWidget(tabs)
+    # 左侧分类导航：条目直接取 tabText，搜索框切页时这里同步高亮。
+    category = make_category_nav(tabs)
+    body_row = QHBoxLayout()
+    body_row.setSpacing(10)
+    body_row.addWidget(category)
+    body_row.addWidget(tabs, 1)
+    l.addLayout(body_row, 1)
 
     def _search_settings():
         q = search_box.text().strip().lower()

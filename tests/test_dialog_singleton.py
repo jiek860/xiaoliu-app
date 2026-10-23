@@ -31,7 +31,9 @@ def test_mcp_dialog_returns_window():
         if isinstance(node, ast.FunctionDef) and node.name == "mcp_dialog":
             body = ast.unparse(node)
             assert "return" in body, "mcp_dialog 必须返回窗口对象"
-            assert "_singleton_dialog" in body
+            # 复用以单例缓存或标签页容器实现，两种都算
+            assert any(k in body for k in ("_singleton_dialog", "open_panel")), \
+                "mcp_dialog 必须走复用机制"
             return
     pytest.fail("没找到 mcp_dialog")
 
