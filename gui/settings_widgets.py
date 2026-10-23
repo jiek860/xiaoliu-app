@@ -1,9 +1,31 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """设置窗口公共小组件。"""
 from __future__ import annotations
 
 from PyQt5.QtWidgets import (QLabel, QPushButton, QWidget, QVBoxLayout,
-                             QScrollArea, QMessageBox)
+                             QScrollArea, QMessageBox, QListWidget)
+
+
+def make_category_nav(tabs, width=136):
+    """设置页左侧分类栏：条目取 tabText，与页面索引双向同步。"""
+    nav = QListWidget()
+    nav.setObjectName("settingsCategory")
+    nav.setFixedWidth(width)
+    nav.setStyleSheet(
+        "QListWidget#settingsCategory{background:#f7f8fa;border:none;"
+        "border-right:1px solid #e0e0e0;outline:none;font-size:13px;}"
+        "QListWidget#settingsCategory::item{padding:9px 12px;border-radius:8px;"
+        "margin:2px 6px;}"
+        "QListWidget#settingsCategory::item:hover{background:#eaf1ff;}"
+        "QListWidget#settingsCategory::item:selected{background:#e3f2fd;"
+        "color:#1976d2;}")
+    for i in range(tabs.count()):
+        nav.addItem(tabs.tabText(i).strip())
+    nav.currentRowChanged.connect(tabs.setCurrentIndex)
+    tabs.currentChanged.connect(
+        lambda i: nav.setCurrentRow(i) if nav.currentRow() != i else None)
+    nav.setCurrentRow(0)
+    return nav
 
 
 def make_open_button(dialog, commands, icon, name, desc, key=None):

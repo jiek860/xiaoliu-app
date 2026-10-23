@@ -63,6 +63,25 @@ class NavigationMixin:
             except Exception as e:  # 静默是故意的
                 _x6_swallowed(__name__, e, "best-effort fallback")
 
+    def _on_activity_clicked(self, item):
+        """左侧活动栏点击：与菜单入口复用同一批回调，不复制逻辑。"""
+        key = item.data(Qt.UserRole) if item is not None else ""
+        fn = {
+            "chat": self._nav_chat,
+            "task": self._nav_task,
+            "resources": self._nav_resources,
+            "memory": getattr(self, "memory_view_dialog", None),
+            "mcp": getattr(self, "mcp_dialog", None),
+            "skills": getattr(self, "open_skills_dialog", None),
+            "settings": self.set_dialog,
+        }.get(key)
+        if callable(fn):
+            fn()
+            try:
+                self.activity_bar.clearSelection()
+            except Exception as e:  # 静默是故意的
+                _x6_swallowed(__name__, e, "best-effort fallback")
+
     def _show_resources_menu(self):
         menu = QMenu(self)
         entries = (

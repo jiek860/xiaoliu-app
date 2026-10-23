@@ -1,5 +1,13 @@
 # 版本变更记录
 
+### UI 向 Trae 对齐：活动栏 / 顶部标签页 / 状态栏 / 设置左分类（2026-10-23）
+
+- 新增 `gui/chrome.py`：左侧 52px 图标轨道（对话 / 任务 / 资料 / 记忆 / MCP / 技能 / 设置），简单模式只显示前四项与设置；图标项用 `QListWidget` 承载，不新增 `QPushButton`，按钮预算维持 184/184。
+- 主区域改为顶部标签页：对话页常驻且不可关闭；MCP、技能改为标签页打开，同一 key 复用同一实例，关闭标签页后下次点击自动重建。
+- 状态栏补充模型名与今日 token 用量：`UsageTracker.summary(days=1)`，30 秒护栏避免重复扫 `data/usage`，60 秒定时刷新。
+- 设置窗口改为左侧分类列表 + 右侧内容：保留 `QTabWidget` 作页面容器并隐藏自带标签条，搜索跳转、`tabText`/`currentIndex` 等原有测试接口不变。
+- 开发依赖 `requirements-dev.txt` 补 `pytest-qt` / `pytest-timeout`：干净环境只按 txt 装依赖时，GUI 测试会报 `fixture 'qapp' not found`，并在退出阶段触发 QApplication 拆除顺序导致的访问冲突（0xC0000005）。
+
 ### 第二阶段 v3.1 完成与修复（2026-10-23）
 
 - 技能注入改为独立 system 消息，修复群聊 300 字截断导致用户原话丢失。
