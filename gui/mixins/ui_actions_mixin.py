@@ -106,8 +106,9 @@ class UIActionsMixin:
 
     def open_skills_dialog(self):
         """打开技能管理（统一入口，供更多菜单/命令面板复用）"""
-        return self._singleton_dialog(
-            "skills_dialog", "gui.skills_dialog", "SkillsDialog")
+        from gui.chrome import open_panel
+        return open_panel(self, "skills_dialog", "🧩 技能",
+                          "gui.skills_dialog", "SkillsDialog")
 
     def _show_plus_menu(self):
         menu = QMenu(self)

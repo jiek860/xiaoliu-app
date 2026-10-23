@@ -118,7 +118,7 @@ trunk.call("browser", "open", url)
 
 ```
 gui/build_ui.py
-   activitybar  已移除（侧栏已有对话/任务/资料/设置，避免重复导航）
+   activitybar 左侧图标轨道（gui/chrome.py；QListWidget 承载，不占按钮预算）
    topbar      品牌 / 模型状态 / 更多 / 头像
    sidebar     新建对话、导航、历史、模块按钮、高级入口（可滚动）
    main_tabs   顶部标签页：对话常驻，MCP/技能按需嵌入（gui/chrome.py）
@@ -126,7 +126,7 @@ gui/build_ui.py
    composer    附件 + 聊天/任务切换 + 语音 + 发送
    statusbar   模式 / 引导 / 本地云端状态 / 模型名 / 今日 token（后两项在 gui/chrome.py）
 
-gui/chrome.py              主区域标签页、状态栏元信息
+gui/chrome.py              活动栏、主区域标签页、状态栏元信息
 gui/ui_mode.py             简单/高级模式状态（data/ui_state.json）
 core/feature_registry.py   所有 UI 入口、分组、可见模式和按钮预算
 gui/guidance.py            空状态 / 失败状态 / 权限状态的唯一下一步
@@ -136,7 +136,7 @@ gui/task_center_dialog.py  统一任务页面
 
 原则：**功能不删，只分层**。简单模式首屏主操作入口 7 个；高级入口在高级模式更多菜单里全部可达。头像菜单固定 5 项，其余入口不与更多重复。
 
-面板统一用 `_open_panel()` 挂成标签页，同一 key 只保留一个实例，关闭标签页后下次点击重建；侧栏与「更多」复用同一批 `_nav_*` / 对话框回调。
+活动栏与「更多」复用同一批回调（`_on_activity_clicked` → `_nav_*` / 各对话框入口），不复制业务逻辑；面板统一用 `_open_panel()` 挂成标签页，同一 key 只保留一个实例，关闭标签页后下次点击重建。
 
 
 ---

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import time
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QMenu, QMessageBox
+from PyQt5.QtWidgets import QMenu, QMessageBox, QListWidgetItem
 from core.feature_registry import MORE_MENU_GROUPS, SIMPLE, get_feature
 
 try:
@@ -60,6 +60,25 @@ class NavigationMixin:
             fn()
             try:
                 self.nav_list.clearSelection()
+            except Exception as e:  # 静默是故意的
+                _x6_swallowed(__name__, e, "best-effort fallback")
+
+    def _on_activity_clicked(self, item):
+        """左侧活动栏点击：与菜单入口复用同一批回调，不复制逻辑。"""
+        key = item.data(Qt.UserRole) if item is not None else ""
+        fn = {
+            "chat": self._nav_chat,
+            "task": self._nav_task,
+            "resources": self._nav_resources,
+            "memory": getattr(self, "memory_view_dialog", None),
+            "mcp": getattr(self, "mcp_dialog", None),
+            "skills": getattr(self, "open_skills_dialog", None),
+            "settings": self.set_dialog,
+        }.get(key)
+        if callable(fn):
+            fn()
+            try:
+                self.activity_bar.clearSelection()
             except Exception as e:  # 静默是故意的
                 _x6_swallowed(__name__, e, "best-effort fallback")
 

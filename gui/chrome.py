@@ -1,15 +1,71 @@
 # -*- coding: utf-8 -*-
-"""窗口外框：主区域标签页与状态栏元信息。
+"""窗口外框：左侧活动栏与状态栏元信息。
 
-左侧活动栏已移除：侧栏本身已有「对话/任务/资料/设置」入口，避免两套导航重复。
-图标轨道相关代码不再保留，面板入口统一走侧栏/更多菜单。
+活动栏用 QListWidget 承载图标项，而不是 QPushButton：
+按钮预算已在 check_buttons.py 的 184/184 上限，这里不能再新增按钮创建点。
+图标项只做导航，不承载业务状态；显隐统一由 apply_ui_mode() 调用
+set_activity_advanced_visible() 控制，避免出现第二套可见性规则。
 """
 from __future__ import annotations
 
 import time
 
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtWidgets import QLabel, QTabBar, QTabWidget, QWidget
+from PyQt5.QtWidgets import (
+    QLabel, QListWidget, QListWidgetItem, QTabBar, QTabWidget, QWidget,
+)
+
+# (key, 图标, 提示, 是否只在高级模式显示)
+ACTIVITY_ITEMS = (
+    ("chat", "💬", "对话", False),
+    ("task", "🧭", "任务", False),
+    ("resources", "📚", "资料", False),
+    ("memory", "🧠", "记忆", True),
+    ("mcp", "🔌", "MCP", True),
+    ("skills", "🧩", "技能", True),
+    ("settings", "⚙", "设置", False),
+)
+
+_RAIL_STYLE = (
+    "QListWidget#activityBar{background:#f7f8fa;border:none;"
+    "border-right:1px solid #e0e0e0;outline:none;}"
+    "QListWidget#activityBar::item{height:42px;border-radius:8px;"
+    "margin:2px 4px;font-size:17px;}"
+    "QListWidget#activityBar::item:hover{background:#eaf1ff;}"
+    "QListWidget#activityBar::item:selected{background:#e3f2fd;}"
+)
+
+
+def build_activity_bar(win):
+    """构建窄图标轨道。点击后走 _on_activity_clicked，行为与菜单入口一致。"""
+    bar = QListWidget()
+    bar.setObjectName("activityBar")
+    bar.setFixedWidth(52)
+    bar.setStyleSheet(_RAIL_STYLE)
+    bar.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    bar.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    for key, icon, tip, advanced in ACTIVITY_ITEMS:
+        item = QListWidgetItem(icon)
+        item.setTextAlignment(Qt.AlignCenter)
+        item.setToolTip(tip)
+        item.setData(Qt.UserRole, key)
+        item.setData(Qt.UserRole + 1, advanced)
+        bar.addItem(item)
+    bar.itemClicked.connect(win._on_activity_clicked)
+    win.activity_bar = bar
+    return bar
+
+
+def set_activity_advanced_visible(win, visible):
+    """简单模式只保留 对话/任务/资料/设置，其余整行隐藏。"""
+    bar = getattr(win, "activity_bar", None)
+    if bar is None:
+        return
+    for row in range(bar.count()):
+        item = bar.item(row)
+        if item is not None and bool(item.data(Qt.UserRole + 1)):
+            bar.setRowHidden(row, not visible)
+
 
 def attach_status_meta(win, statusbar):
     """状态栏补充：模型名 + 当日 token 用量。
