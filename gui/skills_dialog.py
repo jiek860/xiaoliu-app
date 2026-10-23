@@ -48,7 +48,8 @@ class SkillsDialog(QDialog):
         menu.addAction("确认选中", self._confirm_skill)
         menu.addAction("拒绝选中", self._reject_skill)
         menu.addAction("删除选中", self._delete_selected)
-        menu.exec_(self.sender().mapToGlobal(self.sender().rect().bottomLeft()))
+        anchor = self.sender() or self
+        menu.exec_(anchor.mapToGlobal(anchor.rect().bottomLeft()))
 
     def _get_registry(self):
         from core.skill_registry import SkillRegistry
@@ -122,6 +123,45 @@ class SkillsDialog(QDialog):
                 QMessageBox.warning(self, "失败", r.get("error", "未知错误"))
         except Exception as e:
             QMessageBox.warning(self, "失败", str(e)[:200])
+
+    def _install_market_skill(self):
+        """从本地/远程技能目录选择一个技能安装。"""
+        try:
+            from core.skills_market import fetch_remote_catalog, download_skill
+            catalog = fetch_remote_catalog()
+            if not catalog.get("ok"):
+                QMessageBox.warning(self, "技能市场", catalog.get("error", "目录不可用"))
+                return
+            items = catalog.get("skills") or []
+            labels = ["%s — %s" % (s.get("title") or s.get("name"),
+                                   s.get("desc") or "") for s in items]
+            if not labels:
+                QMessageBox.information(self, "技能市场", "目录里没有技能")
+                return
+            label, ok = QInputDialog.getItem(
+                self, "技能市场", "选择要安装的技能：", labels, 0, False)
+            if not ok:
+                return
+            item = items[labels.index(label)]
+            result = download_skill(item["name"])
+            if not result.get("ok"):
+                QMessageBox.warning(self, "安装失败", result.get("error", "下载失败"))
+                return
+            reg = self._get_registry()
+            r = reg.install_from_file(result["zip_path"])
+            try:
+                import os
+                if result.get("zip_path"):
+                    os.remove(result["zip_path"])
+            except OSError:  # 静默是故意的：临时包清理失败不影响已完成的安装
+                pass
+            if r.get("ok"):
+                QMessageBox.information(self, "成功", "已安装: " + item["name"])
+                self._refresh()
+            else:
+                QMessageBox.warning(self, "安装失败", r.get("error", "未知错误"))
+        except Exception as e:
+            QMessageBox.warning(self, "技能市场", str(e)[:200])
 
     def _confirm_skill(self):
         """确认选中的待确认技能"""

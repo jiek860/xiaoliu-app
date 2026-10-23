@@ -248,3 +248,95 @@ def test_multimodal_and_llm_chat_with_image(monkeypatch, tmp_path):
     obj = object.__new__(LLMClient)
     obj.chat = lambda messages: "ok"
     assert obj.chat_with_image("x", image_base64="AAAA") == "ok"
+
+
+def test_skill_registry_more_branches(tmp_path):
+    import json
+    from core.skill_registry import SkillRegistry
+
+    base = tmp_path
+    (base / "data").mkdir()
+    (base / "data" / "skill_registry.json").write_text("{bad", encoding="utf-8")
+    reg = SkillRegistry(_Trunk(base))
+    zdir = base / "data" / "skills" / "zipdemo"
+    zdir.mkdir(parents=True)
+    (zdir / "prompt.md").write_text("zip prompt", encoding="utf-8")
+    (zdir / "tools.json").write_text("[]", encoding="utf-8")
+    assert reg.load("zipdemo")["prompt"] == "zip prompt"
+    assert reg.load("missing") is None
+    assert reg.export_to_file("zipdemo", str(base / "z.x6skill"))["ok"]
+    assert reg.delete("missing")["ok"] is False
+    reg._save_state()
+    assert "zip prompt" in reg.get_enabled_prompts()
+
+
+def test_llm_local_helper_branches():
+    from core.llm_local import LLMLocalMixin
+    assert LLMLocalMixin._extract_user_text("hello") == "hello"
+    assert LLMLocalMixin._extract_user_text([{"role": "user", "content": "x"}]) == "x"
+    assert LLMLocalMixin._has_image([{"images": ["x"]}]) is True
+    assert LLMLocalMixin._has_image([{"content": [{"type": "image_url"}]}]) is True
+    assert LLMLocalMixin._has_image("plain") is False
+    msgs = [{"role": "user", "content": [
+        {"type": "text", "text": "hi"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+    ]}]
+    out = LLMLocalMixin._normalize_ollama_messages(msgs)
+    assert out[0]["content"] == "hi" and out[0]["images"] == ["AAAA"]
+    assert LLMLocalMixin._normalize_ollama_messages("x") == "x"
+
+
+def test_chat_with_image_path_and_fallback(tmp_path, monkeypatch):
+    from core.llm_client import LLMClient
+    p = tmp_path / "i.png"; p.write_bytes(b"x")
+    obj = object.__new__(LLMClient)
+    calls = []
+    def chat(msg):
+        calls.append(msg)
+        return "ok"
+    obj.chat = chat
+    assert obj.chat_with_image("see", image_path=str(p)) == "ok"
+    # 第一次带图调用失败 -> fallback 纯文本
+    n = {"i": 0}
+    def flaky(msg):
+        n["i"] += 1
+        if n["i"] == 1:
+            raise RuntimeError("no vision")
+        return "fallback"
+    obj.chat = flaky
+    assert obj.chat_with_image("see", image_base64="AAAA") == "fallback"
+
+
+def test_llm_provider_content_helpers():
+    from core.llm_providers import _data_url_parts, _anthropic_content, _gemini_parts
+    assert _data_url_parts({"type": "text", "text": "x"}) == ("x", "")
+    assert _data_url_parts("plain") == ("plain", "")
+    assert _anthropic_content("plain") == "plain"
+    assert _gemini_parts("plain") == [{"text": "plain"}]
+
+
+def test_more_fallback_branches(monkeypatch, tmp_path):
+    from core.llm_client import LLMClient
+    obj = object.__new__(LLMClient)
+    obj.chat = lambda msg: "ok"
+    assert obj.chat_with_image("x", image_path=str(tmp_path / "missing.png")) == "ok"
+
+    from core.llm_local import LLMLocalMixin
+    out = LLMLocalMixin._normalize_ollama_messages(
+        [None, {"role": "user", "content": [{"type": "text", "text": "x"}]}])
+    assert out[0] is None and out[1]["content"] == "x"
+
+    import core.skills_market as sm
+    monkeypatch.setattr(sm, "BUNDLED_CATALOG", str(tmp_path / "nope.json"))
+    monkeypatch.setattr(sm.urllib.request, "urlopen",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("offline")))
+    assert sm.fetch_remote_catalog()["ok"] is False
+
+
+def test_skill_registry_state_save_failure_is_tolerated(tmp_path):
+    from core.skill_registry import SkillRegistry
+    base_file = tmp_path / "not_a_dir"
+    base_file.write_text("x", encoding="utf-8")
+    reg = SkillRegistry(_Trunk(base_file))
+    reg._save_state()
+    assert reg.list_all() == []
