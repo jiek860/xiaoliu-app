@@ -29,12 +29,13 @@ def _app():
 
 
 def _quiet_boxes(monkeypatch):
-    from PyQt5.QtWidgets import QMessageBox, QMenu, QInputDialog
+    from PyQt5.QtWidgets import QDialog, QMessageBox, QMenu, QInputDialog
     for name in ("information", "warning", "critical"):
         monkeypatch.setattr(QMessageBox, name, staticmethod(lambda *a, **k: None))
     monkeypatch.setattr(QMessageBox, "question",
                         staticmethod(lambda *a, **k: QMessageBox.Yes))
     monkeypatch.setattr(QMenu, "exec_", lambda *a, **k: None)
+    monkeypatch.setattr(QDialog, "exec_", lambda *a, **k: 0)
 
 
 def test_plan_confirm_dialog_actions():
@@ -104,7 +105,7 @@ def test_skills_dialog_all_actions(monkeypatch, tmp_path):
 
 
 def test_ui_actions_upload_image_and_web_console(monkeypatch, tmp_path):
-    from PyQt5.QtWidgets import QTextEdit, QFileDialog, QMessageBox
+    from PyQt5.QtWidgets import QTextEdit, QFileDialog, QMessageBox, QWidget
     from gui.mixins.ui_actions_mixin import UIActionsMixin
 
     _app(); _quiet_boxes(monkeypatch)
@@ -122,9 +123,10 @@ def test_ui_actions_upload_image_and_web_console(monkeypatch, tmp_path):
             class Server:
                 def start(self): return {"ok": True, "url": "http://127.0.0.1/x"}
             return Server()
-    class W(UIActionsMixin):
+    class W(QWidget, UIActionsMixin):
         base = str(tmp_path)
         def __init__(self):
+            super().__init__()
             self.trunk = _Trunk(); self.chat = Chat(); self.input = QTextEdit()
     w = W()
     img = tmp_path / "a.png"; img.write_bytes(b"x")

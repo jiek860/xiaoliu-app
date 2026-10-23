@@ -30,10 +30,7 @@ class UIActionsMixin:
                 QMessageBox.warning(self, "Web 控制台",
                                     str(info.get("error") or "启动失败"))
                 return info
-            QMessageBox.information(
-                self, "Web 控制台",
-                "已启动。\n\n访问地址：\n%s\n\n注意：token 等同于临时密码，不要发给别人。"
-                % info.get("url", ""))
+            self._show_web_console_dialog(str(info.get("url", "")))
             return info
         except Exception as e:
             try:
@@ -42,6 +39,40 @@ class UIActionsMixin:
             except Exception:  # 静默是故意的：启动失败已尝试弹窗，二次提示失败不抛
                 pass
             return None
+
+
+    def _show_web_console_dialog(self, url):
+        """用可选中、可复制的输入框展示 Web 控制台地址。"""
+        from PyQt5.QtCore import QUrl
+        from PyQt5.QtGui import QDesktopServices
+        from PyQt5.QtWidgets import (QApplication, QDialog, QDialogButtonBox,
+                                     QLabel, QLineEdit, QVBoxLayout)
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Web 控制台")
+        dlg.setMinimumWidth(560)
+        layout = QVBoxLayout(dlg)
+        layout.addWidget(QLabel("已启动。访问地址（含临时 token）："))
+        edit = QLineEdit(url)
+        edit.setReadOnly(True)
+        edit.setCursorPosition(0)
+        edit.selectAll()
+        edit.setFocus()
+        layout.addWidget(edit)
+        tip = QLabel("token 等同于临时密码，不要发给别人。")
+        tip.setWordWrap(True)
+        layout.addWidget(tip)
+        buttons = QDialogButtonBox()
+        copy_btn = buttons.addButton("复制链接", QDialogButtonBox.ActionRole)
+        open_btn = buttons.addButton("打开浏览器", QDialogButtonBox.ActionRole)
+        close_btn = buttons.addButton(QDialogButtonBox.Close)
+        copy_btn.clicked.connect(
+            lambda: (QApplication.clipboard().setText(edit.text()),
+                     edit.selectAll()))
+        open_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(edit.text())))
+        close_btn.clicked.connect(dlg.accept)
+        dlg.exec_()
 
     def open_skills_dialog(self):
         """打开技能管理（统一入口，供更多菜单/命令面板复用）"""
