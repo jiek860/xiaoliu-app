@@ -17,7 +17,7 @@
 Pillow>=13.0.0,<14
 pyautogui>=0.9.54
 pyperclip>=1.8.2
-pywin32>=306; sys_platform == "win32"
+pywin32>=312; sys_platform == "win32"
 
 # ===== 语音合成 TTS（让小6说话）=====
 edge-tts>=6.1.0
