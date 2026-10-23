@@ -195,3 +195,23 @@ def test_computer_agent_dialog_constructs():
         assert not d.run_btn.isEnabled()
     finally:
         d.close()
+
+
+def test_computer_controller_win_failure_returns_three_tuple(monkeypatch, tmp_path):
+    """pywin32 缺失时 _win() 也必须返回三元组，不能被 _all_windows 解包崩。"""
+    import builtins
+    from modules.installed.computer_controller import ComputerController
+
+    c = ComputerController(FakeTrunk(str(tmp_path)))
+    real_import = builtins.__import__
+
+    def fake_import(name, *a, **k):
+        if name in ("win32gui", "win32con", "win32api"):
+            raise ModuleNotFoundError(name)
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    g, con, api = c._win()
+    assert isinstance(g, ModuleNotFoundError)
+    assert con is None and api is None
+    assert c.list_windows() == ["（没有找到可见窗口）"]

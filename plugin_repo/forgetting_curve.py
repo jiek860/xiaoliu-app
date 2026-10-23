@@ -19,15 +19,46 @@ class ForgettingCurve(BaseModule):
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or "."
         self.memory_path = os.path.join(self.base, "data", "forgetting.json")
-        self.memory = self._load()
         self.intervals = [1, 3, 7, 15, 30]  # 复习间隔（天）
+        self._migrated = False
+        self.memory = self._load()
+        if self._migrated:
+            self._save()
 
     def _load(self):
-        if os.path.exists(self.memory_path):
-            try:
-                return json.load(open(self.memory_path, encoding="utf-8"))
-            except Exception as e:
-                _x6_swallowed(__name__, e)
+        if not os.path.exists(self.memory_path):
+            return {}
+        try:
+            data = json.load(open(self.memory_path, encoding="utf-8"))
+        except Exception as e:  # 静默是故意的：坏文件回退空记忆
+            _x6_swallowed(__name__, e)
+            return {}
+        if isinstance(data, dict):
+            return {str(k): v for k, v in data.items() if isinstance(v, dict)}
+        # 兼容旧版 forgetting.json：历史格式是 [{text,time,imp,review}, ...]
+        if isinstance(data, list):
+            out = {}
+            now = time.time()
+            for i, item in enumerate(data):
+                if not isinstance(item, dict):
+                    continue
+                text = str(item.get("text") or item.get("content")
+                           or item.get("内容") or "").strip()
+                if not text:
+                    continue
+                key = text
+                if key in out:
+                    key = "%s#%d" % (text, i)
+                n = int(item.get("review") or item.get("学习次数") or 1)
+                learned = float(item.get("time") or item.get("上次复习") or now)
+                out[key] = {
+                    "内容": text,
+                    "学习次数": max(1, n),
+                    "上次复习": learned,
+                    "下次复习": learned + self.intervals[0] * 86400,
+                }
+            self._migrated = True
+            return out
         return {}
 
     def _save(self):
@@ -40,7 +71,9 @@ class ForgettingCurve(BaseModule):
     @safe
     def remember(self, key, content):
         """记住一个信息"""
-        self.memory[key] = {
+        if not isinstance(self.memory, dict):
+            self.memory = {}
+        self.memory[str(key)] = {
             "内容": content,
             "学习次数": 1,
             "上次复习": time.time(),
@@ -61,7 +94,8 @@ class ForgettingCurve(BaseModule):
     def due_review(self):
         """获取需要复习的记忆"""
         now = time.time()
-        due = [k for k, v in self.memory.items() if v["下次复习"] < now]
+        due = [k for k, v in self.memory.items()
+               if isinstance(v, dict) and float(v.get("下次复习", 0) or 0) < now]
         return {"待复习": len(due), "项目": due}
 
     @safe

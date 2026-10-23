@@ -382,3 +382,27 @@ def test_defaults_when_trunk_rule_raises(tmp_path):
 
     v = VectorStore(Bad(str(tmp_path)))
     assert v.max_items == 2000 and v.embed_gap == 0.2
+
+
+def test_load_skips_bad_dimensions_without_misaligning_data(tmp_path):
+    """坏向量被跳过时，data 和 emb_mat 必须同步截断，不能错位。"""
+    import sqlite3
+    db = tmp_path / "data" / "vectors.db"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    c = sqlite3.connect(str(db))
+    c.execute("""CREATE TABLE vectors(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        text TEXT, tag TEXT, time REAL, hits INTEGER DEFAULT 0,
+        embedding BLOB)""")
+    good = np.array([0.1, 0.2, 0.3], dtype=np.float32).tobytes()
+    bad = np.array([0.1], dtype=np.float32).tobytes()
+    c.execute("INSERT INTO vectors(text,tag,time,hits,embedding) VALUES(?,?,?,?,?)",
+              ("good", "t", time.time(), 0, good))
+    c.execute("INSERT INTO vectors(text,tag,time,hits,embedding) VALUES(?,?,?,?,?)",
+              ("bad", "t", time.time(), 0, bad))
+    c.commit(); c.close()
+    v = VectorStore(FakeTrunk(str(tmp_path)))
+    assert len(v.data) == 1
+    assert v._emb_mat is not None and len(v._emb_mat) == 1
+    assert v.data[0]["text"] == "good"
+    assert any("维度异常" in x for x in v.trunk.logs)

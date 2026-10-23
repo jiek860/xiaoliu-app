@@ -198,32 +198,32 @@ class VectorStore:
             dim = 0          # 第一条合法向量的维度，后续必须一致
             skipped = 0      # 维度不符 / 损坏而被跳过的条数
             for r in rows:
+                # 反序列化 embedding。
+                # ⚠️ 必须校验长度一致：np.frombuffer 只要求字节数是 4 的倍数，
+                #    所以一条被截断/损坏的记录会得到一个"短向量"，
+                #    混进 emb_list 后 np.array() 会报
+                #    "inhomogeneous shape" 把整个库读崩。
+                #    这里遇到长度异常/空向量就跳过该条。
+                #    data 和 emb_mat 必须同步 append，否则后面按索引检索会错位。
+                raw = r["embedding"]
+                if not raw:
+                    skipped += 1
+                    continue
+                if not isinstance(raw, (bytes, bytearray)) or len(raw) % 4:
+                    skipped += 1
+                    continue
+                emb = np.frombuffer(raw, dtype=np.float32).tolist()
+                if not emb or (dim and len(emb) != dim):
+                    skipped += 1
+                    continue
+                dim = len(emb)
+                emb_list.append(emb)
                 self.data.append({
                     "text": r["text"],
                     "tag": r["tag"],
                     "time": r["time"],
                     "hits": r["hits"],
                 })
-                # 反序列化 embedding。
-                # ⚠️ 必须校验长度一致：np.frombuffer 只要求字节数是 4 的倍数，
-                #    所以一条被截断/损坏的记录会得到一个"短向量"，
-                #    混进 emb_list 后 np.array() 会报
-                #    "inhomogeneous shape" 把整个库读崩。
-                #    这里遇到长度异常就跳过该条（数据不丢，只是不参与向量检索），
-                #    并记一条日志，方便排查。
-                if r["embedding"]:
-                    raw = r["embedding"]
-                    if isinstance(raw, (bytes, bytearray)) and len(raw) % 4 == 0:
-                        emb = np.frombuffer(raw, dtype=np.float32).tolist()
-                        if dim and len(emb) != dim:
-                            skipped += 1
-                        elif not emb:
-                            skipped += 1
-                        else:
-                            dim = len(emb)
-                            emb_list.append(emb)
-                    else:
-                        skipped += 1
             if skipped and self.trunk:
                 try:
                     self.trunk._log(

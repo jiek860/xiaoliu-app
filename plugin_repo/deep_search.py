@@ -137,7 +137,11 @@ class DeepSearch(BaseModule):
     @safe
     def _ddg(self, query, n=5):
         url = "https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(query)
-        html = self._get(url, timeout=6)
+        try:
+            html = self._get(url, timeout=6)
+        except Exception as e:  # 静默是故意的：DuckDuckGo 在部分网络不可用，走其他引擎
+            _x6_swallowed(__name__, e, "best-effort search fallback")
+            return []
         links = re.findall(r'<a rel="nofollow" class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', html, re.S)
         out = []
         for href, title in links[:n]:

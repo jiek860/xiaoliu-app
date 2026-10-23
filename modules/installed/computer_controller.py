@@ -163,7 +163,7 @@ class ComputerController(
             import win32gui, win32con, win32api
             return win32gui, win32con, win32api
         except Exception as e:
-            return e
+            return e, None, None
 
     def _virtual_screen_rect(self):
         """返回虚拟桌面坐标 (left, top, width, height)，支持多显示器。"""
