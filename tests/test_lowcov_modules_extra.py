@@ -130,3 +130,21 @@ def test_multimodal_missing_files_and_stats(tmp_path):
     mm.clear_history()
     assert mm.stats()["历史记录数"] == 0
     assert "图片描述次数" in mm.run()
+
+def test_forgetting_curve_migrates_legacy_list(tmp_path):
+    """旧版 forgetting.json 是 list，不能让 remember/due_review 崩。"""
+    import json
+    from modules.installed.forgetting_curve import ForgettingCurve
+
+    p = tmp_path / "data" / "forgetting.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps([
+        {"text": "旧记忆", "time": 1, "imp": 0.5, "review": 2},
+        {"text": "旧记忆", "time": 2, "imp": 0.5, "review": 1},
+    ], ensure_ascii=False), encoding="utf-8")
+    fc = ForgettingCurve(_Trunk(tmp_path))
+    assert isinstance(fc.memory, dict)
+    assert len(fc.memory) == 2
+    assert fc.remember("新记忆", "内容")["记住"] == "新记忆"
+    assert fc.due_review()["待复习"] >= 1
+    assert isinstance(json.loads(p.read_text(encoding="utf-8")), dict)
