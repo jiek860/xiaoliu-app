@@ -186,6 +186,23 @@ def test_shortcuts_installed(wb):
     assert any("F11" in k for k in keys), keys
 
 
+def test_ai_panel_round_limit_and_queue_visible(wb):
+    """轮次上限可配置 + 任务队列是面板的一等公民。"""
+    spin = wb.ai_dock.rounds_spin
+    assert spin.minimum() == 1 and spin.maximum() == 15
+    assert 1 <= spin.value() <= 15
+    assert wb.ai_dock.queue_list is not None
+    assert wb.ai_dock.queue_list.toolTip()
+
+
+def test_editor_toolbar_is_grouped(wb):
+    """工具条按文件/运行/AI 分组，关闭按钮靠右，不再是一条长龙。"""
+    from PyQt5.QtWidgets import QPushButton
+    labels = [b.text() for b in wb.findChildren(QPushButton)]
+    for want in ("📄 新建", "💾 保存", "▶ 运行", "🔧 AI 修复", "✕ 关闭"):
+        assert any(want in x for x in labels), labels
+
+
 # ---------------- 覆盖率补充：AgentDock 执行路径 ----------------
 class _FakeOrch:
     instances = []

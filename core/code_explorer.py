@@ -76,8 +76,11 @@ class CodeExplorerMixin:
                 items.append(name_ + ("/" if os.path.isdir(os.path.join(p, name_)) else ""))
             return {"ok": True, "path": rel, "items": items}
         if name == "find_symbols":
-            syms = self.index.find_symbols(str(args.get("query") or ""), 40)
-            return {"ok": True, "symbols": syms}
+            syms = self.index.find_symbols(
+                str(args.get("query") or ""), 40,
+                kind=args.get("kind"), file=args.get("file"))
+            return {"ok": True, "symbols": syms,
+                    "engine": "ast/regex/tree-sitter"}
         if name == "run_command":
             cmd = str(args.get("cmd") or "").strip()
             if not cmd:
@@ -95,11 +98,34 @@ class CodeExplorerMixin:
         return {"ok": False, "error": "未知工具: " + str(name)}
 
     def propose_patch(self, goal, context=None, previous_error="",
-                      max_tool_rounds=6):
+                      max_tool_rounds=6, two_role=None):
+        """先探索、再修改；`two_role=False` 时退回单角色循环。"""
         llm = (getattr(self.trunk, "modules", {}) or {}).get("llm")
         if not llm:
             raise RuntimeError("LLM 未加载，无法生成代码修改")
         context = context or self.build_context(goal)
+        from core.code_roles import (explore_project, modify_with_report,
+                                     two_role_enabled)
+        enabled = two_role_enabled(self.trunk) if two_role is None else bool(two_role)
+        if enabled:
+            report = explore_project(self, goal, context)
+            if isinstance(report.get("patch"), dict):
+                self._emit("explore_report", {
+                    "step": "探索 Agent 直接给出方案",
+                    "files": [f.get("path") for f in report["patch"].get("files", [])
+                              if isinstance(f, dict)]})
+                return self._parse_patch(report["patch"])
+            self._emit("explore_report", {
+                "step": "探索完成，交给修改 Agent",
+                "tools": report.get("tools") or [],
+                "report": str(report.get("report") or "")[:2000]})
+            return modify_with_report(
+                self, goal, context, previous_error, report.get("report"))
+        return self._propose_single_role(
+            llm, goal, context, previous_error, max_tool_rounds)
+
+    def _propose_single_role(self, llm, goal, context, previous_error="",
+                             max_tool_rounds=6):
         messages = self._llm_messages(goal, context, previous_error)
         for round_no in range(max_tool_rounds + 1):
             self._check_control()
