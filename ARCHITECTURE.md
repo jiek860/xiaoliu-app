@@ -406,6 +406,27 @@ run.py
 └─────────────────────────────────────────────────────┘
 ```
 
+### 代码 Agent 能力层（2026-10-24）
+
+```text
+core/code_roles.py        探索 Agent（只读工具 -> report）
+                          修改 Agent（report + patch）
+core/code_agent_policy.py 轮次上限（默认 12，1~15）+ 终止条件
+core/symbol_parser.py     Python AST / JS-TS tree-sitter（可选）/ 正则降级
+core/patch_engine.py      dry_run_patch（整批预演）+ 写盘失败整批回滚
+core/code_task_queue.py   data/code_jobs/queue.json：队列 + 断点续跑
+core/github_pr.py         REST：blob/tree/commit/ref/PR/check-runs/merge
+gui/inline_diff.py        编辑器内联 diff：跳转 + 应用/撤销（QLabel 链接）
+```
+
+流程：`工作台 AI 面板 -> CodeTaskQueue -> AgentOrchestrator -> CodeAgent`
+- 每轮：探索（AST 符号索引）→ 修改 Agent 出 patch → dry-run → 审批 →
+  应用 → tests/lint → `evaluate_round`；
+- `evaluate_round` 只在"全绿 / 连续两轮同指纹 / 轮次用尽"时停止，
+  并把 `stop_reason` 写回队列与时间线；
+- PR 流程走 `api.github.com`（`git push` 到 github.com:443 会被 RST），
+  Token 只来自参数/环境/凭据管理器，不进入日志或异常文本。
+
 ### 关键设计决策
 
 | 决策 | 理由 |

@@ -19,7 +19,7 @@ import sys
 import ast
 import tempfile
 import difflib
-from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit, QTextEdit, QPushButton, QLabel, QFileDialog, QMessageBox, QTabWidget, QTreeView, QFileSystemModel, QSplitter, QCompleter, QStatusBar, QDialog
+from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit, QTextEdit, QPushButton, QLabel, QFileDialog, QMessageBox, QTabWidget, QTreeView, QFileSystemModel, QSplitter, QCompleter, QStatusBar, QDialog, QMenu
 from PyQt5.QtCore import Qt, QProcess, pyqtSignal, QRect, QSize, QTimer
 from PyQt5.QtGui import QFont, QTextCharFormat, QColor, QSyntaxHighlighter, QTextDocument, QTextCursor, QPainter
 
@@ -79,20 +79,41 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin, QMainWindow):
 
         # 右：上 tabs / 下输出
         right = QWidget(); rv = QVBoxLayout(right); rv.setContentsMargins(0,0,0,0)
-        # 工具条
+        # 工具条：按"文件 / 运行 / AI / 关闭"分组，避免一条长龙。
         tb = QHBoxLayout()
-        for label, slot in [("📄 新建", self.new_tab), ("📂 打开", self.open_file),
-                            ("💾 保存", self.save_file), ("💾 另存为", self.save_as),
-                            ("▶ 运行", self.run_current),
-                            ("🔧 AI 修复", self.ai_fix),
-                            ("✕ 关闭", self.close)]:
-            b = QPushButton(label); b.setStyleSheet("padding:4px 10px;")
-            b.clicked.connect(slot); tb.addWidget(b)
-        tb.addStretch(1)
+        tb.setSpacing(4)
+        # 单个创建点：用分隔符/弹性空白把按钮分组，不再新增 QPushButton。
+        items = [
+            ("📄 新建", self.new_tab, "新建标签页"), "sep",
+            ("📂 打开", self.open_file, "打开文件"),
+            ("💾 保存", self.save_file, "保存当前文件"),
+            ("📥 另存", self.save_as, "另存为"), "sep",
+            ("▶ 运行", self.run_current, "运行当前文件"), "sep",
+            ("🔧 AI 修复", self.ai_fix, "把当前文件交给 AI 修复"),
+            "stretch", ("✕ 关闭", self.close, "关闭编辑器窗口"),
+        ]
+        for item in items:
+            if item == "sep":
+                sep = QLabel("|")
+                sep.setStyleSheet("color:#c9ced6;padding:0 2px;")
+                tb.addWidget(sep)
+                continue
+            if item == "stretch":
+                tb.addStretch(1)
+                continue
+            label, slot, tip = item
+            b = QPushButton(label)
+            b.setStyleSheet("padding:3px 8px;")
+            b.setToolTip(tip)
+            b.clicked.connect(slot)
+            tb.addWidget(b)
         rv.addLayout(tb)
 
         self.tabs = QTabWidget(); self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self._close_tab)
+        # 右键菜单承载 PR 等低频操作（QAction 不占按钮预算）。
+        self.tabs.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tabs.customContextMenuRequested.connect(self._tabs_menu)
         rv.addWidget(self.tabs, stretch=3)
 
         rv.addWidget(QLabel("📟 运行输出："))
@@ -140,7 +161,9 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin, QMainWindow):
 
     def _close_tab(self, i):
         w = self.tabs.widget(i)
-        if w.is_dirty():
+        if w is None:
+            return
+        if hasattr(w, "is_dirty") and w.is_dirty():
             r = QMessageBox.question(self, "未保存", "当前文件有改动，保存？",
                                      QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
             if r == QMessageBox.Save:
@@ -170,6 +193,119 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin, QMainWindow):
         w = self._new_edit(); w.setPlainText(txt); w.filepath = path
         i = self.tabs.addTab(w, os.path.basename(path))
         self.tabs.setCurrentIndex(i)
+
+    def _tabs_menu(self, pos):
+        w = self._current_edit()
+        if w is None:
+            return
+        menu = QMenu(self)
+        if w.filepath:
+            act_save = menu.addAction("保存")
+            act_save.triggered.connect(lambda: self._save_w(w))
+            act_pr = menu.addAction("推送到 GitHub 并创建 PR")
+            act_pr.triggered.connect(self._push_pr_current)
+            menu.addSeparator()
+        act_close = menu.addAction("关闭标签页")
+        act_close.triggered.connect(
+            lambda: self._close_tab(self.tabs.currentIndex()))
+        menu.exec_(self.tabs.mapToGlobal(pos))
+
+    def _push_pr_current(self):
+        """把当前文件提交到功能分支并创建 PR（走 api.github.com）。"""
+        w = self._current_edit()
+        path = getattr(w, "filepath", "") if w else ""
+        if not path:
+            QMessageBox.information(self, "PR", "请先保存文件")
+            return
+        root = os.path.abspath(getattr(self.trunk, "base", ".") or ".")
+        rel = os.path.relpath(path, root).replace("\\", "/")
+        try:
+            from core.github_pr import PRFlow
+            from PyQt5.QtWidgets import QApplication
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                r = PRFlow(self.trunk, root).run(
+                    [(rel, w.toPlainText())],
+                    title="chore: 更新 %s" % os.path.basename(path),
+                    body="由小6代码编辑器发起", wait_ci=False)
+            finally:
+                QApplication.restoreOverrideCursor()
+            if r.get("ok"):
+                QMessageBox.information(
+                    self, "已创建 PR",
+                    "%s\n%s" % ((r.get("pr") or {}).get("url", ""),
+                                "分支: " + str(r.get("branch"))))
+            else:
+                QMessageBox.warning(self, "PR 失败", str(r.get("error"))[:500])
+        except Exception as e:  # 静默是故意的 - 失败必须告知用户
+            QMessageBox.warning(self, "PR 失败", str(e)[:500])
+
+    def open_path_at(self, path, line=1):
+        """打开文件并定位到指定行（diff 预览跳转用）。"""
+        if not path:
+            return
+        if not os.path.isabs(str(path)):
+            root = getattr(self.trunk, "base", None) or os.getcwd()
+            path = os.path.join(root, str(path))
+        path = os.path.normpath(str(path))
+        if not os.path.isfile(path):
+            self.statusBar().showMessage("跳转失败，文件不存在: " + path, 4000)
+            return
+        self.open_path(path)
+        w = self._current_edit()
+        if not w:
+            return
+        block = w.document().findBlockByNumber(max(0, int(line or 1) - 1))
+        if block.isValid():
+            w.setTextCursor(QTextCursor(block))
+            w.centerCursor()
+            w.setFocus()
+        self.statusBar().showMessage("已定位 %s:%s" % (
+            os.path.basename(path), int(line or 1)), 3000)
+
+    def show_diff_preview(self, root, patch, on_apply=None, on_undo=None):
+        """在编辑器里打开内联 diff 预览 tab，返回 InlineDiffView。"""
+        from gui.inline_diff import InlineDiffView
+        view = InlineDiffView(root, patch, on_apply=on_apply,
+                              on_undo=on_undo)
+        view.jumpRequested.connect(self.open_path_at)
+        title = "AI 修改预览"
+        for i in range(self.tabs.count()):
+            old = self.tabs.widget(i)
+            if isinstance(old, InlineDiffView):
+                self.tabs.removeTab(i)
+                break
+        idx = self.tabs.addTab(view, title)
+        self.tabs.setCurrentIndex(idx)
+        self.statusBar().showMessage("已生成内联 diff 预览，点击行可跳转", 4000)
+        return view
+
+    def mark_diff_applied(self, manifest=""):
+        from gui.inline_diff import InlineDiffView
+        for i in range(self.tabs.count()):
+            w = self.tabs.widget(i)
+            if isinstance(w, InlineDiffView):
+                w.mark_applied(manifest)
+                self.tabs.setCurrentIndex(i)
+
+    def reload_path(self, path):
+        """外部 Agent 改了文件后，刷新已打开的 tab（保留光标）。"""
+        if not path:
+            return
+        path = os.path.normpath(str(path))
+        for i in range(self.tabs.count()):
+            w = self.tabs.widget(i)
+            if isinstance(w, CodeEditWidget) and \
+                    os.path.normpath(str(w.filepath or "")) == path:
+                try:
+                    txt = open(path, encoding="utf-8").read()
+                    if txt != w.toPlainText() and not w.is_dirty():
+                        w.setPlainText(txt)
+                        w._dirty = False
+                except OSError:
+                    return
+                self.tabs.setCurrentIndex(i)
+                return
 
     def save_file(self):
         w = self._current_edit()

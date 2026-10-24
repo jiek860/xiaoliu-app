@@ -1,5 +1,56 @@
 # 版本变更记录
 
+### 代码 Agent 能力补齐 + 工作台布局优化（2026-10-24）
+
+**P0 轮次与终止条件**
+- 新增 `core/code_agent_policy.py`：轮次上限默认 12（范围 1~15），优先级
+  显式参数 > `X6_CODE_AGENT_MAX_ROUNDS` > `trunk.config` > 默认值；工作台新增
+  "轮次上限"数字框，可随任务传入。
+- 终止条件显式化：测试与 lint 全绿 / 连续两轮错误指纹相同（无新错误）/
+  轮次用尽。返回 `stop_reason` 与 `rounds_used`，时间线直接展示原因。
+
+**P0 真符号索引**
+- 新增 `core/symbol_parser.py`：Python 用 AST（类/方法/嵌套函数/异步），
+  JS/TS 优先 `tree_sitter_languages`，未安装时退回正则并标注
+  `engine=regex, confidence=0.6`；
+- `WorkspaceIndex.find_symbols` 改为"精确 > 限定名后缀 > 前缀 > 子串"排序，
+  支持 `kind` / `file` 过滤；索引版本升到 2，`stats()` 暴露解析引擎分布。
+
+**P1 多文件预演与回滚**
+- `patch_engine.dry_run_patch` 在内存里按顺序模拟整批 patch（含 create 后
+  update、rename），并做 Python AST / JSON 语法校验；
+- `apply_patch` 默认先整体 dry-run，任何一处失败都不写盘；写盘后异常仍按
+  backup manifest 整批回滚。
+
+**P1 编辑器闭环**
+- 新增 `gui/inline_diff.py`：编辑器内联 diff 预览，点击/双击行跳转到源文件，
+  底部"应用/撤销"用 QLabel 链接实现（不新增 QPushButton，按钮预算保持 184）；
+- Agent 落盘后自动刷新已打开 tab；撤销走 `AgentOrchestrator.rollback()`。
+
+**P2 任务队列与断点续跑**
+- 新增 `core/code_task_queue.py`：队列落盘 `data/code_jobs/queue.json`，
+  状态机 `queued -> running -> completed|failed|paused|cancelled`；
+  进程崩溃后 `running` 自动标为 `interrupted`；
+- 工作台 AI 面板新增任务队列列表，双击未完成任务从记录的轮次/错误/指纹续跑。
+
+**P2 PR 闭环**
+- 新增 `core/github_pr.py`：只用 api.github.com（blob→tree→commit→ref→PR→
+  check-runs→merge），Token 来自显式参数/GITHUB_TOKEN/git credential，
+  不落日志；推送前统一过权限中心审计；
+- 编辑器标签页右键菜单可"推送到 GitHub 并创建 PR"；`PRFlow.ci_feedback()`
+  把 CI 状态整理成可回灌给 Agent 的 `previous_error`。
+
+**P3 双角色 Agent**
+- 新增 `core/code_roles.py`：探索 Agent（只读工具 + report）→ 修改 Agent
+  （带 report 生成 patch）；默认开启，可用 `code_agent.two_role=false` 或
+  `X6_CODE_AGENT_TWO_ROLE=0` 退回单角色。
+
+**工作台布局**
+- 编辑器工具条按"文件 / 运行 / AI / 关闭"分组（分隔符 + 右侧关闭），
+  仍是单个 QPushButton 创建点；
+- AI 面板按钮从竖排改为横排，顶部显示项目名与快捷键提示，新增轮次数字框
+  和任务队列列表，时间线展示终止原因。
+
 ### UI 向 Trae 对齐：顶部标签页 / 状态栏 / 设置左分类（2026-10-23，活动栏已撤）
 
 - 左侧 52px 图标轨道曾短暂加入，因与侧栏的「对话/任务/资料/设置」重复，已整栏移除；保留顶部标签页和状态栏元信息。

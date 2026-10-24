@@ -22,8 +22,13 @@ import time
 
 from core.agent_harness import get_run_registry, normalize_error
 from core.agent_permissions import authorize_agent_action
+from core.code_agent_policy import (
+    describe as describe_rounds,
+    evaluate_round,
+    resolve_max_rounds,
+)
 from core.patch_engine import (
-    PatchError, apply_patch, file_patch, rollback, sha256_file,
+    PatchError, apply_patch, dry_run_patch, file_patch, rollback, sha256_file,
     unified_diff, validate_patch,
 )
 from core.path_safety import safe_join
@@ -185,7 +190,17 @@ class CodeAgent(
                 "applied": applied, "tests": tests, "lint": lint,
                 "backups": [applied.get("backup_manifest")]}
 
-    def run(self, goal, *, max_rounds=3, approved_cb=None):
+    def run(self, goal, *, max_rounds=None, approved_cb=None,
+            resume_state=None, checkpoint_cb=None):
+        """执行代码任务。
+
+        `max_rounds` 为 None 时按 显式参数 > 环境变量 > 配置 > 默认 12 解析。
+        `resume_state` 用于断点续跑（轮次、错误、备份清单、错误指纹）。
+        `checkpoint_cb(state)` 每轮结束回调，任务队列用它落盘。
+        """
+        max_rounds = resolve_max_rounds(max_rounds, self.trunk)
+        self.max_rounds = max_rounds
+        resume_state = dict(resume_state or {})
         run_id = "code_agent:" + str(int(time.time() * 1000))
         self._last_run_id = run_id
         try:
@@ -196,10 +211,21 @@ class CodeAgent(
         self.registry.start_run("code_agent", goal[:80], run_id=run_id,
                                 budget={"max_seconds": 900})
         approval_cb = approved_cb or self.approval_cb
-        backups: list[str] = []
-        last_error = ""
+        backups: list[str] = list(resume_state.get("backups") or [])
+        last_error = str(resume_state.get("last_error") or "")
+        start_round = max(1, int(resume_state.get("round") or 1))
+        fingerprints = list(resume_state.get("fingerprints") or [])
+        patch_history = list(resume_state.get("patches") or [])
+        tests: dict = {}
+        lint: dict = {}
+        applied: dict = {}
+        git: dict = {}
+        stop_reason = "max_rounds"
         try:
-            self._emit("run_start", {"step": "准备代码任务", "progress": 0.02})
+            self._emit("run_start", {"step": "准备代码任务", "progress": 0.02,
+                                     "max_rounds": max_rounds,
+                                     "resume_from": start_round - 1,
+                                     "policy": describe_rounds(max_rounds)})
             git = self.git_protect()
             if git.get("dirty"):
                 self._emit("git_dirty", {"step": "检测到未提交修改",
@@ -209,8 +235,7 @@ class CodeAgent(
             self._emit("context", {"step": "已收集项目上下文",
                                    "files": context.get("files", []),
                                    "progress": 0.1})
-            tests = lint = {}
-            for round_no in range(1, max_rounds + 1):
+            for round_no in range(start_round, max_rounds + 1):
                 self._check_control()
                 self.registry.update_run(
                     run_id, current_step="生成第 %d 轮 patch" % round_no,
@@ -222,6 +247,7 @@ class CodeAgent(
                 self._emit("patch", {"step": "生成修改方案",
                                      "patch": patch,
                                      "progress": 0.25 + round_no * 0.1})
+                decision = None
                 if callable(approval_cb):
                     self.registry.update_run(run_id, current_step="等待修改审批",
                                              status="waiting_approval")
@@ -253,21 +279,38 @@ class CodeAgent(
                 if isinstance(decision, dict):
                     selected_files = decision.get("selected_files") or None
                     selected_hunks = decision.get("selected_hunks") or None
+                # 多文件批量修改先整体 dry-run：任何一处不合法都不落盘。
+                dry = dry_run_patch(
+                    self.root, patch, selected_files=selected_files,
+                    selected_hunks=selected_hunks)
+                self._emit("dry_run", {"step": "修改预演完成",
+                                       "ok": dry.get("ok"),
+                                       "files": dry.get("files") or [],
+                                       "errors": dry.get("errors") or [],
+                                       "progress": 0.5})
+                if not dry.get("ok"):
+                    err = "；".join(str(x) for x in (dry.get("errors") or []))
+                    self.registry.finish_run(run_id, "failed", err)
+                    return {"ok": False, "run_id": run_id, "error": err,
+                            "stop_reason": "dry_run_failed", "rounds_used": 0,
+                            "dry_run": dry, "tests": tests, "lint": lint,
+                            "backups": backups, "git": git}
                 applied = apply_patch(
                     self.root, patch, selected_files=selected_files,
                     selected_hunks=selected_hunks)
-                backups.append(applied.get("backup_manifest"))
+                backups.append(applied.get("backup_manifest") or "")
                 self._last_backups.append(applied.get("backup_manifest"))
-                self._emit("applied", {"step": "修改已应用",
-                                       "applied": applied.get("applied") or [],
-                                       "progress": 0.55})
+                self._emit("applied", {
+                    "step": "修改已应用",
+                    "applied": applied.get("applied") or [],
+                    "backup_manifest": applied.get("backup_manifest") or "",
+                    "progress": 0.55})
                 self.registry.update_run(run_id, current_step="运行测试",
                                          progress=0.6)
                 self._emit("tests_start", {"step": "运行测试与 lint",
                                            "progress": 0.62})
                 tests = self.run_tests()
                 lint = self.run_lint()
-                quality_ok = bool(tests.get("ok") and lint.get("ok"))
                 self._emit("tests", {"step": "测试完成",
                                      "ok": tests.get("ok"),
                                      "results": tests.get("results") or [],
@@ -275,19 +318,62 @@ class CodeAgent(
                 self._emit("lint", {"step": "Lint 完成",
                                     "ok": lint.get("ok"),
                                     "results": lint.get("results") or []})
-                if quality_ok:
-                    self.registry.finish_run(run_id, "completed")
-                    self._emit("done", {"step": "任务完成",
-                                        "progress": 1.0,
-                                        "backups": backups})
-                    return {"ok": True, "run_id": run_id, "patch": patch,
-                            "applied": applied, "tests": tests, "lint": lint,
-                            "backups": backups, "git": git}
+                verdict = evaluate_round(
+                    round_no=round_no, max_rounds=max_rounds,
+                    tests=tests, lint=lint,
+                    fingerprint_history=fingerprints,
+                    patch_history=patch_history,
+                    patch_id=str(patch.get("patch_id") or ""))
+                stop_reason = str(verdict.get("reason") or "max_rounds")
+                self._emit("round_end", {
+                    "step": "第 %d 轮：%s" % (round_no, verdict.get("message", "")),
+                    "round": round_no, "max_rounds": max_rounds,
+                    "reason": stop_reason, "stop": bool(verdict.get("stop")),
+                    "progress": min(0.9, 0.7 + round_no * 0.02)})
                 last_error = "\n".join(
                     str(x.get("output", "")) for x in tests.get("results") or [])
                 if not lint.get("ok"):
                     last_error += "\n" + "\n".join(
                         str(x.get("output", "")) for x in lint.get("results") or [])
+                fingerprints.append(str(verdict.get("fingerprint") or ""))
+                patch_history.append(str(patch.get("patch_id") or ""))
+                if callable(checkpoint_cb):
+                    try:
+                        checkpoint_cb({
+                            "round": round_no + 1, "max_rounds": max_rounds,
+                            "last_error": last_error,
+                            "fingerprints": fingerprints,
+                            "patches": patch_history,
+                            "backups": list(backups),
+                            "stop_reason": stop_reason,
+                            "done": bool(verdict.get("stop")),
+                        })
+                    except Exception as e:  # 静默是故意的 - 断点保存失败不阻塞任务
+                        _x6_swallowed(__name__, e, "save code agent checkpoint")
+                if verdict.get("stop"):
+                    if stop_reason == "tests_green":
+                        self.registry.finish_run(run_id, "completed")
+                        self._emit("done", {"step": "任务完成",
+                                            "progress": 1.0,
+                                            "stop_reason": stop_reason,
+                                            "backups": backups})
+                        return {"ok": True, "run_id": run_id, "patch": patch,
+                                "applied": applied, "tests": tests,
+                                "lint": lint, "backups": backups, "git": git,
+                                "stop_reason": stop_reason,
+                                "rounds_used": round_no,
+                                "max_rounds": max_rounds}
+                    self.registry.finish_run(run_id, "failed",
+                                             str(verdict.get("message") or ""))
+                    self._emit("failed", {"step": str(verdict.get("message") or ""),
+                                          "error": last_error[:4000],
+                                          "stop_reason": stop_reason,
+                                          "progress": 1.0})
+                    return {"ok": False, "run_id": run_id, "error": last_error,
+                            "stop_reason": stop_reason, "rounds_used": round_no,
+                            "max_rounds": max_rounds, "patch": patch,
+                            "applied": applied, "tests": tests, "lint": lint,
+                            "backups": backups, "git": git}
                 self._emit("test_failed", {"step": "测试失败，准备回修",
                                            "output": last_error[:4000],
                                            "progress": 0.85})
@@ -295,7 +381,9 @@ class CodeAgent(
             self._emit("failed", {"step": "达到最大回修轮数",
                                   "error": last_error[:4000], "progress": 1.0})
             return {"ok": False, "run_id": run_id, "error": last_error,
-                    "tests": tests, "lint": lint, "backups": backups, "git": git}
+                    "stop_reason": stop_reason, "rounds_used": max_rounds,
+                    "max_rounds": max_rounds, "tests": tests, "lint": lint,
+                    "backups": backups, "git": git}
         except AgentCancelled:
             self.registry.finish_run(run_id, "cancelled", "用户取消")
             self._emit("cancelled", {"step": "任务已取消"})

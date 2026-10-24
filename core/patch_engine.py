@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """安全多文件 patch 引擎（update/create/delete/rename/write）。
 
 核心约束：
@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import ast
 import difflib
 import hashlib
 import json
@@ -254,6 +255,102 @@ def validate_patch(root, patch):
             "risk": str(patch.get("risk") or "medium")}
 
 
+def _syntax_error(rel, text):
+    """落盘前的语法检查：只查能可靠解析的格式，避免写出半截坏文件。"""
+    low = str(rel or "").lower()
+    if low.endswith(".py"):
+        try:
+            ast.parse(str(text or ""))
+        except SyntaxError as e:
+            return "%s: Python 语法错误 L%s: %s" % (rel, e.lineno, e.msg)
+        return ""
+    if low.endswith(".json"):
+        try:
+            json.loads(str(text or "null"))
+        except ValueError as e:
+            return "%s: JSON 解析失败: %s" % (rel, str(e)[:120])
+        return ""
+    return ""
+
+
+def _preview_text(root, fp, selected_hunks, virtual: dict[str, str | None]):
+    """在内存里按顺序模拟应用；delete/rename 返回 None。
+
+    `virtual` 让"同一 patch 里先 create 再 update"也能预演，和 apply 的顺序一致。
+    """
+    rel = fp["path"]
+    op = fp["op"]
+    if op in ("create", "write"):
+        text = str(fp.get("content") or "")
+        virtual[rel] = text
+        return text
+    if op == "delete":
+        virtual[rel] = None
+        return None
+    if op == "rename":
+        current = virtual[rel] if rel in virtual else None
+        if current is None:
+            p = _safe_path(root, rel)
+            current = _read(p) if os.path.isfile(p) else ""
+        virtual[rel] = None
+        virtual[str(fp.get("new_path") or "")] = current
+        return None
+    body = virtual[rel] if rel in virtual else None
+    if body is None:
+        p = _safe_path(root, rel)
+        body = _read(p) if os.path.isfile(p) else ""
+    for hi, h in enumerate(fp.get("hunks") or []):
+        key = "%s:%d" % (rel, hi)
+        if selected_hunks is not None and key not in selected_hunks:
+            continue
+        body, _how = _replace_hunk(body, h["old"], h["new"])
+    virtual[rel] = body
+    return body
+
+
+def dry_run_patch(root, patch, *, selected_files=None, selected_hunks=None):
+    """多文件 patch 的整体预演：不写盘，返回每个文件的最终结果与错误。
+
+    只有全部文件都通过（路径、hunk 唯一性、Python/JSON 语法）才返回 ok。
+    调用方应在真正 apply 前执行，失败时整批不落盘。
+    """
+    try:
+        normalized = validate_patch(root, patch)
+    except PatchError as e:
+        return {"ok": False, "patch_id": "", "files": [], "errors": [str(e)]}
+    root = os.path.abspath(root)
+    selected_files = set(_norm_rel(x) for x in (selected_files or []))
+    selected_hunks = None if selected_hunks is None else set(selected_hunks)
+    files, errors = [], []
+    virtual: dict[str, str | None] = {}
+    for fp in normalized.get("files") or []:
+        rel = fp["path"]
+        new_rel = _norm_rel(fp.get("new_path") or "")
+        if selected_files and rel not in selected_files and \
+                new_rel not in selected_files:
+            continue
+        item = {"path": rel, "op": fp["op"], "changed": False,
+                "new_path": new_rel, "error": ""}
+        try:
+            text = _preview_text(root, fp, selected_hunks, virtual)
+            if text is not None:
+                err = _syntax_error(new_rel or rel, text)
+                if err:
+                    item["error"] = err
+                    errors.append(err)
+                p = _safe_path(root, rel)
+                old = _read(p) if os.path.isfile(p) else ""
+                item["changed"] = text != old
+            else:
+                item["changed"] = True
+        except PatchError as e:
+            item["error"] = str(e)
+            errors.append("%s: %s" % (rel, e))
+        files.append(item)
+    return {"ok": not errors, "patch_id": normalized.get("patch_id", ""),
+            "files": files, "errors": errors}
+
+
 def unified_diff(root, patch, selected_files=None, selected_hunks=None):
     """生成可读 diff，不修改文件。"""
     root = os.path.abspath(root)
@@ -314,6 +411,13 @@ def apply_patch(root, patch, *, selected_files=None, selected_hunks=None,
     patch = validate_patch(root, patch)
     selected_files = set(_norm_rel(x) for x in (selected_files or []))
     selected_hunks = None if selected_hunks is None else set(selected_hunks)
+    # 整批预演：任何一处不合法都直接失败，避免"写了一半才发现"。
+    if require_clean:
+        dry = dry_run_patch(root, patch, selected_files=selected_files,
+                            selected_hunks=selected_hunks)
+        if not dry.get("ok"):
+            raise PatchError("预演失败，未写入任何文件: " +
+                             "；".join(dry.get("errors") or []))
     backup_base = backup_base or os.path.join(root, "data", "patch_backups")
     backup_dir = os.path.join(backup_base, patch["patch_id"])
     os.makedirs(backup_dir, exist_ok=True)
