@@ -950,25 +950,85 @@ env = normalize_error(Exception("权限被拒绝"))
 ```python
 idx = trunk.get_workspace_index()
 idx.rebuild()
-idx.find_symbols("build_ui")
+idx.find_symbols("build_ui")                       # 精确 > 后缀 > 前缀 > 子串
+idx.find_symbols("open", kind="method", file="gui/workbench_dialog.py")
 idx.related_tests("gui/build_ui.py")
+idx.stats()["symbol_engines"]                      # {"ast": n, "tree-sitter": n, "regex": n}
 
-from core.patch_engine import file_patch, validate_patch, apply_patch, rollback
+from core.patch_engine import (file_patch, validate_patch, dry_run_patch,
+                               apply_patch, rollback)
 patch = file_patch("a.py", "old text", "new text", "说明")
-validate_patch(trunk.base, patch)
-r = apply_patch(trunk.base, patch)
+validate_patch(trunk.base, patch)                  # 只校验结构/base_hash
+dry = dry_run_patch(trunk.base, patch)             # 内存整体预演，不写盘
+# dry = {"ok": bool, "files": [...], "errors": [...]}
+r = apply_patch(trunk.base, patch)                 # 默认先 dry-run，失败整批不落盘
 rollback(r["backup_manifest"])
 ```
+
+符号索引：Python 由 `core/symbol_parser.py` 走 AST；JS/TS 优先
+`tree_sitter_languages`，未安装时正则降级。每个符号带
+`kind / line / end_line / engine / confidence`，用 `engine` 判断可信度。
 
 ### 代码 Agent
 
 ```python
 from core.code_agent import CodeAgent
+from core.code_agent_policy import resolve_max_rounds
+
 agent = CodeAgent(trunk, trunk.base,
                   test_commands=["pytest -q"],
                   lint_commands=["ruff check ."])
-r = agent.run("修复设置保存问题", approved_cb=lambda patch: True)
+r = agent.run("修复设置保存问题",
+              max_rounds=resolve_max_rounds(),       # 默认 12，夹取 1~15
+              approved_cb=lambda patch: True,
+              resume_state=None,                     # 断点续跑
+              checkpoint_cb=lambda state: None)      # 每轮落盘
+# r 额外返回 stop_reason / rounds_used / max_rounds / dry_run
+# stop_reason: tests_green | no_progress | max_rounds | dry_run_failed
 ```
+
+### 任务队列与断点续跑
+
+```python
+from core.code_task_queue import get_code_queue
+
+q = get_code_queue(trunk.base)
+job_id = q.enqueue("修复设置保存问题", meta={"rounds": 12})
+q.mark_running(job_id)
+q.checkpoint(job_id, {"round": 3, "last_error": "...",
+                      "fingerprints": [...], "patches": [...], "backups": [...]})
+q.mark_paused(job_id)
+state = q.checkpoint_of(job_id)      # 传给 CodeAgent.run(resume_state=...)
+q.mark_done(job_id, ok=True)
+```
+
+### 双角色 Agent
+
+```python
+from core.code_roles import two_role_enabled, explore_project
+
+two_role_enabled({})                          # 默认 True
+result = explore_project(agent, "修复保存问题", context)
+# {"report": "...", "files": [...], "patch": {...}|None, "tools": [...]}
+# 探索阶段只读（read_file / grep / list_files / find_symbols / run_command）
+```
+
+### GitHub PR 闭环
+
+```python
+from core.github_pr import GitHubClient, PRFlow
+
+client = GitHubClient(repo="owner/repo")        # Token: 参数/环境/凭据管理器
+flow = PRFlow(trunk, trunk.base, client=client)
+r = flow.run(files,                            # [(相对路径, 文本)]
+             title="feat: ...", branch="x6/xxx",
+             wait_ci=True, merge=True)
+# r: {"ok", "branch", "commit", "pr", "ci", "merge"}
+# 失败时 r["error"]；CI 状态可经 PRFlow.ci_feedback(r) 回灌 Agent
+```
+
+写操作只走 `api.github.com`（本机 `git push` 到 github.com:443 会被 RST）；
+`commit_files` 按 blob→tree→commit→ref 提交，`ref_sha()` 遇到 404 返回空串表示分支不存在。
 
 ### 电脑 Agent
 
