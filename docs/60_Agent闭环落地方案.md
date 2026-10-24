@@ -1,4 +1,4 @@
-﻿# Agent 可控闭环落地方案与实施记录
+# Agent 可控闭环落地方案与实施记录
 
 版本：v1.0  
 日期：2026-10-19  
@@ -190,6 +190,10 @@
   - 文件符号大纲；
 - 总上下文预算仍是可控的，避免一次性塞爆模型。
 
+> 2026-10-24 更新：符号部分已换成真索引 —— Python 用 AST，JS/TS 优先
+> tree-sitter（未安装时正则降级并标 `engine/confidence`），见
+> `core/symbol_parser.py` 与 `docs/20_优化路线与实施记录.md` 同日条目。
+
 ### 3.15 一次性 patch，不是探索 Agent
 
 - 模型可返回探索工具调用：
@@ -200,6 +204,10 @@
   - run_command；
 - 工具结果回填给模型，再进行下一轮；
 - 达到最大探索轮数后明确失败，不无限循环。
+
+> 2026-10-24 更新：已升级为双角色（探索 Agent 只读产报告 → 修改 Agent 出 patch），
+> 轮次上限默认 12、夹取 1~15 且支持断点续跑；多文件 patch 应用前先整体 dry-run。
+> 见 `core/code_roles.py`、`core/code_agent_policy.py`、`core/code_task_queue.py`。
 
 ### 3.16 测试/lint/工程环境
 
