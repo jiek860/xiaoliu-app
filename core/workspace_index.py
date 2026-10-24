@@ -1,22 +1,25 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """工作区索引：文件、Python 符号、import、测试关联。
 
 Sprint 3 基础模块。只使用标准库，不依赖 Qt，便于测试和后台重建。
 """
 from __future__ import annotations
 
-import ast
 import hashlib
 import json
 import os
 import re
 import time
 
+from core.symbol_parser import parse_source, ts_available
+
 TEXT_EXT = {
     ".py", ".md", ".txt", ".json", ".js", ".ts", ".tsx", ".jsx",
+    ".mjs", ".cjs",
     ".html", ".css", ".yml", ".yaml", ".toml", ".ini", ".cfg",
     ".bat", ".ps1", ".sql", ".sh", ".xml",
 }
+SYMBOL_EXT = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
 SKIP_DIRS = {
     ".git", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache",
     "node_modules", "libs", "optional_libs", "backups", "staging",
@@ -49,7 +52,7 @@ class WorkspaceIndex:
         self.dir = os.path.join(base, "data", "workspace_index", key)
         self.path = os.path.join(self.dir, "index.json")
         self.data = {
-            "version": 1,
+            "version": 2,
             "root": self.root,
             "updated_at": 0,
             "files": {},
@@ -104,15 +107,15 @@ class WorkspaceIndex:
                     "path": rel, "ext": ext, "size": stat.st_size,
                     "mtime": stat.st_mtime, "sha1": _sha1(p),
                 }
-                if ext == ".py":
-                    py = self._analyze_python(p, rel)
+                if ext in SYMBOL_EXT:
+                    py = parse_source(p, rel)
                     entry.update(py["meta"])
                     for sym in py["symbols"]:
                         symbols.setdefault(sym["name"], []).append(sym)
                     if py["imports"]:
                         imports[rel] = py["imports"]
-                    if self._looks_like_test(rel):
-                        tests.append(rel)
+                if ext == ".py" and self._looks_like_test(rel):
+                    tests.append(rel)
                 files[rel] = entry
                 count += 1
         self.data.update({"files": files, "symbols": symbols,
@@ -152,8 +155,8 @@ class WorkspaceIndex:
                 else:
                     entry = {"path": rel, "ext": ext, "size": stat.st_size,
                              "mtime": stat.st_mtime, "sha1": _sha1(p)}
-                    if ext == ".py":
-                        py = self._analyze_python(p, rel)
+                    if ext in SYMBOL_EXT:
+                        py = parse_source(p, rel)
                         entry.update(py["meta"])
                         entry["_symbols"] = py["symbols"]
                         entry["_imports"] = py["imports"]
@@ -206,8 +209,8 @@ class WorkspaceIndex:
         ext = os.path.splitext(p)[1].lower()
         entry = {"path": rel, "ext": ext, "size": stat.st_size,
                  "mtime": stat.st_mtime, "sha1": _sha1(p)}
-        if ext == ".py":
-            py = self._analyze_python(p, rel)
+        if ext in SYMBOL_EXT:
+            py = parse_source(p, rel)
             entry.update(py["meta"])
             # 清掉这个文件的旧符号
             for name in list(self.data.get("symbols", {})):
@@ -235,49 +238,8 @@ class WorkspaceIndex:
         return self.stats()
 
     def _analyze_python(self, path, rel):
-        meta = {"language": "python", "classes": 0, "functions": 0,
-                "syntax_error": ""}
-        symbols, imports = [], []
-        try:
-            src = open(path, encoding="utf-8", errors="replace").read()
-            tree = ast.parse(src)
-        except SyntaxError as e:
-            meta["syntax_error"] = "line %s: %s" % (e.lineno, e.msg)
-            return {"meta": meta, "symbols": [], "imports": []}
-        except OSError:
-            return {"meta": meta, "symbols": [], "imports": []}
-
-        for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                meta["functions"] += 1
-                symbols.append({
-                    "name": node.name, "kind": "function", "file": rel,
-                    "line": node.lineno,
-                    "end_line": getattr(node, "end_lineno", node.lineno),
-                })
-            elif isinstance(node, ast.ClassDef):
-                meta["classes"] += 1
-                symbols.append({
-                    "name": node.name, "kind": "class", "file": rel,
-                    "line": node.lineno,
-                    "end_line": getattr(node, "end_lineno", node.lineno),
-                })
-                for child in node.body:
-                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        meta["functions"] += 1
-                        symbols.append({
-                            "name": "%s.%s" % (node.name, child.name),
-                            "kind": "method", "file": rel,
-                            "line": child.lineno,
-                            "end_line": getattr(child, "end_lineno", child.lineno),
-                        })
-            elif isinstance(node, ast.Import):
-                imports.extend(a.name for a in node.names)
-            elif isinstance(node, ast.ImportFrom):
-                mod = node.module or ""
-                imports.extend("%s.%s" % (mod, a.name) for a in node.names)
-        return {"meta": meta, "symbols": symbols,
-                "imports": sorted(set(imports))}
+        """兼容旧调用：真正的解析在 core.symbol_parser。"""
+        return parse_source(path, rel)
 
     @staticmethod
     def _looks_like_test(rel):
@@ -288,23 +250,58 @@ class WorkspaceIndex:
     # ---------- 查询 ----------
     def stats(self):
         files = self.data.get("files") or {}
+        engines = {}
+        for vals in (self.data.get("symbols") or {}).values():
+            for s in vals:
+                key = str(s.get("engine") or "unknown")
+                engines[key] = engines.get(key, 0) + 1
         return {
             "root": self.root,
             "files": len(files),
             "symbols": len(self.data.get("symbols") or {}),
             "tests": len(self.data.get("tests") or []),
+            "symbol_engines": engines,
+            "tree_sitter": ts_available(),
             "updated_at": self.data.get("updated_at", 0),
         }
 
-    def find_symbols(self, name, limit=50):
-        q = str(name or "").lower()
-        out = []
+    def find_symbols(self, name, limit=50, kind=None, file=None):
+        """符号检索：精确 > 限定名后缀 > 前缀 > 子串；可按类型/文件过滤。
+
+        之前是"字典键子串包含"，`main` 会先命中 `domain` 之类。现在按匹配
+        强度排序，并带上解析引擎与置信度，调用方能区分 AST 与正则结果。
+        """
+        q = str(name or "").strip()
+        ql = q.lower()
+        want_kind = str(kind or "").strip().lower()
+        want_file = str(file or "").replace("\\", "/").strip().lower()
+        scored = []
         for sym_name, vals in (self.data.get("symbols") or {}).items():
-            if q in sym_name.lower():
-                out.extend(vals)
-                if len(out) >= limit:
-                    break
-        return out[:limit]
+            nl = sym_name.lower()
+            if not ql:
+                score = 9
+            elif nl == ql:
+                score = 0
+            elif nl.endswith("." + ql):
+                score = 1
+            elif nl.startswith(ql):
+                score = 2
+            elif ql in nl:
+                score = 3
+            elif any(part == ql for part in re.split(r"[._]", nl)):
+                score = 2
+            else:
+                continue
+            for s in vals:
+                if want_kind and str(s.get("kind") or "").lower() != want_kind:
+                    continue
+                if want_file and want_file not in str(
+                        s.get("file") or "").replace("\\", "/").lower():
+                    continue
+                scored.append((score, s))
+        scored.sort(key=lambda x: (
+            x[0], str(x[1].get("file") or ""), int(x[1].get("line") or 0)))
+        return [s for _score, s in scored[:max(1, int(limit or 1))]]
 
     def related_tests(self, rel_path):
         rel = str(rel_path).replace("\\", "/")

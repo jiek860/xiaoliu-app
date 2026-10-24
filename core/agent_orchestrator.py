@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """统一 Agent 旅程编排器。
 
 一个入口接收用户目标，自动选择：
@@ -15,13 +15,16 @@ from core.agent_router import route_goal, route_label
 
 class AgentOrchestrator:
     def __init__(self, trunk, root=None, event_cb=None, approval_cb=None,
-                 max_steps=12, open_files=None, selection=""):
+                 max_steps=12, max_code_rounds=None, open_files=None,
+                 selection=""):
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or "."
         self.root = root or self.base
         self.event_cb = event_cb
         self.approval_cb = approval_cb
         self.max_steps = max(1, int(max_steps or 12))
+        from core.code_agent_policy import resolve_max_rounds
+        self.max_code_rounds = resolve_max_rounds(max_code_rounds, trunk)
         self.open_files = list(open_files or [])
         self.selection = str(selection or "")
         self.current_agent = None
@@ -50,7 +53,7 @@ class AgentOrchestrator:
         return bool(self.approval_cb("computer", actions))
 
     def run(self, goal, *, explicit=None, approval_cb=None, event_cb=None,
-            max_steps=None):
+            max_steps=None, resume_state=None, checkpoint_cb=None):
         goal = str(goal or "").strip()
         if not goal:
             return {"ok": False, "error": "目标为空"}
@@ -77,9 +80,11 @@ class AgentOrchestrator:
                     selection=self.selection)
                 self.current_agent = agent
                 result = agent.run(
-                    goal, max_rounds=3,
+                    goal, max_rounds=self.max_code_rounds,
                     approved_cb=(self._approve_code
-                                 if callable(self.approval_cb) else None))
+                                 if callable(self.approval_cb) else None),
+                    resume_state=resume_state,
+                    checkpoint_cb=checkpoint_cb)
                 result["kind"] = "code"
                 result["route"] = route
                 self.last_result = result
