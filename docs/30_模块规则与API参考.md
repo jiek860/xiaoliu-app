@@ -945,6 +945,21 @@ env = normalize_error(Exception("权限被拒绝"))
 # env = {code, title, message, cause, next_action, technical_detail}
 ```
 
+### 活动中心数据源（2026-10-25 / v25.2.30）
+
+```python
+from core.agent_harness import get_run_registry, DEFAULT_MAX_RUNS
+from gui.workers import _reg_start, _reg_finish, _log_path
+
+# 任何长任务统一登记，失败必须带原因
+rid = _reg_start("background", "索引重建", _log_path(trunk))
+_reg_finish(rid, "completed")            # 或 ("failed", "失败原因")
+
+# 注册表只保留最近 DEFAULT_MAX_RUNS(200) 条已结束活动，运行中的不淘汰
+# 活动中心：运行中 / 失败 / 最近完成 分组；失败行可点「查看日志」
+BgWorker(fn, "索引重建", trunk=trunk)     # trunk 用于定位 data/logs/app.log
+```
+
 ### 工作区与 patch
 
 ```python

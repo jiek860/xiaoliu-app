@@ -7,16 +7,31 @@ except ImportError:
         return None
 
 from PyQt5.QtCore import QThread, pyqtSignal
+import os
 import time
+import uuid
 
 from core.cancel_token import CancelToken
 
 
-def _reg_start(kind, title):
+def _log_path(trunk):
+    """活动对应的日志文件，供活动中心「查看日志」使用。"""
+    try:
+        base = getattr(trunk, "base", "") or os.getcwd()
+        return os.path.join(base, "data", "logs", "app.log")
+    except Exception:  # 静默是故意的
+        return ""
+
+
+def _reg_start(kind, title, log_path=""):
     try:
         from core.agent_harness import get_run_registry
-        rid = "%s:%s" % (kind, int(time.time() * 1000))
-        get_run_registry().start_run(kind, title, run_id=rid)
+        # 同一毫秒内启动同类 worker 时不能互相覆盖，所以补随机后缀
+        rid = "%s:%d:%s" % (kind, int(time.time() * 1000),
+                            uuid.uuid4().hex[:6])
+        get_run_registry().start_run(
+            kind, title, run_id=rid,
+            metadata={"log_path": log_path} if log_path else None)
         return rid
     except Exception:  # 静默是故意的
         return ""
@@ -59,7 +74,8 @@ class StreamWorker(QThread):
             self.token.emit(text)
 
     def run(self):
-        rid = _reg_start("chat", "聊天回复：%s" % str(self.msg)[:40])
+        rid = _reg_start("chat", "聊天回复：%s" % str(self.msg)[:40],
+                         _log_path(self.trunk))
         try:
             self.trunk._log("[Worker] 开始处理: %s" % str(self.msg)[:30])
         except Exception as e:
@@ -117,7 +133,8 @@ class TaskWorker(QThread):
         self.goal = goal
 
     def run(self):
-        rid = _reg_start("task_loop", "任务闭环：%s" % str(self.goal)[:40])
+        rid = _reg_start("task_loop", "任务闭环：%s" % str(self.goal)[:40],
+                         _log_path(self.trunk))
         try:
             tl = self.trunk.modules.get("task_loop")
             if not tl:
@@ -145,7 +162,7 @@ class LearnWorker(QThread):
         self.trunk = trunk
 
     def run(self):
-        rid = _reg_start("learning", "学习闭环")
+        rid = _reg_start("learning", "学习闭环", _log_path(self.trunk))
         try:
             ll = self.trunk.modules.get("learning_loop")
             if not ll:
@@ -173,27 +190,29 @@ class TTSWorker(QThread):
         self.text = text
 
     def run(self):
-        rid = _reg_start("tts", "语音合成")
+        rid = _reg_start("tts", "语音合成", _log_path(self.trunk))
         try:
             tts = self.trunk._load_lazy("tts")
             if tts:
                 tts.speak(self.text)
             _reg_finish(rid, "completed")
-        except Exception:  # 静默是故意的
-            _reg_finish(rid, "failed")
+        except Exception as e:
+            _reg_finish(rid, "failed", str(e)[:200])
 
 
 class BgWorker(QThread):
     """通用后台：执行 fn，结果 emit"""
     done = pyqtSignal(object)
 
-    def __init__(self, fn, title="后台操作"):
+    def __init__(self, fn, title="后台操作", trunk=None):
         super().__init__()
         self.fn = fn
         self.title = title
+        self.trunk = trunk
 
     def run(self):
-        rid = _reg_start("background", str(self.title)[:50])
+        rid = _reg_start("background", str(self.title)[:50],
+                         _log_path(self.trunk))
         try:
             r = self.fn()
             _reg_finish(rid, "completed")

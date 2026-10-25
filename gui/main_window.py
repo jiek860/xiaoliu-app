@@ -151,6 +151,14 @@ class JarvisWindow(
         build_ui(self)
         # 草稿自动保存：输入变化后节流落盘，重启可恢复
         self._setup_draft_autosave()
+        # 8.6 Agent 产物回收：data/agent_runs 只保留最近 40 个 / 7 天，
+        #     事件文件裁到 5000 行；放后台线程，不拖慢启动。
+        try:
+            from core.agent_artifacts import maybe_cleanup
+            threading.Thread(target=maybe_cleanup, args=(self.base,),
+                             daemon=True).start()
+        except Exception as e:  # 静默是故意的 - 回收失败不影响启动
+            _x6_swallowed(__name__, e, "best-effort fallback")
         try:
             self.chat.textChanged.connect(self._update_empty_state)
         except Exception as e:  # 静默是故意的

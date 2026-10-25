@@ -15,6 +15,8 @@ import os
 import json
 import time
 
+from gui.workers import _log_path, _reg_finish, _reg_start
+
 
 class UpdateThread(QThread):
     progress = pyqtSignal(int, int, str)
@@ -26,6 +28,11 @@ class UpdateThread(QThread):
         self.manifest = manifest
 
     def run(self):
+        ver = str((self.manifest or {}).get("version", ""))
+        rid = _reg_start("update_install",
+                         "下载并安装更新 v%s" % (ver or "?"),
+                         _log_path(getattr(self.updater, "trunk", None)))
+
         def cb(cur, total, name):
             self.progress.emit(cur, total, name)
         try:
@@ -34,6 +41,10 @@ class UpdateThread(QThread):
                                                   progress_cb=cb, confirm=False)
         except Exception as e:
             r = {"ok": False, "错误": str(e)[:120]}
+            _reg_finish(rid, "failed", str(e)[:200])
+        else:
+            _reg_finish(rid, "completed" if r.get("ok") else "failed",
+                        str(r.get("错误", ""))[:200])
         self.finished.emit(r)
 
 
@@ -139,11 +150,14 @@ class UpdateDialog(QDialog):
 
     def _check_update(self):
         """检查更新（远端清单必须验签通过）"""
+        rid = _reg_start("update_check", "检查更新",
+                         _log_path(getattr(self, "trunk", None)))
         self.log_browser.setPlainText("正在检查更新...")
         self.btn_update.setVisible(False)
         self._manifest = None
         updater = self._get_updater()
         if updater is None:
+            _reg_finish(rid, "failed", "更新模块未登记或加载失败")
             self.log_browser.setPlainText(
                 "检查更新失败: 更新模块未登记或加载失败（core/lazy_config.py 的 auto_updater）")
             return
@@ -151,20 +165,24 @@ class UpdateDialog(QDialog):
             # 不再内置任何第三方更新源；升级源必须由用户或部署方显式配置。
             url = str(self.trunk.config.get("update_manifest_url", "") or "").strip()
             if not url:
+                _reg_finish(rid, "failed", "未配置 update_manifest_url")
                 self.log_browser.setPlainText(
                     "检查更新失败: 未配置 update_manifest_url。\n"
                     "为避免从第三方仓库自动下载代码，本版本不再内置更新源。")
                 return
             r = updater.check_update(url)
             if not r.get("ok"):
+                _reg_finish(rid, "failed", str(r.get("error", "未知错误"))[:200])
                 self.log_browser.setPlainText("检查更新失败:\n" + r.get("error", "未知错误"))
                 return
             if not r.get("has_update"):
+                _reg_finish(rid, "completed")
                 self.log_browser.setPlainText(
                     "✅ 已是最新版本\n当前版本: v%s%s" % (
                         r.get("current", "?"),
                         "" if r.get("verified") else "\n（提示：清单未签名）"))
                 return
+            _reg_finish(rid, "completed")
             text = ("发现新版本: v%s\n当前版本: v%s\n"
                     "签名校验: %s\n\n更新日志:\n%s") % (
                 r.get("latest", ""), r.get("current", ""),
@@ -175,6 +193,7 @@ class UpdateDialog(QDialog):
             # 验签没通过的包不给「立即更新」按钮
             self.btn_update.setVisible(bool(r.get("verified")))
         except Exception as e:
+            _reg_finish(rid, "failed", str(e)[:200])
             self.log_browser.setPlainText("检查更新失败: " + str(e)[:100])
 
     def _start_update(self):

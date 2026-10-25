@@ -54,6 +54,15 @@ def test_load_or_create_secret_roundtrip(tmp_path):
     assert lc.load_or_create_secret(path) == s1
 
 
+def test_secret_file_keeps_whitespace_bytes(tmp_path):
+    """随机密钥可能以 0x0a / 0x20 开头，读回时不能被 strip 截断。"""
+    path = tmp_path / "vault" / "密钥.key"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    secret = b"\n \t" + bytes(range(29))
+    path.write_bytes(secret)
+    assert lc.load_or_create_secret(str(path)) == secret
+
+
 def test_load_or_create_keypair_and_pubkey(tmp_path):
     os.makedirs(str(tmp_path / "keys"), exist_ok=True)
     priv = str(tmp_path / "keys" / "私钥.pem")
