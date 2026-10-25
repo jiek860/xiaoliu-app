@@ -108,6 +108,8 @@ class ChatMixin:
             self._stream_rendered_at = 0.0
             self._stream_rendered_len = 0
             self._stream_rendered_once = False
+            # 新一条开始：清掉上一条的停止标记，否则这一条会被当成已停止
+            self._stop_requested = False
         except Exception as e:  # 静默是故意的
             from core.logger import get_logger
             get_logger().error("send 前置步骤失败: %s" % e)
@@ -141,6 +143,10 @@ class ChatMixin:
     _STREAM_RENDER_INTERVAL = 0.12
 
     def _on_token(self, t):
+        # Esc 之后可能还有已排队的 token 信号：直接丢掉，不能把半条内容
+        # 追加到"已停止生成"提示后面。
+        if getattr(self, "_stop_requested", False):
+            return
         # 用户往上翻历史时不要抢滚动条；贴底时才自动跟随。
         try:
             stick = self.chat.at_bottom()
