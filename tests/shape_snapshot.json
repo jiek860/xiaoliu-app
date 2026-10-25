@@ -6,6 +6,12 @@
   "data.chats.db": {
     "kind": "sqlite",
     "tables": {
+      "drafts": [
+        "session_id",
+        "text",
+        "ts",
+        "username"
+      ],
       "messages": [
         "id",
         "role",

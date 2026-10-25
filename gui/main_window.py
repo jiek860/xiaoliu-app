@@ -11,7 +11,7 @@ from PyQt5.QtGui import QIcon, QKeySequence
 from core.trunk import Trunk
 from gui.mixins import (
     ChatMixin, DialogMixin, VoiceMixin, SystemMixin, LifecycleMixin,
-    UIModeMixin,
+    UIModeMixin, HistoryDraftMixin,
 )
 # 样式表只有 gui/style.py 一份。
 # 这里原来粘了一份一模一样的副本，两边都得改 —— 正是"改了一个忘另一个"的经典坑。
@@ -33,6 +33,7 @@ class JarvisWindow(
     SystemMixin,
     LifecycleMixin,
     UIModeMixin,
+    HistoryDraftMixin,
     QMainWindow,
 ):
     confirmRequested = pyqtSignal(str, str)
@@ -148,6 +149,8 @@ class JarvisWindow(
         # 8.5 构建 UI
         from gui.build_ui import build_ui
         build_ui(self)
+        # 草稿自动保存：输入变化后节流落盘，重启可恢复
+        self._setup_draft_autosave()
         try:
             self.chat.textChanged.connect(self._update_empty_state)
         except Exception as e:  # 静默是故意的
@@ -216,10 +219,9 @@ class JarvisWindow(
                         _x6_swallowed(__name__, e, "best-effort fallback")
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
-        # 10. 加载历史
+        # 10. 加载历史首屏 + 恢复当前会话草稿
         try:
-            msgs = self.account.load_history(limit=50)
-            self.chat.load_history(msgs)
+            self._reload_chat_history()
             self._refresh_guidance()
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
@@ -351,6 +353,8 @@ class JarvisWindow(
                     self.trunk._log("已自动恢复登录: %s" % restored.get("user"))
                 except Exception as e:  # 静默是故意的
                     _x6_swallowed(__name__, e, "best-effort fallback")
+                # 启动时可能先按 guest 渲染过历史，恢复登录后重建
+                self._reload_chat_history()
         try:
             while not self.account.current_username():
                 try:
@@ -403,6 +407,8 @@ class JarvisWindow(
         在窗口关闭后仍在跑，后台线程数从 7 不下降。
         这会让"关掉界面但程序没退干净"或退出时卡住。
         """
+        # 关窗前把未发送的输入落盘，下次启动还能接着写
+        self._save_draft_now()
         for name in ("_activity_timer", "_proactive_timer", "_status_timer"):
             timer = getattr(self, name, None)
             if timer is not None:

@@ -170,6 +170,8 @@ class GuidanceMixin:
 
     def _on_chat_action(self, url):
         u = str(url or "")
+        if u.startswith("history://older"):
+            return self._load_older_history()
         if u.startswith("task://"):
             return self.open_task_center(task_id=u[len("task://"):])
         if u.startswith("retry://"):

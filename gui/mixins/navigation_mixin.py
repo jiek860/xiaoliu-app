@@ -18,8 +18,9 @@ except ImportError:
 class NavigationMixin:
     def _new_session(self):
         try:
+            self._save_draft_now()
             self.account.new_session()
-            self.chat.clear()
+            self._reload_chat_history()
             self._refresh_session_list()
             self._refresh_guidance()
         except Exception as e:  # 静默是故意的
