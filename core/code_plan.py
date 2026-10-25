@@ -17,11 +17,7 @@ from __future__ import annotations
 
 import os
 
-try:
-    from core.diagnostics import swallowed as _x6_swallowed
-except ImportError:
-    def _x6_swallowed(component, error, context=""):
-        return None
+from core.diagnostics import swallowed as _x6_swallowed
 
 
 _PLAN_HINTS = (

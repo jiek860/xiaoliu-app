@@ -307,3 +307,90 @@ def test_simple_goal_skips_plan(tmp_path):
     assert r["ok"] is True, r
     assert plans == [], "简单目标不应触发计划审批"
     assert llm.calls == 1
+
+
+def test_plan_helpers_cover_gates_and_fallback_text(monkeypatch):
+    """计划开关、复杂度启发式、文本渲染与非法输出降级。"""
+    from core import code_plan as cp
+
+    monkeypatch.setenv("X6_CODE_AGENT_PLAN", "off")
+    assert cp.plan_enabled(FakeTrunk(".", object())) is False
+    monkeypatch.delenv("X6_CODE_AGENT_PLAN")
+    assert cp.plan_enabled(
+        FakeTrunk(".", object(), {"code_agent": {"plan_approval": False}})) is False
+    assert cp.plan_enabled(
+        FakeTrunk(".", object(), {"code_agent": "坏配置"})) is True
+
+    class _OddConfig:
+        config = "不是字典"
+
+    assert cp.plan_enabled(_OddConfig()) is True
+
+    assert cp.needs_plan("x" * 40) is True
+    assert cp.needs_plan("加个参数") is False
+    assert cp.needs_plan("加个参数", ["a", "b", "c", "d", "e"]) is True
+
+    empty = cp.heuristic_plan("", ["a.py"])
+    assert empty["summary"] and empty["fallback"] is True
+
+    text = cp.plan_text({
+        "summary": "", "steps": [
+            {"title": "改文件", "purpose": "保持行为", "files": ["x.py"],
+             "risk": "critical"},
+            {"title": "跑测试"},
+        ],
+        "risks": ["可能与调用方冲突"], "tests": ["pytest -q"],
+    })
+    assert "执行步骤" in text and "x.py" in text
+    assert "critical" in text and "验证命令" in text
+    assert cp.plan_text(None)
+
+
+def test_normalize_plan_recovers_from_bad_model_output():
+    from core import code_plan as cp
+
+    assert cp.normalize_plan("不是字典", "目标")["fallback"] is True
+    plan = cp.normalize_plan({"plan": {
+        "summary": "嵌套计划",
+        "steps": ["第一步", {"purpose": "缺标题"}, {
+            "title": "改文件", "files": "不是列表", "risk": "HIGH"}],
+        "risks": "不是列表",
+        "tests": ["pytest", "pytest", ""],
+    }}, "目标")
+    assert [s["title"] for s in plan["steps"]] == ["第一步", "改文件"]
+    assert plan["steps"][1]["risk"] == "high"
+    assert plan["risks"] == []
+    assert plan["tests"] == ["pytest"]
+    assert cp.normalize_plan({"steps": []}, "目标")["fallback"] is True
+
+
+def test_build_plan_degrades_without_llm_or_on_error(tmp_path):
+    from core import code_plan as cp
+
+    class _NoLlm:
+        trunk = type("T", (), {"modules": {}})()
+
+    assert cp.build_plan(_NoLlm(), "目标", {"files": []})["fallback"] is True
+
+    class _BadLLM:
+        def chat(self, messages):
+            raise RuntimeError("模型炸了")
+
+    reset_run_registry()
+    root = _plan_project(tmp_path)
+    agent = CodeAgent(FakeTrunk(str(root), _BadLLM()), str(root))
+    plan = cp.build_plan(agent, "目标", {"files": ["m.py"]})
+    assert plan["fallback"] is True
+
+
+def test_orchestrator_forwards_plan_approval():
+    from core.agent_orchestrator import AgentOrchestrator
+
+    seen = []
+    trunk = FakeTrunk(".", object())
+    orch = AgentOrchestrator(
+        trunk, root=".",
+        approval_cb=lambda kind, payload: seen.append((kind, payload)) or True)
+    assert orch._approve_plan({"steps": []}) is True
+    assert seen == [("plan", {"steps": []})]
+    assert AgentOrchestrator(trunk, root=".")._approve_plan({}) is True
