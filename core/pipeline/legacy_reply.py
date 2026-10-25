@@ -19,7 +19,7 @@ except ImportError:
 import time
 
 
-def run(trunk, user_input, on_token=None):
+def run(trunk, user_input, on_token=None, cancel_token=None):
     trunk._set_status("💭 正在理解你的问题...")
     # 轮次计数（反思降频用）
     if not hasattr(trunk, "_reply_n"): trunk._reply_n = 0
@@ -215,13 +215,22 @@ def run(trunk, user_input, on_token=None):
     messages.append({"role": "user", "content": user_input})
     # v12: 流式回复（on_token 提供时逐 token 返回，首字秒出）
     if on_token and hasattr(llm, "stream_chat"):
-        answer = llm.stream_chat(messages, on_token=on_token)
+        answer = llm.stream_chat(messages, on_token=on_token,
+                                 cancel_token=cancel_token)
+        # 用户已按 Esc：保留已收到的部分，别再打一次非流式模型
+        if cancel_token is not None and cancel_token.is_cancelled():
+            return answer or ""
         if not answer or str(answer).startswith(("（模型错误", "本地模型错误")):
             answer = llm.chat(messages)
             if on_token and answer:
                 on_token(str(answer))
     else:
         answer = llm.chat(messages)
+    # 取消：跳过记忆、群聊合并、代码沙盒验证与后台闭环，立即收工
+    if cancel_token is not None and cancel_token.is_cancelled():
+        trunk._chat_in_progress = False
+        trunk._chat_active_until = time.time() + getattr(trunk, "_CHAT_ACTIVE_SEC", 25)
+        return answer or ""
     # 5. 存记忆
     trunk.mem_add(user_input, answer)
     # 5.5 群聊（懒加载：装了子智能体就一起答，没装就跳过）

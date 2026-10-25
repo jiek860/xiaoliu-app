@@ -9,6 +9,8 @@ except ImportError:
 from PyQt5.QtCore import QThread, pyqtSignal
 import time
 
+from core.cancel_token import CancelToken
+
 
 def _reg_start(kind, title):
     try:
@@ -40,10 +42,21 @@ class StreamWorker(QThread):
         self.trunk = trunk
         self.msg = msg
         self.force_chat = bool(force_chat)
-        self._is_stopped = False
+        # 取消令牌：不再是"只置个没人读的标志"，而是真正通知到流循环
+        # 并 close 阻塞中的响应，让 Ollama 锁立刻释放。
+        self._cancel = CancelToken()
+
     def stop(self):
-        """用户按Esc打断回复"""
-        self._is_stopped = True
+        """用户按 Esc 打断回复：通知流循环并关闭网络连接"""
+        self._cancel.cancel()
+
+    def is_cancelled(self):
+        return self._cancel.is_cancelled()
+
+    def _guarded_token(self, text):
+        """取消后不再往界面推 token（信号可能已断开，这里再兜一层）"""
+        if not self._cancel.is_cancelled():
+            self.token.emit(text)
 
     def run(self):
         rid = _reg_start("chat", "聊天回复：%s" % str(self.msg)[:40])
@@ -55,17 +68,24 @@ class StreamWorker(QThread):
         try:
             ans = self.trunk.reply(
                 self.msg,
-                on_token=lambda t: self.token.emit(t),
+                on_token=self._guarded_token,
                 force_chat=self.force_chat,
+                cancel_token=self._cancel,
             )
             try:
                 self.trunk._log("[Worker] 完成，长度 %d" % len(str(ans)))
             except Exception as e:
                 _x6_swallowed(__name__, e)
                 pass
+            if self._cancel.is_cancelled():
+                _reg_finish(rid, "cancelled")
+                return
             _reg_finish(rid, "completed")
             self.done.emit(str(ans) if ans else "（无回复）")
         except BaseException as e:
+            if self._cancel.is_cancelled():
+                _reg_finish(rid, "cancelled")
+                return
             _reg_finish(rid, "failed", str(e)[:300])
             import traceback
             tb = traceback.format_exc()[-500:]
