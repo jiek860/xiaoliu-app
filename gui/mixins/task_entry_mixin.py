@@ -61,6 +61,7 @@ class TaskEntryMixin:
             except Exception as e:  # 静默是故意的
                 _x6_swallowed(__name__, e, "best-effort fallback")
             self.input.clear()
+            self._clear_draft()
             self._mark_guide_event("first_task")
             r = rt.start(task["id"])
             if not r.get("ok"):

@@ -75,6 +75,7 @@ class ChatMixin:
                     d = self.agent_journey_dialog(text)
                     if d is not None:
                         self.input.clear()
+                        self._clear_draft()
                         return
         except Exception as e:  # 静默是故意的 - 路由失败不影响普通聊天
             _x6_swallowed(__name__, e, "best-effort fallback")
@@ -101,6 +102,7 @@ class ChatMixin:
         try:
             self.chat.append_user(text)
             self.input.clear()
+            self._clear_draft()
             anchor = self.chat.append_thinking()
             self._chat_anchor = anchor
             # 流式重绘状态：首帧立即出，之后按时间节流，避免每来一个字都重排。
@@ -378,9 +380,7 @@ class ChatMixin:
             QMessageBox.information(self, "编辑消息", "当前会话还没有可编辑的用户消息")
             return
         try:
-            self.chat.clear()
-            self.chat.load_history(
-                self.account.load_history(limit=50))
+            self._reload_chat_history()
             self.input.setPlainText(user.get("text", ""))
             self.input.setFocus()
             self._update_empty_state()
@@ -395,8 +395,7 @@ class ChatMixin:
             QMessageBox.information(self, "重新生成", "当前会话还没有可重新生成的问答")
             return
         try:
-            self.chat.clear()
-            self.chat.load_history(self.account.load_history(limit=50))
+            self._reload_chat_history()
             self.input.setPlainText(user.get("text", ""))
             self.send()
         except Exception as e:
@@ -407,11 +406,11 @@ class ChatMixin:
         """把当前会话复制到一个新分支并切换过去。"""
         try:
             old_sid = self.account.session
+            self._save_draft_now()
             new_sid = self.account.chat_store.branch_session(
                 self.account.username, old_sid)
             self.account.switch_session(new_sid)
-            self.chat.clear()
-            self.chat.load_history(self.account.load_history(limit=50))
+            self._reload_chat_history()
             self._refresh_session_list()
             self._update_empty_state()
             try:
@@ -457,10 +456,7 @@ class ChatMixin:
         """点击会话列表切换会话"""
         try:
             sid = item.data(Qt.UserRole) or item.text()
-            self.account.switch_session(sid)
-            self.chat.clear()
-            msgs = self.account.load_history(limit=50)
-            self.chat.load_history(msgs)
+            self._switch_chat_session(sid)
         except Exception as e:  # 静默是故意的
             self.chat.append(f"<span style='color:#c00'>切换会话失败: {e}</span>")
 
