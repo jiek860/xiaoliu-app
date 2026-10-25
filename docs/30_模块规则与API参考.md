@@ -1034,7 +1034,28 @@ token.cancel()        # 置位 + close 已登记的流响应
   `legacy_reply.run()` / `LLMDispatcher.dispatch()` 全部透传；
   取消后跳过记忆写入、群聊合并、代码沙盒验证和后台队列；
 - `StreamWorker.stop()` 调用 `cancel()`，取消后不再 emit token / done，
-  活动中心把该 run 记为 `cancelled`。
+  活动中心把该 run 记为 `cancelled`；
+- 云端流式同样接入取消：`_try_cloud_stream(message, on_token, cancel_token)`
+  在 `iter_lines()` 前 `bind(r.close)`，取消后返回已收到内容。
+
+### 首字超时与云端流式配置
+
+```python
+# config.json（都可省略，省略时用默认值）
+{
+  "本地首字超时": 25,          # 或 local_first_token_timeout，5~300 秒
+  "云端首字超时": 60           # 或 cloud_first_token_timeout，5~300 秒
+}
+```
+
+- 本地 `/api/chat` 流式请求超时为 `(5, 本地首字超时)`：首字迟迟不出时
+  回调 `（本地首字超时，切云端...）`，随后直接走云端流式；
+- 本地刚超时后不会再调用一次非流式本地接口（避免二次等待）；
+- `model_mode` 为云端时优先 `_try_cloud_stream`（按 `cloud_provider`
+  发 `stream=True`，用 `parse_stream_chunk` 解析 openai/azure/anthropic/gemini
+  的 SSE）；流式返回空才回退一次性 `_try_cloud`；
+- `core/llm_shared.config_seconds(config, keys, default)` 负责读取并夹取
+  秒级配置（非法值/空值回退默认）。
 
 ### 任务队列与断点续跑
 
