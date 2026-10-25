@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """插件公共 API 版本与依赖边界测试。"""
 import os
 import sys
@@ -39,7 +39,7 @@ def test_plugin_private_core_import_rejected():
 
 
 def test_internal_module_allowed_only_non_strict():
-    src = "from core.auto_update_patch import AutoUpdatePatchMixin\n"
+    src = "from core.auto_update import AutoUpdatePatchMixin\n"
     assert validate_plugin_source(src, strict=False)["ok"] is True
     assert validate_plugin_source(src, strict=True)["ok"] is False
 
@@ -75,13 +75,13 @@ def test_manifest_validation_combines_version_and_source_rules():
 
     third_party_private = validate_plugin_manifest(
         {"api_version": "1.0"},
-        "from core.auto_update_patch import Patch\n")
+        "from core.auto_update import Patch\n")
     assert third_party_private["ok"] is False
 
     # 官方随包模块允许审计过的集成层，但 core.trunk 仍然永远禁止。
     first_party = validate_plugin_manifest(
         {"api_version": "1.0", "first_party": True},
-        "from core.auto_update_patch import Patch\n")
+        "from core.auto_update import Patch\n")
     assert first_party["ok"] is True
     assert validate_plugin_manifest(
         {"api_version": "1.0", "first_party": True},

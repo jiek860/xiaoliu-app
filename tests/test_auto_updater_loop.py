@@ -291,7 +291,7 @@ def test_sandbox_uses_unique_temp_name(mk):
     """
     src = (open(os.path.join(BASE, "modules", "installed", "auto_updater.py"),
                 encoding="utf-8").read() + "\n" +
-           open(os.path.join(BASE, "core", "auto_update_patch.py"),
+           open(os.path.join(BASE, "core", "auto_update.py"),
                 encoding="utf-8").read())
     assert "getpid()" in src and "get_ident()" in src, \
         "临时文件名没带 pid/线程号 —— 并发会互相覆盖"

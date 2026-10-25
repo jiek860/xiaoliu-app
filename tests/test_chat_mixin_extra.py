@@ -77,6 +77,18 @@ class _Chat(QTextEdit):
     def append(self, text):
         self.rendered.append((text, "raw"))
 
+    def append_system(self, text):
+        self.rendered.append((text, "system"))
+
+    def append_plain(self, name, text):
+        self.rendered.append((name, "plain:" + text))
+
+    def at_bottom(self, tolerance=24):
+        return True
+
+    def scroll_to_bottom(self):
+        self.scrolled = True
+
 
 class _Store:
     def __init__(self):
@@ -261,3 +273,64 @@ def test_persona_opening_and_proactive_hint():
     d.last_user_msg = 0
     d._check_proactive()
     assert len(d.chat.rendered) >= 2
+
+
+class _RunningWorker(_Worker):
+    def isRunning(self):
+        return True
+
+    def stop(self):
+        self.stopped = True
+
+
+def test_send_is_blocked_while_replying(monkeypatch):
+    import gui.mixins.chat_mixin as cm
+    monkeypatch.setattr(cm, "StreamWorker", _Worker)
+    d = _Dummy()
+    d.worker = _RunningWorker(None, "")
+    d.input.setPlainText("再来一句")
+    d.send()
+    assert d.chat.user_messages == []       # 不并行发送
+    assert any(tag == "system" for _, tag in d.chat.rendered)
+
+
+def test_stop_reply_keeps_partial_and_clears_worker():
+    d = _Dummy()
+    w = _RunningWorker(None, "")
+    d.worker = w
+    d._stream_buf = ["写到一半", "的内容"]
+    d._chat_anchor = "anchor"
+    assert d.stop_reply() is True
+    assert w.stopped is True
+    assert d.worker is None
+    assert ("小6", "plain:写到一半的内容") in d.chat.rendered
+    assert ("已停止生成", "system") in d.chat.rendered
+
+
+def test_stop_reply_no_worker_returns_false():
+    d = _Dummy()
+    d.worker = None
+    assert d.stop_reply() is False
+
+
+def test_on_token_follows_bottom_only_when_pinned():
+    class Pinned(_Chat):
+        def at_bottom(self, tolerance=24):
+            return False
+
+    d = _Dummy()
+    d.chat = Pinned()
+    d._on_token("abc")
+    assert not getattr(d.chat, "scrolled", False)
+    d.chat = _Chat()
+    d._on_token("def")
+    assert getattr(d.chat, "scrolled", False) is True
+
+
+def test_chat_view_system_and_plain_escape_html():
+    from gui.chat_view import ChatView
+    v = ChatView()
+    v.append_system("<b>不要变粗</b>")
+    assert "&lt;b&gt;" in v.toHtml()
+    v.append_plain("小6", "<img src=x>\n第二行")
+    assert "&lt;img" in v.toHtml()

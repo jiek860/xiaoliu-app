@@ -33,6 +33,50 @@ class CodeContextMixin:
                 out.append(t)
         return out[:16]
 
+    _REPO_MAP_SKIP = {".git", "__pycache__", ".venv", "venv", "node_modules",
+                      "data", "backups", "optional_libs", "dist", "build",
+                      ".mypy_cache", ".pytest_cache", "updates", "staging"}
+    _REPO_MAP_MAX_CHARS = 6000
+    _REPO_MAP_FILES_PER_DIR = 14
+
+    def repo_map(self, max_chars=None):
+        """仓库地图：按目录列出 .py 文件，给 Agent 一个"去哪找"的全局视图。
+
+        关键词检索在目标描述含糊时（"优化这个功能"）可能一个文件都命中，
+        模型就只能盲猜路径。这里补一张低成本地图，一次构建、实例内缓存。
+        """
+        cached = getattr(self, "_repo_map_cache", "")
+        if cached:
+            return cached
+        max_chars = int(max_chars or self._REPO_MAP_MAX_CHARS)
+        root = getattr(self, "root", "") or ""
+        groups = {}
+        if root and os.path.isdir(root):
+            for dirpath, dirnames, filenames in os.walk(root):
+                dirnames[:] = sorted(
+                    d for d in dirnames
+                    if d not in self._REPO_MAP_SKIP and not d.startswith("."))
+                rel = os.path.relpath(dirpath, root).replace("\\", "/")
+                rel = "" if rel == "." else rel
+                pys = sorted(f for f in filenames
+                             if f.endswith(".py") and not f.startswith("__"))
+                if pys:
+                    groups[rel] = pys
+        lines, used = [], 0
+        for rel in sorted(groups, key=lambda x: (x.count("/"), x)):
+            pys = groups[rel]
+            shown = ", ".join(pys[:self._REPO_MAP_FILES_PER_DIR])
+            if len(pys) > self._REPO_MAP_FILES_PER_DIR:
+                shown += " …(+%d)" % (len(pys) - self._REPO_MAP_FILES_PER_DIR)
+            line = "%s/ (%d): %s" % (rel or "根目录", len(pys), shown)
+            if used + len(line) > max_chars:
+                lines.append("…（地图已截断，用 list_files 继续看）")
+                break
+            lines.append(line)
+            used += len(line)
+        self._repo_map_cache = "\n".join(lines)
+        return self._repo_map_cache
+
     def _read_snippet(self, path, rel, start=1, limit=140):
         try:
             lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
@@ -80,6 +124,12 @@ class CodeContextMixin:
 
         files = sorted(scores, key=lambda x: -scores[x])[:max_files]
         chunks, used = [], 0
+        # 命中文件太少 = 目标太含糊，先给一张仓库地图，避免模型盲猜路径。
+        if len(files) < 6:
+            head = ("=== REPO MAP（先看目录，再用 read_file/grep 精读，不要靠猜）===\n"
+                    + self.repo_map() + "\n\n")
+            chunks.append(head)
+            used += len(head)
         if self.selection.strip():
             chunks.append("=== USER SELECTION ===\n" + self.selection[:6000])
             used += len(chunks[-1])

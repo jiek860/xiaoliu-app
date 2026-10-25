@@ -23,6 +23,17 @@ class ChatMixin:
             except Exception as e:  # 静默是故意的
                 _x6_swallowed(__name__, e, "best-effort fallback")
             return
+
+        # 上一条还在回复时不要并行发：两个 Worker 同时往同一个视图写字，
+        # 内容会交错。给一句可执行的提示（Esc 可停），而不是静默丢弃。
+        try:
+            w = getattr(self, "worker", None)
+            if w is not None and w.isRunning():
+                self.chat.append_system("上一条还在回复，按 Esc 停止后再发送")
+                self.input.setFocus()
+                return
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
         
         # [任务模式] 输入框已切到任务时，统一走任务运行时
         try:
@@ -123,12 +134,73 @@ class ChatMixin:
                 _x6_swallowed(__name__, e, "best-effort fallback")
 
     def _on_token(self, t):
+        # 用户往上翻历史时不要抢滚动条；贴底时才自动跟随。
+        try:
+            stick = self.chat.at_bottom()
+        except Exception:  # 静默是故意的
+            stick = True
+        try:
+            self._stream_buf = getattr(self, "_stream_buf", []) + [str(t)]
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
         cur = self.chat.textCursor()
         cur.movePosition(cur.End)
         cur.insertText(t)
         self.chat.setTextCursor(cur)
+        if stick:
+            try:
+                self.chat.scroll_to_bottom()
+            except Exception as e:  # 静默是故意的
+                _x6_swallowed(__name__, e, "best-effort fallback")
+
+    def stop_reply(self):
+        """Esc：停止当前回复（保留已收到的部分内容）"""
+        w = getattr(self, "worker", None)
+        if w is None or not w.isRunning():
+            return False
+        try:
+            w.stop()
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        # 断开信号，避免后台线程跑完后把完整结果盖到"已停止"的界面上。
+        for sig, slot in ((w.token, self._on_token), (w.done, self._on_reply)):
+            try:
+                sig.disconnect(slot)
+            except Exception as e:  # 静默是故意的
+                _x6_swallowed(__name__, e, "best-effort fallback")
+        self._stop_requested = True
+        partial = "".join(getattr(self, "_stream_buf", []) or [])
+        self._stream_buf = []
+        try:
+            anchor = getattr(self, "_chat_anchor", None)
+            if anchor is not None:
+                self.chat.remove_from_anchor(anchor)
+                self._chat_anchor = None
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        try:
+            if partial.strip():
+                self.chat.append_plain(self.ai_name, partial.strip())
+            self.chat.append_system("已停止生成")
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        # 线程还在后台收尾，留引用防止 QThread 被回收时崩溃。
+        try:
+            self._zombie_workers = getattr(self, "_zombie_workers", []) + [w]
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        self.worker = None
+        try:
+            self.input.setFocus()
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        return True
 
     def _on_reply(self, a):
+        if getattr(self, "_stop_requested", False):
+            self._stop_requested = False
+            return
+        self._stream_buf = []
         try:
             anchor = getattr(self, "_chat_anchor", None)
             if anchor is not None:

@@ -270,6 +270,19 @@ class JarvisWindow(
             except Exception as e:  # 静默是故意的
                 _x6_swallowed(__name__, e, "best-effort fallback")
 
+        # 15. Esc 停止回复：回复过程中随时可以打断，已收到的内容保留。
+        try:
+            sc_stop = QShortcut(QKeySequence("Esc"), self)
+            sc_stop.activated.connect(self.stop_reply)
+            self._stop_shortcut = sc_stop     # 留引用，否则会被回收
+        except Exception as e:  # 静默是故意的
+            try:
+                from core.logger import get_logger
+                get_logger().warn("Esc 停止回复快捷键没装上: %s: %s"
+                                  % (type(e).__name__, str(e)[:80]))
+            except Exception as e:  # 静默是故意的
+                _x6_swallowed(__name__, e, "best-effort fallback")
+
     def _do_login_flow(self):
         """窗口显示后的**串行**引导：协议 -> 登录 -> 首次配置向导。
 
