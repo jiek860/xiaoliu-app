@@ -17,10 +17,16 @@
   磁盘 `data/agent_runs` 由启动时的 `maybe_cleanup` 按 40 个目录 / 7 天、
   事件文件 5000 行回收，避免无限增长。
 
+**顺带修复**
+- `license_core._read_secret_file` 不再对 32 字节随机密钥整体 `strip()`：
+  密钥首/尾字节若恰好是 0x0a / 0x20 等空白字节会被截断，
+  重启后 HMAC 签名校验全部失效；现在只剥掉文本编辑器追加的 `\r\n`。
+
 **测试**
-- `tests/test_agent_harness.py` 新增 4 条：四类 worker 启动/完成均入注册表、
+- `tests/test_agent_harness.py` 新增 5 条：四类 worker 启动/完成均入注册表、
   四类 worker 失败均写入失败原因、保留策略只淘汰旧终态、活动中心分组
-  与「查看日志」渲染。
+  与「查看日志」渲染、检查更新失败也登记活动；
+- `tests/test_license_core.py` 新增密钥含空白字节的往返回归。
 
 ## v25.2.29 - 2026-10-25
 

@@ -65,7 +65,9 @@ def _read_secret_file(path: str):
     try:
         if path and os.path.exists(path):
             with open(path, "rb") as f:
-                s = f.read().strip()
+                # 密钥是 32 字节随机二进制，可能以 0x0a/0x20 等空白字节开头，
+                # 只能剥掉文本编辑器追加的行尾换行，不能整体 strip。
+                s = f.read().rstrip(b"\r\n")
             if len(s) >= 16:
                 return s
     except Exception as e:
