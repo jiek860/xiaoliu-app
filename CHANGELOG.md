@@ -1,5 +1,29 @@
 # 版本变更记录
 
+## v25.2.27 - 2026-10-25
+
+**聊天：云端真流式 + 本地首字超时**
+- `LLMCloudMixin._try_cloud_stream(..., cancel_token=)` 不再在配置了
+  `cloud_provider` 时退回非流式 `_try_cloud`：改为按 provider 发
+  `stream=True` 请求，统一用 `parse_stream_chunk` 解析 SSE
+  （openai / azure / anthropic / gemini），界面逐字刷新；
+- Gemini 流式改走 `:streamGenerateContent?alt=sse`，不再一次性返回；
+- 云端流式接入 `CancelToken`：Esc 时 `close()` 流响应，每块前检查取消，
+  取消后返回已收到内容且不写错误提示；
+- 本地流式读超时从固定 120 秒改为 `(5, 首字超时)`，默认 25 秒；
+  首字迟迟不出时提示"本地首字超时，切云端"并直接切云端流式，
+  不再让用户干等两分钟；可用 config.json 的 `本地首字超时` /
+  `local_first_token_timeout` 调整（5~300 秒），`云端首字超时` /
+  `cloud_first_token_timeout` 调整云端读超时（默认 60 秒）；
+- 本地刚超时后不再走一次非流式本地重试（避免又白等一轮）。
+
+**测试**
+- 新增 `tests/test_chat_first_token_timeout.py` 13 条：首字超时切云端、
+  cancel_token 透传、超时后不重试本地、云端模式优先真流式、
+  流式不支持时回退一次性调用、配置读取与夹取；
+- `tests/test_llm_cloud_provider.py` 扩到 9 条：provider 真流式 SSE 解析、
+  取消保留半段并关闭响应、异常回退、Gemini 流式 URL。
+
 ## v25.2.26 - 2026-10-25
 
 **聊天：Esc 真正停止后台生成**
