@@ -1518,8 +1518,8 @@ result = mm.describe_image("path/to/image.png")
 
 | 原文件 | 新文件 | 对外兼容 |
 |---|---|---|
-| `modules/installed/plugin_market.py` | `plugin_market_online.py`（`PluginMarketOnlineMixin`） | `PluginMarket` 仍有 `list_online/download/check_updates` |
-| `modules/installed/tool_caller.py` | `tool_catalog.py`（`BUILTIN_TOOLS`） | `ToolCaller(...).tools` 仍包含全部内置工具 |
+| `modules/installed/plugin_market.py` | `modules/support/plugin_market_online.py`（`PluginMarketOnlineMixin`） | `PluginMarket` 仍有 `list_online/download/check_updates` |
+| `modules/installed/tool_caller.py` | `modules/support/tool_catalog.py`（`BUILTIN_TOOLS`） | `ToolCaller(...).tools` 仍包含全部内置工具 |
 | `gui/settings_dialog.py` | `settings_model_page.py`（`build_model_page`） | 模型配置页行为不变 |
 | `gui/mcp_dialog.py` | `mcp_catalog.py`（`DEFAULT_PRESETS/REFERENCE/valid_presets/load_presets`） | `gui.mcp_dialog.PRESETS` 仍可用 |
 | `gui/workbench_dialog.py` | `workbench_ai_dock.py`（`AgentDock`） | `from gui.workbench_dialog import AgentDock` 仍可用 |

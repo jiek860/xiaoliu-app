@@ -95,11 +95,11 @@ def test_missing_metadata_is_refused_by_default():
 def test_every_install_path_verifies(pm):
     """有两条安装路径就要验两遍 —— 数一数，别漏掉一条
 
-    在线下载已搬到 modules/installed/plugin_market_online.py，
+    在线下载已搬到 modules/support/plugin_market_online.py，
     所以两处都要统计（否则拆分文件会让这条守卫假通过/假失败）。
     """
     files = [os.path.join(BASE, "modules", "installed", "plugin_market.py"),
-             os.path.join(BASE, "modules", "installed",
+             os.path.join(BASE, "modules", "support",
                           "plugin_market_online.py")]
     src = "\n".join(open(p, encoding="utf-8").read() for p in files)
     n_calls = src.count("_verify_meta(") - 1          # 减掉 def 那一处

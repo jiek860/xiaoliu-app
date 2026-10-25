@@ -21,7 +21,7 @@ from core.path_safety import safe_join, safe_name
 from core.plugin_api import (PLUGIN_API_VERSION, manifest_api_version,
                              validate_plugin_manifest,
                              validate_plugin_source)
-from modules.installed.plugin_market_online import PluginMarketOnlineMixin
+from modules.support.plugin_market_online import PluginMarketOnlineMixin
 
 
 def _icon_of(name):
@@ -337,7 +337,7 @@ class PluginMarket(PluginMarketOnlineMixin, BaseModule):
 
     # ---------- 在线下载 ----------
     # list_online / download / check_updates 在
-    # modules/installed/plugin_market_online.py（本文件接近 600 行上限）
+    # modules/support/plugin_market_online.py（本文件接近 600 行上限）
 
 
 
