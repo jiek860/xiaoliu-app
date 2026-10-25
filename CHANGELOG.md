@@ -1,5 +1,26 @@
 # 版本变更记录
 
+## v25.2.26 - 2026-10-25
+
+**聊天：Esc 真正停止后台生成**
+- 新增 `core/cancel_token.py` 的 `CancelToken`：取消时既置位标志供流循环检查，
+  也直接 `close()` 已登记的流响应，把阻塞在 `iter_lines()` 的读线程叫醒；
+- `StreamWorker.stop()` 不再只把 `_is_stopped` 置 True（全项目无人读取的死标志），
+  改为真正取消令牌；取消后不再向界面推 token、不再发 `done` 信号，
+  活动中心把本轮记为 `cancelled`；
+- `LLMClient.stream_chat(..., cancel_token=)`：每个分块前检查取消，取消后
+  立即关闭响应并返回已收到内容，不再走云端兜底或非流式重试；
+  本地流式因此会及时释放 Ollama 串行锁，下一条消息不用再排队；
+- `trunk.reply()` / `ReplyPipeline.run()` / `legacy_reply.run()` / `LLMDispatcher.dispatch()`
+  全链路透传 `cancel_token`；取消后跳过记忆写入、群聊合并、代码沙盒验证和
+  后台闭环，不再"界面已停、后台还跑十几秒"；
+- 取消引起的异常不会把 pipeline 判为故障（不进入冷却降级）。
+
+**测试**
+- 新增 `tests/test_chat_cancel.py` 8 条：令牌置位/资源关闭/晚绑定、
+  StreamWorker 真正中断、流式取消只保留已收内容、取消后不重试非流式、
+  取消前后完整读取对照。
+
 ## v25.2.25 - 2026-10-25
 
 **编码 Agent 回修韧性**

@@ -49,7 +49,8 @@ class TrunkReplyMixin:
             return False
         return any(w in t for w in self._TASK_WORDS)
 
-    def reply(self, user_input, on_token=None, force_chat=False):
+    def reply(self, user_input, on_token=None, force_chat=False,
+              cancel_token=None):
         self.last_task_result = None
         try:
             # P0-01: /model 热切换指令拦截
@@ -104,7 +105,8 @@ class TrunkReplyMixin:
             # 群聊角色/历史记忆会对用户输入做长度截断，拼前面会把用户原话挤掉。
             self._active_skill_prompt = skill_prompt
             try:
-                return self._reply_inner(user_input, on_token=on_token)
+                return self._reply_inner(user_input, on_token=on_token,
+                                         cancel_token=cancel_token)
             finally:
                 self._active_skill_prompt = ""
         except Exception as e:
@@ -218,14 +220,18 @@ class TrunkReplyMixin:
             self._log("端侧兜底失败: %s" % str(e)[:60])
         return None
 
-    def _reply_inner(self, user_input, on_token=None):
+    def _reply_inner(self, user_input, on_token=None, cancel_token=None):
         """回复主流程 v2：优先 pipeline，出错先降级、冷却后自动重试"""
         answer = None
         if self._pipeline_ready():
             was_degraded = not self._use_pipeline
             try:
-                answer = self._pipeline.run(user_input, on_token=on_token)
+                answer = self._pipeline.run(user_input, on_token=on_token,
+                                            cancel_token=cancel_token)
             except Exception as e:
+                # 取消引起的异常不算 pipeline 故障，别让它进冷却
+                if cancel_token is not None and cancel_token.is_cancelled():
+                    return ""
                 self._pipeline_failed(e)
             else:
                 if was_degraded:
@@ -239,7 +245,11 @@ class TrunkReplyMixin:
             # 回退到旧流程
             # 回退到旧流程（实现在 core/pipeline/legacy_reply.py）
             from core.pipeline.legacy_reply import run as _legacy_reply
-            answer = _legacy_reply(self, user_input, on_token=on_token)
+            answer = _legacy_reply(self, user_input, on_token=on_token,
+                                   cancel_token=cancel_token)
+        # 用户已停止：不启用端侧兜底话术（那不是用户要的回答）
+        if cancel_token is not None and cancel_token.is_cancelled():
+            return answer or ""
         # 全都失败（空回复 / 错误占位）→ 端侧兜底给一句人话
         if self._looks_failed(answer):
             fb = self._local_fallback_reply(user_input)

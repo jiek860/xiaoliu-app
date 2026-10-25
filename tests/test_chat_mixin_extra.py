@@ -374,6 +374,34 @@ def test_chat_view_stream_render_replaces_previous_frame():
     assert "print(1)" in v.toPlainText()
 
 
+def test_tokens_arriving_after_stop_are_dropped():
+    """Esc 之后已排队的 token 信号不能把半条内容追加到"已停止"后面。"""
+    d = _Dummy()
+    d.chat = _StreamingChat()
+    d.worker = _RunningWorker(None, "")
+    d._stream_buf = ["半句"]
+    d.stop_reply()
+    frames = list(d.chat.streams)
+    d._on_token("迟到的一帧")
+    assert d.chat.streams == frames
+    assert d._stop_requested is True
+
+
+def test_new_send_resets_previous_stop_flag(monkeypatch):
+    import gui.mixins.chat_mixin as cm
+    monkeypatch.setattr(cm, "StreamWorker", _Worker)
+    monkeypatch.setattr("core.agent_router.route_goal",
+                        lambda *a, **k: {"kind": "chat", "confidence": 1.0})
+    d = _Dummy()
+    d._stop_requested = True
+    d.input.setPlainText("新问题")
+    d.send()
+    assert d._stop_requested is False
+    # 新一条的 token 能正常显示（不会被上一条的停止标记吞掉）
+    d._on_token("新回复")
+    assert "新回复" in d.chat.toPlainText()
+
+
 def test_markdown_closes_unclosed_code_fence():
     from gui.markdown_renderer import MarkdownRenderer
     md = MarkdownRenderer()

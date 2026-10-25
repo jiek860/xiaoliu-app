@@ -303,6 +303,7 @@ class CodeAgent(
                         return failed
                     last_error = str(e)
                     continue
+                self._check_control()
                 self._emit("patch", {"step": "生成修改方案",
                                      "patch": patch,
                                      "progress": 0.25 + round_no * 0.1})
@@ -358,6 +359,9 @@ class CodeAgent(
                     last_error = (err + "\n提示：hunk.old 必须从文件内容原样复制"
                                         "（含缩进），并保证在本文件中唯一。")
                     continue
+                # 预演/审批期间用户可能已经取消：落盘前最后确认一次，
+                # 避免"点了停止但文件还是被改了"。
+                self._check_control()
                 applied = apply_patch(
                     self.root, patch, selected_files=selected_files,
                     selected_hunks=selected_hunks)
