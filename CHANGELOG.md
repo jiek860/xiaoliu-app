@@ -8,12 +8,14 @@
   `core/patch_engine.py`（80%）为 `critical_modules`；
   CI `coverage report --fail-under` 同步升到 60。
 - 六个临界大文件拆到 ≤500 行（只搬代码、不改行为、旧导入路径保留）：
-  `modules/installed/plugin_market.py` → `plugin_market_online.py`；
+  `modules/installed/plugin_market.py` → `modules/support/plugin_market_online.py`；
   `gui/settings_dialog.py` → `settings_model_page.py`；
-  `modules/installed/tool_caller.py` → `tool_catalog.py`；
+  `modules/installed/tool_caller.py` → `modules/support/tool_catalog.py`；
   `gui/mcp_dialog.py` → `mcp_catalog.py`；
   `gui/workbench_dialog.py` → `workbench_ai_dock.py`；
   `gui/mixins/dialog_mixin.py` → `background_tasks_mixin.py`。
+  辅助实现放 `modules/support/`（不是可安装插件，不进插件清单），
+  保证 `modules/installed/` 里仍然只有可发布模块。
 - 新增 `tools/github_api_push.py`：`--branch/--message-file/--pr-title/
   --wait-ci/--merge/--dry-run`，只走 `api.github.com`，按原始行尾上传、
   内容未变复用 blob、支持删除文件；token 从环境变量或 Windows 凭据管理器
@@ -25,9 +27,12 @@
 - 文档纠偏：`docs/50_产品体验与Agent能力提升方案.md` 的「尚未完成」清单
   按代码实况更新（自动测试、lint、失败回修、多文件 patch、diff 审批、
   回滚均已完成），避免后续重复立项。
-- 新增测试：`tests/test_github_api_push.py`、`tests/test_module_split_exports.py`；
+- 新增测试：`tests/test_github_api_push.py`、`tests/test_module_split_exports.py`、
+  `tests/test_background_tasks_mixin.py`（覆盖搬出的 7 个后台方法）；
   更新 `tests/test_download_verification.py` 与
   `tests/test_plugin_market_extra.py` 以匹配拆分后的模块位置。
+- 插件仓库：重新签名并发布 `plugin_repo`（48 个模块），
+  `check_repo_sync` 恢复全绿。
 
 ## v25.2.30 - 2026-10-25
 

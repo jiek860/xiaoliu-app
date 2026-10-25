@@ -9,7 +9,7 @@ except ImportError:
 import json
 import time
 from modules.base import BaseModule
-from modules.installed.tool_catalog import BUILTIN_TOOLS
+from modules.support.tool_catalog import BUILTIN_TOOLS
 from core import security_policy
 from core import tool_policy
 

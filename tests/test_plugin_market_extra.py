@@ -175,7 +175,7 @@ def test_plugin_download_falls_back_to_second_signed_source(tmp_path, monkeypatc
             return _Resp(b"tampered")
         return _Resp(raw_good)
 
-    monkeypatch.setattr("modules.installed.plugin_market_online.safe_open_url", fake_open)
+    monkeypatch.setattr("modules.support.plugin_market_online.safe_open_url", fake_open)
     monkeypatch.setattr("core.net_guard.get_net_guard", lambda _t: _NG())
     monkeypatch.setattr(pm, "_verify_meta", lambda data, _meta: (
         (True, "ok") if data == raw_good else (False, "bad signature")))

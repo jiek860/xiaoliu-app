@@ -14,8 +14,10 @@ if BASE not in sys.path:
 def test_old_paths_are_under_500_lines():
     files = [
         "modules/installed/plugin_market.py",
+        "modules/support/plugin_market_online.py",
         "gui/settings_dialog.py",
         "modules/installed/tool_caller.py",
+        "modules/support/tool_catalog.py",
         "gui/mcp_dialog.py",
         "gui/workbench_dialog.py",
         "gui/mixins/dialog_mixin.py",
@@ -35,7 +37,7 @@ def test_plugin_market_keeps_online_methods():
 
 def test_tool_catalog_matches_runtime_catalog():
     from modules.installed.tool_caller import ToolCaller
-    from modules.installed.tool_catalog import BUILTIN_TOOLS
+    from modules.support.tool_catalog import BUILTIN_TOOLS
     # 运行时会再合并 MCP 工具，所以只要求内置清单是子集且一项不少
     assert set(BUILTIN_TOOLS) <= set(ToolCaller(None).tools)
     assert len(BUILTIN_TOOLS) >= 10
