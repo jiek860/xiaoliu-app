@@ -16,6 +16,7 @@ from PyQt5.QtCore import Qt  # noqa: E402
 _app = QApplication.instance() or QApplication([])
 
 from gui.mixins.chat_mixin import ChatMixin  # noqa: E402
+from gui.mixins.history_draft_mixin import HistoryDraftMixin  # noqa: E402
 
 
 class _Signal:
@@ -55,8 +56,13 @@ class _Chat(QTextEdit):
         self.cleared = True
         super().clear()
 
-    def load_history(self, messages):
+    def load_history(self, messages, has_older=False):
         self.history = list(messages or [])
+        self.has_older = has_older
+
+    def prepend_history(self, messages, has_older=False):
+        self.history = list(messages or []) + self.history
+        self.has_older = has_older
 
     def append_user(self, text):
         self.user_messages.append(text)
@@ -98,6 +104,23 @@ class _Store:
         }
         self.deleted = []
         self.branched = 0
+        self.drafts = {}
+
+    def load_page(self, _username, session_id, before_ts=None,
+                  before_id=None, limit=50):
+        return [{"id": 1, "role": "u", "text": "hi", "ts": 1.0}]
+
+    def set_draft(self, username, session_id, text):
+        if str(text or "").strip():
+            self.drafts[(username, session_id)] = str(text)
+        else:
+            self.drafts.pop((username, session_id), None)
+
+    def get_draft(self, username, session_id):
+        return self.drafts.get((username, session_id), "")
+
+    def clear_draft(self, username, session_id):
+        self.drafts.pop((username, session_id), None)
 
     def last_message(self, _username, _session, role="u"):
         return self.messages.get(role)
@@ -146,7 +169,7 @@ class _Trunk:
         return None
 
 
-class _Dummy(QWidget, ChatMixin):
+class _Dummy(QWidget, ChatMixin, HistoryDraftMixin):
     def __init__(self):
         super().__init__()
         self.input = QPlainTextEdit(self)
@@ -214,6 +237,19 @@ def test_send_starts_worker_and_clears_input(monkeypatch):
     assert d.chat.user_messages == ["你好"]
     assert d.input.toPlainText() == ""
     assert _Worker.instances[-1].started is True
+
+
+def test_send_clears_persisted_draft(monkeypatch):
+    import gui.mixins.chat_mixin as cm
+    monkeypatch.setattr(cm, "StreamWorker", _Worker)
+    monkeypatch.setattr("core.agent_router.route_goal",
+                        lambda *a, **k: {"kind": "chat", "confidence": 1.0})
+    d = _Dummy()
+    d.input.setPlainText("这句话要发出去")
+    d._save_draft_now()
+    assert d.account.chat_store.get_draft("tester", "default") == "这句话要发出去"
+    d.send()
+    assert d.account.chat_store.get_draft("tester", "default") == ""
 
 
 def test_on_token_and_reply_render():

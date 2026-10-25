@@ -44,6 +44,14 @@ class ChatStore:
             except:
                 c.execute("ALTER TABLE messages ADD COLUMN session_id TEXT DEFAULT 'default'")
             c.execute("CREATE INDEX IF NOT EXISTS idx_user_session ON messages(username, session_id, ts)")
+            # 会话草稿：切换会话/重启程序后恢复未发送的输入
+            c.execute("""CREATE TABLE IF NOT EXISTS drafts(
+                username TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                text TEXT,
+                ts REAL,
+                PRIMARY KEY(username, session_id)
+            )""")
             # P1-4: FTS5全文索引
             try:
                 c.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
@@ -104,6 +112,85 @@ class ChatStore:
                 "SELECT role, text, ts FROM messages WHERE username=? AND session_id=? ORDER BY ts DESC LIMIT ?",
                 (username, session_id, limit)).fetchall()
         return [{"role": r["role"], "text": r["text"], "ts": r["ts"]} for r in reversed(rows)]
+
+    def load_page(self, username, session_id="default", before_ts=None,
+                  before_id=None, limit=50):
+        """按页读取历史（返回按时间正序的一页）。
+
+        before_ts/before_id 是本页之前的最早一条消息的游标；传 None 表示
+        读取最近一页。用 (ts, id) 复合游标，避免同一时间戳的消息被漏掉。
+        """
+        limit = max(1, int(limit))
+        c = self._conn()
+        try:
+            if before_ts is None:
+                rows = c.execute(
+                    "SELECT id, role, text, ts FROM messages "
+                    "WHERE username=? AND session_id=? "
+                    "ORDER BY ts DESC, id DESC LIMIT ?",
+                    (username, session_id, limit)).fetchall()
+            elif before_id is None:
+                rows = c.execute(
+                    "SELECT id, role, text, ts FROM messages "
+                    "WHERE username=? AND session_id=? AND ts<? "
+                    "ORDER BY ts DESC, id DESC LIMIT ?",
+                    (username, session_id, float(before_ts), limit)).fetchall()
+            else:
+                rows = c.execute(
+                    "SELECT id, role, text, ts FROM messages "
+                    "WHERE username=? AND session_id=? "
+                    "AND (ts<? OR (ts=? AND id<?)) "
+                    "ORDER BY ts DESC, id DESC LIMIT ?",
+                    (username, session_id, float(before_ts),
+                     float(before_ts), int(before_id), limit)).fetchall()
+            return [{"id": r["id"], "role": r["role"], "text": r["text"],
+                     "ts": r["ts"]} for r in reversed(rows)]
+        finally:
+            c.close()
+
+    def count_session(self, username, session_id="default"):
+        c = self._conn()
+        try:
+            row = c.execute(
+                "SELECT COUNT(*) FROM messages WHERE username=? AND session_id=?",
+                (username, session_id)).fetchone()
+            return int(row[0]) if row else 0
+        finally:
+            c.close()
+
+    def set_draft(self, username, session_id, text):
+        """保存会话草稿（空文本等价于清空）。"""
+        text = str(text or "")
+        if not text.strip():
+            return self.clear_draft(username, session_id)
+        c = self._conn()
+        try:
+            c.execute(
+                "INSERT OR REPLACE INTO drafts(username, session_id, text, ts) "
+                "VALUES(?,?,?,?)",
+                (username, session_id, text, time.time()))
+            c.commit()
+        finally:
+            c.close()
+
+    def get_draft(self, username, session_id="default"):
+        c = self._conn()
+        try:
+            row = c.execute(
+                "SELECT text FROM drafts WHERE username=? AND session_id=?",
+                (username, session_id)).fetchone()
+            return str(row["text"] or "") if row else ""
+        finally:
+            c.close()
+
+    def clear_draft(self, username, session_id="default"):
+        c = self._conn()
+        try:
+            c.execute("DELETE FROM drafts WHERE username=? AND session_id=?",
+                      (username, session_id))
+            c.commit()
+        finally:
+            c.close()
 
     def last_message(self, username, session_id="default", role=None):
         """返回最近一条消息（可按 role 过滤）。"""
@@ -181,22 +268,29 @@ class ChatStore:
         return sid
 
     def rename_session(self, username, old_id, new_name):
-        """重命名会话"""
+        """重命名会话（草稿跟着会话一起改名）"""
         with self._conn() as c:
             c.execute("UPDATE messages SET session_id=? WHERE username=? AND session_id=?",
                       (new_name, username, old_id))
+            c.execute("DELETE FROM drafts WHERE username=? AND session_id=?",
+                      (username, new_name))
+            c.execute("UPDATE drafts SET session_id=? WHERE username=? AND session_id=?",
+                      (new_name, username, old_id))
 
     def delete_session(self, username, session_id):
-        """删除会话"""
+        """删除会话（连同草稿）"""
         with self._conn() as c:
             c.execute("DELETE FROM messages WHERE username=? AND session_id=?", (username, session_id))
+            c.execute("DELETE FROM drafts WHERE username=? AND session_id=?", (username, session_id))
 
     def clear(self, username, session_id=None):
         with self._conn() as c:
             if session_id:
                 c.execute("DELETE FROM messages WHERE username=? AND session_id=?", (username, session_id))
+                c.execute("DELETE FROM drafts WHERE username=? AND session_id=?", (username, session_id))
             else:
                 c.execute("DELETE FROM messages WHERE username=?", (username,))
+                c.execute("DELETE FROM drafts WHERE username=?", (username,))
 
     def count(self, username=None):
         with self._conn() as c:

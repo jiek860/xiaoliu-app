@@ -3,6 +3,7 @@
 import re
 from datetime import datetime
 from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtGui import QTextCursor
 from PyQt5.QtWidgets import QTextBrowser
 from gui.markdown_renderer import MarkdownRenderer
 
@@ -21,6 +22,7 @@ GROUP_COLORS = {
 }
 
 MAX_BLOCKS = 600
+OLDER_LINK_TEXT = "↑ 加载更早的消息"
 
 
 class ChatView(QTextBrowser):
@@ -58,41 +60,61 @@ class ChatView(QTextBrowser):
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
 
-    def append_user(self, text: str):
+    @staticmethod
+    def _fmt_time(ts=None) -> str:
+        """历史消息优先显示原始时间；没有时间戳时退回当前时刻。"""
+        try:
+            if ts:
+                return datetime.fromtimestamp(float(ts)).strftime("%H:%M")
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "format history time")
+        return datetime.now().strftime("%H:%M")
+
+    def _user_block_html(self, text: str, ts=None) -> str:
+        import html as _h
+        return (
+            '<div style="text-align:right;margin:10px 0;">'
+            '<span style="background:#4a9eff;color:#fff;padding:8px 14px;'
+            'border-radius:14px 14px 4px 14px;">'
+            + _h.escape(str(text or "")) +
+            '</span>'
+            '<div style="color:#aaa;font-size:10px;margin-top:2px;">'
+            + self._fmt_time(ts) + '</div></div>'
+        )
+
+    def _bubble_block_html(self, name: str, body_html: str, ts=None) -> str:
+        c = GROUP_COLORS.get(name, "#1a1a2e")
+        head = (
+            '<div style="margin:12px 0;">'
+            '<div style="margin-bottom:4px;">'
+            f'<span style="font-size:13px;color:{c};font-weight:bold;">{name}</span>'
+            f'<span style="font-size:10px;color:#aaa;margin-left:8px;">'
+            f'{self._fmt_time(ts)}</span>'
+            '</div>'
+            '<div style="background-color:#f5f5f5;padding:10px 14px;'
+            'border-radius:4px 14px 14px 14px;max-width:80%;display:inline-block;">'
+        )
+        return head + body_html + '</div></div>'
+
+    def _older_link_html(self) -> str:
+        return ('<div style="text-align:center;margin:8px 0;">'
+                '<a href="history://older" style="color:#1976d2;'
+                'font-size:12px;">' + OLDER_LINK_TEXT + '</a></div>')
+
+    def append_user(self, text: str, ts=None):
         try:
             self._trim_old_messages()
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
         try:
-            import html as _h
-            _time = datetime.now().strftime("%H:%M")
-            self.append(
-                '<div style="text-align:right;margin:10px 0;">'
-                '<span style="background:#4a9eff;color:#fff;padding:8px 14px;'
-                'border-radius:14px 14px 4px 14px;">'
-                + _h.escape(text) +
-                '</span>'
-                '<div style="color:#aaa;font-size:10px;margin-top:2px;">'
-                + _time + '</div></div>'
-            )
+            self.append(self._user_block_html(text, ts))
         except Exception as e:  # 静默是故意的
             from core.logger import get_logger
             get_logger().error("append_user 失败: %s" % e)
 
-    def append_bubble(self, name: str, body_html: str):
+    def append_bubble(self, name: str, body_html: str, ts=None):
         try:
-            _time = datetime.now().strftime("%H:%M")
-            c = GROUP_COLORS.get(name, "#1a1a2e")
-            head = (
-                '<div style="margin:12px 0;">'
-                '<div style="margin-bottom:4px;">'
-                f'<span style="font-size:13px;color:{c};font-weight:bold;">{name}</span>'
-                f'<span style="font-size:10px;color:#aaa;margin-left:8px;">{_time}</span>'
-                '</div>'
-                '<div style="background-color:#f5f5f5;padding:10px 14px;'
-                'border-radius:4px 14px 14px 14px;max-width:80%;display:inline-block;">'
-            )
-            self.append(head + body_html + '</div></div>')
+            self.append(self._bubble_block_html(name, body_html, ts))
         except Exception as e:  # 静默是故意的
             from core.logger import get_logger
             get_logger().error("append_bubble 失败: %s" % e)
@@ -181,11 +203,33 @@ class ChatView(QTextBrowser):
                 segs.append((m.group(1), body))
         return segs or None
 
-    def load_history(self, msgs):
+    def _history_block_html(self, m) -> str:
+        if not isinstance(m, dict):
+            return ""
+        role = str(m.get("role", ""))
+        text = str(m.get("text", ""))
+        if not text:
+            return ""
+        ts = m.get("ts")
+        if role in ("u", "user"):
+            return self._user_block_html(text, ts)
+        if role in ("a", "assistant"):
+            return self._bubble_block_html(
+                "小6", self._md.render(text), ts)
+        import html as _h
+        return ('<div style="margin:8px 0;color:#666;font-size:12px;">'
+                + _h.escape(text) + '</div>')
+
+    def load_history(self, msgs, has_older=False):
         try:
             self.clear()
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
+        if has_older:
+            try:
+                self.append(self._older_link_html())
+            except Exception as e:  # 静默是故意的
+                _x6_swallowed(__name__, e, "append older link")
         if not msgs:
             return
         for m in msgs:
@@ -196,23 +240,107 @@ class ChatView(QTextBrowser):
                 text = str(m.get("text", ""))
                 if not text:
                     continue
+                ts = m.get("ts")
                 if role in ("u", "user"):
-                    self.append_user(text)
+                    self.append_user(text, ts)
                 elif role in ("a", "assistant"):
-                    self.render_reply(text, fallback_name="小6")
+                    self.render_reply(text, fallback_name="小6", ts=ts)
                 else:
                     self.append(text)
             except Exception:  # 静默是故意的
                 continue
+        try:
+            self.scroll_to_bottom()
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "scroll to bottom")
 
-    def render_reply(self, text: str, fallback_name: str = "小6"):
+    def _drop_empty_leading_blocks(self):
+        """清掉顶部的空白段（insertHtml 前置空段会留一行空行）。"""
+        doc = self.document()
+        while doc.blockCount() > 1 and not doc.firstBlock().text().strip():
+            cur = QTextCursor(doc)
+            cur.movePosition(QTextCursor.Start)
+            cur.deleteChar()
+
+    def _remove_older_link(self):
+        """移除"加载更早"提示所在的段落。"""
+        doc = self.document()
+        found = doc.find(OLDER_LINK_TEXT)
+        if found.isNull():
+            return
+        block = found.block()
+        cur = QTextCursor(doc)
+        cur.setPosition(block.position())
+        cur.select(QTextCursor.BlockUnderCursor)
+        cur.removeSelectedText()
+        cur.deleteChar()
+        self._drop_empty_leading_blocks()
+
+    def prepend_history(self, msgs, has_older=False):
+        """把更早的一页插到顶部，并尽量保持当前阅读位置不跳。"""
+        msgs = list(msgs or [])
+        if not msgs and not has_older:
+            return
+        doc = self.document()
+        sb = self.verticalScrollBar()
+        max_blocks = 0
+        try:
+            max_blocks = int(doc.maximumBlockCount() or 0)
+            # 上限开着时，插入头部会被 Qt 立刻从头部裁掉，先临时关掉
+            if max_blocks > 0:
+                doc.setMaximumBlockCount(0)
+            old_value = sb.value()
+            doc.adjustSize()
+            old_height = doc.size().height()
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "measure before prepend")
+            old_value = 0
+            old_height = 0
+        try:
+            self._remove_older_link()
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "remove older link")
+        html = "".join(self._history_block_html(m) for m in msgs)
+        try:
+            if html:
+                cur = QTextCursor(doc)
+                cur.movePosition(QTextCursor.Start)
+                # 直接 insertHtml 会并进第一段，先插入空段落把它顶下去
+                cur.insertBlock()
+                cur.insertHtml(html)
+            if has_older:
+                cur = QTextCursor(doc)
+                cur.movePosition(QTextCursor.Start)
+                cur.insertBlock()
+                cur.insertHtml(self._older_link_html())
+            self._drop_empty_leading_blocks()
+            if max_blocks > 0:
+                # 超出上限时从尾部裁，保住用户正在往上看的更早内容
+                excess = doc.blockCount() - max_blocks
+                if excess > 0:
+                    cut = doc.findBlockByNumber(max_blocks)
+                    if cut.isValid():
+                        tail = QTextCursor(doc)
+                        tail.setPosition(cut.position())
+                        tail.movePosition(QTextCursor.End, QTextCursor.KeepAnchor)
+                        tail.removeSelectedText()
+                doc.setMaximumBlockCount(max_blocks)
+            doc.adjustSize()
+            grown = doc.size().height() - old_height
+            if grown > 0:
+                sb.setValue(int(old_value + grown))
+        except Exception as e:  # 静默是故意的
+            from core.logger import get_logger
+            get_logger().error("prepend_history 失败: %s" % e)
+
+    def render_reply(self, text: str, fallback_name: str = "小6", ts=None):
         try:
             segs = self.split_group(str(text))
             if segs:
                 for nm, body in segs:
-                    self.append_bubble(nm, self._md.render(body))
+                    self.append_bubble(nm, self._md.render(body), ts)
             else:
-                self.append_bubble(fallback_name, self._md.render(text))
+                self.append_bubble(fallback_name, self._md.render(text), ts)
         except Exception as e:  # 静默是故意的
             from core.logger import get_logger
             get_logger().error("render_reply 失败: %s" % e)
@@ -280,7 +408,7 @@ class ChatView(QTextBrowser):
                 _x6_swallowed(__name__, e, "best-effort fallback")
         elif u.startswith(("task://", "retry://", "settings://",
                            "plugins://", "security://", "guidance://",
-                           "task-budget://")):
+                           "task-budget://", "history://")):
             try:
                 self.actionRequested.emit(u)
             except Exception as e:  # 静默是故意的

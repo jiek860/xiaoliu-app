@@ -363,9 +363,9 @@ class DialogMixin:
             except Exception as e:
                 _x6_swallowed(__name__, e)
                 pass
+            self._save_draft_now()
             self.account.switch_user(username)
-            self.chat.clear()
-            self.chat.load_history(self.account.load_history())
+            self._reload_chat_history()
         return show_login_dialog(self, self.trunk, self.base, on_success)
 
     def open_code_editor(self):
