@@ -88,6 +88,7 @@ def test_stream_worker_stop_really_cancels_running_reply(monkeypatch):
     assert w.is_cancelled() is True
     # 取消后不再向界面推 token
     count = len(trunk.tokens)
+    w._guarded_token("迟到")
     time.sleep(0.05)
     assert len(trunk.tokens) == count
 
@@ -169,6 +170,112 @@ def test_stream_chat_cancelled_before_start_does_nothing():
     assert client.stream_chat("你好", cancel_token=token) == ""
     assert resp.closed is False
     assert chat_calls == []
+
+
+def test_cancel_token_swallows_bad_closers():
+    token = CancelToken()
+
+    def boom():
+        raise RuntimeError("close failed")
+
+    token.bind(boom)
+    token.bind(None)          # 不可调用：直接忽略
+    token.cancel()
+    assert token.is_cancelled() is True
+
+
+def test_cancel_token_late_closer_error_is_swallowed():
+    token = CancelToken()
+    token.cancel()
+
+    def boom():
+        raise RuntimeError("late close failed")
+
+    token.bind(boom)          # 已取消后再绑定：立即执行，异常不外抛
+    assert token.is_cancelled() is True
+
+
+def test_stream_chat_skips_blank_and_broken_lines():
+    lines = [json.dumps({"message": {"content": "好"}}).encode("utf-8"),
+             b"", b"not-json",
+             json.dumps({"message": {"content": "的"}, "done": True}).encode("utf-8")]
+    resp = _FakeResponse([])
+    resp.iter_lines = lambda: iter(lines)
+    client, _ = _make_client(resp)
+
+    assert client.stream_chat("说点什么", on_token=lambda _t: None) == "好的"
+
+
+def test_stream_chat_cloud_mode_cancelled_returns_without_tokens():
+    token = CancelToken()
+    client, _ = _make_client(_FakeResponse([]))
+    client.config["model_mode"] = "云端模型"
+    got = []
+
+    def cloud(_msg):
+        token.cancel()
+        return "云答案"
+
+    client._try_cloud = cloud
+    assert client.stream_chat("hi", on_token=got.append,
+                              cancel_token=token) == "云答案"
+    assert got == []
+
+
+def test_stream_chat_force_cloud_model_cancelled():
+    token = CancelToken()
+    client, _ = _make_client(_FakeResponse([]))
+    got = []
+
+    def cloud(_msg):
+        token.cancel()
+        return "云答案"
+
+    client._try_cloud = cloud
+    assert client.stream_chat("hi", on_token=got.append,
+                              force_model="__cloud__",
+                              cancel_token=token) == "云答案"
+    assert got == []
+
+
+def test_stream_chat_read_timeout_when_cancelled_returns_partial():
+    import requests
+    token = CancelToken()
+    client, chat_calls = _make_client(_FakeResponse([]))
+
+    def post(*_a, **_k):
+        token.cancel()
+        raise requests.exceptions.ReadTimeout("timeout")
+
+    client._post = post
+    assert client.stream_chat("hi", cancel_token=token) == ""
+    assert chat_calls == []
+
+
+def test_stream_chat_connection_error_when_cancelled_returns_partial():
+    import requests
+    token = CancelToken()
+    client, chat_calls = _make_client(_FakeResponse([]))
+
+    def post(*_a, **_k):
+        token.cancel()
+        raise requests.exceptions.ConnectionError("reset")
+
+    client._post = post
+    assert client.stream_chat("hi", cancel_token=token) == ""
+    assert chat_calls == []
+
+
+def test_stream_chat_unexpected_error_is_reported():
+    client, _ = _make_client(_FakeResponse([]))
+    got = []
+
+    def post(*_a, **_k):
+        raise ValueError("boom")
+
+    client._post = post
+    assert client.stream_chat("hi", on_token=got.append) == ""
+    assert got and "模型错误" in got[0]
 
 
 # ---------------------------------------------------------------- dispatcher

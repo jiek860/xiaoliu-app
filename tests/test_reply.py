@@ -127,6 +127,54 @@ def test_reply_returns_answer(trunk):
     assert fake.calls, "LLM 应当被调用"
 
 
+def test_reply_cancelled_during_pipeline_skips_post_processing(trunk):
+    """Esc 之后：pipeline 不应继续写记忆、群聊合并与后台闭环。"""
+    from core.cancel_token import CancelToken
+    _install_fake(trunk, FakeLLM("半句回答"))
+    token = CancelToken()
+    token.cancel()
+    mem = []
+    trunk.mem_add = lambda *a, **k: mem.append(a)
+
+    assert trunk.reply("你好", on_token=lambda _t: None,
+                       cancel_token=token) == "半句回答"
+    assert mem == []
+    assert trunk._chat_in_progress is False
+
+
+def test_legacy_reply_cancelled_skips_post_processing(trunk):
+    from core.cancel_token import CancelToken
+    _install_fake(trunk, FakeLLM("半句回答"))
+    trunk._use_pipeline = False
+    trunk._pipeline_retry_at = time.time() + 3600   # 冷却中 → 走 legacy 路径
+    token = CancelToken()
+    token.cancel()
+    mem = []
+    trunk.mem_add = lambda *a, **k: mem.append(a)
+
+    assert trunk.reply("你好", on_token=lambda _t: None,
+                       cancel_token=token) == "半句回答"
+    assert mem == []
+
+
+def test_reply_pipeline_error_when_cancelled_is_not_penalized(trunk):
+    """取消引起的异常不能把 pipeline 判成故障（否则会进入冷却降级）。"""
+    from core.cancel_token import CancelToken
+    _install_fake(trunk, FakeLLM("x"))
+    token = CancelToken()
+    token.cancel()
+    trunk._pipeline_fail_count = 0
+    trunk._use_pipeline = True
+
+    def boom(*_a, **_k):
+        raise RuntimeError("cancelled")
+
+    trunk._pipeline.run = boom
+    assert trunk.reply("你好", cancel_token=token) == ""
+    assert trunk._pipeline_fail_count == 0
+    assert trunk._use_pipeline is True
+
+
 def test_prompt_contains_user_input(trunk):
     """用户说的话必须进了 Prompt，否则模型根本不知道问什么"""
     fake = _install_fake(trunk, FakeLLM("收到"))
