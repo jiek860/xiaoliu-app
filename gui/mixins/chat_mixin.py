@@ -103,6 +103,11 @@ class ChatMixin:
             self.input.clear()
             anchor = self.chat.append_thinking()
             self._chat_anchor = anchor
+            # 流式重绘状态：首帧立即出，之后按时间节流，避免每来一个字都重排。
+            self._stream_buf = []
+            self._stream_rendered_at = 0.0
+            self._stream_rendered_len = 0
+            self._stream_rendered_once = False
         except Exception as e:  # 静默是故意的
             from core.logger import get_logger
             get_logger().error("send 前置步骤失败: %s" % e)
@@ -133,6 +138,8 @@ class ChatMixin:
             except Exception as e:  # 静默是故意的
                 _x6_swallowed(__name__, e, "best-effort fallback")
 
+    _STREAM_RENDER_INTERVAL = 0.12
+
     def _on_token(self, t):
         # 用户往上翻历史时不要抢滚动条；贴底时才自动跟随。
         try:
@@ -143,15 +150,38 @@ class ChatMixin:
             self._stream_buf = getattr(self, "_stream_buf", []) + [str(t)]
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
-        cur = self.chat.textCursor()
-        cur.movePosition(cur.End)
-        cur.insertText(t)
-        self.chat.setTextCursor(cur)
+        renderer = getattr(self.chat, "stream_render", None)
+        if callable(renderer):
+            self._stream_tick(renderer)
+        else:
+            # 没有流式重绘能力时退回"直接追加"（测试替身/旧视图）。
+            cur = self.chat.textCursor()
+            cur.movePosition(cur.End)
+            cur.insertText(t)
+            self.chat.setTextCursor(cur)
         if stick:
             try:
                 self.chat.scroll_to_bottom()
             except Exception as e:  # 静默是故意的
                 _x6_swallowed(__name__, e, "best-effort fallback")
+
+    def _stream_tick(self, renderer):
+        """按节流间隔把缓冲内容整体重绘成气泡，首帧立即出。"""
+        now = time.monotonic()
+        text = "".join(getattr(self, "_stream_buf", []) or [])
+        first = not getattr(self, "_stream_rendered_once", False)
+        grown = len(text) - int(getattr(self, "_stream_rendered_len", 0))
+        if not first and now - float(getattr(self, "_stream_rendered_at", 0)) \
+                < self._STREAM_RENDER_INTERVAL and grown < 120:
+            return
+        try:
+            self._chat_anchor = renderer(
+                getattr(self, "_chat_anchor", None), text, self.ai_name)
+            self._stream_rendered_at = now
+            self._stream_rendered_len = len(text)
+            self._stream_rendered_once = True
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
 
     def stop_reply(self):
         """Esc：停止当前回复（保留已收到的部分内容）"""
@@ -171,6 +201,7 @@ class ChatMixin:
         self._stop_requested = True
         partial = "".join(getattr(self, "_stream_buf", []) or [])
         self._stream_buf = []
+        self._stream_rendered_once = False
         try:
             anchor = getattr(self, "_chat_anchor", None)
             if anchor is not None:
@@ -179,9 +210,20 @@ class ChatMixin:
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
         try:
-            if partial.strip():
-                self.chat.append_plain(self.ai_name, partial.strip())
-            self.chat.append_system("已停止生成")
+            partial_text = partial.strip()
+            if partial_text:
+                # 已收到的部分按 Markdown 渲染，并写进会话历史 ——
+                # 原来停止后既不保存也不排版，切换会话这半条回复就没了。
+                try:
+                    self.chat.render_reply(partial_text,
+                                           fallback_name=self.ai_name)
+                except Exception:  # 静默是故意的
+                    self.chat.append_plain(self.ai_name, partial_text)
+                try:
+                    self.account.save_line("a", partial_text)
+                except Exception as e:  # 静默是故意的
+                    _x6_swallowed(__name__, e, "save stopped partial reply")
+            self.chat.append_system("已停止生成（已保留当前内容）")
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
         # 线程还在后台收尾，留引用防止 QThread 被回收时崩溃。
@@ -201,6 +243,7 @@ class ChatMixin:
             self._stop_requested = False
             return
         self._stream_buf = []
+        self._stream_rendered_once = False
         try:
             anchor = getattr(self, "_chat_anchor", None)
             if anchor is not None:

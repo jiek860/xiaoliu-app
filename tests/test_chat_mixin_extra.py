@@ -121,6 +121,7 @@ class _Account:
         return self.username
 
     def save_line(self, *a, **k):
+        self.lines = getattr(self, "lines", []) + [a]
         return True
 
     def load_history(self, limit=50):
@@ -303,8 +304,11 @@ def test_stop_reply_keeps_partial_and_clears_worker():
     assert d.stop_reply() is True
     assert w.stopped is True
     assert d.worker is None
-    assert ("小6", "plain:写到一半的内容") in d.chat.rendered
-    assert ("已停止生成", "system") in d.chat.rendered
+    # 停止后按 Markdown 渲染已收到的部分，并写入会话历史。
+    assert ("写到一半的内容", "小6") in d.chat.rendered
+    assert any(a[0] == "a" and "写到一半的内容" in a[1]
+               for a in d.account.lines)
+    assert ("已停止生成（已保留当前内容）", "system") in d.chat.rendered
 
 
 def test_stop_reply_no_worker_returns_false():
@@ -334,3 +338,45 @@ def test_chat_view_system_and_plain_escape_html():
     assert "&lt;b&gt;" in v.toHtml()
     v.append_plain("小6", "<img src=x>\n第二行")
     assert "&lt;img" in v.toHtml()
+
+
+class _StreamingChat(_Chat):
+    def __init__(self):
+        super().__init__()
+        self.streams = []
+
+    def stream_render(self, anchor, text, fallback_name="小6"):
+        self.streams.append((text, anchor))
+        return "anchor-%d" % len(self.streams)
+
+
+def test_on_token_renders_first_frame_then_throttles():
+    d = _Dummy()
+    d.chat = _StreamingChat()
+    d._on_token("你")
+    assert d.chat.streams == [("你", None)]
+    d._on_token("好")               # 节流窗口内不重绘
+    assert len(d.chat.streams) == 1
+    d._stream_rendered_at -= 1
+    d._on_token("！")
+    assert d.chat.streams[-1][0] == "你好！"
+
+
+def test_chat_view_stream_render_replaces_previous_frame():
+    from gui.chat_view import ChatView
+    v = ChatView()
+    anchor = v.stream_render(None, "第一帧")
+    assert "第一帧" in v.toPlainText()
+    anchor = v.stream_render(anchor, "第二帧")
+    text = v.toPlainText()
+    assert "第二帧" in text and "第一帧" not in text
+    v.stream_render(anchor, "说明\n```python\nprint(1)")
+    assert "print(1)" in v.toPlainText()
+
+
+def test_markdown_closes_unclosed_code_fence():
+    from gui.markdown_renderer import MarkdownRenderer
+    md = MarkdownRenderer()
+    html = md.render("说明\n```python\nprint(1)")
+    assert "<pre" in html and "</pre>" in html
+    assert md.codes == ["print(1)"]
