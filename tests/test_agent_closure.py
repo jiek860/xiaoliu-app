@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Agent 可控闭环回归测试：路由、权限验证、动态重规划、patch 全操作、回滚。"""
 import json
 import os
@@ -245,6 +245,39 @@ def test_agent_journey_dialog_constructs():
     try:
         assert d.windowTitle() == "Agent 旅程"
         assert d.route_combo.count() >= 4
+    finally:
+        d.close()
+
+
+def test_agent_journey_plan_event_and_approval(monkeypatch):
+    """计划事件要展示到时间线；plan 审批复用同一个确认弹窗。"""
+    from PyQt5.QtWidgets import QMessageBox
+    from gui.agent_journey_dialog import AgentJourneyDialog
+
+    d = AgentJourneyDialog(_FakeTrunk(tempfile.mkdtemp()))
+    try:
+        class _Worker:
+            result = None
+
+            def resolve_approval(self, value):
+                self.result = value
+
+            def isRunning(self):
+                return False
+
+        d.worker = _Worker()
+        d._on_event("plan", {"step": "执行计划已生成", "plan": {
+            "summary": "重构计算",
+            "steps": [{"title": "改文件", "files": ["a.py"], "risk": "low"}],
+        }})
+        monkeypatch.setattr(QMessageBox, "question",
+                            staticmethod(lambda *a, **k: QMessageBox.Yes))
+        d._on_approval("plan", {"summary": "重构计算"})
+        assert d.worker.result is True
+        monkeypatch.setattr(QMessageBox, "question",
+                            staticmethod(lambda *a, **k: QMessageBox.No))
+        d._on_approval("plan", None)
+        assert d.worker.result is False
     finally:
         d.close()
 

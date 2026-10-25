@@ -311,6 +311,28 @@ def test_approve_returns_bool(wb):
     assert r in (True, False)
 
 
+def test_plan_event_and_approval(wb, monkeypatch):
+    """计划事件进时间线；plan 审批按确认/拒绝返回布尔。"""
+    from PyQt5.QtWidgets import QMessageBox
+
+    wb.ai_dock.timeline.clear()
+    wb.ai_dock._on_event("plan", {
+        "step": "执行计划已生成",
+        "plan": {"summary": "重构计算", "steps": [
+            {"title": "改文件", "files": ["a.py"], "risk": "low"}],
+            "risks": ["回归风险"]},
+    })
+    text = wb.ai_dock.timeline.toPlainText()
+    assert "执行步骤" in text and "改文件" in text
+
+    monkeypatch.setattr(QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.Yes))
+    assert wb.ai_dock._approve("plan", {"summary": "重构计算"}) is True
+    monkeypatch.setattr(QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.No))
+    assert wb.ai_dock._approve("plan", {"summary": "重构计算"}) is False
+
+
 # ---------------- 入口合并：只保留一个「工作台」 ----------------
 def test_feature_registry_has_single_workbench():
     from core.feature_registry import FEATURES
