@@ -51,6 +51,57 @@ def test_collect_changes_uses_git_status(tmp_path):
     assert "data/junk.json" not in changes
 
 
+class FakeClient:
+    repo = "o/r"
+
+    def __init__(self, branch="b"):
+        self.branch = branch
+        self.posts = []
+
+    def ref_sha(self, name):
+        return {"main": "main-sha", "b": "branch-sha"}.get(name, "")
+
+    def commit_tree(self, sha):
+        return "tree-" + sha
+
+    def create_branch(self, name, sha):
+        self.posts.append(("CREATE", name, sha))
+
+    def _request(self, method, path, payload=None):
+        self.posts.append((method, path, payload))
+        if "/git/blobs" in path:
+            return {"sha": "blob-new"}
+        if path.endswith("/git/trees"):
+            return {"sha": "tree-new"}
+        if path.endswith("/git/commits"):
+            return {"sha": "commit-new"}
+        return {}
+
+
+def test_commit_worktree_bases_on_existing_branch(tmp_path, monkeypatch):
+    """第二次推送应基于分支最新提交，才能快进更新同一个 PR。"""
+    (tmp_path / "a.txt").write_text("new\n", encoding="utf-8")
+    monkeypatch.setattr(push, "BASE_DIR", str(tmp_path))
+    monkeypatch.setattr(push, "remote_tree", lambda client, tree: {})
+    client = FakeClient()
+    result = push.commit_worktree(client, [("a.txt", "put")], "msg", "main")
+    assert result["changed"] is True
+    commit = [p for p in client.posts if p[1].endswith("/git/commits")][0][2]
+    assert commit["parents"] == ["branch-sha"]
+    tree = [p for p in client.posts if p[1].endswith("/git/trees")][0][2]
+    assert tree["base_tree"] == "tree-branch-sha"
+
+
+def test_commit_worktree_falls_back_to_main_for_new_branch(tmp_path, monkeypatch):
+    (tmp_path / "a.txt").write_text("new\n", encoding="utf-8")
+    monkeypatch.setattr(push, "BASE_DIR", str(tmp_path))
+    monkeypatch.setattr(push, "remote_tree", lambda client, tree: {})
+    client = FakeClient(branch="brand-new")
+    push.commit_worktree(client, [("a.txt", "put")], "msg", "main")
+    commit = [p for p in client.posts if p[1].endswith("/git/commits")][0][2]
+    assert commit["parents"] == ["main-sha"]
+
+
 def test_dry_run_prints_plan_and_returns_zero(tmp_path, monkeypatch):
     subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
     subprocess.run(["git", "remote", "add", "origin",

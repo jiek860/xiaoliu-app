@@ -239,10 +239,17 @@ def remote_tree(client, tree_sha):
 
 
 def commit_worktree(client, files, message, base):
-    """把工作区文件提交到新分支；内容未变的复用 blob。"""
-    base_sha = client.ref_sha(base)
+    """把工作区文件提交到目标分支；内容未变的复用 blob。
+
+    目标分支已存在时以**它自己的最新提交**为父提交，这样第二次推送只追加
+    差量（新文件/新改动），不会因为重新基于 main 而变成非快进更新。
+    分支不存在时仍以 base（默认 main）的远端树为起点，避免本地分支陈旧。
+    """
+    base_sha = client.ref_sha(getattr(client, "branch", "") or "")
     if not base_sha:
-        raise GitHubError("找不到基分支: " + base)
+        base_sha = client.ref_sha(base)
+        if not base_sha:
+            raise GitHubError("找不到基分支: " + base)
     base_tree = client.commit_tree(base_sha)
     remote = remote_tree(client, base_tree)
 
