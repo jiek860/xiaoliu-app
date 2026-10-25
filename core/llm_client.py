@@ -20,7 +20,7 @@ def _is_cloud_mode(mode):
     return ("云端" in str(mode)) or ("cloud" in m)
 
 
-from core.llm_shared import get_ollama_lock
+from core.llm_shared import get_ollama_lock, config_seconds
 from core.llm_health import LLMHealthMixin
 from core.llm_usage import LLMUsageMixin
 from core.llm_cloud import LLMCloudMixin
@@ -175,23 +175,35 @@ class LLMClient(
             # （timeout=120），等满两分钟才降级到云端 —— 这就是"切了云端还是很慢"。
             mode_cloud = _is_cloud_mode(self.config.get("model_mode", "本地路由"))
             if mode_cloud and not force_model:
-                full = self._try_cloud(message)
+                # 云端模式也要真流式，别再等整段答案生成完才一次性刷出来。
+                full = self._try_cloud_stream(message, on_token=on_token,
+                                              cancel_token=cancel_token)
                 if _cancelled():
                     return full
-                if full:
-                    if on_token:
+                if not full:
+                    # 少数兼容端点不支持 stream，退回一次性调用。
+                    full = self._try_cloud(message)
+                    if _cancelled():
+                        return full
+                    if full and on_token:
                         on_token(full)
+                if full:
                     return full
                 if on_token:
                     on_token("（云端模型没响应，试一下本地…）")
             model = force_model or self._pick_model(message)
-            # 云端路径：无流式，直接一次性返回
             if model == "__cloud__":
-                full = self._try_cloud(message)
+                full = self._try_cloud_stream(message, on_token=on_token,
+                                              cancel_token=cancel_token)
                 if _cancelled():
                     return full
+                if not full:
+                    full = self._try_cloud(message)
+                    if _cancelled():
+                        return full
+                    if full and on_token:
+                        on_token(full)
                 if full:
-                    if on_token: on_token(full)
                     return full
                 model = self._main_model()
             if isinstance(message, list):
@@ -199,16 +211,22 @@ class LLMClient(
             else:
                 msgs = [{"role": "user", "content": message}]
             full = ""
+            _local_timeout = False
             try:
                 with get_ollama_lock():  # 串行排队（流式持锁期间后台同样禁止并发，避免排队）
                     _ut2 = self._extract_user_text(msgs)
                     _t2 = 0.3 if any(k in _ut2 for k in ("代码","bug","报错","函数","python","编程","脚本","程序","错误","修复")) else 0.7
+                    # 首字超时：本地模型卡住（模型加载/显存不足）时不要死等 120 秒，
+                    # 超过阈值还没有第一个 token 就直接切云端；可在 config.json
+                    # 用"本地首字超时" / local_first_token_timeout 调整（5~300 秒）。
+                    _first_token = config_seconds(
+                        self.config, ("本地首字超时", "local_first_token_timeout"), 25)
                     r = self._post(self.base_url + "/api/chat",
                         json={"model": model, "messages": msgs, "stream": True,
                               "think": False,
                               "keep_alive": "2h",
                               "options": {"num_ctx": 4096, "temperature": _t2}},
-                        stream=True, timeout=120)
+                        stream=True, timeout=(5, _first_token))
                     if cancel_token is not None:
                         # 关键：把流响应登记给取消方。Esc 时会在 GUI 线程
                         # 直接 close，叫醒阻塞中的 iter_lines，立刻释放连接与锁。
@@ -239,11 +257,15 @@ class LLMClient(
                         if cancel_token is not None:
                             cancel_token.unbind(r.close)
             except requests.exceptions.ReadTimeout:
+                _local_timeout = True
                 if _cancelled():
                     return full
                 if on_token and not full:
-                    on_token("（本地超时，切云端...）")
-                    full = self._try_cloud_stream(msgs, on_token=on_token)
+                    if self.trunk:
+                        self.trunk._log("本地首字超时(%ss)，切云端" % _first_token)
+                    on_token("（本地首字超时，切云端...）")
+                    full = self._try_cloud_stream(msgs, on_token=on_token,
+                                                  cancel_token=cancel_token)
             except requests.exceptions.ConnectionError as e:
                 if _cancelled():
                     return full
@@ -257,10 +279,11 @@ class LLMClient(
                 if _cancelled():
                     return full
                 raise
-            # 兜底：流式异常但什么都没收到时，非流式重试一次（取消后不重试）
+            # 兜底：流式异常但什么都没收到时，非流式重试一次。
+            # 取消后不重试；本地刚首字超时也不重试（否则又白等一次本地）。
             if _cancelled():
                 return full
-            if not full:
+            if not full and not _local_timeout:
                 r2 = self.chat(msgs)
                 if r2 and not str(r2).startswith("本地模型错误"):
                     full = str(r2)

@@ -2,10 +2,9 @@
 """LLM 云端调用、流式、脱敏和响应缓存辅助。"""
 from __future__ import annotations
 
-import json
 import time
 import requests
-from core.llm_shared import _is_cloud_mode
+from core.llm_shared import _is_cloud_mode, config_seconds
 
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -191,51 +190,90 @@ class LLMCloudMixin:
             if self.trunk: self.trunk._log("云端模型失败: " + str(e)[:60])
             return None
 
-    def _try_cloud_stream(self, message, on_token=None):
-        """云端真流式：逐字返回"""
+    def _try_cloud_stream(self, message, on_token=None, cancel_token=None):
+        """云端真流式：逐字返回（provider 适配 + 可取消）
+
+        之前配置了 cloud_provider 时会退回非流式 ``_try_cloud``，界面上
+        要等整段答案生成完才一次性刷出来。这里改为按 provider 发流式请求，
+        统一用 ``parse_stream_chunk`` 取 token（openai/azure/anthropic/gemini）。
+
+        cancel_token：Esc 时 GUI 线程会 close 流响应，叫醒阻塞中的 iter_lines；
+        每块前再检查一次，取消后立刻返回已收到内容，不再写错误提示。
+        """
         url = self.config.get("cloud_url", "")
         key = self.config.get("cloud_key", "")
         model = self.config.get("cloud_model", "qwen-turbo")
-        if str(self.config.get("cloud_provider") or "").strip():
-            full = self._try_cloud(message)
-            if full and on_token:
-                on_token(full)
-            return full or ""
-        if not url or not key: return ""
+
+        def _cancelled():
+            return bool(cancel_token is not None and cancel_token.is_cancelled())
+
+        if isinstance(message, list):
+            msgs = [{k: v for k, v in m.items() if k != "images"} if isinstance(m, dict) else m
+                    for m in message]
+        else:
+            msgs = [{"role": "user", "content": message}]
+        # 云端流式也必须遵守云端脱敏配置，不能绕过 _try_cloud 的脱敏。
+        msgs = self._fit_messages(self._mask_if_enabled(msgs))
+        if _cancelled():
+            return ""
+        full = ""
+        _t0 = time.time()
+        r = None
         try:
-            if isinstance(message, list):
-                msgs = [{k: v for k, v in m.items() if k != "images"} if isinstance(m, dict) else m
-                        for m in message]
+            provider_req = self._provider_request(msgs, stream=True, timeout=30)
+            if provider_req is not None:
+                req_url = provider_req["url"]
+                req_headers = provider_req["headers"]
+                req_json = provider_req["json"]
+                provider = provider_req["provider"]
             else:
-                msgs = [{"role": "user", "content": message}]
-            # 云端流式也必须遵守云端脱敏配置，不能绕过 _try_cloud 的脱敏。
-            msgs = self._fit_messages(self._mask_if_enabled(msgs))
-            if not url.endswith("/chat/completions"):
-                url = url.rstrip("/") + "/chat/completions"
-            full = ""
-            _t0 = time.time()
-            r = self._post(url,
-                headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
-                json={"model": model, "messages": msgs, "stream": True},
-                stream=True, timeout=120)
+                if not url or not key:
+                    return ""
+                if not url.endswith("/chat/completions"):
+                    url = url.rstrip("/") + "/chat/completions"
+                req_url = url
+                req_headers = {"Authorization": "Bearer " + key,
+                               "Content-Type": "application/json"}
+                req_json = {"model": model, "messages": msgs, "stream": True}
+                provider = "openai"
+            from core.llm_providers import parse_stream_chunk
+            _first_timeout = config_seconds(
+                self.config, ("云端首字超时", "cloud_first_token_timeout"), 60)
+            r = self._post(req_url, headers=req_headers, json=req_json,
+                           stream=True, timeout=(10, _first_timeout))
+            if cancel_token is not None:
+                cancel_token.bind(r.close)
             for line in r.iter_lines():
-                if not line: continue
-                line = line.decode("utf-8").strip()
-                if not line.startswith("data:"): continue
+                if _cancelled():
+                    break
+                if not line:
+                    continue
+                line = line.decode("utf-8", "ignore").strip()
+                if not line.startswith("data:"):
+                    continue
                 data = line[5:].strip()
-                if data == "[DONE]": break
-                try:
-                    chunk = json.loads(data)
-                    tok = chunk["choices"][0].get("delta", {}).get("content", "")
-                    if tok:
-                        full += tok
-                        if on_token: on_token(tok)
-                except Exception as e:
-                    _x6_swallowed(__name__, e)
+                if data == "[DONE]":
+                    break
+                tok = parse_stream_chunk(provider, data)
+                if tok:
+                    full += tok
+                    if on_token:
+                        on_token(tok)
             if full:
                 self._track_usage(model, msgs, full, time.time() - _t0,
                                   kind="cloud_model_stream")
             return full
         except Exception as e:
+            # 取消导致的传输层异常不是真错误：保留已收到内容直接返回。
+            if _cancelled():
+                return full
             if self.trunk: self.trunk._log("云端流式失败: " + str(e)[:60])
-            return ""
+            return full
+        finally:
+            if r is not None:
+                try:
+                    r.close()
+                except Exception as e:  # 静默是故意的：关闭失败不影响结果
+                    _x6_swallowed(__name__, e, "close cloud stream")
+                if cancel_token is not None:
+                    cancel_token.unbind(r.close)

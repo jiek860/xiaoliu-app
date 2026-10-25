@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Unified model provider adapters.
 
 The application historically assumed one OpenAI-compatible cloud endpoint.
@@ -220,8 +220,10 @@ def build_chat_request(provider, model, messages, *, api_key="", base_url="",
     if kind == "gemini":
         if not api_key:
             raise ValueError("Gemini requires api_key")
-        url = (base.rstrip("/") + "/models/" + urllib.parse.quote(model) +
-               ":generateContent")
+        # 流式走 :streamGenerateContent + alt=sse，返回标准的 ``data:`` 行；
+        # 非流式保持 :generateContent（一次性 JSON）。
+        action = ":streamGenerateContent?alt=sse" if stream else ":generateContent"
+        url = (base.rstrip("/") + "/models/" + urllib.parse.quote(model) + action)
         headers["x-goog-api-key"] = str(api_key)
         system, contents = _gemini_contents(messages)
         body = {"contents": contents,
