@@ -158,7 +158,7 @@ class CodeContextMixin:
         return {"files": files, "text": "".join(chunks),
                 "symbols": {"recent": self.index.find_symbols("", 30)}}
 
-    def _llm_messages(self, goal, context, previous_error=""):
+    def _llm_messages(self, goal, context, previous_error="", previous_diff=""):
         system = (
             "你是代码修改 Agent。先探索，再最小修改，最后交给测试验证。\n"
             "只输出严格 JSON，不要 Markdown 解释。可以返回以下三类之一：\n"
@@ -170,9 +170,13 @@ class CodeContextMixin:
             "\"tests\":[\"可选测试命令\"]}\n"
             "3) 完成：{\"done\":true,\"message\":\"结果摘要\"}\n"
             "规则：路径必须相对工作区；不要动 .git/data/backups；"
-            "update 的 old 必须能唯一匹配；优先小改动；需要更多信息就先用工具。"
+            "update 的 old 必须从 FILE 内容原样复制（含缩进），且在本文件中唯一；"
+            "优先小改动；需要更多信息就先用工具。"
         )
         user = ("目标：\n%s\n\n已收集上下文：\n%s" % (goal, context.get("text", "")))
+        if previous_diff:
+            user += ("\n\n上一轮已应用的改动（请在此基础上修复，"
+                     "不要重复同样的修改）：\n" + previous_diff[-4000:])
         if previous_error:
             user += "\n\n上一轮测试失败：\n" + previous_error[-6000:]
         return [{"role": "system", "content": system},

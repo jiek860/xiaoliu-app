@@ -216,6 +216,7 @@ class CodeAgent(
         start_round = max(1, int(resume_state.get("round") or 1))
         fingerprints = list(resume_state.get("fingerprints") or [])
         patch_history = list(resume_state.get("patches") or [])
+        previous_diff = str(resume_state.get("last_diff") or "")
         tests: dict = {}
         lint: dict = {}
         applied: dict = {}
@@ -235,6 +236,54 @@ class CodeAgent(
             self._emit("context", {"step": "已收集项目上下文",
                                    "files": context.get("files", []),
                                    "progress": 0.1})
+            def _round_failed(message):
+                """某一轮没有产出可应用的修改：记下原因，决定是否继续。
+
+                生成/校验失败不再直接结束整个任务 —— 把错误当回修线索
+                带进下一轮，模型还有机会修正 JSON 或 hunk 的原文匹配。
+                """
+                message = str(message or "本轮没有产出可应用的修改")
+                self._emit("patch_error", {"step": "本轮修改无效，准备重修",
+                                           "error": message[:2000],
+                                           "round": round_no})
+                verdict = evaluate_round(
+                    round_no=round_no, max_rounds=max_rounds,
+                    tests={"ok": False,
+                           "results": [{"ok": False, "output": message}]},
+                    lint={"ok": True}, fingerprint_history=fingerprints,
+                    patch_history=patch_history, patch_id="")
+                reason = str(verdict.get("reason") or "max_rounds")
+                self._emit("round_end", {
+                    "step": "第 %d 轮：%s" % (round_no, verdict.get("message", "")),
+                    "round": round_no, "max_rounds": max_rounds,
+                    "reason": reason, "stop": bool(verdict.get("stop")),
+                    "progress": min(0.9, 0.7 + round_no * 0.02)})
+                fingerprints.append(str(verdict.get("fingerprint") or ""))
+                patch_history.append("")
+                if callable(checkpoint_cb):
+                    try:
+                        checkpoint_cb({
+                            "round": round_no + 1, "max_rounds": max_rounds,
+                            "last_error": message, "last_diff": previous_diff,
+                            "fingerprints": fingerprints,
+                            "patches": patch_history,
+                            "backups": list(backups),
+                            "stop_reason": reason,
+                            "done": bool(verdict.get("stop")),
+                        })
+                    except Exception as e:  # 静默是故意的 - 断点保存失败不阻塞
+                        _x6_swallowed(__name__, e, "save code agent checkpoint")
+                if not verdict.get("stop"):
+                    return None
+                self.registry.finish_run(run_id, "failed", message)
+                self._emit("failed", {"step": str(verdict.get("message") or ""),
+                                      "error": message[:4000],
+                                      "stop_reason": reason, "progress": 1.0})
+                return {"ok": False, "run_id": run_id, "error": message,
+                        "stop_reason": reason, "rounds_used": round_no,
+                        "max_rounds": max_rounds, "tests": tests, "lint": lint,
+                        "backups": backups, "git": git}
+
             for round_no in range(start_round, max_rounds + 1):
                 self._check_control()
                 self.registry.update_run(
@@ -243,7 +292,17 @@ class CodeAgent(
                 # 回修前重新读项目：上一轮 patch 已经落盘，旧上下文可能过期。
                 if round_no > 1:
                     context = self.build_context(goal)
-                patch = self.propose_patch(goal, context, last_error)
+                try:
+                    patch = self.propose_patch(goal, context, last_error,
+                                               previous_diff=previous_diff)
+                except AgentCancelled:
+                    raise
+                except PatchError as e:
+                    failed = _round_failed(str(e))
+                    if failed:
+                        return failed
+                    last_error = str(e)
+                    continue
                 self._emit("patch", {"step": "生成修改方案",
                                      "patch": patch,
                                      "progress": 0.25 + round_no * 0.1})
@@ -260,6 +319,7 @@ class CodeAgent(
                         return {"ok": False, "cancelled": True, "run_id": run_id,
                                 "patch": patch, "backups": backups}
                     self.registry.update_run(run_id, status="running")
+                patch_diff = unified_diff(self.root, patch)[:3000]
                 gate = authorize_agent_action(
                     self.trunk, "code_agent",
                     {"type": "edit_file", "risk": "high",
@@ -267,7 +327,7 @@ class CodeAgent(
                          f.get("path", "") for f in patch.get("files", []))},
                      "reason": patch.get("goal", "")},
                     title="代码 Agent 修改文件",
-                    detail=unified_diff(self.root, patch)[:3000],
+                    detail=patch_diff,
                     already_approved=bool(callable(approval_cb)))
                 if not gate.get("allow"):
                     self.registry.finish_run(run_id, "failed", gate.get("reason", ""))
@@ -290,19 +350,33 @@ class CodeAgent(
                                        "progress": 0.5})
                 if not dry.get("ok"):
                     err = "；".join(str(x) for x in (dry.get("errors") or []))
-                    self.registry.finish_run(run_id, "failed", err)
-                    return {"ok": False, "run_id": run_id, "error": err,
-                            "stop_reason": "dry_run_failed", "rounds_used": 0,
-                            "dry_run": dry, "tests": tests, "lint": lint,
-                            "backups": backups, "git": git}
+                    failed = _round_failed(
+                        err + "\n提示：hunk.old 必须从文件内容原样复制（含缩进），"
+                              "并保证在本文件中唯一。")
+                    if failed:
+                        return failed
+                    last_error = (err + "\n提示：hunk.old 必须从文件内容原样复制"
+                                        "（含缩进），并保证在本文件中唯一。")
+                    continue
                 applied = apply_patch(
                     self.root, patch, selected_files=selected_files,
                     selected_hunks=selected_hunks)
                 backups.append(applied.get("backup_manifest") or "")
                 self._last_backups.append(applied.get("backup_manifest"))
+                applied_files = applied.get("applied") or []
+                if not applied_files:
+                    msg = ("patch 没有产生任何实际改动（hunk 的 new 与 old 相同，"
+                           "或改动全部被取消选中）")
+                    failed = _round_failed(msg)
+                    if failed:
+                        return failed
+                    last_error = (msg + "\n请重新确认要改的片段，"
+                                        "并给出与原文不同的 new 内容。")
+                    continue
+                previous_diff = patch_diff
                 self._emit("applied", {
                     "step": "修改已应用",
-                    "applied": applied.get("applied") or [],
+                    "applied": applied_files,
                     "backup_manifest": applied.get("backup_manifest") or "",
                     "progress": 0.55})
                 self.registry.update_run(run_id, current_step="运行测试",
@@ -330,11 +404,7 @@ class CodeAgent(
                     "round": round_no, "max_rounds": max_rounds,
                     "reason": stop_reason, "stop": bool(verdict.get("stop")),
                     "progress": min(0.9, 0.7 + round_no * 0.02)})
-                last_error = "\n".join(
-                    str(x.get("output", "")) for x in tests.get("results") or [])
-                if not lint.get("ok"):
-                    last_error += "\n" + "\n".join(
-                        str(x.get("output", "")) for x in lint.get("results") or [])
+                last_error = self._failure_digest(tests, lint)
                 fingerprints.append(str(verdict.get("fingerprint") or ""))
                 patch_history.append(str(patch.get("patch_id") or ""))
                 if callable(checkpoint_cb):
@@ -342,6 +412,7 @@ class CodeAgent(
                         checkpoint_cb({
                             "round": round_no + 1, "max_rounds": max_rounds,
                             "last_error": last_error,
+                            "last_diff": previous_diff,
                             "fingerprints": fingerprints,
                             "patches": patch_history,
                             "backups": list(backups),
@@ -396,6 +467,42 @@ class CodeAgent(
                                   "error": env["message"], "progress": 1.0})
             return {"ok": False, "run_id": run_id, "error": env["message"],
                     "envelope": env, "backups": backups}
+
+    @staticmethod
+    def _failure_digest(tests, lint):
+        """把测试/lint 失败压缩成给模型看的摘要：先列失败用例，再给尾部输出。
+
+        原来是把各命令的完整输出直接拼起来（每条最多 16000 字符），
+        进提示词时只截最后 6000 字符 —— 失败用例名经常正好被截掉。
+        """
+        parts = []
+        for item in (tests or {}).get("results") or []:
+            if item.get("ok") is True:
+                continue
+            names = []
+            for f in item.get("failures") or []:
+                label = str(f.get("file") or "")
+                if f.get("test"):
+                    label += "::" + str(f.get("test"))
+                if f.get("line"):
+                    label += ":L%s" % f.get("line")
+                if label and label not in names:
+                    names.append(label)
+            block = "命令: %s" % item.get("command", "")
+            if names:
+                block += "\n失败用例: " + "、".join(names[:12])
+            out = str(item.get("output") or "").strip()
+            if out:
+                block += "\n输出(尾部):\n" + out[-5000:]
+            parts.append(block)
+        for item in (lint or {}).get("results") or []:
+            if item.get("ok") is True:
+                continue
+            out = str(item.get("output") or "").strip()
+            if out:
+                parts.append("lint: %s\n%s" % (item.get("command", ""),
+                                               out[-2000:]))
+        return "\n\n".join(parts)[-12000:]
 
     def rollback_all(self, backups):
         restored: list[str] = []

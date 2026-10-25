@@ -98,8 +98,12 @@ class CodeExplorerMixin:
         return {"ok": False, "error": "未知工具: " + str(name)}
 
     def propose_patch(self, goal, context=None, previous_error="",
-                      max_tool_rounds=6, two_role=None):
-        """先探索、再修改；`two_role=False` 时退回单角色循环。"""
+                      max_tool_rounds=6, two_role=None, previous_diff=""):
+        """先探索、再修改；`two_role=False` 时退回单角色循环。
+
+        `previous_diff` 是上一轮已经落盘的改动：回修时一并给模型，
+        让它在原有改动上修，而不是重复同一份补丁。
+        """
         llm = (getattr(self.trunk, "modules", {}) or {}).get("llm")
         if not llm:
             raise RuntimeError("LLM 未加载，无法生成代码修改")
@@ -120,13 +124,16 @@ class CodeExplorerMixin:
                 "tools": report.get("tools") or [],
                 "report": str(report.get("report") or "")[:2000]})
             return modify_with_report(
-                self, goal, context, previous_error, report.get("report"))
+                self, goal, context, previous_error, report.get("report"),
+                previous_diff=previous_diff)
         return self._propose_single_role(
-            llm, goal, context, previous_error, max_tool_rounds)
+            llm, goal, context, previous_error, max_tool_rounds,
+            previous_diff=previous_diff)
 
     def _propose_single_role(self, llm, goal, context, previous_error="",
-                             max_tool_rounds=6):
-        messages = self._llm_messages(goal, context, previous_error)
+                             max_tool_rounds=6, previous_diff=""):
+        messages = self._llm_messages(goal, context, previous_error,
+                                      previous_diff)
         for round_no in range(max_tool_rounds + 1):
             self._check_control()
             self._emit("model_request", {

@@ -107,6 +107,25 @@ class ChatView(QTextBrowser):
             except Exception:  # 静默是故意的
                 return 0
 
+    def stream_render(self, anchor, text: str, fallback_name: str = "小6") -> int:
+        """重绘流式气泡，返回这一帧的锚点（供下一次替换）。
+
+        先删掉上一帧再整体渲染：流式过程中就能看到 Markdown 排版，
+        结束时也不会从纯文本突然跳成另一种样子。
+        """
+        try:
+            if anchor is not None:
+                self.remove_from_anchor(anchor)
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+        cur = self.textCursor()
+        cur.movePosition(cur.End)
+        pos = cur.position()
+        self.append_bubble(fallback_name, self._md.render(str(text or "")))
+        self._last_codes = self._md.codes
+        self._last_reply_text = str(text or "")
+        return pos
+
     def at_bottom(self, tolerance: int = 24) -> bool:
         """视口是否贴着底部（流式时用来判断该不该自动跟随）"""
         try:
