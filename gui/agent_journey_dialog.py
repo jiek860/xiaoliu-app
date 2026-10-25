@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """统一 Agent 旅程窗口：一个输入框，自动路由到代码/电脑/对话。
 
 统一提供：
@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.agent_orchestrator import AgentOrchestrator
+from core.code_plan import plan_text
 from gui.agent_timeline import AgentTimeline
 from gui.diff_dialog import DiffReviewDialog
 
@@ -226,6 +227,9 @@ class AgentJourneyDialog(QDialog):
         self.timeline.set_status(step, state)
         if isinstance(data.get("progress"), (int, float)):
             self.timeline.set_progress(data.get("progress"))
+        if event == "plan" and isinstance(data.get("plan"), dict):
+            self.timeline.add_step("执行计划", plan_text(data["plan"]), "waiting")
+            return
         detail_parts = []
         for k in ("thought", "result", "verify", "error", "reason",
                   "output", "files", "applied"):
@@ -253,7 +257,12 @@ class AgentJourneyDialog(QDialog):
             self.timeline.show_screenshot(shot)
 
     def _on_approval(self, kind, payload):
-        if kind == "code":
+        if kind == "plan":
+            r = QMessageBox.question(
+                self, "执行计划", plan_text(payload or {}),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            result = (r == QMessageBox.Yes)
+        elif kind == "code":
             try:
                 dlg = DiffReviewDialog(
                     self.root, payload, self, apply_on_accept=False)

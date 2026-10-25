@@ -22,6 +22,8 @@ import time
 
 from core.agent_harness import get_run_registry, normalize_error
 from core.agent_permissions import authorize_agent_action
+from core.cancel_token import CancelToken
+from core.code_plan import confirm_plan
 from core.code_agent_policy import (
     describe as describe_rounds,
     evaluate_round,
@@ -72,6 +74,7 @@ class CodeAgent(
         self.open_files = [str(x) for x in (open_files or []) if x]
         self.selection = str(selection or "")
         self._cancel = threading.Event()
+        self._cancel_token = CancelToken()
         self._pause = threading.Event()
         self._active_proc = None
         self._proc_lock = threading.RLock()
@@ -80,6 +83,8 @@ class CodeAgent(
 
     def cancel(self):
         self._cancel.set()
+        # 让正在流式生成的模型请求立刻收手，而不是等整轮返回后才检查标志。
+        self._cancel_token.cancel()
         self._kill_active_proc()
 
     def pause(self):
@@ -191,7 +196,7 @@ class CodeAgent(
                 "backups": [applied.get("backup_manifest")]}
 
     def run(self, goal, *, max_rounds=None, approved_cb=None,
-            resume_state=None, checkpoint_cb=None):
+            resume_state=None, checkpoint_cb=None, plan_cb=None):
         """执行代码任务。
 
         `max_rounds` 为 None 时按 显式参数 > 环境变量 > 配置 > 默认 12 解析。
@@ -236,6 +241,19 @@ class CodeAgent(
             self._emit("context", {"step": "已收集项目上下文",
                                    "files": context.get("files", []),
                                    "progress": 0.1})
+            # 复杂任务先出计划：用户确认前不生成也不应用任何 patch。
+            plan_gate = confirm_plan(self, goal, context, plan_cb)
+            if plan_gate.get("rejected"):
+                reason = str(plan_gate.get("reason") or "用户拒绝执行计划")
+                self.registry.finish_run(run_id, "cancelled", reason)
+                self._emit("plan_rejected", {
+                    "step": "已拒绝执行计划，未修改任何文件",
+                    "plan": plan_gate.get("plan") or {}})
+                return {"ok": False, "cancelled": True, "rejected_plan": True,
+                        "run_id": run_id, "plan": plan_gate.get("plan") or {},
+                        "backups": backups}
+            self._check_control()
+
             def _round_failed(message):
                 """某一轮没有产出可应用的修改：记下原因，决定是否继续。
 

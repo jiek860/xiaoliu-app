@@ -189,3 +189,208 @@ def test_parse_test_failures_extracts_file_and_test():
     assert any(h["file"] == "tests/test_a.py" and h["test"] == "test_x"
                for h in hits)
     assert any(h["file"] == "E:/p/m.py" and h["line"] == 12 for h in hits)
+
+
+_COMPLEX_GOAL = "重构 m.py 的计算逻辑并补测试，保证原有行为不变"
+_PLAN_JSON = json.dumps({
+    "summary": "重构计算逻辑并补测试",
+    "steps": [
+        {"title": "确认现有行为", "purpose": "读 m.py 与相关测试",
+         "files": ["m.py"], "risk": "low"},
+        {"title": "应用最小修改", "purpose": "改 value 并跑测试",
+         "files": ["m.py"], "risk": "medium"},
+    ],
+    "risks": ["改动可能影响调用方"],
+    "tests": ["pytest -q"],
+}, ensure_ascii=False)
+
+
+def _plan_project(tmp_path):
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "m.py").write_text("value = 1\n", encoding="utf-8")
+    return root
+
+
+def test_plan_rejected_does_not_modify_files(tmp_path):
+    """拒绝计划：零落盘，也不进入 patch 审批。"""
+    reset_run_registry()
+    root = _plan_project(tmp_path)
+    llm = FakeLLM([_PLAN_JSON, _patch()])
+    trunk = FakeTrunk(str(root), llm, {"code_agent": {"two_role": False}})
+    agent = CodeAgent(trunk, str(root))
+    plans, approvals = [], []
+
+    r = agent.run(_COMPLEX_GOAL,
+                  approved_cb=lambda p: approvals.append(p) or True,
+                  plan_cb=lambda p: plans.append(p) or False)
+
+    assert r["cancelled"] is True, r
+    assert r.get("rejected_plan") is True, r
+    assert len(plans) == 1 and plans[0]["steps"], plans
+    assert approvals == [], "拒绝计划后不应进入 patch 审批"
+    assert llm.calls == 1, "拒绝计划后不应继续请求 patch"
+    assert "value = 1" in (root / "m.py").read_text(encoding="utf-8")
+
+
+def test_plan_approved_then_applies_patch(tmp_path):
+    """确认计划后照常生成 patch、应用并跑测试。"""
+    reset_run_registry()
+    root = _plan_project(tmp_path)
+    llm = FakeLLM([_PLAN_JSON, _patch()])
+    trunk = FakeTrunk(str(root), llm, {"code_agent": {"two_role": False}})
+    agent = CodeAgent(
+        trunk, str(root),
+        test_commands=['"%s" -c "print(123)"' % sys.executable])
+    plans = []
+    r = agent.run(_COMPLEX_GOAL,
+                  approved_cb=lambda p: True,
+                  plan_cb=lambda p: plans.append(p) or True)
+
+    assert r["ok"] is True, r
+    assert len(plans) == 1
+    assert any(s.get("title") for s in plans[0]["steps"])
+    assert "value = 2" in (root / "m.py").read_text(encoding="utf-8")
+    assert llm.calls == 2
+
+
+class FakeStreamLLM:
+    """只有 stream_chat 的模型：验证取消令牌确实传到了生成调用。"""
+
+    def __init__(self):
+        self.token_seen = False
+        self.agent = None
+
+    def chat(self, messages):
+        raise AssertionError("应优先走可取消的 stream_chat")
+
+    def stream_chat(self, messages, cancel_token=None):
+        self.token_seen = cancel_token is not None
+        if self.agent is not None:
+            self.agent.cancel()
+        return ""
+
+
+def test_cancel_during_stream_generation(tmp_path):
+    """单次模型生成期间取消：立即结束，不进入审批、不落盘。"""
+    reset_run_registry()
+    root = _plan_project(tmp_path)
+    llm = FakeStreamLLM()
+    trunk = FakeTrunk(str(root), llm, {"code_agent": {"two_role": False}})
+    agent = CodeAgent(trunk, str(root))
+    llm.agent = agent
+    approvals = []
+
+    r = agent.run("把 value 改成 2",
+                  approved_cb=lambda p: approvals.append(p) or True)
+
+    assert llm.token_seen is True
+    assert r["cancelled"] is True, r
+    assert approvals == []
+    assert "value = 1" in (root / "m.py").read_text(encoding="utf-8")
+
+
+def test_simple_goal_skips_plan(tmp_path):
+    """简单目标不打扰用户：不生成计划，直接执行。"""
+    reset_run_registry()
+    root = _plan_project(tmp_path)
+    llm = FakeLLM([_patch()])
+    trunk = FakeTrunk(str(root), llm, {"code_agent": {"two_role": False}})
+    agent = CodeAgent(
+        trunk, str(root),
+        test_commands=['"%s" -c "print(123)"' % sys.executable])
+    plans = []
+    r = agent.run("把 value 改成 2",
+                  approved_cb=lambda p: True,
+                  plan_cb=lambda p: plans.append(p) or True)
+
+    assert r["ok"] is True, r
+    assert plans == [], "简单目标不应触发计划审批"
+    assert llm.calls == 1
+
+
+def test_plan_helpers_cover_gates_and_fallback_text(monkeypatch):
+    """计划开关、复杂度启发式、文本渲染与非法输出降级。"""
+    from core import code_plan as cp
+
+    monkeypatch.setenv("X6_CODE_AGENT_PLAN", "off")
+    assert cp.plan_enabled(FakeTrunk(".", object())) is False
+    monkeypatch.delenv("X6_CODE_AGENT_PLAN")
+    assert cp.plan_enabled(
+        FakeTrunk(".", object(), {"code_agent": {"plan_approval": False}})) is False
+    assert cp.plan_enabled(
+        FakeTrunk(".", object(), {"code_agent": "坏配置"})) is True
+
+    class _OddConfig:
+        config = "不是字典"
+
+    assert cp.plan_enabled(_OddConfig()) is True
+
+    assert cp.needs_plan("x" * 40) is True
+    assert cp.needs_plan("加个参数") is False
+    assert cp.needs_plan("加个参数", ["a", "b", "c", "d", "e"]) is True
+
+    empty = cp.heuristic_plan("", ["a.py"])
+    assert empty["summary"] and empty["fallback"] is True
+
+    text = cp.plan_text({
+        "summary": "", "steps": [
+            {"title": "改文件", "purpose": "保持行为", "files": ["x.py"],
+             "risk": "critical"},
+            {"title": "跑测试"},
+        ],
+        "risks": ["可能与调用方冲突"], "tests": ["pytest -q"],
+    })
+    assert "执行步骤" in text and "x.py" in text
+    assert "critical" in text and "验证命令" in text
+    assert cp.plan_text(None)
+
+
+def test_normalize_plan_recovers_from_bad_model_output():
+    from core import code_plan as cp
+
+    assert cp.normalize_plan("不是字典", "目标")["fallback"] is True
+    plan = cp.normalize_plan({"plan": {
+        "summary": "嵌套计划",
+        "steps": ["第一步", {"purpose": "缺标题"}, {
+            "title": "改文件", "files": "不是列表", "risk": "HIGH"}],
+        "risks": "不是列表",
+        "tests": ["pytest", "pytest", ""],
+    }}, "目标")
+    assert [s["title"] for s in plan["steps"]] == ["第一步", "改文件"]
+    assert plan["steps"][1]["risk"] == "high"
+    assert plan["risks"] == []
+    assert plan["tests"] == ["pytest"]
+    assert cp.normalize_plan({"steps": []}, "目标")["fallback"] is True
+
+
+def test_build_plan_degrades_without_llm_or_on_error(tmp_path):
+    from core import code_plan as cp
+
+    class _NoLlm:
+        trunk = type("T", (), {"modules": {}})()
+
+    assert cp.build_plan(_NoLlm(), "目标", {"files": []})["fallback"] is True
+
+    class _BadLLM:
+        def chat(self, messages):
+            raise RuntimeError("模型炸了")
+
+    reset_run_registry()
+    root = _plan_project(tmp_path)
+    agent = CodeAgent(FakeTrunk(str(root), _BadLLM()), str(root))
+    plan = cp.build_plan(agent, "目标", {"files": ["m.py"]})
+    assert plan["fallback"] is True
+
+
+def test_orchestrator_forwards_plan_approval():
+    from core.agent_orchestrator import AgentOrchestrator
+
+    seen = []
+    trunk = FakeTrunk(".", object())
+    orch = AgentOrchestrator(
+        trunk, root=".",
+        approval_cb=lambda kind, payload: seen.append((kind, payload)) or True)
+    assert orch._approve_plan({"steps": []}) is True
+    assert seen == [("plan", {"steps": []})]
+    assert AgentOrchestrator(trunk, root=".")._approve_plan({}) is True
