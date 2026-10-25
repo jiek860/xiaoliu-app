@@ -254,14 +254,6 @@ class ChatView(QTextBrowser):
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "scroll to bottom")
 
-    def _drop_empty_leading_blocks(self):
-        """清掉顶部的空白段（insertHtml 前置空段会留一行空行）。"""
-        doc = self.document()
-        while doc.blockCount() > 1 and not doc.firstBlock().text().strip():
-            cur = QTextCursor(doc)
-            cur.movePosition(QTextCursor.Start)
-            cur.deleteChar()
-
     def _remove_older_link(self):
         """移除"加载更早"提示所在的段落。"""
         doc = self.document()
@@ -274,7 +266,6 @@ class ChatView(QTextBrowser):
         cur.select(QTextCursor.BlockUnderCursor)
         cur.removeSelectedText()
         cur.deleteChar()
-        self._drop_empty_leading_blocks()
 
     def prepend_history(self, msgs, has_older=False):
         """把更早的一页插到顶部，并尽量保持当前阅读位置不跳。"""
@@ -302,18 +293,16 @@ class ChatView(QTextBrowser):
             _x6_swallowed(__name__, e, "remove older link")
         html = "".join(self._history_block_html(m) for m in msgs)
         try:
+            # 末尾补一个空 div：Qt 的 insertHtml 会把片段最后一段并进
+            # 原第一段，让空 div 去承接这个合并，消息本身就不会粘连。
             if html:
                 cur = QTextCursor(doc)
                 cur.movePosition(QTextCursor.Start)
-                # 直接 insertHtml 会并进第一段，先插入空段落把它顶下去
-                cur.insertBlock()
-                cur.insertHtml(html)
+                cur.insertHtml(html + "<div></div>")
             if has_older:
                 cur = QTextCursor(doc)
                 cur.movePosition(QTextCursor.Start)
-                cur.insertBlock()
-                cur.insertHtml(self._older_link_html())
-            self._drop_empty_leading_blocks()
+                cur.insertHtml(self._older_link_html() + "<div></div>")
             if max_blocks > 0:
                 # 超出上限时从尾部裁，保住用户正在往上看的更早内容
                 excess = doc.blockCount() - max_blocks
@@ -324,6 +313,9 @@ class ChatView(QTextBrowser):
                         tail.setPosition(cut.position())
                         tail.movePosition(QTextCursor.End, QTextCursor.KeepAnchor)
                         tail.removeSelectedText()
+                        # 选中到末尾会留下一个空段，删掉它，否则恢复上限时
+                        # Qt 又会从头部裁掉刚插入的第一条消息
+                        tail.deletePreviousChar()
                 doc.setMaximumBlockCount(max_blocks)
             doc.adjustSize()
             grown = doc.size().height() - old_height
