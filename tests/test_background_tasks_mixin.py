@@ -224,26 +224,26 @@ def test_module_button_dict_and_plain_results(monkeypatch):
     monkeypatch.setattr(bt.QMessageBox, "information",
                         staticmethod(lambda *a, **k: shown.append(a[2])))
 
-    class Trunk(FakeTrunk):
+    class FailingTrunk(FakeTrunk):
         def call(self, module, action):
             return {"ok": False, "error": "e" * 300}
 
-    Host(Trunk())._module_button_clicked("m", "act")
+    Host(FailingTrunk())._module_button_clicked("m", "act")
     assert "运行失败" in shown[-1]
     assert len(shown[-1]) <= 2020
 
-    class OkTrunk(FakeTrunk):
+    class SuccessTrunk(FakeTrunk):
         def call(self, module, action):
             return {"ok": True, "结果": 1}
 
-    Host(OkTrunk())._module_button_clicked("m", "act")
+    Host(SuccessTrunk())._module_button_clicked("m", "act")
     assert "结果: 1" in shown[-1]
 
-    class RawTrunk(FakeTrunk):
+    class PlainTrunk(FakeTrunk):
         def call(self, module, action):
             return "raw"
 
-    Host(RawTrunk())._module_button_clicked("m", "act")
+    Host(PlainTrunk())._module_button_clicked("m", "act")
     assert shown[-1] == "raw"
 
 
