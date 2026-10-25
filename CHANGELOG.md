@@ -1,5 +1,27 @@
 # 版本变更记录
 
+## v25.2.30 - 2026-10-25
+
+**活动中心：后台作业统一进同一份注册表**
+- `gui/workers.py`：`TaskWorker`、`LearnWorker`、`BgWorker`、`TTSWorker`
+  与 `StreamWorker` 共用 `_reg_start/_reg_finish`，启动、完成、失败、取消
+  都会登记；同一毫秒启动的同类 worker 用随机后缀区分，不再互相覆盖；
+  `TTSWorker` 失败时记录异常原因，不再只标一个空失败；
+  每项活动带上 `log_path` 元数据，供活动中心定位日志；
+- `gui/update_dialog.py`：检查更新与下载安装也登记为活动
+  （`update_check` / `update_install`），失败原因写进注册表；
+- `gui/activity_center_dialog.py`：列表按「运行中 / 失败 / 最近完成」分组，
+  失败行直接显示「失败原因」，详情页提供「查看日志」文档内链接，
+  点击后在右侧查看日志尾部并可返回详情；日志视图每秒刷新时不会被拽回；
+- 回收策略明确化：注册表只保留最近 200 条已结束活动（运行中永不淘汰），
+  磁盘 `data/agent_runs` 由启动时的 `maybe_cleanup` 按 40 个目录 / 7 天、
+  事件文件 5000 行回收，避免无限增长。
+
+**测试**
+- `tests/test_agent_harness.py` 新增 4 条：四类 worker 启动/完成均入注册表、
+  四类 worker 失败均写入失败原因、保留策略只淘汰旧终态、活动中心分组
+  与「查看日志」渲染。
+
 ## v25.2.29 - 2026-10-25
 
 **聊天：历史分页 + 会话草稿**
