@@ -1509,3 +1509,31 @@ result = mm.describe_image("path/to/image.png")
 
 图片会以 base64 传入 `LLMClient.chat_with_image()`；请求格式按 OpenAI、Anthropic、Gemini、Ollama 分别转换。
 当前聊天历史不保存原图，只保存描述结果。
+
+---
+
+## 大文件拆分后的模块边界（v25.2.31）
+
+拆分只搬代码，对外 API 不变；下表是"新文件放什么、旧入口还能怎么用"。
+
+| 原文件 | 新文件 | 对外兼容 |
+|---|---|---|
+| `modules/installed/plugin_market.py` | `plugin_market_online.py`（`PluginMarketOnlineMixin`） | `PluginMarket` 仍有 `list_online/download/check_updates` |
+| `modules/installed/tool_caller.py` | `tool_catalog.py`（`BUILTIN_TOOLS`） | `ToolCaller(...).tools` 仍包含全部内置工具 |
+| `gui/settings_dialog.py` | `settings_model_page.py`（`build_model_page`） | 模型配置页行为不变 |
+| `gui/mcp_dialog.py` | `mcp_catalog.py`（`DEFAULT_PRESETS/REFERENCE/valid_presets/load_presets`） | `gui.mcp_dialog.PRESETS` 仍可用 |
+| `gui/workbench_dialog.py` | `workbench_ai_dock.py`（`AgentDock`） | `from gui.workbench_dialog import AgentDock` 仍可用 |
+| `gui/mixins/dialog_mixin.py` | `mixins/background_tasks_mixin.py`（`BackgroundTaskMixin`） | `DialogMixin` 继承后方法名不变 |
+
+### 工程工具 API
+
+```powershell
+# 发布（只走 api.github.com，不打印 token）
+py -3 tools\github_api_push.py --message-file msg.txt --pr-title "..." --wait-ci --merge
+
+# 性能基线（CI 只报警）
+py -3 tools\perf_baseline.py --check --tolerance 0.10 --warn-only --json-out data\perf_current.json
+
+# Agent 回归基线（20 道固定本地样本）
+py -3 tools\run_eval.py --out data\eval_result.json --markdown docs\92_Agent回归基线.md
+```
