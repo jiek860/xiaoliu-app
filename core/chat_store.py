@@ -148,16 +148,6 @@ class ChatStore:
         finally:
             c.close()
 
-    def count_session(self, username, session_id="default"):
-        c = self._conn()
-        try:
-            row = c.execute(
-                "SELECT COUNT(*) FROM messages WHERE username=? AND session_id=?",
-                (username, session_id)).fetchone()
-            return int(row[0]) if row else 0
-        finally:
-            c.close()
-
     def set_draft(self, username, session_id, text):
         """保存会话草稿（空文本等价于清空）。"""
         text = str(text or "")

@@ -31,7 +31,7 @@ def test_load_page_latest_and_older(tmp_path):
 
     page1 = cs.load_page("u", "s1", limit=50)
     assert [m["text"] for m in page1] == ["消息%d" % i for i in range(70, 120)]
-    assert cs.count_session("u", "s1") == 120
+    assert len(cs.load_page("u", "s1", limit=200)) == 120
 
     cursor = page1[0]
     page2 = cs.load_page("u", "s1", before_ts=cursor["ts"],

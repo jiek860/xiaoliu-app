@@ -3,8 +3,8 @@
 ## v25.2.29 - 2026-10-25
 
 **聊天：历史分页 + 会话草稿**
-- `ChatStore` 新增 `load_page()`（`(ts, id)` 复合游标，按时间正序返回一页）
-  与 `count_session()`；新增 `drafts` 表及 `set_draft/get_draft/clear_draft`，
+- `ChatStore` 新增 `load_page()`（`(ts, id)` 复合游标，按时间正序返回一页）；
+  新增 `drafts` 表及 `set_draft/get_draft/clear_draft`，
   草稿随会话重命名/删除/清空级联处理；
 - 聊天视图首屏只渲染最近 50 条，顶部提供「↑ 加载更早的消息」文档内链接，
   点击后按游标续取一页并插入顶部，滚动位置按内容高度差补偿，不会跳回底部；
@@ -18,7 +18,7 @@
   聊天混入保持轻量；分页入口是文档内链接，未新增 QPushButton（预算 184 不变）。
 
 **测试**
-- 新增 `tests/test_chat_paging_drafts.py` 11 条：分页游标边界与末页、
+- 新增 `tests/test_chat_paging_drafts.py` 12 条：分页游标边界与末页、
   会话隔离、草稿往返/隔离/重启恢复/随会话删除、ChatView 首屏与
   prepend 顺序及链接事件、混入分页与草稿切换流程；
 - `tests/test_chat_mixin_extra.py` 新增发送成功后清空草稿的回归。
