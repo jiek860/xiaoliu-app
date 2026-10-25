@@ -11,20 +11,17 @@ except ImportError:
     def _x6_swallowed(component, error, context=""):
         return None
 
-from core.safe_http import open_url as safe_open_url
 from modules.base import BaseModule
 import os
 import re
 import json
-import hashlib
 import shutil
 
 from core.path_safety import safe_join, safe_name
 from core.plugin_api import (PLUGIN_API_VERSION, manifest_api_version,
                              validate_plugin_manifest,
                              validate_plugin_source)
-from core.plugin_repository import (download_urls, manifest_entry_signed,
-                                    remote_repo_urls, safe_plugin_filename)
+from modules.installed.plugin_market_online import PluginMarketOnlineMixin
 
 
 def _icon_of(name):
@@ -63,7 +60,7 @@ def _icon_of(name):
     if any(k in m for k in ["知识", "rag", "graph", "图谱"]):
         return "📖"
     return "🧩"
-class PluginMarket(BaseModule):
+class PluginMarket(PluginMarketOnlineMixin, BaseModule):
     NAME = "plugin_market"
     VERSION = "1.0"
     def __init__(self, trunk=None):
@@ -339,122 +336,10 @@ class PluginMarket(BaseModule):
         return {"ok": True, "msg": "安装成功: " + fname}
 
     # ---------- 在线下载 ----------
-    def list_online(self):
-        """Query explicitly enabled, host-allowlisted HTTPS sources in order."""
-        urls, why = remote_repo_urls(getattr(self.trunk, "config", {}) or {})
-        if not urls:
-            if self.trunk:
-                self.trunk._log("在线插件仓库已禁用: " + why)
-            return []
-        from core.net_guard import get_net_guard
-        ng = get_net_guard(self.trunk)
-        errors = []
-        for base in urls:
-            try:
-                u = base + "/manifest.json"
-                d = ng.check(u, module="plugin_market", purpose="plugin_index")
-                if not d.get("allow"):
-                    raise PermissionError(d.get("reason") or "网络请求被拒绝")
-                data = json.loads(safe_open_url(u, timeout=8).read().decode("utf-8-sig"))
-                items = data if isinstance(data, list) else data.get("modules")
-                if isinstance(items, list):
-                    return [m for m in items if isinstance(m, dict)]
-            except Exception as e:
-                errors.append("%s: %s" % (base, str(e)[:50]))
-        if self.trunk:
-            self.trunk._log("在线插件仓库全部失败: " + " | ".join(errors[:2]))
-        return []
+    # list_online / download / check_updates 在
+    # modules/installed/plugin_market_online.py（本文件接近 600 行上限）
 
-    def download(self, filename, meta=None):
-        """Download one signed remote plugin from the first valid source.
 
-        Every source is tried only for transport availability. The file is never
-        written unless the manifest signature verifies successfully.
-        """
-        urls, why = remote_repo_urls(getattr(self.trunk, "config", {}) or {})
-        if not urls:
-            return {"ok": False, "原因": why}
-        filename = safe_plugin_filename(filename)
-        if not filename:
-            return {"ok": False, "原因": "非法模块文件名"}
-        dst = safe_join(self.installed_dir, filename)
-        if not dst:
-            return {"ok": False, "原因": "模块落点越界"}
-        if meta is None:
-            meta = self._repo_meta(filename)
-        if not manifest_entry_signed(meta):
-            return {"ok": False, "原因": "远程插件必须携带有效 RSA 签名"}
-        from core.net_guard import get_net_guard
-        ng = get_net_guard(self.trunk)
-        errors, raw, verified_why = [], None, ""
-        for u in download_urls(urls, filename):
-            try:
-                d = ng.check(u, module="plugin_market", purpose="plugin_download")
-                if not d.get("allow"):
-                    raise PermissionError(d.get("reason") or "网络请求被拒绝")
-                candidate = safe_open_url(u, timeout=10).read()
-                res, source_why = self._verify_meta(candidate, meta)
-                # Remote plugins intentionally do not consult _allow_unsigned().
-                if res is None:
-                    return {"ok": False,
-                            "原因": "远程插件没有有效签名，已拒绝: " + source_why}
-
-                if res is True:
-                    raw, verified_why = candidate, source_why
-                    break
-                errors.append("%s: %s" % (u, source_why))
-            except Exception as e:
-                errors.append("%s: %s" % (u, str(e)[:60]))
-        if raw is None:
-            return {"ok": False, "原因": "所有插件仓库均失败或验签不通过: " +
-                    " | ".join(errors[:3])}
-        api_ok, api_why = self._validate_plugin_payload(raw, meta, filename)
-        if not api_ok:
-            return {"ok": False, "原因": api_why}
-        from core.plugin_installer import backup_plugin_file
-        backup = backup_plugin_file(self.installed_dir, self.backup_dir, filename)
-        tmp = dst + ".download"
-        try:
-            with open(tmp, "wb") as f:
-                f.write(raw)
-            os.replace(tmp, dst)
-        except Exception as e:
-            try:
-                if os.path.exists(tmp):
-                    os.remove(tmp)
-            except OSError:
-                pass  # 静默是故意的：临时文件清理失败不影响主流程
-            return {"ok": False, "原因": "写入失败: " + str(e)[:60]}
-        try:
-            from core.plugin_governance import PluginGovernance
-            gov = PluginGovernance(self.base)
-            gi = gov.inspect(raw.decode("utf-8", errors="replace")[:200000], meta)
-            gov.record(filename, source="download", trust=gi.get("trust", ""),
-                       permissions=gi.get("permissions", []),
-                       sha256=hashlib.sha256(raw).hexdigest())
-        except Exception:
-            gi = {}
-        return {"ok": True, "msg": "已下载: %s（%s）" % (filename, verified_why),
-                "备份": backup, "治理": gi}
-
-    def check_updates(self, online=None):
-        """Return compatible plugin updates using the signed manifest metadata."""
-        from core.plugin_registry import select_update
-        from core.version import get_version
-        online = self.list_online() if online is None else list(online)
-        host = str(get_version())
-        by_file = {}
-        for meta in online:
-            by_file.setdefault(str(meta.get("file") or ""), []).append(meta)
-        updates, blocked = [], []
-        for fname, candidates in by_file.items():
-            current = str(self._repo_meta(fname).get("version") or "0.0.0")
-            plan = select_update(current, candidates, host_version=host)
-            if plan.get("latest"):
-                updates.append({"file": fname, "current": current,
-                                "latest": plan["latest"]})
-            blocked.extend(plan.get("blocked") or [])
-        return {"ok": True, "updates": updates, "blocked": blocked}
 
     def rollback_module(self, name):
         """从 data/plugin_backups 恢复上一版模块文件。"""

@@ -1,13 +1,13 @@
-﻿{
+{
   "version": 1,
   "policy": {
     "mode": "ratchet",
     "allow_lowering": false,
-    "updated": "2026-10-20",
+    "updated": "2026-10-25",
     "note": "Only raise thresholds. Lowering requires an explicit reviewed change."
   },
   "global": {
-    "minimum": 58.0
+    "minimum": 60.0
   },
   "critical_modules": {
     "core/permission_center.py": 75.0,
@@ -21,11 +21,13 @@
     "core/tool_policy.py": 80.0,
     "core/untrusted_content.py": 80.0,
     "core/redaction.py": 80.0,
+    "core/code_agent.py": 65.0,
+    "core/patch_engine.py": 80.0,
     "modules/installed/tool_caller.py": 55.0
   },
   "directory_minimums": {
-    "core": 55.0,
-    "gui": 38.0,
-    "modules/installed": 45.0
+    "core": 57.0,
+    "gui": 40.0,
+    "modules/installed": 47.0
   }
 }
