@@ -149,9 +149,22 @@ class LLMClient(
         # 降级：纯文本
         return self.chat(prompt)
 
-    def stream_chat(self, message, on_token=None, force_model=None):
-        """真流式：/api/chat stream=True 逐块接收，首字秒出；失败回退非流式"""
+    def stream_chat(self, message, on_token=None, force_model=None,
+                    cancel_token=None):
+        """真流式：/api/chat stream=True 逐块接收，首字秒出；失败回退非流式
+
+        cancel_token：用户按 Esc 停止时，GUI 线程会置位并 close 流响应。
+        这里每个分块前检查，取消后立刻停止，不再走云端兜底或非流式重试，
+        从而及时释放 Ollama 串行锁（否则下一条消息会一直排队）。
+        """
+        full = ""
+
+        def _cancelled():
+            return bool(cancel_token is not None and cancel_token.is_cancelled())
+
         try:
+            if _cancelled():
+                return ""
             # 先看模式：设成"云端模型"就别碰本地。
             #
             # 这里原来只认 _pick_model() 返回 "__cloud__" 这个魔数，而
@@ -163,6 +176,8 @@ class LLMClient(
             mode_cloud = _is_cloud_mode(self.config.get("model_mode", "本地路由"))
             if mode_cloud and not force_model:
                 full = self._try_cloud(message)
+                if _cancelled():
+                    return full
                 if full:
                     if on_token:
                         on_token(full)
@@ -173,6 +188,8 @@ class LLMClient(
             # 云端路径：无流式，直接一次性返回
             if model == "__cloud__":
                 full = self._try_cloud(message)
+                if _cancelled():
+                    return full
                 if full:
                     if on_token: on_token(full)
                     return full
@@ -192,31 +209,57 @@ class LLMClient(
                               "keep_alive": "2h",
                               "options": {"num_ctx": 4096, "temperature": _t2}},
                         stream=True, timeout=120)
-                    for line in r.iter_lines():
-                        if not line:
-                            continue
+                    if cancel_token is not None:
+                        # 关键：把流响应登记给取消方。Esc 时会在 GUI 线程
+                        # 直接 close，叫醒阻塞中的 iter_lines，立刻释放连接与锁。
+                        cancel_token.bind(r.close)
+                    try:
+                        for line in r.iter_lines():
+                            if _cancelled():
+                                break
+                            if not line:
+                                continue
+                            try:
+                                d = json.loads(line)
+                            except Exception as e:
+                                _x6_swallowed(__name__, e)
+                                continue
+                            tok = (d.get("message") or {}).get("content", "") or ""
+                            if tok:
+                                full += tok
+                                if on_token:
+                                    on_token(tok)
+                            if d.get("done"):
+                                break
+                    finally:
                         try:
-                            d = json.loads(line)
-                        except Exception as e:
-                            _x6_swallowed(__name__, e)
-                            continue
-                        tok = (d.get("message") or {}).get("content", "") or ""
-                        if tok:
-                            full += tok
-                            if on_token:
-                                on_token(tok)
-                        if d.get("done"):
-                            break
+                            r.close()
+                        except Exception as e:  # 静默是故意的：关闭失败不影响结果
+                            _x6_swallowed(__name__, e, "close stream response")
+                        if cancel_token is not None:
+                            cancel_token.unbind(r.close)
             except requests.exceptions.ReadTimeout:
+                if _cancelled():
+                    return full
                 if on_token and not full:
                     on_token("（本地超时，切云端...）")
                     full = self._try_cloud_stream(msgs, on_token=on_token)
             except requests.exceptions.ConnectionError as e:
+                if _cancelled():
+                    return full
                 if self.trunk:
                     self.trunk._log("本地连接失败(流式): %s" % str(e)[:40])
                 if on_token and not full:
                     on_token("（本地模型连接失败，稍后自动用云端）")
-            # 兜底：流式异常但什么都没收到时，非流式重试一次
+            except Exception as e:
+                # 取消时跨线程 close 会让 iter_lines 抛出各种传输层异常，
+                # 这不是真错误：保留已收到的内容，直接返回。
+                if _cancelled():
+                    return full
+                raise
+            # 兜底：流式异常但什么都没收到时，非流式重试一次（取消后不重试）
+            if _cancelled():
+                return full
             if not full:
                 r2 = self.chat(msgs)
                 if r2 and not str(r2).startswith("本地模型错误"):
@@ -226,6 +269,8 @@ class LLMClient(
                             on_token(ch)
             return full
         except Exception as e:
+            if _cancelled():
+                return full
             if on_token: on_token("（模型错误：" + str(e)[:30] + "）")
             return ""
 

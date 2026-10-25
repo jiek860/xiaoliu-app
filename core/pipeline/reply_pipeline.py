@@ -38,7 +38,7 @@ class ReplyPipeline:
             _x6_swallowed(__name__, e)
             pass
 
-    def run(self, user_input: str, on_token=None) -> str:
+    def run(self, user_input: str, on_token=None, cancel_token=None) -> str:
         t = self.trunk
         try:
             if "agent_flow" not in t.modules:
@@ -79,9 +79,17 @@ class ReplyPipeline:
             role_fut = None
 
         _t0 = time.time()
-        answer = self.ld.dispatch(messages, on_token=on_token)
+        answer = self.ld.dispatch(messages, on_token=on_token,
+                                  cancel_token=cancel_token)
         self._record("模型生成", "ok" if answer else "fail",
                      "%.1f秒" % (time.time() - _t0))
+
+        # 用户已按 Esc：跳过记忆写入、群聊合并、代码沙盒验证等收尾工作，
+        # 否则"停止"之后还要再等十几秒后台动作才真正结束。
+        if cancel_token is not None and cancel_token.is_cancelled():
+            self._record("用户取消", "cancelled")
+            self._finish_chat(t)
+            return answer or ""
 
         t.mem_add(user_input, answer)
         answer = self.pp.merge_group(user_input, answer, prefetch=role_fut)
@@ -89,12 +97,15 @@ class ReplyPipeline:
         self.pp.kick_off_background(user_input, answer)
         self._record("收尾", "ok")
 
+        self._finish_chat(t)
+        return answer
+
+    def _finish_chat(self, t):
         t._chat_in_progress = False
         # 窗口长度统一由 Trunk._CHAT_ACTIVE_SEC 决定（原来这里写死 120，
         # 跟 trunk.reply() 的 25 不一致 —— 虽然那个 finally 会覆盖它，
         # 但两处常量各写各的就是下一个"改一个忘另一个"）
         t._chat_active_until = time.time() + getattr(t, "_CHAT_ACTIVE_SEC", 25)
-        return answer
 
     def _try_computer_control(self, user_input: str):
         try:

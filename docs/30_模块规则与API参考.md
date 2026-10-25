@@ -1011,6 +1011,31 @@ anchor = chat.stream_render(anchor, partial, "小6")   # 重绘一帧，返回�
 - `MarkdownRenderer.render()` 在围栏数为奇数时自动补一个结束围栏，
   流式途中的半截代码块也能正常显示。
 
+### 聊天取消（Esc 真停止）
+
+```python
+from core.cancel_token import CancelToken
+
+token = CancelToken()
+thread = threading.Thread(target=llm.stream_chat,
+                          args=(messages,), kwargs={
+                              "on_token": on_token,
+                              "cancel_token": token})
+thread.start()
+# GUI 线程（Esc）：
+token.cancel()        # 置位 + close 已登记的流响应
+```
+
+- `CancelToken.cancel()` 会关闭 `bind()` 登记的资源（如 stream response），
+  把阻塞在 `iter_lines()` 的读线程叫醒，及时释放 Ollama 串行锁；
+- `stream_chat(..., cancel_token=)` 取消后返回已收到的内容，不再走云端兜底、
+  非流式重试；
+- `trunk.reply(..., cancel_token=)` / `ReplyPipeline.run()` /
+  `legacy_reply.run()` / `LLMDispatcher.dispatch()` 全部透传；
+  取消后跳过记忆写入、群聊合并、代码沙盒验证和后台队列；
+- `StreamWorker.stop()` 调用 `cancel()`，取消后不再 emit token / done，
+  活动中心把该 run 记为 `cancelled`。
+
 ### 任务队列与断点续跑
 
 ```python

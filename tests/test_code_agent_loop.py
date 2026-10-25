@@ -153,6 +153,33 @@ def test_retry_prompt_contains_previous_diff(tmp_path, monkeypatch):
     assert "tests/test_m.py::test_x" in second
 
 
+def test_cancel_after_patch_generation_does_not_write_file(tmp_path):
+    """生成 patch 期间用户取消：不能再落盘（否则"停了还在改文件"）。"""
+    reset_run_registry()
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "m.py").write_text("value = 1\n", encoding="utf-8")
+    llm = FakeLLM([_patch()])
+    trunk = FakeTrunk(str(root), llm, {"code_agent": {"two_role": False}})
+    agent = CodeAgent(trunk, str(root))
+    original_chat = llm.chat
+    approvals = []
+
+    def chat_then_cancel(messages):
+        out = original_chat(messages)
+        agent.cancel()
+        return out
+
+    llm.chat = chat_then_cancel
+    r = agent.run("把 value 改成 2",
+                  approved_cb=lambda p: approvals.append(p) or True)
+
+    assert r["cancelled"] is True, r
+    assert approvals == [], "取消后不应再进入审批"
+    assert "value = 1" in (root / "m.py").read_text(encoding="utf-8"), \
+        "取消后文件仍被修改了"
+
+
 def test_parse_test_failures_extracts_file_and_test():
     from core.code_agent import CodeAgent
     out = ('FAILED tests/test_a.py::test_x - AssertionError: boom\n'
