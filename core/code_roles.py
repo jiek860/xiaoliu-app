@@ -123,19 +123,23 @@ _MODIFY_SYSTEM = (
     "\"path\":\"相对路径\",\"new_path\":\"重命名时填写\",\"content\":\"create/write时填写\","
     "\"hunks\":[{\"old\":\"原文唯一片段\",\"new\":\"替换内容\",\"reason\":\"原因\"}]}],"
     "\"tests\":[\"可选测试命令\"]}\n"
-    "规则：路径相对工作区；不要动 .git/data/backups；update 的 old 必须唯一匹配；"
+    "规则：路径相对工作区；不要动 .git/data/backups；"
+    "update 的 old 必须从文件内容原样复制（含缩进）且唯一；"
     "优先小改动；不确定就先用 read_file 工具确认。"
 )
 
 
 def modify_with_report(agent, goal, context, previous_error, report,
-                       max_rounds=4):
+                       max_rounds=4, previous_diff=""):
     llm = (getattr(agent.trunk, "modules", {}) or {}).get("llm")
     if not llm:
         raise RuntimeError("LLM 未加载，无法生成代码修改")
     user = ("目标：\n%s\n\n探索报告：\n%s\n\n项目上下文：\n%s" % (
         goal, str(report or "")[:12000],
         str(context.get("text") or "")[:12000]))
+    if previous_diff:
+        user += ("\n\n上一轮已应用的改动（请在此基础上修复，"
+                 "不要重复同样的修改）：\n" + str(previous_diff)[-4000:])
     if previous_error:
         user += "\n\n上一轮测试失败：\n" + str(previous_error)[-6000:]
     messages = [{"role": "system", "content": _MODIFY_SYSTEM},

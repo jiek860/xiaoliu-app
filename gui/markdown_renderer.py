@@ -22,6 +22,11 @@ class MarkdownRenderer:
 
     def render(self, text: str) -> str:
         self._codes = []
+        text = str(text or "")
+        # 流式输出时围栏可能还没闭合：先补一个结束围栏，
+        # 避免半截代码块以一堆反引号的形式堆在气泡里。
+        if text.count("```") % 2 == 1:
+            text += "\n```"
         parts = re.split(r'```(\w*)\n(.*?)```', text, flags=re.DOTALL)
         out = []
         lang = "text"

@@ -983,9 +983,33 @@ r = agent.run("修复设置保存问题",
               approved_cb=lambda patch: True,
               resume_state=None,                     # 断点续跑
               checkpoint_cb=lambda state: None)      # 每轮落盘
-# r 额外返回 stop_reason / rounds_used / max_rounds / dry_run
-# stop_reason: tests_green | no_progress | max_rounds | dry_run_failed
+# r 额外返回 stop_reason / rounds_used / max_rounds
+# stop_reason: tests_green | no_progress | max_rounds
+
+# 回修时可选传入上一轮 diff，让模型在原改动上继续修
+patch = agent.propose_patch(goal, context, previous_error="",
+                            previous_diff="上一轮已经落盘的 diff")
 ```
+
+- patch 生成/校验失败（JSON 不合法、`hunk.old` 匹配不到、空改动）不再直接
+  结束任务，而是记录原因后进入下一轮；`no_progress` 仍是连续两轮同错误时终止。
+- `CodeAgent._failure_digest()`：把测试/lint 失败整理成“失败用例名 + 输出尾部”，
+  比直接拼接完整输出更容易让模型定位。
+- 断点状态里的 `last_diff` 会随 checkpoint 落盘，续跑后继续用于回修提示。
+
+### 聊天流式渲染
+
+```python
+from gui.chat_view import ChatView
+
+anchor = chat.append_thinking()                       # 思考占位 + 首个流式锚点
+anchor = chat.stream_render(anchor, partial, "小6")   # 重绘一帧，返回新锚点
+# ChatMixin 按 0.12s 节流调用；结束时 render_reply() 覆盖为正式渲染
+```
+
+- `stream_render()` 先删掉上一帧再整体渲染，生成过程中就能看到 Markdown；
+- `MarkdownRenderer.render()` 在围栏数为奇数时自动补一个结束围栏，
+  流式途中的半截代码块也能正常显示。
 
 ### 任务队列与断点续跑
 
