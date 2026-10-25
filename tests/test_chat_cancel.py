@@ -266,6 +266,47 @@ def test_stream_chat_connection_error_when_cancelled_returns_partial():
     assert chat_calls == []
 
 
+def test_stream_chat_transport_error_after_cancel_returns_partial():
+    """取消导致 iter_lines 抛异常：按"已取消"处理，不当作模型错误。"""
+    token = CancelToken()
+
+    class _Exploding:
+        def iter_lines(self):
+            token.cancel()
+            raise ValueError("socket closed")
+
+        def close(self):
+            return None
+
+    client, chat_calls = _make_client(_Exploding())
+    assert client.stream_chat("hi", cancel_token=token) == ""
+    assert chat_calls == []
+
+
+def test_stream_chat_selection_error_after_cancel_returns_partial():
+    token = CancelToken()
+    client, chat_calls = _make_client(_FakeResponse([]))
+
+    def pick(_msg):
+        token.cancel()
+        raise RuntimeError("bad model")
+
+    client._pick_model = pick
+    assert client.stream_chat("hi", cancel_token=token) == ""
+    assert chat_calls == []
+
+
+def test_stream_chat_close_failure_is_swallowed():
+    resp = _FakeResponse(["甲"])
+
+    def close():
+        raise RuntimeError("close failed")
+
+    resp.close = close
+    client, _ = _make_client(resp)
+    assert client.stream_chat("hi", on_token=lambda _t: None) == "甲"
+
+
 def test_stream_chat_unexpected_error_is_reported():
     client, _ = _make_client(_FakeResponse([]))
     got = []
