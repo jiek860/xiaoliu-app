@@ -1046,12 +1046,12 @@ r = ca.run_actions(actions)
 ### 录制回放
 
 ```python
-from core.computer_recorder import ComputerRecorder
-rec = ComputerRecorder(trunk.base)
+from core.action_recorder import ActionRecorder
+rec = ActionRecorder(trunk)          # 已注册为懒加载模块 "action_recorder"
 rec.start("my_task")
-rec.record(action)
-path = rec.stop()
-rec.replay(ca, path)
+rec.add_action("open_app", app="notepad")
+r = rec.stop()                       # {"ok": True, "path": ..., "count": n}
+rec.play("my_task")                  # 回放走 trunk.modules["computer_controller"]
 ```
 
 ---

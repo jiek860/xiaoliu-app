@@ -44,7 +44,7 @@
   - `core/action_schema.py`：类型化电脑动作和验证条件。
   - `core/computer_agent.py`：Observe -> Act -> Verify -> Retry harness。
   - `core/visual_grounding.py`：UIA 元素解析与目标打分。
-  - `core/computer_recorder.py`：动作录制、保存和回放。
+  - `core/action_recorder.py`：动作录制、保存和回放。
   - 支持 screenshot_diff 视觉变化验证。
   - 融合 UIA + OCR + 多模态描述进行元素 grounding。
   - LLM 自动生成跨应用电脑任务计划，并在 GUI 中确认执行。

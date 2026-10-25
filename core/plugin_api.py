@@ -77,7 +77,7 @@ FORBIDDEN_CORE_PREFIXES = (
 
 # 官方随包模块依赖的集成层；不开放给第三方，但 first_party 可以用。
 _FIRST_PARTY_INTEGRATION = (
-    "core.auto_update_",
+    "core.auto_update",
     "core.computer_",
     "core.personality_",
     "core.mcp_stdio",
