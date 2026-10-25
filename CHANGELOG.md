@@ -1,5 +1,48 @@
 # 版本变更记录
 
+## v25.2.24 - 2026-10-25
+
+**死代码清理（0 引用）**
+- 删除 `core/computer_recorder.py`（与已注册的 `action_recorder` 重复）、
+  `core/docker_sandbox.py`（未接线，进程级沙箱已够用）、
+  `core/feature_flags.py`（无消费方）；
+- 同步 docs/00、docs/10、docs/30、docs/50、docs/82、docs/92 与相关测试。
+
+**合并降低认知成本**
+- 授权 6 件套（core/file/keys/payload/codec/verify）→ `core/license_core.py`（561 行）；
+- 自动更新 4 件套（download/patch/policy/problem）→ `core/auto_update.py`（537 行）；
+  同步 `modules/installed/auto_updater.py`、`plugin_repo/auto_updater.py`、
+  `core/plugin_api.py` 白名单与相关测试；对外导入路径各保留 1 个。
+
+**测试补齐**
+- 新增同名测试：`test_patch_engine`、`test_task_runtime`、`test_trunk_background`、
+  `test_ollama_installer`、`test_personality_style_hints`，并新增
+  `test_code_context`；全部离线、无网络依赖。
+- 合并后的两个文件补同名测试：`test_license_core`（34 条，覆盖 HMAC/RSA 生成、
+  编码、.lic 加解密、过期/机器/邮箱/版本锁定等分支）、`test_auto_update`
+  （30 条，覆盖策略开关、问题收集、沙盒失败原因、部署回滚、更新包签名与
+  sha256 校验、替换失败回滚）。两文件行覆盖率 93% / 94%，CI 改动行覆盖率
+  由 59% 提升到 90% 以上。
+
+**Bug 修复**
+- `verify_license(today="2026-01-01")` 传字符串日期时 `date` 未导入，
+  抛 `cannot access local variable 'date'`，被兜底成“激活码无法解析”；
+  改为在到期分支内先导入 `date`。
+
+**编码 Agent**
+- `CodeContextMixin.repo_map()`：按目录列出 .py 文件的仓库地图，实例内缓存；
+  关键词命中不足 6 个文件时自动注入上下文，目标含糊时不再盲猜路径。
+
+**聊天舒适度**
+- Esc 停止回复：保留已收到的部分内容，后台结果不再覆盖界面；
+- 回复中禁止并发发送，避免两条回复交错写入；
+- 流式输出仅在用户贴底时自动跟随，向上翻历史时不抢滚动条；
+- 新增居中灰字系统提示（append_system）与纯文本中断气泡（append_plain）。
+
+**文档口径**
+- docs/82 完整度口径升级到 v2：新增“入口可达”“跨模块测试覆盖”，
+  并单独标注薄适配层（panel_registry / safe_http / diagnostics 等）。
+
 ### 代码 Agent 能力补齐 + 工作台布局优化（2026-10-24）
 
 **P0 轮次与终止条件**

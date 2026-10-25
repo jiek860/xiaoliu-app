@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """类型化电脑动作 schema 与 ComputerAgent harness 测试。"""
 import os
 import sys
@@ -127,24 +127,6 @@ def test_screenshot_diff_verification(tmp_path):
                          verify={"type": "screenshot_diff"})
     result = agent.execute(action)
     assert agent.verify(action, result, before)["ok"] is True
-
-
-def test_computer_recorder_save_and_replay(tmp_path):
-    from core.computer_recorder import ComputerRecorder
-    rec = ComputerRecorder(str(tmp_path))
-    rec.start("demo")
-    rec.record(make_action("click", target={"name": "保存"}))
-    path = rec.stop()
-    assert os.path.exists(path)
-    loaded = rec.load(path)
-    assert loaded["name"] == "demo"
-    assert len(loaded["actions"]) == 1
-
-    class FakeAgent:
-        def run_actions(self, actions, title=""):
-            return {"ok": True, "n": len(actions), "title": title}
-    r = rec.replay(FakeAgent(), path)
-    assert r["ok"] is True and r["n"] == 1
 
 
 def test_fuse_uia_ocr_vision_grounding():

@@ -107,6 +107,39 @@ class ChatView(QTextBrowser):
             except Exception:  # 静默是故意的
                 return 0
 
+    def at_bottom(self, tolerance: int = 24) -> bool:
+        """视口是否贴着底部（流式时用来判断该不该自动跟随）"""
+        try:
+            sb = self.verticalScrollBar()
+            return sb.value() >= sb.maximum() - max(0, int(tolerance))
+        except Exception:  # 静默是故意的
+            return True
+
+    def scroll_to_bottom(self):
+        try:
+            sb = self.verticalScrollBar()
+            sb.setValue(sb.maximum())
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+
+    def append_system(self, text: str):
+        """轻量系统提示（居中灰字），不占气泡、不打断阅读"""
+        try:
+            import html as _h
+            self.append('<div style="color:#999;font-size:12px;text-align:center;'
+                        'margin:8px 0;">' + _h.escape(str(text)) + '</div>')
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+
+    def append_plain(self, name: str, text: str):
+        """纯文本气泡（中断回复时用，避免渲染半截 Markdown 失败）"""
+        try:
+            import html as _h
+            body = _h.escape(str(text or "")).replace("\n", "<br>")
+            self.append_bubble(name, body)
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+
     def remove_from_anchor(self, anchor: int):
         try:
             cur = self.textCursor()

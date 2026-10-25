@@ -17,10 +17,10 @@ from modules.base import BaseModule
 import os, shutil, subprocess, sys, time, json, re, hashlib, py_compile, threading
 
 
-from core.auto_update_problem import AutoUpdateProblemMixin
-from core.auto_update_patch import AutoUpdatePatchMixin
-from core.auto_update_download import AutoUpdateDownloadMixin
-from core.auto_update_policy import AutoUpdatePolicyMixin
+from core.auto_update import (
+    AutoUpdateDownloadMixin, AutoUpdatePatchMixin, AutoUpdatePolicyMixin,
+    AutoUpdateProblemMixin,
+)
 
 
 class AutoUpdater(
