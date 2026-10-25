@@ -1,17 +1,22 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """运行中活动中心：统一查看任务、后台活动和等待确认。"""
 from __future__ import annotations
 
+import os
 import time
+from html import escape
+from urllib.parse import parse_qs, quote
 
-from PyQt5.QtCore import QObject, QTimer, pyqtSignal
+from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QTextEdit, QPushButton, QMessageBox, QSplitter,
-    QWidget,
+    QListWidgetItem, QPushButton, QMessageBox, QSplitter,
+    QTextBrowser, QWidget,
 )
 
-from core.agent_harness import get_run_registry, normalize_error, TERMINAL_STATUSES
+from core.agent_harness import (
+    ACTIVE_STATUSES, TERMINAL_STATUSES, get_run_registry, normalize_error,
+)
 
 
 class _RunBridge(QObject):
@@ -25,6 +30,7 @@ class ActivityCenterDialog(QDialog):
         self.registry = get_run_registry()
         self.rt = trunk.get_task_runtime()
         self._selected = ""
+        self._log_view_for = ""
         self._build()
         # 首次打开时把已有任务同步一次；之后完全依赖 TaskRuntime 事件。
         try:
@@ -71,8 +77,10 @@ class ActivityCenterDialog(QDialog):
         rl = QVBoxLayout(right)
         rl.setContentsMargins(0, 0, 0, 0)
         rl.addWidget(QLabel("详情"))
-        self.detail = QTextEdit()
+        self.detail = QTextBrowser()
         self.detail.setReadOnly(True)
+        self.detail.setOpenLinks(False)
+        self.detail.anchorClicked.connect(self._on_anchor)
         rl.addWidget(self.detail, 1)
         split.addWidget(left)
         split.addWidget(right)
@@ -102,24 +110,54 @@ class ActivityCenterDialog(QDialog):
                                  -float(r.get("updated_at", 0))))
         return runs
 
+    @staticmethod
+    def _failure_reason(run):
+        raw = str(run.get("error") or "").strip()
+        if not raw:
+            return "未记录原因"
+        return normalize_error(raw)["title"]
+
+    def _row_text(self, run):
+        status = run.get("status", "?")
+        title = run.get("title") or "未命名活动"
+        step = run.get("current_step", "")
+        if status in ("failed", "cancelled"):
+            text = "[%s] %s   失败原因：%s" % (
+                status, title, self._failure_reason(run))
+        elif status == "completed":
+            text = "[完成] %s" % title
+        else:
+            text = "[运行中] %s" % title
+        if step:
+            text += "    " + str(step)
+        return text
+
+    def _add_row(self, run, selected):
+        item = QListWidgetItem(self._row_text(run))
+        item.setData(256, run.get("run_id", ""))
+        if run.get("run_id") == selected:
+            self.list.setCurrentItem(item)
+        self.list.addItem(item)
+
     def _refresh(self):
         rows = self._run_rows()
         selected = self._selected
         self.list.clear()
-        for run in rows:
-            status = run.get("status", "?")
-            title = run.get("title", "未命名活动")
-            step = run.get("current_step", "")
-            text = "[%s] %s" % (status, title)
-            if step:
-                text += "    " + str(step)
-            item = QListWidgetItem(text)
-            item.setData(256, run.get("run_id", ""))
-            if run.get("run_id") == selected:
-                self.list.setCurrentItem(item)
-            self.list.addItem(item)
-        active = sum(1 for r in rows if r.get("status") not in TERMINAL_STATUSES)
-        self.count_label.setText("运行中 %d  最近 %d" % (active, len(rows)))
+        active = [r for r in rows if r.get("status") in ACTIVE_STATUSES]
+        failed = [r for r in rows if r.get("status") in ("failed", "cancelled")]
+        finished = [r for r in rows if r.get("status") == "completed"]
+        for label, group in (("运行中", active), ("失败", failed),
+                             ("最近完成", finished)):
+            if not group:
+                continue
+            head = QListWidgetItem("%s（%d）" % (label, len(group)))
+            head.setFlags(Qt.NoItemFlags)
+            self.list.addItem(head)
+            for run in group:
+                self._add_row(run, selected)
+        self.count_label.setText(
+            "运行中 %d  最近 %d  保留最近 %d 条" % (
+                len(active), len(rows), self.registry.max_runs))
         if not rows:
             self.list.hide()
             self.empty.show()
@@ -128,25 +166,47 @@ class ActivityCenterDialog(QDialog):
             return
         self.empty.hide()
         self.list.show()
-        if rows and not selected:
-            self._selected = rows[0].get("run_id", "")
-            self.list.setCurrentRow(0)
+        if not selected:
+            self._selected = self._first_run_id() or rows[0].get("run_id", "")
+            self._select_run(self._selected)
             self._show(self._selected)
-        elif selected:
+        elif self._log_view_for == selected:
+            pass  # 正在看日志时每秒刷新不要把用户拽回详情
+        else:
+            self._select_run(selected)
             self._show(selected)
+
+    def _first_run_id(self):
+        for i in range(self.list.count()):
+            rid = self.list.item(i).data(256)
+            if rid:
+                return rid
+        return ""
+
+    def _select_run(self, run_id):
+        for i in range(self.list.count()):
+            item = self.list.item(i)
+            if item.data(256) == run_id:
+                self.list.setCurrentItem(item)
+                return
 
     def _on_changed(self, _run, event):
         if event in ("started", "updated", "removed"):
             QTimer.singleShot(0, self._refresh)
 
     def _select(self, item):
-        self._selected = item.data(256)
-        self._show(self._selected)
+        rid = item.data(256)
+        if not rid:  # 分组标题不可选
+            return
+        self._selected = rid
+        self._log_view_for = ""
+        self._show(rid)
 
     def _show(self, run_id):
         run = self.registry.get_run(run_id)
         if not run:
             return
+        self._log_view_for = ""
         now = time.time()
         started = float(run.get("started_at") or now)
         updated = float(run.get("updated_at") or now)
@@ -187,7 +247,55 @@ class ActivityCenterDialog(QDialog):
         meta = run.get("metadata") or {}
         if meta:
             lines += ["", "元数据：", json_dumps(meta)[:1000]]
-        self.detail.setPlainText("\n".join(lines))
+        body = escape("\n".join(lines)).replace("\n", "<br>")
+        body += ('<br><br><a href="activity://log?run=%s">查看日志</a>'
+                 % quote(run_id, safe=""))
+        self.detail.setHtml(body)
+
+    def _log_path(self, run):
+        meta = (run or {}).get("metadata") or {}
+        path = str(meta.get("log_path") or "")
+        if path:
+            return path
+        base = getattr(self.trunk, "base", "") or os.getcwd()
+        return os.path.join(base, "data", "logs", "app.log")
+
+    @staticmethod
+    def _tail_text(path, max_chars=20000):
+        if not os.path.isfile(path):
+            return "日志文件不存在：%s" % path
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                f.seek(max(0, size - max_chars))
+                return f.read()
+        except OSError as e:
+            return "读取日志失败：%s" % e
+
+    def _show_log(self, run_id):
+        run = self.registry.get_run(run_id) or {}
+        path = self._log_path(run)
+        text = self._tail_text(path)
+        self._log_view_for = run_id
+        self.detail.setHtml(
+            '<p><a href="activity://detail?run=%s">← 返回活动详情</a></p>'
+            '<p style="color:#667085;">%s</p>'
+            '<pre style="white-space:pre-wrap;">%s</pre>'
+            % (quote(run_id, safe=""), escape(path), escape(text)))
+
+    def _on_anchor(self, url):
+        if url.scheme() != "activity":
+            return
+        run_id = parse_qs(url.query()).get("run", [""])[0]
+        if not run_id:
+            return
+        if url.host() == "log":
+            self._show_log(run_id)
+        else:
+            self._selected = run_id
+            self._select_run(run_id)
+            self._show(run_id)
 
     def _current_task_id(self):
         run = self.registry.get_run(self._selected)

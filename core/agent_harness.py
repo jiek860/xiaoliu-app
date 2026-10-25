@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """统一 Agent 运行状态、错误信封和活动注册表。
 
 这是产品体验方案 Sprint 1 的底座：
@@ -20,6 +20,11 @@ from typing import Callable, Dict, Iterable, List, Optional
 
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 ACTIVE_STATUSES = {"pending", "planning", "running", "paused", "waiting_approval"}
+
+# 保留策略：注册表只保留最近 N 条已结束活动，运行中的永不淘汰。
+# 默认 200 条足够活动中心回看最近完成/失败；磁盘产物另由
+# core.agent_artifacts.maybe_cleanup 按 40 个目录 / 7 天回收。
+DEFAULT_MAX_RUNS = 200
 
 # 错误 code -> 用户可读信息 + 唯一下一步。
 # action id 与 gui/guidance.py / UIModeMixin._run_guidance_action 保持一致。
@@ -155,11 +160,11 @@ class RunRegistry:
     活动中心只订阅这一份数据，不重复扫描任务/线程。
     """
 
-    def __init__(self, max_runs: int = 500):
+    def __init__(self, max_runs: int = DEFAULT_MAX_RUNS):
         self._lock = threading.RLock()
         self._runs: Dict[str, Dict] = {}
         self._subscribers: List[Callable] = []
-        self.max_runs = max(20, int(max_runs or 500))
+        self.max_runs = max(20, int(max_runs or DEFAULT_MAX_RUNS))
 
     # ---------- 基础登记 ----------
     def start_run(self, kind: str, title: str, *, run_id: str = "",
