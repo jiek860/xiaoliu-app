@@ -47,6 +47,12 @@ class AgentOrchestrator:
             return True
         return self.approval_cb("code", patch)
 
+    def _approve_plan(self, plan):
+        """复杂任务的执行计划审批：用户确认后才允许进入 patch 生成。"""
+        if not callable(self.approval_cb):
+            return True
+        return self.approval_cb("plan", plan)
+
     def _approve_computer(self, actions):
         if not callable(self.approval_cb):
             return True
@@ -83,6 +89,8 @@ class AgentOrchestrator:
                     goal, max_rounds=self.max_code_rounds,
                     approved_cb=(self._approve_code
                                  if callable(self.approval_cb) else None),
+                    plan_cb=(self._approve_plan
+                             if callable(self.approval_cb) else None),
                     resume_state=resume_state,
                     checkpoint_cb=checkpoint_cb)
                 result["kind"] = "code"

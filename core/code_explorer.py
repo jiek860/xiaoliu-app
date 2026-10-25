@@ -97,6 +97,21 @@ class CodeExplorerMixin:
             return r
         return {"ok": False, "error": "未知工具: " + str(name)}
 
+    def _llm_chat(self, llm, messages):
+        """调用模型生成，期间允许取消。
+
+        有 ``stream_chat`` 时走可取消的流式链路：CancelToken 一旦置位，
+        流循环立刻 break 并关闭响应，不必等整轮生成返回。没有该方法的
+        测试替身/旧模型仍走 ``chat``，行为保持不变。
+        """
+        token = getattr(self, "_cancel_token", None)
+        if hasattr(llm, "stream_chat"):
+            out = llm.stream_chat(messages, cancel_token=token)
+        else:
+            out = llm.chat(messages)
+        self._check_control()
+        return out
+
     def propose_patch(self, goal, context=None, previous_error="",
                       max_tool_rounds=6, two_role=None, previous_diff=""):
         """先探索、再修改；`two_role=False` 时退回单角色循环。
@@ -139,7 +154,7 @@ class CodeExplorerMixin:
             self._emit("model_request", {
                 "step": "模型分析（第 %d 轮）" % (round_no + 1),
                 "progress": 0.12 + round_no * 0.04})
-            out = llm.chat(messages)
+            out = self._llm_chat(llm, messages)
             data = self._extract_json(out)
             if isinstance(data, dict):
                 if isinstance(data.get("patch"), dict):

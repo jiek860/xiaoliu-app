@@ -1083,6 +1083,28 @@ result = explore_project(agent, "修复保存问题", context)
 # 探索阶段只读（read_file / grep / list_files / find_symbols / run_command）
 ```
 
+### 计划审批（复杂任务先出计划）
+
+```python
+from core.code_plan import (
+    plan_enabled, needs_plan, build_plan, plan_text, confirm_plan,
+)
+
+plan_enabled(trunk)                    # 默认 True；X6_CODE_AGENT_PLAN=0 关闭
+needs_plan("重构 core 模块并补测试", files)   # 复杂关键词/长目标/多文件
+plan = build_plan(agent, goal, context)
+# {"summary", "steps":[{"title","purpose","files","risk"}], "risks", "tests"}
+print(plan_text(plan))                 # 审批弹窗/时间线文本
+
+gate = confirm_plan(agent, goal, context, plan_cb)
+# {"required", "proceed", "rejected", "plan", "reason"}
+```
+
+`CodeAgent.run(..., plan_cb=...)` 只有在传入 `plan_cb` 时才启用计划阶段；
+拒绝后返回 `{"ok": False, "cancelled": True, "rejected_plan": True}`，
+不生成也不应用 patch。代码生成统一走 `agent._llm_chat()`：模型有
+`stream_chat` 时接入 `CancelToken`，取消后立即抛 `AgentCancelled`。
+
 ### GitHub PR 闭环
 
 ```python

@@ -80,8 +80,11 @@ def explore_project(agent, goal, context):
         agent._emit("role", {"role": "explore", "step": "探索 Agent 第 %d 轮"
                              % round_no})
         try:
-            out = llm.chat(messages)
+            out = agent._llm_chat(llm, messages)
         except Exception as e:  # 静默是故意的 - 探索失败由单角色兜底
+            # 用户取消不是探索失败，必须继续向上传播。
+            if getattr(agent, "_cancel", None) is not None and agent._cancel.is_set():
+                raise
             _x6_swallowed(__name__, e, "explore agent chat")
             return {"report": "", "files": [], "tools": tools,
                     "error": str(e)[:200]}
@@ -148,7 +151,7 @@ def modify_with_report(agent, goal, context, previous_error, report,
         agent._check_control()
         agent._emit("role", {"role": "modify", "step": "修改 Agent 第 %d 轮"
                              % round_no})
-        out = llm.chat(messages)
+        out = agent._llm_chat(llm, messages)
         data = agent._extract_json(out)
         if not isinstance(data, dict):
             continue

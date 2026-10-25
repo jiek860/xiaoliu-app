@@ -35,6 +35,8 @@ from PyQt5.QtWidgets import (QCheckBox, QHBoxLayout, QLabel, QListWidget,
                              QPlainTextEdit, QPushButton, QSpinBox, QSplitter,
                              QVBoxLayout, QWidget)
 
+from core.code_plan import plan_text
+
 try:
     from core.logger import swallow as _x6_swallowed
 except ImportError:  # 独立导入时兜底
@@ -288,6 +290,8 @@ class AgentDock(QWidget):
             text = str(data.get("step") or text)
         self.timeline.appendPlainText("· " + text[:300])
         data = data if isinstance(data, dict) else {}
+        if event == "plan" and isinstance(data.get("plan"), dict):
+            self.timeline.appendPlainText(plan_text(data["plan"]))
         if event == "patch" and isinstance(data.get("patch"), dict):
             self._show_inline_diff(data["patch"])
         elif event == "applied":
@@ -311,9 +315,14 @@ class AgentDock(QWidget):
             _x6_swallowed(__name__, e, "show inline diff")
 
     def _approve(self, kind, payload=None):
-        """diff / 电脑动作审批：弹 DiffReviewDialog（与旧流程一致）。"""
+        """计划 / diff / 电脑动作审批。"""
         try:
             from gui.diff_dialog import DiffReviewDialog
+            if kind == "plan":
+                r = QMessageBox.question(
+                    self, "执行计划", plan_text(payload or {}),
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+                return r == QMessageBox.Yes
             if kind == "code" and isinstance(payload, dict):
                 from core.patch_engine import unified_diff
                 root = getattr(self.wb, "root", None) or "."
