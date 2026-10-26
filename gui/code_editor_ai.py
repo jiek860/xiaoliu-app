@@ -64,6 +64,18 @@ class CodeEditorAIMixin:
             goal += " 只针对编辑器中选中的代码片段，不要无关大改。"
         try:
             from gui.agent_journey_dialog import AgentJourneyDialog
+            old = getattr(self, "_agent_journey", None)
+            if old is not None:
+                try:
+                    if old.isVisible():
+                        old.goal.setPlainText(goal)
+                        old.route_combo.setCurrentIndex(1)
+                        old.show()
+                        old.raise_()
+                        old.activateWindow()
+                        return
+                except RuntimeError:
+                    self._agent_journey = None
             d = AgentJourneyDialog(
                 self.trunk, self, root=root,
                 open_files=[path] if path else [],

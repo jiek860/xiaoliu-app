@@ -243,5 +243,6 @@ def show_system_dialog(self):
 
     l.addWidget(tabs)
     d.show()
+    return d
 
 

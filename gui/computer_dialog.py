@@ -255,3 +255,4 @@ def show_computer_dialog(parent, dlg, trunk, chat, set_dialog, kb_dialog):
     l.addWidget(tabs)
 
     d.show()
+    return d

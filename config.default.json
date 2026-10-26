@@ -74,5 +74,6 @@
     "https://gitee.com/cloud-drift/liuyun/raw/master",
     "https://raw.githubusercontent.com/jiek860/xiaoliu-app/main/plugin_repo"
   ],
-  "cloud_provider": ""
+  "cloud_provider": "",
+  "azure_api_version": "2024-06-01"
 }

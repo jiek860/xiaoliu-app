@@ -30,7 +30,9 @@ class UIActionsMixin:
                 QMessageBox.warning(self, "Web 控制台",
                                     str(info.get("error") or "启动失败"))
                 return info
-            self._show_web_console_dialog(str(info.get("url", "")))
+            self._run_modal_once(
+                "web_console",
+                lambda: self._show_web_console_dialog(str(info.get("url", ""))))
             return info
         except Exception as e:
             try:

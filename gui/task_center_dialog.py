@@ -272,6 +272,20 @@ class TaskCenterDialog(QDialog):
         self._current = item.data(256)
         self._show(self._current)
 
+    def show_task(self, task_id):
+        """切到指定任务（主窗口复用同一个任务中心时调用）。
+
+        任务中心改为单窗口后，聊天卡片 / 活动中心再点「查看任务」
+        不会新开一个窗口，而是把已有的这个切到对应任务。
+        """
+        if not task_id:
+            return
+        self._current = task_id
+        self._refresh()
+        self._show(task_id)
+        self.raise_()
+        self.activateWindow()
+
     def _show(self, task_id):
         t = self.rt.get_task(task_id)
         if not t:

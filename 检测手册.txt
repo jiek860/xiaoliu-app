@@ -945,10 +945,18 @@ CI/CD：pre-commit、GitHub Actions、GitLab CI
 共 93 项使用检测 + 7 种代码审计方法 + 13 类扩展检测 + 完整发布门禁
 ═══════════════════════════════════════════════════════════════
 
-文档同步：2026-10-26 / v25.2.32
-本次同步：Windows + Python 3.10/3.11/3.12 兼容矩阵；
+文档同步：2026-10-26 / v25.2.33
+本次同步：v25.2.33 起所有弹窗单实例（连点只开一个窗口），
+关闭主窗口先关子窗口；兼容 Windows + Python 3.10/3.11/3.12；
 旧数据 v0->v1->v2 自动迁移与备份；插件 API v1.0 边界检查。
 完整说明：docs/70_兼容性与数据迁移.md。
+
+v25.2.33（2026-10-26）新增检测项：
+  tests/test_dialog_singleton.py::test_high_frequency_buttons_click_twice_open_one_window
+  真实建出主窗口，高频入口连点两次断言仍是同一个窗口；
+  tests/test_dialog_singleton.py::test_all_mixin_entries_reuse_or_guard
+  静态检查 gui/mixins 下所有 _dialog / open_ 入口是否都有复用或重入守卫。
+  按钮预算保持 60。
 
 v25.2.32（2026-10-26）新增检测项：
   tests/test_gui_smoke.py::test_high_frequency_dialogs_are_button_light_at_runtime

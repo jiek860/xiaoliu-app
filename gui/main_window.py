@@ -423,6 +423,18 @@ class JarvisWindow(
         """
         # 关窗前把未发送的输入落盘，下次启动还能接着写
         self._save_draft_now()
+        # 先关掉所有子窗口：任务中心/活动中心会注销运行时订阅、停掉定时器。
+        # 不关就直接销毁主窗，后台线程仍会往已释放的窗口发信号（退出崩溃）。
+        try:
+            from PyQt5.QtWidgets import QDialog
+            for dlg in self.findChildren(QDialog):
+                try:
+                    if dlg.isVisible():
+                        dlg.close()
+                except Exception as e:  # 静默是故意的 - 单个窗口关不掉不影响退出
+                    _x6_swallowed(__name__, e, "close child dialog")
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "close child dialogs")
         for name in ("_activity_timer", "_proactive_timer", "_status_timer"):
             timer = getattr(self, name, None)
             if timer is not None:

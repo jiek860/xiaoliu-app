@@ -16,20 +16,29 @@ except ImportError:
 class TaskEntryMixin:
     def open_task_center(self, task_id=None, goal=None, auto_start=False,
                          auto_plan=False):
-        """所有任务入口最终都到这里：侧栏、输入框、聊天卡片、命令面板。"""
+        """所有任务入口最终都到这里：侧栏、输入框、聊天卡片、命令面板。
+
+        单窗口：第一次真建任务中心，后面无论点多少次都只把已有的
+        前置/切到对应任务，不再叠第二个窗口。
+        """
         try:
             from gui.task_center_dialog import TaskCenterDialog
-            d = TaskCenterDialog(self.trunk, self, task_id=task_id,
-                                 goal=goal, auto_start=auto_start,
-                                 auto_plan=auto_plan)
-            if not hasattr(self, "_task_centers"):
-                self._task_centers = []
-            self._task_centers = [x for x in self._task_centers
-                                  if self._dialog_alive(x)]
-            self._task_centers.append(d)
-            d.show()
-            d.raise_()
-            return d
+
+            def _focus(w):
+                if task_id:
+                    w.show_task(task_id)
+                elif goal:
+                    try:
+                        w.goal.setText(str(goal))
+                    except Exception as e:  # 静默是故意的 - 只影响输入框预填
+                        _x6_swallowed(__name__, e, "prefill task goal")
+
+            return self._singleton_window(
+                "task_center",
+                lambda: TaskCenterDialog(self.trunk, self, task_id=task_id,
+                                         goal=goal, auto_start=auto_start,
+                                         auto_plan=auto_plan),
+                focus=_focus)
         except Exception as e:  # 静默是故意的
             QMessageBox.warning(self, "任务中心", "打不开：" + str(e)[:120])
             return None

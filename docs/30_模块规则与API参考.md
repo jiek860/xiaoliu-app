@@ -1537,3 +1537,22 @@ py -3 tools\perf_baseline.py --check --tolerance 0.10 --warn-only --json-out dat
 # Agent 回归基线（20 道固定本地样本）
 py -3 tools\run_eval.py --out data\eval_result.json --markdown docs\92_Agent回归基线.md
 ```
+
+---
+
+## 窗口单实例 API（v25.2.33）
+
+`gui/mixins/dialog_mixin.py` 统一了主窗口的弹窗入口，避免连点叠窗。
+
+| API | 说明 |
+|---|---|
+| `_singleton_window(key, factory, focus=None)` | 非模态窗口：已开着就 `show/raise_/activateWindow` 并返回同一实例；关闭后下次重建 |
+| `_run_modal_once(key, opener)` | 模态窗口：同一 key 正在打开时第二次调用返回 `None`，不再建窗 |
+| `_open_simple_dialog(modname, clsname, modal=True)` | `(trunk, parent)` 签名窗口的通用打开器；模态走守卫，非模态走单例 |
+| `TaskCenterDialog.show_task(task_id)` | 复用的任务中心切到指定任务并刷新 |
+
+- 新窗口必须选其一，不要直接 `QDialog(...).show()` / `.exec_()`。
+- 关闭主窗口时 `JarvisWindow.closeEvent` 会先关闭所有 `QDialog` 子窗口，
+  让任务中心 / 活动中心注销运行时订阅、停掉定时器。
+- 守卫：`tests/test_dialog_singleton.py`（静态检查 + 真实连点），
+  详见 `docs/10_开发流程与工程手册.md`「窗口单实例」。
