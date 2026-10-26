@@ -140,3 +140,7 @@ _v21*.json
 # Trae 工作区（本地会话草稿，不入库）
 .trae/
 
+
+# SWE-bench harness 运行报告（本机产物）
+logs/
+
