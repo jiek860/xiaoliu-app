@@ -11,6 +11,8 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QLineEdit, QPushButton, QMessageBox)
 from PyQt5.QtCore import Qt
 
+from gui.feedback_states import make_action_links
+
 
 def show_login_dialog(parent, trunk, base, on_login_success):
     """登录对话框。返回 True=登录成功"""
@@ -121,13 +123,16 @@ def show_login_dialog(parent, trunk, base, on_login_success):
                 ad.close()
             else:
                 QMessageBox.warning(ad, "激活失败", r.get("msg", "激活失败"))
-        al.addWidget(QPushButton("激活", clicked=do_act))
+        # 「激活」是低频动作 → 链接，这个子窗口不留常驻按钮
+        al.addWidget(make_action_links([("激活", do_act)]))
         al.addStretch(1)
         ad.exec_()
 
     row = QHBoxLayout()
     row.addWidget(QPushButton("登录", clicked=do_login))
-    row.addWidget(QPushButton("激活", clicked=do_activate))
+    # 「激活」是低频动作：留在同一行做链接，把按钮位留给主操作。
+    row.addWidget(make_action_links([("激活账号", do_activate)]))
     l.addLayout(row)
+    u.returnPressed.connect(do_login)      # 回车直接登录
     d.exec_()
     return result["ok"]

@@ -69,7 +69,7 @@ if errorlevel 1 (
 )
 echo.
 
-echo [5/14] 复杂度预算（按钮 / 工具提示词）...
+echo [5/14] 复杂度与冻结预算（按钮 / 工具提示词 / 冻结基线）...
 %PYCMD% tools\check_buttons.py
 if errorlevel 1 (
     echo [X] 按钮数超预算 —— 加按钮前先说明为什么「说一句」替代不了它
@@ -79,6 +79,12 @@ if errorlevel 1 (
 %PYCMD% tools\check_tools.py
 if errorlevel 1 (
     echo [X] 工具提示词超预算 —— 给新能力声明 hints，别都塞进 LLM 提示词
+    pause
+    exit /b 1
+)
+%PYCMD% tools\check_feature_freeze.py
+if errorlevel 1 (
+    echo [X] 冻结期内新增了 Feature / 模块 / 按钮，或下调了覆盖率门槛
     pause
     exit /b 1
 )

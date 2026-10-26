@@ -2,6 +2,8 @@
 """首次设置：provider 预填、切换和页面尺寸。"""
 from __future__ import annotations
 
+import threading
+
 from PyQt5.QtWidgets import QMessageBox
 
 from core import model_setup
@@ -25,8 +27,10 @@ class OnboardingProviderMixin:
         self.ed_cloud_model.setText(str(cfg.get("cloud_model", "") or ""))
         if str(cfg.get("model_mode", "")).find("云端") >= 0:
             self.rb_cloud.setChecked(True)
+            self.rb_local.setChecked(False)      # 两个单选不互斥，显式关掉另一个
         else:
             self.rb_local.setChecked(True)
+            self.rb_cloud.setChecked(False)
 
         # ⚠️ 把「服务商」下拉框同步成**已保存地址对应的那一家**。
         #    不这么做的话，下拉框会停在默认的第一项（智谱 GLM），
@@ -119,3 +123,71 @@ class OnboardingProviderMixin:
             "%s · %s —— Key 去 <a href='%s'>%s</a> 申请"
             % (p["名字"], p["备注"], p["申请"], p["申请"]))
         self.lbl_provider_tip.setStyleSheet("color:#16a34a;")
+
+    # ── 云端连通性测试 ──
+    def _sync_mode_radios(self, *_args):
+        """让「本地 / 云端」两个单选真正互斥。
+
+        它们分别在各自的分组框里，Qt 的 autoExclusive 只在同一父控件内生效，
+        所以用户能同时勾上两个；而保存逻辑是「云端优先」，于是会出现
+        「我选的是本地，怎么存成了云端」。后点的那个赢，且不允许两个都不选。
+        """
+        local, cloud = self.rb_local.isChecked(), self.rb_cloud.isChecked()
+        if local and cloud:
+            if self.sender() is self.rb_cloud:
+                self.rb_local.setChecked(False)
+            else:
+                self.rb_cloud.setChecked(False)
+        elif not local and not cloud:
+            self.rb_local.setChecked(True)
+
+    def _update_cloud_test_visible(self, *_args):
+        """只有选了「云端 API」才显示测试入口，本地模式不添乱。"""
+        cloud = self.rb_cloud.isChecked()
+        self.lnk_cloud_test.setVisible(cloud)
+        if not cloud:
+            self.lbl_cloud_test.setVisible(False)
+
+    def _test_cloud(self):
+        """真的向云端发一个最小请求。
+
+        为什么要让用户多点这一下：`check(probe=False)` 只看配置齐不齐，
+        Key 少一位照样显示 ready；真正的 401/404 要到第一次聊天才暴露，
+        而那时用户只看到一句"出了点问题"。这里当场把原因说清楚。
+
+        请求放后台线程：断网/超时最多 8 秒，不能冻住向导。
+        线程里只发信号，不碰控件（线程守卫）。
+        """
+        self.lbl_cloud_test.setVisible(True)
+        self.lbl_cloud_test.setText("⏳ 正在向云端发一个最小请求…")
+        self.lbl_cloud_test.setStyleSheet("color:#64748b;")
+        url = self.ed_cloud_url.text().strip()
+        model = self.ed_cloud_model.text().strip()
+        key = self.ed_cloud_key.text().strip()
+
+        def _work():
+            try:
+                r = model_setup.test_cloud(url, model, key)
+            except Exception as e:
+                r = {"ok": False, "code": "exc",
+                     "message": "%s: %s" % (type(e).__name__, str(e)[:80])}
+            try:
+                self.cloud_test_done.emit(r)
+            except Exception as e:
+                _x6_swallowed(__name__, e)
+
+        threading.Thread(target=_work, daemon=True,
+                         name="onboarding-cloud-test").start()
+
+    def _apply_cloud_test(self, r):
+        """回到主线程再改界面；成功绿、失败红，一句话给唯一修法。"""
+        ok = bool((r or {}).get("ok"))
+        msg = str((r or {}).get("message") or "")
+        self.lbl_cloud_test.setVisible(True)
+        self.lbl_cloud_test.setText(("✅ " if ok else "❌ ") + msg)
+        self.lbl_cloud_test.setStyleSheet(
+            "color:#16a34a;" if ok else "color:#dc2626;")
+        try:
+            self.fit_to_content(grow=True)
+        except Exception as e:
+            _x6_swallowed(__name__, e, "best-effort fallback")

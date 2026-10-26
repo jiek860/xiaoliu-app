@@ -1,5 +1,102 @@
 # 版本变更记录
 
+## v25.2.32 - 2026-10-26
+
+**冻结版收尾：主链路补洞 + 按钮降到 60 + 公开评测装置**
+（本版不新增功能，只修链路、砍按钮、补可复现评测）
+
+**语音链路（修 4 个真问题）**
+- `SpeechController.listen_once()` 统一返回 `{文字, 错误}`：插件返回的
+  `text/error` 与调用方读的 `文字/错误` 键名不一致，识别成功也永远读空；
+- `VoiceChatDialog` 之前调用不存在的 `voice_module.tts()`，异常被吞导致全程
+  无声；改为 `_VoiceSynth(QThread)` + `core.realtime.tts.TTS` 生成音频，
+  `QMediaPlayer` 播放，「打断」真的能停；
+- `TTSWorker.done` 以前从不 emit，`SpeechController.play` 收不到路径；
+- 录音没有上限、识别失败会无限静默空转；现在连续 3 次失败自动结束并提示原因，
+  `pyaudio` 缺失给出可执行的安装提示。
+
+**更新 / 回滚链路**
+- 检查更新放到后台线程 `UpdateCheckThread`，不再卡界面；
+- 历史记录写入 `files / verified / backup`，界面如实显示「可回滚 / 备份已清理 /
+  无备份记录」；新增「回滚到选中记录之前」；
+- `rollback()` 不再 `rmtree` 整个 `core/`、`modules/`（会抹掉更新后新装的插件），
+  改为逐文件覆盖；备份目录不存在时返回 False，不再假装成功；
+- 历史列表的导出 / 保存失败直接说明原因，不再只弹“完成”。
+
+**权限安全链路**
+- `lockdown` / `update_constraints` / `revoke` 落盘失败时返回 `ok=False`
+  并说明「重启后会失效」，撤销失败会把内存恢复成磁盘状态（不会界面删了、
+  重启又复活）；
+- 安全中心保存后回读 `get_net_guard(trunk)._mode()` 验证真的生效。
+
+**电脑控制 / 历史 / 团队 / 工具**
+- `DepInstallDialog` 点「现在装」会 AttributeError（引用了不存在的 `btn_copy`），
+  已改为 `lnk_copy`；
+- 历史记录：读取失败不再静默返回空页，直接显示原因；正文 `html.escape`；
+  「上一页」判断改为 `start > 0`；显示页码 x/y；
+- 团队管理：导入非法 JSON、导出不可写都有明确提示，保存后同步 `group_chat.roles`；
+- 电脑控制：整窗不再有常驻按钮，回车即启动应用。
+
+**按钮预算 151 → 60（棘轮只降不升）**
+- 9 个高频业务弹窗（电脑控制 / 系统 / 代码 Agent / 电脑 Agent / Agent 旅程 /
+  安全中心 / 角色 / MCP / 历史）从 53 个创建点降到 11 个；
+- 其余 20+ 个窗口的次要动作统一改成富文本链接（`make_action_links`），
+  关闭统一写「Esc 关闭」；任务中心七个并排按钮改成动作链接；
+  侧栏「任务中心 / 命令面板」与首屏引导卡也改成链接；
+- 新增运行时密度测试：高频弹窗真建出来以后，按钮数超上限即失败
+  （防止“循环里每行建一个按钮”这类回归）。
+
+**SWE-bench Verified 评测装置（不发布分数）**
+- 数据集落盘 `data/swebench/swebench_verified.jsonl`（500 题，走 hf-mirror +
+  `HF_HUB_DISABLE_XET=1`）；
+- 试跑 10 题清单修正为数据集中真实存在的 id，并加测试守住；
+- `mirror_url()` + clone 直连失败自动重试 `ghfast.top`；
+- 正式 50 题清单固定种子 `20261123`（`data/swebench_final_plan.json`）；
+- 实跑 3 题（pytest / sympy / sphinx）均因本地 4B 模型产不出 patch 记为 error，
+  合计 0 / 3；云端 Key 401、无 Docker、无 `swebench` 包三项阻塞如实写进
+  `docs/94_SWE_bench_Verified_正式跑记录.md`，**不发布 resolve 率**。
+
+**测试与守卫**
+- 新增用例全部进既有测试文件（`test_voice_extra`、`test_agent_harness`、
+  `test_auto_update`、`test_centers_extra`、`test_x6_code_cli`、`test_gui_smoke`）；
+- 全量 `pytest tests/ -q` 通过；静默异常 0、线程守卫、文件长度、结构契约、
+  版本号、插件仓库一致、静态检查（Ruff + Mypy）全通过；
+- 按钮与冻结基线 rebase 到 60。
+
+## v25.2.31 - 2026-10-25
+
+**工程加固（覆盖率棘轮 / 拆分临界大文件 / 发布脚本 / 可观测基线）**
+- 覆盖率门槛上调（只升不降）：全局 58→60、core 55→57、gui 38→40、
+  modules/installed 45→47；新增 `core/code_agent.py`（65%）与
+  `core/patch_engine.py`（80%）为 `critical_modules`；
+  CI `coverage report --fail-under` 同步升到 60。
+- 六个临界大文件拆到 ≤500 行（只搬代码、不改行为、旧导入路径保留）：
+  `modules/installed/plugin_market.py` → `modules/support/plugin_market_online.py`；
+  `gui/settings_dialog.py` → `settings_model_page.py`；
+  `modules/installed/tool_caller.py` → `modules/support/tool_catalog.py`；
+  `gui/mcp_dialog.py` → `mcp_catalog.py`；
+  `gui/workbench_dialog.py` → `workbench_ai_dock.py`；
+  `gui/mixins/dialog_mixin.py` → `background_tasks_mixin.py`。
+  辅助实现放 `modules/support/`（不是可安装插件，不进插件清单），
+  保证 `modules/installed/` 里仍然只有可发布模块。
+- 新增 `tools/github_api_push.py`：`--branch/--message-file/--pr-title/
+  --wait-ci/--merge/--dry-run`，只走 `api.github.com`，按原始行尾上传、
+  内容未变复用 blob、支持删除文件；token 从环境变量或 Windows 凭据管理器
+  读取，任何日志都不打印 token。
+- 可观测性：`tools/perf_baseline.py` 新增冷启动与首 token（本机解析管线）
+  采样；CI 以 10% 容忍度只报警不阻塞，并上传
+  `data/perf_current.json`；`tools/run_eval.py` 固定 20 道本地样本，
+  结果写入 `docs/92_Agent回归基线.md` 并在 CI 作为 Agent 回归门禁。
+- 文档纠偏：`docs/50_产品体验与Agent能力提升方案.md` 的「尚未完成」清单
+  按代码实况更新（自动测试、lint、失败回修、多文件 patch、diff 审批、
+  回滚均已完成），避免后续重复立项。
+- 新增测试：`tests/test_github_api_push.py`、`tests/test_module_split_exports.py`、
+  `tests/test_background_tasks_mixin.py`（覆盖搬出的 7 个后台方法）；
+  更新 `tests/test_download_verification.py` 与
+  `tests/test_plugin_market_extra.py` 以匹配拆分后的模块位置。
+- 插件仓库：重新签名并发布 `plugin_repo`（48 个模块），
+  `check_repo_sync` 恢复全绿。
+
 ## v25.2.30 - 2026-10-25
 
 **活动中心：后台作业统一进同一份注册表**

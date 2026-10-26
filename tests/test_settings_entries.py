@@ -68,14 +68,14 @@ def win():
     return _win
 
 
-def _open_btn_calls():
-    """解析设置窗口里每一处 _open_btn(...) 的 (显示名, key)
+def _entry_links():
+    """解析设置窗口里每一处 _open_link(...) 的 (显示名, key)
 
-    key 不传时就是显示名（见 _open_btn 的说明）。
+    key 不传时就是显示名（见 make_open_link 的说明）。
     """
     src = open(SETTINGS, encoding="utf-8").read()
     out = []
-    for m in re.finditer(r'_open_btn\(\s*"([^"]*)"\s*,\s*"([^"]*)"\s*,'
+    for m in re.finditer(r'_open_link\(\s*"([^"]*)"\s*,\s*"([^"]*)"\s*,'
                          r'(.*?)\)\s*\)', src, re.S):
         icon, name, rest = m.group(1), m.group(2), m.group(3)
         km = re.search(r'key\s*=\s*"([^"]*)"', rest)
@@ -85,17 +85,17 @@ def _open_btn_calls():
 
 def test_open_btn_calls_are_parsed():
     """先确认解析到了东西 —— 解析为空的话下面全都是假通过"""
-    calls = _open_btn_calls()
-    assert len(calls) >= 15, "只解析到 %d 个按钮，正则可能失效了：%s" % (
+    calls = _entry_links()
+    assert len(calls) >= 15, "只解析到 %d 个入口，正则可能失效了：%s" % (
         len(calls), calls[:5])
 
 
 def test_every_settings_button_resolves(win):
-    """设置里每个入口按钮都要能在 commands 里找到可调用的入口
+    """设置里每个入口都要能在 commands 里找到可调用的入口
 
-    这条就是抓"静默置灰"的那一条。
+    这条就是抓"静默置灰"的那一条（入口现在是链接，规则不变）。
     """
-    calls = _open_btn_calls()
+    calls = _entry_links()
     cmds = win._panel_commands()
     dead = [(name, key) for name, key in calls
             if not callable(cmds.get(key))]
@@ -127,12 +127,12 @@ def test_command_palette_entries_are_callable(win):
 
 
 def test_settings_dialog_actually_enables_them(win):
-    """端到端：真的建一次设置窗口，确认这些按钮没被置灰
+    """端到端：真的建一次设置窗口，确认这些入口没变成"当前版本不可用"
 
     前面几条是"查表能查到"，这条是"界面上真的是可点的" ——
-    两者差一层：_open_btn 里还有 setEnabled(False) 的分支。
+    两者差一层：make_open_link 里还有"查不到入口就出死文本"的分支。
     """
-    from PyQt5.QtWidgets import QPushButton, QDialog
+    from PyQt5.QtWidgets import QLabel, QDialog
     import gui.settings_dialog as sd
 
     d = None
@@ -156,10 +156,9 @@ def test_settings_dialog_actually_enables_them(win):
                                 None, None, None, None, None,
                                 win._panel_commands())
         assert made, "设置窗口没建出来"
-        btns = made[0].findChildren(QPushButton)
-        dead = [b.text() for b in btns
-                if not b.isEnabled() and "不可用" in (b.toolTip() or "")]
-        assert not dead, "设置里有按钮被置灰了：%s" % dead
+        dead = [l.text() for l in made[0].findChildren(QLabel)
+                if "当前版本不可用" in (l.text() or "")]
+        assert not dead, "设置里有入口点不动：%s" % dead
     finally:
         QDialog.exec_ = saved_exec
         for dd in made:
@@ -171,7 +170,7 @@ def test_settings_dialog_actually_enables_them(win):
 
 def test_system_and_developer_tabs_are_distinct(win, monkeypatch):
     """系统页和开发者页不能复用同一个 builder（否则内容完全一样）。"""
-    from PyQt5.QtWidgets import QDialog, QTabWidget, QPushButton
+    from PyQt5.QtWidgets import QDialog, QTabWidget, QLabel
     import gui.settings_dialog as sd
     from gui import ui_mode
     monkeypatch.setattr(ui_mode, "get_ui_mode", lambda *a, **k: "advanced")
@@ -186,6 +185,11 @@ def test_system_and_developer_tabs_are_distinct(win, monkeypatch):
         made.append(dd)
         return dd, lay
 
+    def _link_texts(page):
+        """页面上所有入口链接的文字（链接是 QLabel + <a href>）。"""
+        return [l.text() for l in page.findChildren(QLabel)
+                if "href" in (l.text() or "")]
+
     saved_exec = QDialog.exec_
     QDialog.exec_ = lambda self: 0
     try:
@@ -198,18 +202,68 @@ def test_system_and_developer_tabs_are_distinct(win, monkeypatch):
         sys_page = tabs.widget(labels.index(" 系统"))
         dev_page = tabs.widget(labels.index(" 开发者"))
         assert sys_page is not dev_page
-        sys_btns = [b.text() for b in sys_page.findChildren(QPushButton)]
-        dev_btns = [b.text() for b in dev_page.findChildren(QPushButton)]
-        assert any("系统" in t for t in sys_btns)
-        assert not any("命令面板" in t for t in sys_btns)
-        assert any("命令面板" in t for t in dev_btns)
-        # 高级模式各标签页的按钮不能重复（允许同一入口只出现在一个页）
+        sys_txt = " ".join(_link_texts(sys_page))
+        dev_txt = " ".join(_link_texts(dev_page))
+        assert "系统" in sys_txt
+        assert "命令面板" not in sys_txt
+        assert "命令面板" in dev_txt
+        # 高级模式各标签页的入口不能重复（允许同一入口只出现在一个页）
         all_labels = []
         for i in range(tabs.count()):
-            all_labels.extend(
-                b.text().strip() for b in tabs.widget(i).findChildren(QPushButton))
+            all_labels.extend(_link_texts(tabs.widget(i)))
         assert len(all_labels) == len(set(all_labels)), (
-            "设置按钮重复：%s" % all_labels)
+            "设置入口重复：%s" % all_labels)
+    finally:
+        QDialog.exec_ = saved_exec
+        for dd in made:
+            try:
+                dd.close()
+            except Exception:
+                pass
+
+
+def test_settings_entries_are_links_not_buttons():
+    """设置页的入口用链接：以前 25 个入口就是 25 个全宽按钮。
+
+    一屏全是按钮，用户不知道该点哪个；按钮位要留给「保存」这类主操作。
+    """
+    src = open(os.path.join(BASE, "gui", "settings_widgets.py"),
+               encoding="utf-8").read()
+    assert "QPushButton(" not in src, "入口又变回按钮了"
+    assert "make_action_links" in src
+
+    model_src = open(os.path.join(BASE, "gui", "settings_model_page.py"),
+                     encoding="utf-8").read()
+    assert "QPushButton(mm" not in model_src, \
+        "模型选择又变成「每个模型一个按钮」了（模型多时是一屏按钮）"
+
+
+def test_settings_has_few_buttons_and_many_links(win):
+    """实际建出来的设置窗口：按钮个位数，入口是链接。"""
+    from PyQt5.QtWidgets import QDialog, QLabel, QPushButton
+    import gui.settings_dialog as sd
+
+    made = []
+
+    def _fake_dlg(title="", w=0, h=0):
+        from PyQt5.QtWidgets import QVBoxLayout
+        dd = QDialog()
+        dd.setWindowTitle(title or "设置")
+        lay = QVBoxLayout(dd)
+        made.append(dd)
+        return dd, lay
+
+    saved_exec = QDialog.exec_
+    QDialog.exec_ = lambda self: 0
+    try:
+        sd.show_settings_dialog(win, _fake_dlg, win.trunk, BASE, "小6",
+                                None, None, None, None, None,
+                                win._panel_commands())
+        btns = made[0].findChildren(QPushButton)
+        links = [l for l in made[0].findChildren(QLabel)
+                 if "href" in (l.text() or "")]
+        assert len(btns) <= 4, "设置页按钮太多：%s" % [b.text() for b in btns]
+        assert len(links) >= 15, "设置页入口链接只有 %d 个" % len(links)
     finally:
         QDialog.exec_ = saved_exec
         for dd in made:

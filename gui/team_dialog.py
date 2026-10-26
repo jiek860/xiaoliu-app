@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """团队管理窗口：用户、角色、集中配置、审计导出。"""
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.team_policy import ROLES, TeamStore
+from gui.feedback_states import make_action_links
 
 
 class TeamDialog(QDialog):
@@ -35,7 +36,7 @@ class TeamDialog(QDialog):
         self.uname.setPlaceholderText("显示名称")
         self.role = QComboBox()
         self.role.addItems(list(ROLES))
-        add_btn = QPushButton("添加用户")
+        add_btn = make_action_links([("➕ 添加用户", self._add_user)])
         add.addWidget(self.uid)
         add.addWidget(self.uname)
         add.addWidget(self.role)
@@ -47,7 +48,7 @@ class TeamDialog(QDialog):
         self.role_uid.setPlaceholderText("要改角色的用户 ID")
         self.new_role = QComboBox()
         self.new_role.addItems(list(ROLES))
-        role_btn = QPushButton("设置角色")
+        role_btn = make_action_links([("设置角色", self._set_role)])
         role_row.addWidget(self.role_uid)
         role_row.addWidget(self.new_role)
         role_row.addWidget(role_btn)
@@ -58,19 +59,16 @@ class TeamDialog(QDialog):
         self.config.setMinimumHeight(120)
         cfg_row = QHBoxLayout()
         save_cfg = QPushButton("保存集中配置")
-        reload_cfg = QPushButton("重新读取")
-        audit_btn = QPushButton("导出审计")
         cfg_row.addWidget(save_cfg)
-        cfg_row.addWidget(reload_cfg)
-        cfg_row.addWidget(audit_btn)
+        cfg_row.addWidget(make_action_links([
+            ("重新读取", self._load_config),
+            ("📤 导出审计", self._export_audit),
+        ]))
+        cfg_row.addStretch(1)
         lay.addLayout(cfg_row)
         lay.addWidget(self.config)
 
-        add_btn.clicked.connect(self._add_user)
-        role_btn.clicked.connect(self._set_role)
         save_cfg.clicked.connect(self._save_config)
-        reload_cfg.clicked.connect(self._load_config)
-        audit_btn.clicked.connect(self._export_audit)
         self._refresh()
 
     def _refresh(self):

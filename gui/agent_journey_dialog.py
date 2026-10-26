@@ -22,6 +22,7 @@ from core.agent_orchestrator import AgentOrchestrator
 from core.code_plan import plan_text
 from gui.agent_timeline import AgentTimeline
 from gui.diff_dialog import DiffReviewDialog
+from gui.feedback_states import make_action_links
 
 
 class _Bridge(QObject):
@@ -129,35 +130,31 @@ class AgentJourneyDialog(QDialog):
         self.route_label = QLabel("")
         self.route_label.setStyleSheet("color:#667085;font-size:12px;")
         row.addWidget(self.route_label, 1)
-        self.root_btn = QPushButton("项目目录")
-        self.root_btn.clicked.connect(self._choose_root)
-        row.addWidget(self.root_btn)
+        row.addWidget(make_action_links([("📂 项目目录", self._choose_root)]))
         lay.addLayout(row)
 
         buttons = QHBoxLayout()
         self.start_btn = QPushButton("开始执行")
         self.start_btn.clicked.connect(self._start)
         buttons.addWidget(self.start_btn)
-        self.pause_btn = QPushButton("暂停")
+        # 运行期动作做成链接：主操作只有一个「开始执行」，其余不该抢按钮位
+        self.pause_btn = make_action_links(
+            [("⏸ 暂停 / 继续", self._toggle_pause)])
         self.pause_btn.setEnabled(False)
-        self.pause_btn.clicked.connect(self._toggle_pause)
         buttons.addWidget(self.pause_btn)
-        self.takeover_btn = QPushButton("人工接管")
+        self.takeover_btn = make_action_links(
+            [("🖐 人工接管", self._takeover)])
         self.takeover_btn.setEnabled(False)
-        self.takeover_btn.clicked.connect(self._takeover)
         buttons.addWidget(self.takeover_btn)
-        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn = make_action_links([("✖ 取消任务", self._cancel)])
         self.cancel_btn.setEnabled(False)
-        self.cancel_btn.clicked.connect(self._cancel)
         buttons.addWidget(self.cancel_btn)
-        self.rollback_btn = QPushButton("一键撤销")
+        self.rollback_btn = make_action_links(
+            [("↩ 一键撤销", self._rollback)])
         self.rollback_btn.setEnabled(False)
-        self.rollback_btn.clicked.connect(self._rollback)
         buttons.addWidget(self.rollback_btn)
         buttons.addStretch(1)
-        close = QPushButton("关闭")
-        close.clicked.connect(self.close)
-        buttons.addWidget(close)
+        buttons.addWidget(QLabel("Esc 关闭"))
         lay.addLayout(buttons)
 
         self.timeline = AgentTimeline()
@@ -201,7 +198,6 @@ class AgentJourneyDialog(QDialog):
         self.cancel_btn.setEnabled(True)
         self.rollback_btn.setEnabled(False)
         self._paused = False
-        self.pause_btn.setText("暂停")
         self.worker = _JourneyWorker(
             self.trunk, goal, self.root,
             explicit=self.route_combo.currentData(), parent=self,
@@ -321,12 +317,10 @@ class AgentJourneyDialog(QDialog):
         if self._paused:
             self.worker.orchestrator.resume()
             self._paused = False
-            self.pause_btn.setText("暂停")
             self.timeline.set_status("继续执行", "running")
         else:
             self.worker.orchestrator.pause()
             self._paused = True
-            self.pause_btn.setText("继续")
             self.timeline.set_status("已暂停", "waiting")
 
     def _takeover(self):
@@ -334,11 +328,10 @@ class AgentJourneyDialog(QDialog):
             return
         self.worker.orchestrator.pause()
         self._paused = True
-        self.pause_btn.setText("继续")
         QMessageBox.information(
             self, "人工接管",
             "Agent 已暂停。现在你可以手动操作电脑或修改文件。\n"
-            "完成后点「继续」，Agent 会重新观察当前屏幕再决定下一步。")
+            "完成后点「暂停 / 继续」，Agent 会重新观察当前屏幕再决定下一步。")
 
     def _cancel(self):
         if self.worker:

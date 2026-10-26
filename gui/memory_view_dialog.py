@@ -7,8 +7,10 @@ except ImportError:
         return None
 
 import os, json
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QListWidgetItem, QTextBrowser, QLineEdit, QTabWidget, QWidget, QMessageBox, QInputDialog, QMenu, QAction
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QListWidgetItem, QTextBrowser, QLineEdit, QTabWidget, QWidget, QMessageBox, QInputDialog, QMenu
 from PyQt5.QtCore import Qt
+
+from gui.feedback_states import make_action_links
 
 
 class MemoryViewDialog(QDialog):
@@ -63,15 +65,14 @@ class MemoryViewDialog(QDialog):
 
         layout.addWidget(tabs)
 
-        # 底部按钮
+        # 底部：只留「搜索」一个按钮，导出/关闭走链接（按钮预算只许降）
         row = QHBoxLayout()
-        btn_export = QPushButton("导出记忆")
-        btn_export.clicked.connect(self._export)
-        row.addWidget(btn_export)
+        row.addWidget(make_action_links([
+            ("导出记忆", self._export),
+            ("关闭", self.accept),
+        ]))
         row.addStretch(1)
-        btn_close = QPushButton("关闭")
-        btn_close.clicked.connect(self.accept)
-        row.addWidget(btn_close)
+        row.addWidget(QLabel("Esc 关闭"))
         layout.addLayout(row)
 
     def _load_cards(self):
@@ -105,10 +106,8 @@ class MemoryViewDialog(QDialog):
 
     def _context_menu(self, pos):
         menu = QMenu(self)
-        act_edit = QAction("编辑", self)
-        act_del = QAction("删除", self)
-        menu.addAction(act_edit)
-        menu.addAction(act_del)
+        act_edit = menu.addAction("编辑")
+        act_del = menu.addAction("删除")
         action = menu.exec_(self.timeline.mapToGlobal(pos))
         item = self.timeline.currentItem()
         if not item:

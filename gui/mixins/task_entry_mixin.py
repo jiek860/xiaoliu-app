@@ -14,14 +14,18 @@ except ImportError:
 
 
 class TaskEntryMixin:
-    def open_task_center(self, task_id=None, goal=None, auto_start=False):
+    def open_task_center(self, task_id=None, goal=None, auto_start=False,
+                         auto_plan=False):
         """所有任务入口最终都到这里：侧栏、输入框、聊天卡片、命令面板。"""
         try:
             from gui.task_center_dialog import TaskCenterDialog
             d = TaskCenterDialog(self.trunk, self, task_id=task_id,
-                                 goal=goal, auto_start=auto_start)
+                                 goal=goal, auto_start=auto_start,
+                                 auto_plan=auto_plan)
             if not hasattr(self, "_task_centers"):
                 self._task_centers = []
+            self._task_centers = [x for x in self._task_centers
+                                  if self._dialog_alive(x)]
             self._task_centers.append(d)
             d.show()
             d.raise_()
@@ -29,6 +33,14 @@ class TaskEntryMixin:
         except Exception as e:  # 静默是故意的
             QMessageBox.warning(self, "任务中心", "打不开：" + str(e)[:120])
             return None
+
+    @staticmethod
+    def _dialog_alive(widget):
+        """已关闭/已销毁的任务中心不再留在列表里（否则列表只增不减）。"""
+        try:
+            return bool(widget.isVisible())
+        except Exception:  # 静默是故意的 - 底层 C++ 对象已销毁
+            return False
 
     def task_center_dialog(self):
         # 兼容旧命令面板入口
@@ -51,11 +63,10 @@ class TaskEntryMixin:
         try:
             rt = self.trunk.get_task_runtime()
             task = rt.create(text)
-            rt.plan(task["id"])
             self.chat.append_user(text)
             self.chat.append(
-                "<div style='color:#1976d2'> 已进入任务模式：正在拆解计划，"
-                "执行过程会显示在任务中心。</div>")
+                "<div style='color:#1976d2'> 已进入任务模式：正在后台拆解计划，"
+                "界面可以继续操作；拆完会自动开始，进度在任务中心。</div>")
             try:
                 self.account.save_line("u", text)
             except Exception as e:  # 静默是故意的
@@ -63,15 +74,39 @@ class TaskEntryMixin:
             self.input.clear()
             self._clear_draft()
             self._mark_guide_event("first_task")
-            r = rt.start(task["id"])
-            if not r.get("ok"):
-                self.chat.append_guidance_card(
-                    "任务启动失败", str(r.get("错误", "未知错误")),
-                    "guidance://retry_failed_step", "重试失败步骤")
-            self._watch_task_result(task["id"])
+            # 拆步要调模型，放后台线程；完成后自动启动并盯结果。
+            self._plan_task_async(task["id"])
             self.open_task_center(task_id=task["id"])
+            self._watch_task_result(task["id"])
         except Exception as e:  # 静默是故意的
             QMessageBox.warning(self, "任务模式", "启动失败：" + str(e)[:120])
+
+    def _plan_task_async(self, task_id):
+        """后台拆步（聊天 [任务] 模式用），不阻塞界面。"""
+        from gui.task_center_dialog import TaskPlanRelay
+        relay = getattr(self, "_task_plan_relay", None)
+        if relay is None or relay.rt is not self.trunk.get_task_runtime():
+            relay = TaskPlanRelay(self.trunk.get_task_runtime(),
+                                  self._on_task_planned, self)
+            self._task_plan_relay = relay
+        relay.start(task_id)
+
+    def _on_task_planned(self, task_id, ok):
+        if not ok:
+            self.chat.append_guidance_card(
+                "任务拆解失败", "模型没有给出可执行的步骤，换一种说法再试一次。",
+                "retry://" + task_id, "重试这个任务")
+            return
+        try:
+            r = self.trunk.get_task_runtime().start(task_id)
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "start planned task")
+            r = {"ok": False, "错误": str(e)[:120]}
+        if not r.get("ok"):
+            self.chat.append_guidance_card(
+                "任务启动失败", str(r.get("错误", "未知错误")),
+                "guidance://retry_failed_step", "重试失败步骤")
+        self._watch_task_result(task_id)
 
     def _watch_task_result(self, task_id, interval_ms=1000, max_seconds=900):
         if not task_id:
@@ -126,11 +161,10 @@ class TaskEntryMixin:
             action = "task-budget://" + tid \
                 if guide.get("action") == "increase_task_budget" \
                 else "retry://" + tid
+            # 一张卡 + 一个下一步：把引导话术并进结果卡，不再额外刷一张卡。
+            body = ("%s %s" % (guide.get("message") or "", err)).strip()
             self.chat.append_task_result_card(
-                tid, status, "", err, action, guide.get("action_label"))
-            self.chat.append_guidance_card(
-                guide.get("title"), guide.get("message"),
-                "guidance://" + guide.get("action"), guide.get("action_label"))
+                tid, status, body, err, action, guide.get("action_label"))
         self._update_empty_state()
 
     def _handle_last_task_result(self):

@@ -945,10 +945,23 @@ CI/CD：pre-commit、GitHub Actions、GitLab CI
 共 93 项使用检测 + 7 种代码审计方法 + 13 类扩展检测 + 完整发布门禁
 ═══════════════════════════════════════════════════════════════
 
-文档同步：2026-10-20 / v25.2.23
+文档同步：2026-10-26 / v25.2.32
 本次同步：Windows + Python 3.10/3.11/3.12 兼容矩阵；
 旧数据 v0->v1->v2 自动迁移与备份；插件 API v1.0 边界检查。
 完整说明：docs/70_兼容性与数据迁移.md。
+
+v25.2.32（2026-10-26）新增检测项：
+  tests/test_gui_smoke.py::test_high_frequency_dialogs_are_button_light_at_runtime
+  运行时会真的建出高频弹窗并数按钮，超过上限直接失败；
+  py -3 tools/check_buttons.py 基线已锁到 60（只降不升）。
+
+v25.2.31（2026-10-25）新增检测命令：
+  py -3 tools\check_coverage_thresholds.py --coverage coverage.json
+  py -3 tools\check_file_sizes.py
+  py -3 tools\run_eval.py --out data\eval_result.json
+  py -3 tools\perf_baseline.py --check --tolerance 0.10 --warn-only
+覆盖率门槛：全局 60%、core 57%、gui 40%、modules/installed 47%，
+并且 core/code_agent.py >= 65%、core/patch_engine.py >= 80%。
 
 ================================================================================
 检测项补充（2026-10-22）

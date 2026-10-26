@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """新手教程窗口 - 详细版（设置 -> 系统 -> 新手教程，或 Ctrl+K 搜「教程」）"""
 import os
-import webbrowser
 
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QPlainTextEdit)
+                             QPlainTextEdit)
+
+from gui.feedback_states import make_url_links
 
 TEXT = """小6智能体 - 使用详细教程
 ============================================================
@@ -158,7 +159,7 @@ TEXT = """小6智能体 - 使用详细教程
 
 ============================================================
 
-【八、文件都在哪】
+【七点八、文件都在哪】
   data/config.json        配置（含 API Key，别外传）
   data/chats.db           聊天记录
   data/logs/              日志
@@ -209,6 +210,36 @@ TEXT = """小6智能体 - 使用详细教程
 
 ============================================================
 
+【七点七、稳定性与自检（2026-10-25 / v25.2.31）】
+  这一版不新增按钮，主要是把底子打稳：
+
+  1) 覆盖率只升不降
+     每次提交都跑全量测试并核对覆盖率门槛（全局 60%，core 57%，
+     gui 40%，modules 47%）。「代码 Agent」和「补丁引擎」单独设了
+     最低覆盖要求，改坏了会被 CI 拦下。
+
+  2) 界面文件拆小
+     插件市场、设置、MCP、工作台等界面文件都拆到 500 行以内。
+     对外用法不变，打开速度和以前一样。
+
+  3) 发布脚本
+     tools/github_api_push.py 走 api.github.com，参数：
+       --branch / --message-file / --pr-title / --wait-ci / --merge / --dry-run
+     令牌从环境变量或 Windows 凭据管理器读，不再依赖明文
+     ~/.git-credentials；日志里永远不打印令牌。
+
+  4) 两条基线
+     · 性能基线：冷启动耗时、首 token 解析耗时，超基线 10% 只报警
+     · Agent 回归基线：20 道固定小样本，不调用模型，要求每次全绿
+     结果见 docs/92_Agent回归基线.md
+
+  5) 自己验一遍
+     py -3 -m pytest tests/ -q
+     py -3 tools/check_version.py
+     py -3 tools/run_eval.py --out data/eval_result.json
+
+============================================================
+
 【八、快捷键】
   Enter         发送
   Shift+Enter   换行
@@ -243,32 +274,22 @@ def show_tutorial_dialog(parent):
 
     row1 = QHBoxLayout()
     row1.addWidget(QLabel("Ollama 下载："))
-    for label, url in [
+    row1.addWidget(make_url_links([
         ("官网", "https://ollama.com/download/windows"),
         ("GitHub", "https://github.com/ollama/ollama/releases/latest"),
         ("加速镜像", "https://ghproxy.net/https://github.com/ollama/ollama/releases/latest"),
-    ]:
-        b = QPushButton(label)
-        b.setStyleSheet("padding:4px 10px;")
-        b.clicked.connect(lambda _, u=url: webbrowser.open(u))
-        row1.addWidget(b)
+    ]), stretch=1)
     l.addLayout(row1)
 
     row2 = QHBoxLayout()
     row2.addWidget(QLabel("模型："))
-    for label, url in [
+    row2.addWidget(make_url_links([
         ("Qwen2.5", "https://ollama.com/library/qwen2.5:4b"),
         ("DeepSeek-R1", "https://ollama.com/library/deepseek-r1:7b"),
         ("魔搭社区", "https://modelscope.cn/models?name=qwen2.5"),
         ("HF镜像", "https://hf-mirror.com/models?search=qwen2.5"),
-    ]:
-        b = QPushButton(label)
-        b.setStyleSheet("padding:4px 10px;")
-        b.clicked.connect(lambda _, u=url: webbrowser.open(u))
-        row2.addWidget(b)
+    ]), stretch=1)
     l.addLayout(row2)
 
-    btn = QPushButton("知道了")
-    btn.clicked.connect(d.close)
-    l.addWidget(btn)
+    # 关闭走 Esc / 窗口右上角；「知道了」按钮撤掉，教程窗口不再占按钮预算
     d.exec_()

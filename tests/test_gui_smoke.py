@@ -407,9 +407,18 @@ def test_main_window_assembles():
 
         # 所有主界面按钮：必须有可读文字，且真的接了点击处理。
         # 空文字 / 未接线按钮在截图里往往看不出来，用户点了才发现没反应。
+        #
+        # 注意：v25.2.32 起主界面大量次要动作改成富文本链接（侧栏"任务中心/
+        # 命令面板"、首屏引导卡、空状态动作都是 QLabel + <a href>），
+        # 所以"入口够不够"要按 按钮 + 链接 一起算；否则这条断言会把
+        # "按钮砍到 60" 的成果当成"界面坏了"。
+        from PyQt5.QtWidgets import QLabel as _QLabel
         from PyQt5.QtWidgets import QPushButton as _QPushButton
         buttons = w.findChildren(_QPushButton)
-        assert len(buttons) >= 18, "主界面按钮少得反常：%d" % len(buttons)
+        links = [lab for lab in w.findChildren(_QLabel)
+                 if "<a href" in (lab.text() or "")]
+        assert len(buttons) + len(links) >= 18, (
+            "主界面可点入口少得反常：按钮 %d + 链接 %d" % (len(buttons), len(links)))
         empty = [b.objectName() or b.toolTip() for b in buttons
                  if not (b.text() or "").strip()]
         assert not empty, "存在无文字按钮：%s" % empty
@@ -838,3 +847,66 @@ def test_window_never_shrinks_back(wiz):
     after = (wiz.width(), wiz.height())
     assert after[0] >= before[0] and after[1] >= before[1], \
         "窗口被缩回去了：%s -> %s" % (before, after)
+
+
+def test_high_frequency_dialogs_are_button_light_at_runtime():
+    """运行时按钮密度：高频弹窗真的建出来以后，按钮数量必须很少。
+
+    源码检查（tools/check_buttons.py）只看创建点，抓不到
+    "在 for 循环里每个条目建一个按钮" 这类运行时膨胀。这里按真实控件数
+    兜住回归：每个弹窗最多 4 个 QAbstractButton（包含 QCheckBox/单选）。
+    「功能扩展组件」例外 —— 每个 Python 包一行「安装」是它本身的形态。
+    """
+    from PyQt5.QtWidgets import QAbstractButton
+
+    from gui.security_center_dialog import SecurityCenterDialog
+    from gui.team_dialog import TeamDialog
+    from gui.tools_dialog import ToolsDialog
+    from gui.memory_view_dialog import MemoryViewDialog
+    from gui.task_center_dialog import TaskCenterDialog
+    from gui.agreement_dialog import AgreementDialog
+    from gui.components_dialog import ComponentsDialog
+
+    trunk = make_trunk()
+
+    def _count(widget):
+        """只数用户能看到的按钮：QTabBar 内部的翻页箭头/页签按钮不算。"""
+        total = 0
+        for b in widget.findChildren(QAbstractButton):
+            p = b.parent()
+            internal = False
+            while p is not None:
+                if p.__class__.__name__ in (
+                        "QTabBar", "QTabWidget", "QScrollBar", "QMenu"):
+                    internal = True
+                    break
+                p = p.parent()
+            if not internal:
+                total += 1
+        return total
+
+    cases = [
+        ("安全中心", lambda: SecurityCenterDialog(trunk), 4),
+        ("团队管理", lambda: TeamDialog(trunk), 4),
+        ("小工具", lambda: ToolsDialog(trunk), 4),
+        ("记忆", lambda: MemoryViewDialog(trunk), 4),
+        ("任务中心", lambda: TaskCenterDialog(trunk), 4),
+        ("用户协议", lambda: AgreementDialog(trunk), 4),
+        # 每个扩展包一行安装按钮，属于表格形态，上限放宽但仍要防止翻倍
+        ("功能扩展组件", lambda: ComponentsDialog(base=BASE), 30),
+    ]
+    problems = []
+    for name, factory, limit in cases:
+        d = None
+        try:
+            d = factory()
+            count = _count(d)
+            if count > limit:
+                problems.append("%s 有 %d 个按钮（上限 %d）" % (name, count, limit))
+        finally:
+            if d is not None:
+                try:
+                    d.close()
+                except Exception:  # 静默是故意的：关窗失败不影响计数结论
+                    pass
+    assert not problems, "弹窗按钮密度回涨：\n" + "\n".join(problems)

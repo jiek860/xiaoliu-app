@@ -69,9 +69,10 @@ class ResearchDialog(QDialog):
         right.addWidget(QLabel("📚 引用来源"))
         self.ref_list = QListWidget()
         right.addWidget(self.ref_list)
-        right_widget = QPushButton("关闭")
-        right.addWidget(right_widget)
-        right_widget.clicked.connect(self.accept)
+        hint = QLabel("研究中可直接关闭窗口（Esc），不会卡界面")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#667085;font-size:11px;")
+        right.addWidget(hint)
         from PyQt5.QtWidgets import QWidget
         rw = QWidget()
         rw.setLayout(right)
@@ -84,6 +85,9 @@ class ResearchDialog(QDialog):
         topic = self.input.text().strip()
         if not topic:
             QMessageBox.information(self, "提示", "请输入研究主题")
+            return
+        # 回车和「开始研究」是同一个入口，这里挡住重复触发
+        if self._worker is not None and self._worker.isRunning():
             return
         self.btn_start.setEnabled(False)
         self.report.setPlainText("研究中...（最多 60 秒）")

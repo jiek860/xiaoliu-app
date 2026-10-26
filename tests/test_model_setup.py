@@ -6,6 +6,7 @@
 """
 import os
 import sys
+import urllib.error
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
@@ -13,6 +14,33 @@ sys.path.insert(0, BASE)
 from core import model_setup  # noqa: E402
 
 DEAD = "http://127.0.0.1:1"          # 必然连不上，且会立刻被拒绝，不会等超时
+
+
+class _AllowGuard:
+    def check(self, *_a, **_k):
+        return {"allow": True, "reason": "test"}
+
+
+class _DenyGuard:
+    def check(self, *_a, **_k):
+        return {"allow": False, "reason": "域名不在允许列表"}
+
+
+class _Resp:
+    """最小 urllib 响应替身（只有 read/status + 上下文管理）。"""
+
+    def __init__(self, body="{}", status=200):
+        self._body = body.encode("utf-8")
+        self.status = status
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_a):
+        return False
 
 
 class FakeTrunk:
@@ -99,3 +127,74 @@ def test_apply_cloud_sets_key_when_given():
                    "cloud_url": "", "cloud_model": ""})
     model_setup.apply_cloud(t, key="new-key")
     assert t.config["cloud_key"] == "new-key"
+
+
+# ── B4：云端连通性测试（首次配置里的「测试云端 Key」） ──
+
+CLOUD = "https://api.deepseek.com/v1/chat/completions"
+
+
+def test_cloud_probe_rejects_incomplete_input():
+    assert model_setup.test_cloud("", "m", "k")["code"] == "no_url"
+    assert model_setup.test_cloud(CLOUD, "", "k")["code"] == "no_model"
+    assert model_setup.test_cloud(CLOUD, "m", "")["code"] == "no_key"
+
+
+def test_cloud_probe_success(monkeypatch):
+    monkeypatch.setattr("core.net_guard.get_net_guard",
+                        lambda *_a, **_k: _AllowGuard())
+    monkeypatch.setattr(
+        model_setup, "safe_open_url",
+        lambda *_a, **_k: _Resp('{"choices":[{"message":{"content":"pong"}}]}'))
+    r = model_setup.test_cloud(CLOUD, "deepseek-chat", "sk-test")
+    assert r["ok"] is True
+    assert r["code"] == "ok"
+    assert "deepseek-chat" in r["message"]
+
+
+def test_cloud_probe_401_tells_user_the_key_is_wrong(monkeypatch):
+    monkeypatch.setattr("core.net_guard.get_net_guard",
+                        lambda *_a, **_k: _AllowGuard())
+
+    def _boom(*_a, **_k):
+        raise urllib.error.HTTPError(CLOUD, 401, "Unauthorized", {}, None)
+
+    monkeypatch.setattr(model_setup, "safe_open_url", _boom)
+    r = model_setup.test_cloud(CLOUD, "deepseek-chat", "sk-bad")
+    assert r["ok"] is False
+    assert r["code"] == "http_401"
+    assert "Key" in r["message"]
+
+
+def test_cloud_probe_network_error_is_readable(monkeypatch):
+    monkeypatch.setattr("core.net_guard.get_net_guard",
+                        lambda *_a, **_k: _AllowGuard())
+
+    def _boom(*_a, **_k):
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr(model_setup, "safe_open_url", _boom)
+    r = model_setup.test_cloud(CLOUD, "deepseek-chat", "sk-test")
+    assert r["ok"] is False
+    assert r["code"] == "network"
+    assert "连不上" in r["message"]
+
+
+def test_cloud_probe_respects_network_policy(monkeypatch):
+    monkeypatch.setattr("core.net_guard.get_net_guard",
+                        lambda *_a, **_k: _DenyGuard())
+    r = model_setup.test_cloud(CLOUD, "deepseek-chat", "sk-test")
+    assert r["ok"] is False
+    assert r["code"] == "net_denied"
+    assert "白名单" in r["message"]
+
+
+def test_cloud_probe_flags_non_chat_response(monkeypatch):
+    monkeypatch.setattr("core.net_guard.get_net_guard",
+                        lambda *_a, **_k: _AllowGuard())
+    monkeypatch.setattr(model_setup, "safe_open_url",
+                        lambda *_a, **_k: _Resp('{"error":{"message":"model not found"}}'))
+    r = model_setup.test_cloud(CLOUD, "wrong-model", "sk-test")
+    assert r["ok"] is False
+    assert r["code"] == "bad_response"
+    assert "model not found" in r["message"]

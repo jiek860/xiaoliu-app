@@ -175,6 +175,52 @@ def test_computer_agent_dialog_constructs():
         assert d.windowTitle() == "电脑 Agent"
         assert d.plan_btn.isEnabled()
         assert not d.run_btn.isEnabled()
+        assert hasattr(d.output, "appendPlainText"), \
+            "输出框必须是 QPlainTextEdit，否则点「生成计划」直接 AttributeError"
+    finally:
+        d.close()
+
+
+def test_computer_plan_error_is_shown_and_does_not_unlock_run():
+    from tests.conftest import make_trunk
+    from gui.computer_agent_dialog import ComputerAgentDialog
+    d = ComputerAgentDialog(make_trunk())
+    try:
+        d.plan_btn.setEnabled(False)
+        d._on_plan({"ok": False, "error": "模型没配好"})
+        assert "模型没配好" in d.output.toPlainText()
+        assert d.plan_btn.isEnabled() is True
+        assert d.run_btn.isEnabled() is False
+    finally:
+        d.close()
+
+
+def test_computer_plan_preview_shows_screen_and_warns_high_risk(tmp_path):
+    """执行前先看见"要动的屏幕"，并标出高风险动作。"""
+    from PyQt5.QtGui import QPixmap
+    from tests.conftest import make_trunk
+    from gui.computer_agent_dialog import ComputerAgentDialog
+
+    png = tmp_path / "shot.png"
+    pm = QPixmap(8, 8)
+    pm.fill()
+    assert pm.save(str(png))
+
+    d = ComputerAgentDialog(make_trunk())
+    try:
+        d._on_plan({
+            "ok": True,
+            "actions": [{"type": "open_app", "args": {"name": "notepad"},
+                         "risk": "high"}],
+            "snapshot": {"active_window": "记事本", "elements": 3,
+                         "screenshot": str(png)},
+        })
+        txt = d.output.toPlainText()
+        assert "记事本" in txt
+        assert "高风险" in txt
+        assert d.run_btn.isEnabled() is True
+        assert d.timeline.shot.pixmap() is not None
+        assert not d.timeline.shot.pixmap().isNull()
     finally:
         d.close()
 

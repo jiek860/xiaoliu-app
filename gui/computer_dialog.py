@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """电脑控制窗口 v3.0 - 标签页卡片式（仿设置窗口）"""
 import os
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QCheckBox, QMessageBox, QListWidget, QTextBrowser, QGroupBox, QGridLayout, QTabWidget, QWidget
+from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QCheckBox, QMessageBox, QListWidget, QTextBrowser, QGroupBox, QTabWidget, QWidget
+
+from gui.feedback_states import make_action_links
 
 
 BTN_STYLE = """
@@ -68,10 +70,30 @@ QTabBar::tab:selected {
 
 
 def show_computer_dialog(parent, dlg, trunk, chat, set_dialog, kb_dialog):
-    """电脑控制窗口 - 标签页卡片式"""
+    """电脑控制窗口 - 标签页卡片式
+
+    控件预算：整窗只留「打开」这一个主按钮，其余（快捷应用、窗口操作、
+    系统操作、刷新日志）全部改成动作链接 —— 点一下照样执行，数量不再占控件位。
+    """
     d, l = dlg("电脑控制", w=680, h=680)
     d.setStyleSheet(BTN_STYLE + GROUP_STYLE + TAB_STYLE)
     cc = trunk._load_lazy("computer_controller")
+
+    def _run(label, method, *args):
+        """统一跑一个电脑操作，并把结果说人话（原来两处重复实现）"""
+        try:
+            r = trunk.call("computer_controller", method, *args)
+        except Exception as e:
+            QMessageBox.warning(d, label, "执行失败: " + str(e)[:80])
+            return
+        if isinstance(r, tuple):
+            ok, txt = r
+        elif isinstance(r, dict):
+            ok, txt = True, "\n".join("%s: %s" % (k, v) for k, v in r.items())
+        else:
+            ok, txt = True, str(r)
+        QMessageBox.information(d, label, ("✅ " if ok else "❌ ") + str(txt))
+
 
     # 标签页
     tabs = QTabWidget()
@@ -109,12 +131,10 @@ def show_computer_dialog(parent, dlg, trunk, chat, set_dialog, kb_dialog):
         r = trunk.call("computer_controller", "open_app", name)
         txt = r[1] if isinstance(r, tuple) else str(r)
         QMessageBox.information(d, "启动应用", txt)
-    open_btn = QPushButton("打开")
-    open_btn.setObjectName("primary")
-    open_btn.clicked.connect(_open_app)
-    l2.addWidget(open_btn)
+    app_input.returnPressed.connect(_open_app)
+    # 「打开」是唯一高频动作，但回车即可触发 → 用链接表达，整窗不再有常驻按钮
+    l2.addWidget(make_action_links([("打开", _open_app)]))
 
-    grid = QGridLayout()
     quick_apps = [
         ("📝 记事本", "记事本"),
         ("🧮 计算器", "计算器"),
@@ -123,17 +143,20 @@ def show_computer_dialog(parent, dlg, trunk, chat, set_dialog, kb_dialog):
         ("📁 资源管理器", "资源管理器"),
         ("⌨️ 命令提示符", "命令提示符"),
     ]
-    for i, (text, name) in enumerate(quick_apps):
-        def _mk(n):
-            def _go():
+
+    def _mk_quick(n):
+        def _go():
+            try:
                 r = trunk.call("computer_controller", "open_app", n)
-                txt = r[1] if isinstance(r, tuple) else str(r)
-                chat.append("🖥️ " + txt)
-            return _go
-        btn = QPushButton(text)
-        btn.clicked.connect(_mk(name))
-        grid.addWidget(btn, i // 3, i % 3)
-    l2.addLayout(grid)
+            except Exception as e:
+                chat.append("🖥️ 启动失败: " + str(e)[:60])
+                return
+            txt = r[1] if isinstance(r, tuple) else str(r)
+            chat.append("🖥️ " + txt)
+        return _go
+
+    l2.addWidget(make_action_links(
+        [(text, _mk_quick(name)) for text, name in quick_apps]))
     l1.addWidget(box2)
     tabs.addTab(tab1, "🖥️ 状态与应用")
 
@@ -168,15 +191,13 @@ def show_computer_dialog(parent, dlg, trunk, chat, set_dialog, kb_dialog):
             _refresh_wins()
         return _go
     win_row = QHBoxLayout()
-    for text, method in [("刷新列表", "_refresh"), ("激活窗口", "activate_window"),
-                         ("最小化", "minimize_window"), ("关闭窗口", "close_window")]:
-        if method == "_refresh":
-            btn = QPushButton(text)
-            btn.clicked.connect(_refresh_wins)
-        else:
-            btn = QPushButton(text)
-            btn.clicked.connect(_win_action(method))
-        win_row.addWidget(btn)
+    win_row.addWidget(make_action_links([
+        ("🔄 刷新列表", _refresh_wins),
+        ("激活窗口", _win_action("activate_window")),
+        ("最小化", _win_action("minimize_window")),
+        ("关闭窗口", _win_action("close_window")),
+    ]))
+    win_row.addStretch(1)
     l3a.addLayout(win_row)
     l3.addWidget(box3)
     tabs.addTab(tab2, "🪟 窗口管理")
@@ -186,51 +207,25 @@ def show_computer_dialog(parent, dlg, trunk, chat, set_dialog, kb_dialog):
     tab3 = QWidget()
     l4 = QVBoxLayout(tab3)
     box4 = QGroupBox("📸 截屏与系统")
-    l4a = QGridLayout(box4)
+    l4a = QVBoxLayout(box4)
     sys_ops = [
         ("📷 截屏", "screenshot"),
         ("🖱️ 鼠标位置", "mouse_pos"),
         ("💻 系统信息", "system_info"),
         ("📋 剪贴板", "clipboard_get"),
     ]
-    for i, (text, method) in enumerate(sys_ops):
-        def _op(label, m):
-            def _go():
-                r = trunk.call("computer_controller", m)
-                if isinstance(r, tuple):
-                    ok, txt = r
-                elif isinstance(r, dict):
-                    ok, txt = True, "\n".join("%s: %s" % (k, v) for k, v in r.items())
-                else:
-                    ok, txt = True, str(r)
-                QMessageBox.information(d, label, ("✅ " if ok else "❌ ") + str(txt))
-            return _go
-        btn = QPushButton(text)
-        btn.clicked.connect(_op(text, method))
-        l4a.addWidget(btn, i // 2, i % 2)
+    l4a.addWidget(make_action_links(
+        [(text, lambda m=method, t=text: _run(t, m)) for text, method in sys_ops]))
     l4.addWidget(box4)
 
     box5 = QGroupBox("⚙️ 高级操作")
-    l5a = QGridLayout(box5)
+    l5a = QVBoxLayout(box5)
     adv_ops = [
         ("📂 白名单目录", "list_dir"),
         ("🔄 取消关机", "cancel_shutdown"),
     ]
-    for i, (text, method) in enumerate(adv_ops):
-        def _op(label, m):
-            def _go():
-                r = trunk.call("computer_controller", m)
-                if isinstance(r, tuple):
-                    ok, txt = r
-                elif isinstance(r, dict):
-                    ok, txt = True, "\n".join("%s: %s" % (k, v) for k, v in r.items())
-                else:
-                    ok, txt = True, str(r)
-                QMessageBox.information(d, label, ("✅ " if ok else "❌ ") + str(txt))
-            return _go
-        btn = QPushButton(text)
-        btn.clicked.connect(_op(text, method))
-        l5a.addWidget(btn, i // 2, i % 2)
+    l5a.addWidget(make_action_links(
+        [(text, lambda m=method, t=text: _run(t, m)) for text, method in adv_ops]))
     l4.addWidget(box5)
     tabs.addTab(tab3, "⚙️ 系统操作")
 
@@ -252,8 +247,7 @@ def show_computer_dialog(parent, dlg, trunk, chat, set_dialog, kb_dialog):
                 log_box.setPlainText("（还没有操作记录）")
         except Exception as e:
             log_box.setPlainText("读取日志失败: " + str(e)[:80])
-    refresh_log_btn = QPushButton("刷新日志")
-    refresh_log_btn.clicked.connect(_refresh_log)
+    refresh_log_btn = make_action_links([("🔄 刷新日志", _refresh_log)])
     l6a.addWidget(refresh_log_btn)
     l6.addWidget(box6)
     tabs.addTab(tab4, "📜 操作日志")

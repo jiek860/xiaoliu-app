@@ -395,6 +395,12 @@ class JarvisWindow(
             from gui.onboarding_wizard import needs_onboarding, show_onboarding
             if needs_onboarding(self.trunk):
                 show_onboarding(self.trunk, self)
+                # 刚配好模型，空状态卡还写着"模型还没配置好"就自相矛盾了：
+                # 关闭向导后立刻按最新配置重算引导卡（不重算要等第一次聊天）。
+                try:
+                    self._refresh_guidance()
+                except Exception as e:  # 静默是故意的
+                    _x6_swallowed(__name__, e, "refresh guidance after onboarding")
                 try:
                     from core import startup_consent as _sc
                     _sc.grant(getattr(self, "base", "."), "onboarding",

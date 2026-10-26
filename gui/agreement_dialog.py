@@ -12,6 +12,8 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 
+from gui.feedback_states import make_action_links
+
 
 class AgreementDialog(QDialog):
     """隐私政策 + 用户协议确认对话框"""
@@ -69,20 +71,19 @@ class AgreementDialog(QDialog):
 
         layout.addWidget(tabs, stretch=1)
 
-        # 复选框
-        self.cb_privacy = QCheckBox("我已阅读并同意《隐私政策》")
+        # 复选框：两份协议合并勾一次。原来两个勾选框并排，
+        # 用户要点两下才能继续，且「请勾选以上两项」得来回看。
+        # 两份协议本身在标签页里都能点开读完，勾选只是"我读过了"的声明。
+        self.cb_privacy = QCheckBox("我已阅读并同意《用户协议》和《隐私政策》")
         self.cb_privacy.setStyleSheet("font-size:13px;")
         layout.addWidget(self.cb_privacy)
-
-        self.cb_terms = QCheckBox("我已阅读并同意《用户协议》")
-        self.cb_terms.setStyleSheet("font-size:13px;")
-        layout.addWidget(self.cb_terms)
+        # 兼容旧属性名（老代码/测试可能还按 cb_terms 取）
+        self.cb_terms = self.cb_privacy
 
         self.cb_privacy.stateChanged.connect(self._update_buttons)
-        self.cb_terms.stateChanged.connect(self._update_buttons)
 
         # 提示
-        self.hint = QLabel("请勾选以上两项后点击「同意并继续」")
+        self.hint = QLabel("请勾选上方复选框后点击「同意并继续」")
         self.hint.setStyleSheet("color:#c00;font-size:12px;padding:4px;")
         layout.addWidget(self.hint)
 
@@ -90,14 +91,10 @@ class AgreementDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
 
-        self.btn_disagree = QPushButton("不同意并退出")
-        self.btn_disagree.setStyleSheet(
-            "padding:8px 20px;background:#f5f5f5;color:#333;"
-            "border:1px solid #ddd;border-radius:6px;font-size:13px;"
-        )
-        self.btn_disagree.clicked.connect(self._on_disagree)
-        btn_row.addWidget(self.btn_disagree)
-
+        # 「不同意并退出」是低频负向出口 → 链接；正向的「同意并继续」才是主按钮
+        btn_row.addWidget(make_action_links([
+            ("不同意并退出", self._on_disagree),
+        ]))
         self.btn_agree = QPushButton("同意并继续")
         self.btn_agree.setStyleSheet(
             "padding:8px 20px;background:#4a9eff;color:white;"
@@ -116,7 +113,7 @@ class AgreementDialog(QDialog):
             self.hint.setText("✅ 已勾选，可以点击「同意并继续」")
             self.hint.setStyleSheet("color:#16a34a;font-size:12px;padding:4px;")
         else:
-            self.hint.setText("请勾选以上两项后点击「同意并继续」")
+            self.hint.setText("请勾选上方复选框后点击「同意并继续」")
             self.hint.setStyleSheet("color:#c00;font-size:12px;padding:4px;")
 
     def _on_agree(self):

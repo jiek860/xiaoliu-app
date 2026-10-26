@@ -136,3 +136,7 @@ _pe*.py
 _p*.py
 _cov*.json
 _v21*.json
+
+# Trae 工作区（本地会话草稿，不入库）
+.trae/
+

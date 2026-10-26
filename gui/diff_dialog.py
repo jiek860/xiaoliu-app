@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """多文件 diff 审批窗口。"""
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.patch_engine import apply_patch, unified_diff, validate_patch
+from gui.feedback_states import make_action_links
 
 
 class DiffReviewDialog(QDialog):
@@ -69,9 +70,7 @@ class DiffReviewDialog(QDialog):
 
         row = QHBoxLayout()
         row.addStretch(1)
-        cancel = QPushButton("取消")
-        cancel.clicked.connect(self.reject)
-        row.addWidget(cancel)
+        row.addWidget(make_action_links([("取消", self.reject)]))
         apply = QPushButton("应用选中修改" if self.apply_on_accept else "批准这些修改")
         apply.setStyleSheet(
             "background:#4a9eff;color:white;border:none;border-radius:8px;"

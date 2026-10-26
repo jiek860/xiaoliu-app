@@ -200,6 +200,45 @@ def test_subscribe_receives_events(tmp_path):
     assert "created" in seen
 
 
+def test_unsubscribe_stops_events_and_reports_repeat(tmp_path):
+    """对话框关闭必须能注销订阅，否则订阅列表只增不减。"""
+    rt = _rt(tmp_path)
+    seen = []
+    cb = lambda *a: seen.append(a)        # noqa: E731
+    rt.subscribe(cb)
+    assert rt.unsubscribe(cb) is True
+    assert rt.unsubscribe(cb) is False    # 第二次注销无事发生
+    rt.create("没有订阅")
+    assert seen == []
+
+
+def test_plan_async_reports_done_from_worker(tmp_path):
+    """拆步走后台线程；完成后回调 (task_id, ok)。"""
+    rt = _rt(tmp_path)
+    tid = rt.create("异步拆步")["id"]
+    done = []
+    th = rt.plan_async(tid, lambda t, ok: done.append((t, ok)))
+    th.join(10)
+    assert done == [(tid, True)]
+    assert len(rt.get_task(tid)["steps"]) == 2
+
+
+def test_plan_async_missing_task_reports_failure(tmp_path):
+    rt = _rt(tmp_path)
+    done = []
+    rt.plan_async("task_nope", lambda t, ok: done.append((t, ok))).join(10)
+    assert done == [("task_nope", False)]
+
+
+def test_plan_async_survives_callback_error(tmp_path):
+    """回调抛异常不能把拆步线程搞崩（也不影响任务本身）。"""
+    rt = _rt(tmp_path)
+    tid = rt.create("回调会炸")["id"]
+    th = rt.plan_async(tid, lambda *a: (_ for _ in ()).throw(RuntimeError("boom")))
+    th.join(10)
+    assert len(rt.get_task(tid)["steps"]) == 2
+
+
 def test_idempotency_key_ignores_arg_order(tmp_path):
     rt = _rt(tmp_path)
     a = {"a": 1, "b": [2, 3]}

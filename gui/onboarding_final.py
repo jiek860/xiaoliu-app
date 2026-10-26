@@ -34,8 +34,53 @@ class OnboardingFinalMixin:
         except Exception as e:
             QMessageBox.warning(self, "保存失败", str(e)[:120])
             return
+        self._reload_llm_config()
         self._refresh_local_status()
         self._show_result()
+
+    def _reload_llm_config(self):
+        """保存后热加载。
+
+        不重载的话，启动时创建的 LLMClient 还拿着**旧配置**：用户刚在向导里
+        填好 Key，第一次聊天仍然报错，看起来像"向导没生效"，只能重启程序。
+        设置页保存时已经这么做了（dialog_mixin），向导这边原来漏了。
+        """
+        try:
+            llm = (getattr(self.trunk, "modules", None) or {}).get("llm")
+            if llm is not None and hasattr(llm, "reload_config"):
+                llm.reload_config()
+        except Exception as e:
+            _x6_swallowed(__name__, e, "reload llm config after onboarding")
+
+    def _pending_config(self):
+        """用户在向导里填了、但还没点「保存并检测」的配置。
+
+        返回 "cloud" / "local" / ""。
+        为什么需要：很多人填完模型名直接点「完成」，配置没落盘，
+        下次启动还是"没配好" —— 填了就等于要用，不该要求先点保存。
+        """
+        cfg = getattr(self.trunk, "config", None) or {}
+        if self.rb_cloud.isChecked():
+            url = self.ed_cloud_url.text().strip()
+            model = self.ed_cloud_model.text().strip()
+            key = self.ed_cloud_key.text().strip()
+            if not (url and model and key):
+                return ""
+            if (str(cfg.get("model_mode", "")) != "云端模型"
+                    or str(cfg.get("cloud_url", "") or "") != url
+                    or str(cfg.get("cloud_model", "") or "") != model
+                    or not str(cfg.get("cloud_key", "") or "")):
+                return "cloud"
+            return ""
+        url = self.ed_ollama.text().strip() or model_setup.DEFAULT_OLLAMA
+        model = _model_text(self.ed_local_model)
+        if not model:
+            return ""
+        if (str(cfg.get("model_mode", "")) != "本地模型"
+                or str(cfg.get("ollama_url", "") or "") != url
+                or str(cfg.get("local_model", "") or "") != model):
+            return "local"
+        return ""
 
     def _show_result(self):
         try:
@@ -92,4 +137,10 @@ class OnboardingFinalMixin:
         super().reject()
 
     def _save_and_note(self):
+        """收尾：填了但没保存的配置先落盘，再写「已引导」标记。"""
+        try:
+            if self._pending_config():
+                self._save_and_check()
+        except Exception as e:
+            _x6_swallowed(__name__, e, "apply pending onboarding config")
         mark_done(self.trunk)

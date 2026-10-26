@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import (
 
 from core.feature_registry import SIMPLE, ADVANCED, is_visible, primary_features
 from gui.chrome import attach_status_meta, build_main_tabs
+from gui.feedback_states import make_action_links
 from gui.ui_mode import normalize_mode
 
 
@@ -174,22 +175,16 @@ def _build_sidebar(win):
     av.addWidget(QLabel(
         "<span style='color:#888;font-size:11px;'>高级功能</span>"))
 
-    def _adv_btn(attr, text, tip, fn):
-        b = QPushButton(text)
-        b.setToolTip(tip)
-        b.setStyleSheet(
-            "QPushButton{background:transparent;color:#333;border:none;"
-            "padding:7px 8px;border-radius:8px;font-size:12px;text-align:left;}"
-            "QPushButton:hover{background:#f0f5ff;color:#1976d2;}")
-        b.clicked.connect(fn)
-        setattr(win, attr, b)
-        av.addWidget(b)
-        return b
-
-    _adv_btn("task_center_btn", "🧭  任务中心", "统一任务页面",
-             win.open_task_center)
-    _adv_btn("command_palette_btn", "⌘  命令面板", "Ctrl+K / 搜索全部功能",
-             win.command_palette)
+    # 两个常驻入口做成链接：侧栏本来就窄，按钮会跟会话列表抢高度。
+    # attr 仍挂在同一个 label 上，外部按老名字拿得到控件（可见性开关照旧）。
+    _adv_link = make_action_links([
+        ("🧭 任务中心", win.open_task_center),
+        ("⌘ 命令面板", win.command_palette),
+    ], separator="   ")
+    _adv_link.setToolTip("任务中心 / 命令面板（Ctrl+K 搜索全部功能）")
+    win.task_center_btn = _adv_link
+    win.command_palette_btn = _adv_link
+    av.addWidget(_adv_link)
     _hint = QLabel(
         "<span style='color:#98a2b3;font-size:11px;'>"
         "安全中心 / 插件 / MCP / 记忆 / 日志 已收进右上角「更多」</span>")
@@ -280,13 +275,17 @@ def _build_chat(win):
     cards_row = QHBoxLayout()
     win.guide_cards = []
     for i in range(3):
-        b = QPushButton("")
+        # 引导卡是"点一下走下一步"，不需要按钮外观 → 用整块带链接的 QLabel，
+        # 这样侧栏/首屏不会因为三张卡片多出三个按钮。
+        b = QLabel("")
         b.setMinimumHeight(64)
+        b.setWordWrap(True)
+        b.setTextFormat(Qt.RichText)
+        b.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         b.setStyleSheet(
-            "QPushButton{background:white;border:1px solid #e1e8f2;"
-            "border-radius:10px;padding:10px;text-align:left;font-size:13px;}"
-            "QPushButton:hover{border-color:#4a9eff;background:#f5f9ff;}")
-        b.clicked.connect(lambda _checked=False, idx=i: win._run_guide_card(idx))
+            "QLabel{background:white;border:1px solid #e1e8f2;"
+            "border-radius:10px;padding:10px;font-size:13px;}")
+        b.linkActivated.connect(lambda _l, idx=i: win._run_guide_card(idx))
         cards_row.addWidget(b, 1)
         win.guide_cards.append(b)
     el.addLayout(cards_row)

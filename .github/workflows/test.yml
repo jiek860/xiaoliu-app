@@ -1,4 +1,4 @@
-﻿name: CI Full Test
+name: CI Full Test
 
 on:
   push:
@@ -68,11 +68,16 @@ jobs:
       - name: Test and coverage gate
         run: |
           python -m coverage run --source=core,gui,modules -m pytest tests/ -x -vv --timeout=120 --timeout-method=thread
-          python -m coverage report --fail-under=58
+          python -m coverage report --fail-under=60
           python -m coverage xml -o coverage.xml
           python -m coverage json -o coverage.json
           python tools/check_coverage_thresholds.py --coverage coverage.json
           python tools/check_diff_coverage.py --coverage coverage.json --base origin/main --require-base
+      - name: Agent regression baseline (20 fixed samples)
+        run: python tools/run_eval.py --out data/eval_result.json
+      - name: Performance baseline (report only)
+        run: python tools/perf_baseline.py --check --tolerance 0.10 --warn-only --json-out data/perf_current.json
+        continue-on-error: true
       - name: Agent E2E
         run: python tools/run_agent_e2e.py
       - name: Guard checks
@@ -80,6 +85,7 @@ jobs:
           python tools/check_shapes.py
           python tools/check_version.py
           python tools/check_buttons.py
+          python tools/check_feature_freeze.py
           python tools/check_tools.py
           python tools/check_threads.py
           python tools/check_silent.py
@@ -100,6 +106,8 @@ jobs:
           path: |
             coverage.xml
             coverage.json
+            data/eval_result.json
+            data/perf_current.json
           if-no-files-found: error
           retention-days: 14
 

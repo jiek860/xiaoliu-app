@@ -63,19 +63,33 @@ class PermissionCenter:
             return False
 
     def lockdown(self, enabled=True):
+        """紧急锁定/解除。
+
+        落盘失败必须说出来：只在内存里 locked=True 的话，重启后锁定自动解除，
+        用户以为"已经全停了"其实没有。返回 ok=False 并附原因。
+        """
         self.locked = bool(enabled)
+        saved = True
+        err = ""
         try:
             tmp = self.lock_path + ".tmp"
-            json.dump({"locked": self.locked, "time": time.time()},
-                      open(tmp, "w", encoding="utf-8"))
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"locked": self.locked, "time": time.time()}, f)
             os.replace(tmp, self.lock_path)
         except Exception as e:
-            _x6_swallowed(__name__, e, "best-effort fallback")  # 静默是故意的 - defensive fallback
+            saved = False
+            err = str(e)[:120]
+            # 静默是故意的：这里已经把失败返回给调用方了，不需要再抛
+            _x6_swallowed(__name__, e, "lockdown persist")
         self.audit.append({"subject": "system:lockdown",
                            "decision": "allow" if not enabled else "deny",
                            "result": "locked" if enabled else "unlocked",
-                           "reason": "紧急停止"})
-        return {"ok": True, "locked": self.locked}
+                           "reason": "紧急停止" + ("" if saved else "（落盘失败）")})
+        out = {"ok": saved, "locked": self.locked}
+        if not saved:
+            out["error"] = ("锁定状态没能写进 " + self.lock_path
+                            + "，重启后会失效：" + err)
+        return out
 
     def _match(self, subject):
         now = time.time()
@@ -216,8 +230,11 @@ class PermissionCenter:
                 if not isinstance(constraints, dict):
                     return {"ok": False, "error": "constraints 必须是对象"}
                 r["constraints"] = dict(constraints)
-                if r in self.rules:
-                    self._save()
+                if r in self.rules and not self._save():
+                    # 没写进文件 = 重启后规则又变回旧的，必须告诉用户
+                    return {"ok": False,
+                            "error": "规则已改但没能写进 " + self.path
+                                     + "（检查目录权限后重试）"}
                 self.audit.append({
                     "subject": "system:permission",
                     "decision": "allow", "result": "constraints_updated",
@@ -233,7 +250,15 @@ class PermissionCenter:
                                if r.get("id") != rule_id]
         changed = len(self.rules) < before or had_session
         if changed:
-            self._save()
+            if not self._save():
+                # 内存里删了、文件里没删 —— 重启后权限会"复活"，不能说成功。
+                # 这里把内存恢复成文件里的样子，避免"界面看不见、实际还在"。
+                self.rules = self._load()
+                self.audit.append({"subject": "system:permission",
+                                   "decision": "deny",
+                                   "result": "revoke_save_failed",
+                                   "reason": str(rule_id)[:80]})
+                return False
         self.audit.append({"subject": "system:permission",
                            "decision": "deny", "result": "revoked",
                            "reason": str(rule_id)[:80]})

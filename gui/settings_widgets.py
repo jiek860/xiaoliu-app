@@ -2,8 +2,10 @@
 """设置窗口公共小组件。"""
 from __future__ import annotations
 
-from PyQt5.QtWidgets import (QLabel, QPushButton, QWidget, QVBoxLayout,
+from PyQt5.QtWidgets import (QLabel, QWidget, QVBoxLayout,
                              QScrollArea, QMessageBox, QListWidget)
+
+from gui.feedback_states import make_action_links
 
 
 def make_category_nav(tabs, width=136):
@@ -28,29 +30,35 @@ def make_category_nav(tabs, width=136):
     return nav
 
 
-def make_open_button(dialog, commands, icon, name, desc, key=None):
-    b = QPushButton("%s  %s" % (icon, name))
-    b.setToolTip(desc)
-    b.setMinimumHeight(34)
+def make_open_link(dialog, commands, icon, name, desc, key=None):
+    """设置页里的低频入口：用链接而不是按钮。
+
+    以前这里是 QPushButton，设置页 25 个入口就是 25 个全宽按钮 ——
+    一屏全是按钮，用户根本不知道该点哪个。链接表达能力一样，
+    还能把按钮预算留给真正的主操作。
+    """
     want = key if key is not None else name
     fn = commands.get(want)
     if not callable(fn):
-        b.setEnabled(False)
-        b.setToolTip("这个功能在当前版本不可用（没找到入口：%s）" % want)
-        return b
+        lab = QLabel("%s  %s（当前版本不可用）" % (icon, name))
+        lab.setStyleSheet("color:#98a2b3;font-size:12px;")
+        lab.setToolTip("这个功能在当前版本不可用（没找到入口：%s）" % want)
+        return lab
 
-    def _go(_checked=False, f=fn, n=name):
+    def _go():
         try:
             dialog.close()
         except Exception as e:
             from core.diagnostics import swallowed
             swallowed(__name__, e)
         try:
-            f()
+            fn()
         except Exception as e:
-            QMessageBox.warning(None, n, "打开失败: %s" % str(e)[:80])
-    b.clicked.connect(_go)
-    return b
+            QMessageBox.warning(None, name, "打开失败: %s" % str(e)[:80])
+
+    lab = make_action_links([("%s  %s" % (icon, name), _go)])
+    lab.setToolTip(desc)
+    return lab
 
 
 def make_hint(text):

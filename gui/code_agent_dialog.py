@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """代码 Agent 对话框：目标 -> patch 预览审批 -> 应用 -> 跑测试。"""
 from __future__ import annotations
 
@@ -7,12 +7,13 @@ import os
 from PyQt5.QtCore import QThread, pyqtSignal, QObject
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QTextEdit, QFileDialog, QMessageBox,
+    QPlainTextEdit, QFileDialog, QMessageBox,
 )
 
 from core.code_agent import CodeAgent
 from gui.diff_dialog import DiffReviewDialog
 from gui.agent_timeline import AgentTimeline
+from gui.feedback_states import make_action_links
 
 
 class _EventBridge(QObject):
@@ -76,9 +77,7 @@ class CodeAgentDialog(QDialog):
         row = QHBoxLayout()
         self.root_edit = QLineEdit(self.root)
         row.addWidget(self.root_edit, 1)
-        choose = QPushButton("选择目录")
-        choose.clicked.connect(self._choose_root)
-        row.addWidget(choose)
+        row.addWidget(make_action_links([("📂 选择目录", self._choose_root)]))
         lay.addLayout(row)
 
         lay.addWidget(QLabel("目标："))
@@ -102,31 +101,28 @@ class CodeAgentDialog(QDialog):
         self.run_btn = QPushButton("生成修改预览")
         self.run_btn.clicked.connect(self._start)
         btns.addWidget(self.run_btn)
-        self.fix_btn = QPushButton("基于失败输出继续修复")
+        # 其余都是"有就点一下"的次要动作，做成链接，不再占按钮位
+        self.fix_btn = make_action_links(
+            [("🔧 基于失败输出继续修复", self._continue_fix)])
         self.fix_btn.hide()
-        self.fix_btn.clicked.connect(self._continue_fix)
         btns.addWidget(self.fix_btn)
-        self.pause_btn = QPushButton("暂停")
+        self.pause_btn = make_action_links([("⏸ 暂停 / 继续", self._toggle_pause)])
         self.pause_btn.setEnabled(False)
-        self.pause_btn.clicked.connect(self._toggle_pause)
         btns.addWidget(self.pause_btn)
-        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn = make_action_links([("✖ 取消任务", self._cancel)])
         self.cancel_btn.setEnabled(False)
-        self.cancel_btn.clicked.connect(self._cancel)
         btns.addWidget(self.cancel_btn)
-        self.rollback_btn = QPushButton("一键撤销")
+        self.rollback_btn = make_action_links(
+            [("↩ 一键撤销全部修改", self._rollback)])
         self.rollback_btn.setEnabled(False)
-        self.rollback_btn.clicked.connect(self._rollback)
         btns.addWidget(self.rollback_btn)
         btns.addStretch(1)
-        close = QPushButton("关闭")
-        close.clicked.connect(self.close)
-        btns.addWidget(close)
+        btns.addWidget(QLabel("Esc 关闭"))
         lay.addLayout(btns)
 
         self.timeline = AgentTimeline()
         lay.addWidget(self.timeline, 1)
-        self.output = QTextEdit()
+        self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
         self.output.setMaximumHeight(110)
         self.output.setStyleSheet(
@@ -175,7 +171,6 @@ class CodeAgentDialog(QDialog):
         self.cancel_btn.setEnabled(True)
         self.rollback_btn.setEnabled(False)
         self._paused = False
-        self.pause_btn.setText("暂停")
         self.timeline.set_status("正在分析项目并生成 patch", "running")
         self.output.appendPlainText("\n>>> 正在分析项目并生成 patch")
         self._worker = _PrepareWorker(self.agent, goal, previous_error)
@@ -207,12 +202,10 @@ class CodeAgentDialog(QDialog):
         if self._paused:
             self.agent.resume()
             self._paused = False
-            self.pause_btn.setText("暂停")
             self.timeline.set_status("继续执行", "running")
         else:
             self.agent.pause()
             self._paused = True
-            self.pause_btn.setText("继续")
             self.timeline.set_status("已暂停", "waiting")
 
     def _cancel(self):
@@ -227,7 +220,8 @@ class CodeAgentDialog(QDialog):
             QMessageBox.information(self, "撤销", "没有可撤销的修改")
             return
         r = self.agent.rollback_all(self._backups)
-        self.timeline.set_status("已撤销本次修改", "done")
+        self._backups = []
+        self.timeline.set_status("已撤销所有修改", "done")
         self.timeline.append_detail("回滚结果", "已恢复：%s" % (r.get("restored") or []))
         self.rollback_btn.setEnabled(False)
 
@@ -252,8 +246,11 @@ class CodeAgentDialog(QDialog):
         if not dlg.accepted:
             self.output.appendPlainText("[已取消] 未应用修改")
             return
-        self._backups = [((dlg.result or {}).get("backup_manifest"))] \
-            if (dlg.result or {}).get("backup_manifest") else []
+        manifest = (dlg.result or {}).get("backup_manifest")
+        if manifest:
+            # 累加而不是覆盖：界面上承诺"所有修改都可以一键撤销"，
+            # 连续几轮修复后一键撤销要把每一轮都回滚掉。
+            self._backups.append(manifest)
         self.rollback_btn.setEnabled(bool(self._backups))
         self.output.appendPlainText(
             "已应用文件：%s" % ", ".join(

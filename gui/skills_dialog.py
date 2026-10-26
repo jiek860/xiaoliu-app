@@ -11,6 +11,8 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QMessageBox, QMenu, QInputDialog)
 from PyQt5.QtCore import Qt
 
+from gui.feedback_states import make_action_links
+
 
 class SkillsDialog(QDialog):
     def __init__(self, trunk, parent=None):
@@ -31,13 +33,17 @@ class SkillsDialog(QDialog):
         lay.addWidget(self.list, stretch=1)
 
         row = QHBoxLayout()
-        row.addWidget(QPushButton("导入", clicked=self._import_skill))
-        row.addWidget(QPushButton("导出", clicked=self._export_skill))
         more = QPushButton("更多操作")
         more.clicked.connect(self._show_actions)
         row.addWidget(more)
+        # 导入 / 导出 / 关闭都是低频入口 → 链接，只留「更多操作」一个按钮
+        row.addWidget(make_action_links([
+            ("导入", self._import_skill),
+            ("导出", self._export_skill),
+            ("关闭", self.close),
+        ]))
         row.addStretch(1)
-        row.addWidget(QPushButton("关闭", clicked=self.close))
+        row.addWidget(QLabel("Esc 关闭"))
         lay.addLayout(row)
 
     def _show_actions(self):

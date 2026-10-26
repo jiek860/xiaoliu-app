@@ -13,7 +13,14 @@ r"""模型配置自检：判断现在到底能不能用起来，以及该怎么�
 """
 from core.safe_http import open_url as safe_open_url
 import json
+import urllib.error
 import urllib.request
+
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
 
 DEFAULT_OLLAMA = "http://localhost:11434"
 RECOMMENDED_LOCAL_MODEL = "qwen2.5:3b"
@@ -82,6 +89,87 @@ def probe_ollama(url=None, timeout=3):
     except Exception as e:
         out["error"] = str(e)[:100]
     return out
+
+
+def test_cloud(url=None, model=None, key=None, timeout=8):
+    """真的打一次最小请求，确认「地址 + 模型名 + Key」三者能用。
+
+    为什么需要它
+    ------------
+    check() 只看配置齐不齐：Key 填错一个字符，它照样返回 ready。
+    用户要到第一次聊天才发现 401，而那时看到的只是一句"出了点问题"。
+    首次配置里点一下「测试云端 Key」就能当场知道错在哪（401 / 404 / 超时）。
+
+    不抛异常、不打印 Key；返回 {ok, code, status, message}。
+    """
+    url = str(url or "").strip()
+    model = str(model or "").strip()
+    key = str(key or "").strip()
+    if not url:
+        return {"ok": False, "code": "no_url", "status": 0,
+                "message": "先填云端 API 地址（选上面的服务商会自动填）。"}
+    if not model:
+        return {"ok": False, "code": "no_model", "status": 0,
+                "message": "先填模型名，例如 glm-4-flash。"}
+    if not key:
+        return {"ok": False, "code": "no_key", "status": 0,
+                "message": "先填 API Key（在服务商后台申请）。"}
+
+    try:
+        from core.net_guard import get_net_guard
+        gate = get_net_guard(None).check(
+            url, module="model_setup", purpose="cloud_model", method="POST")
+        if not gate.get("allow"):
+            return {"ok": False, "code": "net_denied", "status": 0,
+                    "message": "网络策略拒绝了这次请求：%s（设置 → 安全中心 可加白名单）"
+                               % str(gate.get("reason") or "")}
+    except Exception as e:  # 静默是故意的：策略自身异常不该让测试入口失效
+        _x6_swallowed(__name__, e, "best-effort fallback")
+
+    payload = json.dumps({
+        "model": model,
+        "max_tokens": 8,
+        "messages": [{"role": "user", "content": "ping"}],
+    }).encode("utf-8")
+    req = urllib.request.Request(url, data=payload, method="POST", headers={
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + key,
+    })
+    try:
+        with safe_open_url(req, timeout=timeout) as r:
+            body = r.read().decode("utf-8", "replace")
+            status = int(getattr(r, "status", 200) or 200)
+    except urllib.error.HTTPError as e:
+        code = int(getattr(e, "code", 0) or 0)
+        hint = {
+            401: "Key 不对或已过期，去服务商后台重新复制一份。",
+            403: "这个 Key 没有该模型的权限，或账号被限制。",
+            404: "地址不对：要用服务商文档里 chat/completions 的完整地址。",
+            429: "请求太频繁或额度用完了，稍后再试或换个模型。",
+        }.get(code, "服务端返回 %d，检查地址和模型名。" % code)
+        return {"ok": False, "code": "http_%d" % code, "status": code,
+                "message": hint}
+    except Exception as e:  # 静默是故意的：超时/断网都归一成可读提示
+        return {"ok": False, "code": "network", "status": 0,
+                "message": "连不上：%s（检查网络/代理）" % str(e)[:80]}
+
+    try:
+        data = json.loads(body)
+    except Exception as e:  # 静默是故意的：部分网关会返回非 JSON
+        _x6_swallowed(__name__, e, "best-effort fallback")
+        data = {}
+    if isinstance(data, dict) and (data.get("choices") or data.get("output")):
+        return {"ok": True, "code": "ok", "status": status,
+                "message": "云端连通，模型「%s」可以正常回复。" % model}
+    err = ""
+    if isinstance(data, dict):
+        e = data.get("error")
+        if isinstance(e, dict):
+            err = str(e.get("message") or "")[:120]
+        elif e:
+            err = str(e)[:120]
+    return {"ok": False, "code": "bad_response", "status": status,
+            "message": "接口有响应，但不像正常回复：%s" % (err or body[:80])}
 
 
 def check(trunk, probe=True):

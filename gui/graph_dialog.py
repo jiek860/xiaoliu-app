@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """知识图谱窗口 - 三元组浏览/搜索/统计"""
 import os, json, io
-from PyQt5.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QTextBrowser
+from PyQt5.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QTextBrowser
 
 
 def show_graph_dialog(parent, dlg, trunk):
@@ -9,14 +9,11 @@ def show_graph_dialog(parent, dlg, trunk):
     d, l = dlg("🧠 知识图谱", w=780, h=620)
     top = QHBoxLayout()
     search = QLineEdit()
-    search.setPlaceholderText("搜索 主体 / 关系 / 客体...")
+    search.setPlaceholderText("搜索 主体 / 关系 / 客体（输入后按回车）")
     top.addWidget(search, stretch=1)
     st = QLabel("")
     st.setStyleSheet("font-weight:bold;color:#1e40af;font-size:12px;")
     top.addWidget(st)
-    sbtn = QPushButton("🔍 搜索")
-    sbtn.setStyleSheet("padding:6px 14px;")
-    top.addWidget(sbtn)
     l.addLayout(top)
     res = QTextBrowser()
     res.setReadOnly(True)
@@ -38,7 +35,6 @@ def show_graph_dialog(parent, dlg, trunk):
             res.setHtml('<div style="font-size:14px;">' + (''.join(rows) if rows else '<div style="color:#94a3b8">暂无三元组</div>') + '</div>')
         except Exception as e:
             res.setPlainText("读取失败: " + str(e)[:80])
-    sbtn.clicked.connect(lambda: load(search.text().strip()))
     search.returnPressed.connect(lambda: load(search.text().strip()))
     load()
     d.exec_()

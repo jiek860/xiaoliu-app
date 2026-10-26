@@ -10,13 +10,14 @@ from urllib.parse import parse_qs, quote
 from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QPushButton, QMessageBox, QSplitter,
+    QListWidgetItem, QMessageBox, QSplitter,
     QTextBrowser, QWidget,
 )
 
 from core.agent_harness import (
     ACTIVE_STATUSES, TERMINAL_STATUSES, get_run_registry, normalize_error,
 )
+from gui.feedback_states import make_action_links
 
 
 class _RunBridge(QObject):
@@ -88,19 +89,19 @@ class ActivityCenterDialog(QDialog):
         root.addWidget(split, 1)
 
         actions = QHBoxLayout()
-        for text, fn in (("打开任务中心", self._open_task),
-                         ("暂停", self._pause),
-                         ("继续", self._resume),
-                         ("取消", self._cancel),
-                         ("清理已结束", self._clear_finished),
-                         ("刷新", self._refresh)):
-            b = QPushButton(text)
-            b.clicked.connect(fn)
-            actions.addWidget(b)
+        # 动作行用链接表达：活动中心是「看」的窗口，操作是次要入口。
+        actions.addWidget(make_action_links([
+            ("打开任务中心", self._open_task),
+            ("暂停", self._pause),
+            ("继续", self._resume),
+            ("取消", self._cancel),
+            ("清理已结束", self._clear_finished),
+            ("刷新", self._refresh),
+        ]))
         actions.addStretch(1)
-        close = QPushButton("关闭")
-        close.clicked.connect(self.close)
-        actions.addWidget(close)
+        hint = QLabel("Esc 关闭")
+        hint.setStyleSheet("color:#667085;font-size:11px;")
+        actions.addWidget(hint)
         root.addLayout(actions)
 
     def _run_rows(self):

@@ -1,16 +1,17 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """电脑 Agent 对话框：目标 -> LLM 跨应用计划 -> 确认 -> 执行/验证。"""
 from __future__ import annotations
 
 from PyQt5.QtCore import QThread, pyqtSignal, QObject
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QTextEdit, QMessageBox,
+    QPlainTextEdit, QMessageBox,
 )
 
 from core.action_schema import action_summary
 from core.computer_agent import ComputerAgent
 from gui.agent_timeline import AgentTimeline
+from gui.feedback_states import make_action_links
 
 
 class _EventBridge(QObject):
@@ -83,30 +84,28 @@ class ComputerAgentDialog(QDialog):
         self.run_btn.setEnabled(False)
         self.run_btn.clicked.connect(self._run)
         row.addWidget(self.run_btn)
-        self.pause_btn = QPushButton("暂停")
+        self.pause_btn = make_action_links(
+            [("⏸ 暂停 / 继续", self._toggle_pause)])
         self.pause_btn.setEnabled(False)
-        self.pause_btn.clicked.connect(self._toggle_pause)
         row.addWidget(self.pause_btn)
-        self.takeover_btn = QPushButton("人工接管")
+        self.takeover_btn = make_action_links(
+            [("🖐 人工接管", self._takeover)])
         self.takeover_btn.setEnabled(False)
-        self.takeover_btn.clicked.connect(self._takeover)
         row.addWidget(self.takeover_btn)
-        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn = make_action_links([("✖ 取消任务", self._cancel)])
         self.cancel_btn.setEnabled(False)
-        self.cancel_btn.clicked.connect(self._cancel)
         row.addWidget(self.cancel_btn)
-        self.rollback_btn = QPushButton("一键撤销")
+        self.rollback_btn = make_action_links(
+            [("↩ 一键撤销文件操作", self._rollback)])
         self.rollback_btn.setEnabled(False)
-        self.rollback_btn.clicked.connect(self._rollback)
         row.addWidget(self.rollback_btn)
         row.addStretch(1)
-        close = QPushButton("关闭")
-        close.clicked.connect(self.close)
-        row.addWidget(close)
+        # 关闭交给 Esc / 右上角：又多一个"关闭"按钮只会挤掉主操作。
+        row.addWidget(QLabel("Esc 关闭"))
         lay.addLayout(row)
         self.timeline = AgentTimeline()
         lay.addWidget(self.timeline, 1)
-        self.output = QTextEdit()
+        self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
         self.output.setMaximumHeight(110)
         self.output.setStyleSheet(
@@ -146,6 +145,14 @@ class ComputerAgentDialog(QDialog):
                 "  %d. [%s] %s" % (i, a.get("risk", "?"),
                                    action_summary(a)))
         self.run_btn.setEnabled(bool(self.actions))
+        # 让人先看见"要动的那个屏幕"再决定执行：高风险动作光看文字不够。
+        shot = snap.get("screenshot")
+        if shot:
+            self.timeline.show_screenshot(shot)
+        high = [a for a in self.actions if a.get("risk") == "high"]
+        if high:
+            self.output.appendPlainText(
+                "⚠ 其中 %d 个是高风险动作，执行前会再确认一次" % len(high))
 
     def _run(self):
         if not self.actions:
@@ -165,7 +172,6 @@ class ComputerAgentDialog(QDialog):
         self.cancel_btn.setEnabled(True)
         self.rollback_btn.setEnabled(False)
         self._paused = False
-        self.pause_btn.setText("暂停")
         self.timeline.set_status("开始执行电脑任务", "running")
         self._worker = _RunWorker(self.agent, self.actions,
                                   self.goal.text().strip())
@@ -200,21 +206,18 @@ class ComputerAgentDialog(QDialog):
         if self._paused:
             self.agent.resume()
             self._paused = False
-            self.pause_btn.setText("暂停")
             self.timeline.set_status("继续执行", "running")
         else:
             self.agent.pause()
             self._paused = True
-            self.pause_btn.setText("继续")
             self.timeline.set_status("已暂停", "waiting")
 
     def _takeover(self):
         self.agent.pause()
         self._paused = True
-        self.pause_btn.setText("继续")
         QMessageBox.information(
             self, "人工接管",
-            "Agent 已暂停。现在可以手动操作电脑；完成后点「继续」，"
+            "Agent 已暂停。现在可以手动操作电脑；完成后点「暂停 / 继续」，"
             "Agent 会重新观察当前屏幕再继续。")
 
     def _cancel(self):
@@ -258,7 +261,8 @@ class ComputerAgentDialog(QDialog):
                     item.get("repair") or ""))
 
     def _maybe_finish_close(self):
-        if self._close_pending and self._worker is not None and                 not self._worker.isRunning():
+        worker = self._worker
+        if self._close_pending and worker is not None and not worker.isRunning():
             self._close_pending = False
             self.close()
 

@@ -38,6 +38,10 @@ class VoiceMixin:
     def _voice_btn_clicked(self):
         if getattr(self, "_voice_recording", False):
             return
+        speech = getattr(self, "speech", None)
+        if speech is None:
+            QMessageBox.information(self, "语音", "语音组件没初始化，重启程序再试")
+            return
         self._voice_recording = True
         self.voice_btn.setText("录音中")
         self.voice_btn.setEnabled(False)
@@ -56,10 +60,10 @@ class VoiceMixin:
             """子线程：只做识别，**不碰任何控件**"""
             text, err = "", ""
             try:
-                r = self.speech.listen_once(5)
+                r = speech.listen_once(5)
                 text = (r.get("文字") or "").strip()
                 if not text:
-                    err = "没听清: " + str(r.get("错误", "再试一次"))
+                    err = str(r.get("错误") or "没听清，再说一遍试试")
             except Exception as e:
                 err = "录音失败: " + str(e)[:80]
             relay.done.emit(text, err)       # 排队回 GUI 线程
@@ -70,10 +74,14 @@ class VoiceMixin:
         """在 GUI 线程里收尾（信号槽默认排队到接收者所在线程）"""
         try:
             if text:
-                self.input.setPlainText(self.input.toPlainText() + text)
+                cur = self.input.toPlainText()
+                # 与已有文字之间留一个空格，否则两句会粘在一起
+                if cur and not cur.endswith((" ", "\n", "\t")):
+                    cur += " "
+                self.input.setPlainText(cur + text)
                 self.input.setFocus()
             elif err:
-                QMessageBox.information(self, "语音", err)
+                QMessageBox.information(self, "语音", _voice_error_text(err))
         except Exception as e:
             _x6_swallowed(__name__, e)
             pass
@@ -81,3 +89,15 @@ class VoiceMixin:
             self.voice_btn.setText("语音输入")
             self.voice_btn.setEnabled(True)
             self._voice_recording = False
+
+
+def _voice_error_text(err):
+    """把"缺少 pyaudio"这类原始报错换成能照着做的提示"""
+    raw = str(err or "").strip()
+    if "pyaudio" in raw.lower():
+        try:
+            from core.error_text import install_hint
+            return "麦克风要用的 pyaudio 还没装。\n\n" + install_hint("pyaudio")
+        except Exception as e:  # 静默是故意的 - 提示失败就退回原始文本
+            _x6_swallowed(__name__, e, "voice install hint")
+    return raw

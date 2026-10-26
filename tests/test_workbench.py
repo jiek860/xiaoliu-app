@@ -260,6 +260,27 @@ def test_start_reports_failure_result(wb, monkeypatch):
     assert "未完成" in wb.ai_dock.timeline.toPlainText()
 
 
+def test_start_is_rejected_while_a_job_is_running(wb, monkeypatch):
+    """同一时刻只允许一个 Agent：否则两套 orchestrator 并发改同一份文件。"""
+    fake = _install_fake_orch(monkeypatch)
+    wb.ai_dock._running = True
+    wb.ai_dock.timeline.clear()
+    try:
+        wb.ai_dock.goal.setPlainText("再来一个")
+        wb.ai_dock.start()
+        assert fake.instances == []
+        assert "已有任务在运行" in wb.ai_dock.timeline.toPlainText()
+    finally:
+        wb.ai_dock._running = False
+
+
+def test_on_done_releases_running_flag(wb):
+    wb.ai_dock._running = True
+    wb.ai_dock._on_done({"ok": True})
+    assert wb.ai_dock._running is False
+    assert wb.ai_dock.start_btn.isEnabled() is True
+
+
 def test_start_handles_exception(wb, monkeypatch):
     _install_fake_orch(monkeypatch)
 

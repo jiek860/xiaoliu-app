@@ -444,3 +444,77 @@ def test_markdown_closes_unclosed_code_fence():
     html = md.render("说明\n```python\nprint(1)")
     assert "<pre" in html and "</pre>" in html
     assert md.codes == ["print(1)"]
+
+
+# ── B4：聊天链路的"没配好 / 失败"兜底 ──
+
+class _CardChat(_Chat):
+    """带引导卡的视图替身（真 ChatView.append_guidance_card 的签名叫法）。"""
+
+    def __init__(self):
+        super().__init__()
+        self.cards = []
+
+    def append_guidance_card(self, title, message, action, action_label):
+        self.cards.append((title, message, action, action_label))
+
+
+def _wire_stream(monkeypatch):
+    import gui.mixins.chat_mixin as cm
+    monkeypatch.setattr(cm, "StreamWorker", _Worker)
+    monkeypatch.setattr("core.agent_router.route_goal",
+                        lambda *a, **k: {"kind": "chat", "confidence": 1.0})
+
+
+def test_model_not_ready_hint_shows_once_per_session(monkeypatch):
+    _wire_stream(monkeypatch)
+    d = _Dummy()
+    d.chat = _CardChat()
+    d.trunk.config = {"auto_tts": False}          # 没配模型
+    d.input.setPlainText("你好")
+    d.send()
+    d.input.setPlainText("再问一句")
+    d.send()
+    assert len(d.chat.cards) == 1, "同一次会话只该提醒一次"
+    title, _msg, action, _label = d.chat.cards[0]
+    assert "模型还没配好" in title
+    assert action.startswith("guidance://")
+
+
+def test_failed_reply_offers_retry_and_is_not_saved():
+    d = _Dummy()
+    d.chat = _CardChat()
+    d._on_reply("抱歉，回复时出了点问题，详情已记入日志")
+    assert d.chat.cards, "失败回复必须给一个下一步"
+    assert d.chat.cards[-1][2] == "chat-retry://"
+    assert not any(a[0] == "a" for a in getattr(d.account, "lines", []))
+
+
+def test_success_reply_with_ready_model_shows_no_card():
+    d = _Dummy()
+    d.chat = _CardChat()
+    d.trunk.config = {"auto_tts": False, "local_model": "qwen2.5:3b",
+                      "ollama_url": "http://127.0.0.1:11434"}
+    d._on_reply("这是模型的正常回答。")
+    assert d.chat.cards == []
+    assert any(a[0] == "a" for a in d.account.lines)
+
+
+def test_reply_failed_heuristic_is_narrow():
+    d = _Dummy()
+    assert d._reply_failed("（无回复）") is True
+    assert d._reply_failed("") is True
+    assert d._reply_failed("Pipeline 不可用") is True
+    assert d._reply_failed("这是模型的正常回答。") is False
+    assert d._reply_failed("长" * 300) is False
+
+
+def test_chat_view_routes_chat_retry_anchor():
+    from PyQt5.QtCore import QUrl
+    from gui.chat_view import ChatView
+
+    v = ChatView()
+    got = []
+    v.actionRequested.connect(got.append)
+    v._on_anchor(QUrl("chat-retry://"))
+    assert got == ["chat-retry://"]

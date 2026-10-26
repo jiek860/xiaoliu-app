@@ -8,6 +8,8 @@ import os
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QTextEdit, QPushButton)
 
+from gui.feedback_states import make_action_links
+
 try:
     from core.diagnostics import swallowed as _x6_swallowed
 except ImportError:
@@ -34,9 +36,7 @@ class CodeEditorAIMixin:
         lay.addWidget(view, 1)
         row = QHBoxLayout()
         row.addStretch(1)
-        cancel = QPushButton("取消")
-        cancel.clicked.connect(d.reject)
-        row.addWidget(cancel)
+        row.addWidget(make_action_links([("取消", d.reject)]))
         apply_btn = QPushButton("应用修改")
         apply_btn.setStyleSheet(
             "background:#4a9eff;color:white;border:none;border-radius:8px;"

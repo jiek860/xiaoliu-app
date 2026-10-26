@@ -10,9 +10,11 @@
 from __future__ import annotations
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QMessageBox, QPushButton,
+from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QMessageBox,
                              QTableWidget, QTableWidgetItem, QVBoxLayout,
                              QWidget)
+
+from gui.feedback_states import make_action_links
 
 try:
     from core.logger import swallow as _x6_swallowed
@@ -52,9 +54,11 @@ class MCPTrustPanel(QWidget):
         row = QHBoxLayout()
         # 「刷新」按钮已去掉：面板显示时自动刷新（见 show 时调用），
         # 且两个操作完成后都会自动刷新。
-        row.addWidget(QPushButton("全部永久信任（不再弹窗）",
-                                  clicked=self.trust_all))
-        row.addWidget(QPushButton("撤销全部信任", clicked=self.revoke_all))
+        # 「全部信任 / 撤销全部」都是低频且带确认框的动作 → 链接
+        row.addWidget(make_action_links([
+            ("全部永久信任（不再弹窗）", self.trust_all),
+            ("撤销全部信任", self.revoke_all),
+        ]))
         row.addStretch(1)
         lay.addLayout(row)
 
