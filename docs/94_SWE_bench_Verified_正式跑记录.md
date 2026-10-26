@@ -87,16 +87,20 @@ py -3 tools/swebench_verified.py --dataset data/swebench/swebench_verified.jsonl
 |---|---|---|
 | 模型产不出 patch | 4B 量化模型在 4~6 轮内不改文件；换更大模型才有意义 | 云端换有效 Key（DeepSeek / 智谱 / 硅基流动），或本机装 `qwen2.5-coder:7b` 以上 |
 | 云端 Key 失效 | `https://open.bigmodel.cn/api/paas/v4/chat/completions` → **HTTP 401** | 设置 → 模型 → 云端，换 Key 后点「测试云端 Key」看到 ✅ |
-| 官方判分环境缺失 | 未装 `swebench` 包、未装 Docker | `py -3 -m pip install swebench` + 安装并启动 Docker Desktop |
+| 官方判分环境 | ⚠️ `swebench` 已装（独立 venv `E:\xiao6-swebench-venv`，5.0.2），**Docker 仍未装** | 管理员 PowerShell：`wsl --install` → 重启 → `winget install -e --id Docker.DockerDesktop`，详见 `docs/95` |
 
 判分命令（环境齐了以后直接跑；本轮没有跑，所以没有分数）：
 
 ```powershell
-py -3 -m swebench.harness.run_evaluation ^
-    --predictions_path data/swebench_final_predictions.jsonl ^
-    --dataset_name SWE-bench/SWE-bench_Verified --split test ^
-    --max_workers 4 --run_id x6-v25.2.32-final
+$env:HF_ENDPOINT = "https://hf-mirror.com"
+$env:HF_HUB_DISABLE_XET = "1"
+E:\xiao6-swebench-venv\Scripts\python.exe -m swebench.harness.run_evaluation `
+    -d SWE-bench/SWE-bench_Verified -s test `
+    -p data\swebench_final_predictions.jsonl `
+    -id x6-v25.2.32-final --max_workers 2 -t 1800
 ```
+
+环境细节与 Docker 安装步骤见 `docs/95_SWE_bench_环境准备.md`。
 
 ## 六、为跑通评测补的工程（本轮真实产出）
 

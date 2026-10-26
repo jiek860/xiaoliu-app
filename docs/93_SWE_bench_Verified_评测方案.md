@@ -112,8 +112,8 @@ py -3 -m swebench.harness.run_evaluation `
 | Python 3.12.10 / git | ✅ | 具备 clone + checkout 条件 |
 | 无头 CLI / 核心模块 | ✅ | `core.code_agent`、`core.llm_client` 可导入 |
 | 模型可用性 | ❌ | 云端 `open.bigmodel.cn` → **HTTP 401**（Key 失效）；本机 Ollama 可达但 4B 模型产不出 patch |
-| `swebench` 包 | ❌ | 未安装，判分跑不了 |
-| Docker | ❌ | 未安装，官方 harness 需要容器 |
+| `swebench` 包 | ✅ 已装 | 独立 venv `E:\xiao6-swebench-venv`（5.0.2），不污染产品环境；见 `docs/95` |
+| Docker | ❌ | 未安装；官方 harness 需要容器（管理员 + 重启），步骤见 `docs/95` |
 | 数据集 | ✅ | 已通过 hf-mirror + `HF_HUB_DISABLE_XET=1` 下载并导出 |
 | GitHub clone | ✅（走镜像） | 直连被重置，`ghfast.top` 可用，脚本自动重试 |
 
