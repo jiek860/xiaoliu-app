@@ -350,6 +350,29 @@ def test_health_score_reflects_problems(proj):
     assert 0 <= int(m.group(1)) <= 100, "健康分越界：%s" % line[0]
 
 
+def test_uptime_line_is_not_labelled_boot_time(proj):
+    """⏱ 那行是"进程已运行时长"，不能写成"启动耗时"
+
+    实测：程序开了 37 分钟，自检显示「⏱ 启动耗时: 2253.8秒」，
+    用户会以为启动一次要半个多小时。
+    """
+    b, t = proj
+    r = self_check.deep_check(t)
+    line = [l for l in r.splitlines() if "已运行" in l]
+    assert line, "报告里没有「已运行」这一行"
+    assert "启动耗时" not in line[0], "运行时长又被写成启动耗时：%s" % line[0]
+
+
+def test_boot_time_reported_from_trunk_boot_ms(proj):
+    """真实启动耗时读 trunk._boot_ms（core.startup.log_summary 写入）"""
+    b, t = proj
+    t._boot_ms = 2600.0
+    r = self_check.deep_check(t)
+    line = [l for l in r.splitlines() if "🚀 启动耗时" in l]
+    assert line, "报告里没有启动耗时这一行"
+    assert "2.6秒" in line[0], "没按 _boot_ms 报启动耗时：%s" % line[0]
+
+
 # ══════════════════════════════════════════════════════════════
 # ④ 和 trunk 的接线（deep_check 是 trunk._deep_check 的委托）
 # ══════════════════════════════════════════════════════════════

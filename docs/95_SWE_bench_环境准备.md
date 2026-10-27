@@ -11,11 +11,11 @@ Docker Desktop 的安装需要在管理员 PowerShell 里执行一次并重启�
 |---|---|---|
 | Python | ✅ 3.12.10 | `py -3 --version` |
 | git | ✅ 2.47.0 | `git --version` |
-| `swebench` 包 | ✅ 5.0.2 | 独立虚拟环境 `E:\xiao6-swebench-venv`（不污染主环境） |
-| 官方 harness CLI | ✅ 可调 | `E:\xiao6-swebench-venv\Scripts\python.exe -m swebench.harness.run_evaluation --help` |
+| `swebench` 包 | ✅ 5.0.2 | 独立虚拟环境 `e:\xiaoliu\.swebench-venv`（不污染主环境） |
+| 官方 harness CLI | ✅ 可调 | `e:\xiaoliu\.swebench-venv\Scripts\python.exe -m swebench.harness.run_evaluation --help` |
 | 数据集缓存 | ✅ 500 题 | 已用 `HF_ENDPOINT=https://hf-mirror.com` + `HF_HUB_DISABLE_XET=1` 预热到 HuggingFace 缓存 |
 | 本地 jsonl | ✅ | `data/swebench/swebench_verified.jsonl` |
-| 环境自检 | ✅ 除 Docker 外全绿 | `E:\xiao6-swebench-venv\Scripts\python.exe tools\swebench_verified.py --check --dataset data\swebench\swebench_verified.jsonl` |
+| 环境自检 | ✅ 除 Docker 外全绿 | `e:\xiaoliu\.swebench-venv\Scripts\python.exe tools\swebench_verified.py --check --dataset data\swebench\swebench_verified.jsonl` |
 | Docker | ❌ 未安装 | `docker --version` 找不到命令；官方 harness 直接报 `DockerException` |
 | WSL2 | ❌ 未安装 | `wsl --status` 提示可运行 `wsl --install` |
 | 虚拟化 | ✅ 已开启 | `HyperVisorPresent=True`（Hyper-V 已存在，Docker Desktop 可用 Hyper-V 后端） |
@@ -29,7 +29,7 @@ Docker Desktop 的安装需要在管理员 PowerShell 里执行一次并重启�
 升级到不兼容版本，把产品测试弄红。所以：
 
 ```
-E:\xiao6-swebench-venv\          ← 只给评测用
+e:\xiaoliu\.swebench-venv\          ← 只给评测用
 E:\xiaoliu\                      ← 产品环境保持不变
 ```
 
@@ -65,14 +65,14 @@ $env:HF_ENDPOINT = "https://hf-mirror.com"
 $env:HF_HUB_DISABLE_XET = "1"
 
 # 先用 1 题验证环境（几分钟到十几分钟，第一次要构建镜像）
-E:\xiao6-swebench-venv\Scripts\python.exe -m swebench.harness.run_evaluation `
+e:\xiaoliu\.swebench-venv\Scripts\python.exe -m swebench.harness.run_evaluation `
     -d SWE-bench/SWE-bench_Verified -s test `
     -p data\swe_pilot_one_predictions.jsonl `
     -i pytest-dev__pytest-7490 `
     -id x6-v25.2.32-smoke --max_workers 1 -t 1800
 
 # 再跑正式 50 题（先确认磁盘；镜像会占很多空间）
-E:\xiao6-swebench-venv\Scripts\python.exe -m swebench.harness.run_evaluation `
+e:\xiaoliu\.swebench-venv\Scripts\python.exe -m swebench.harness.run_evaluation `
     -d SWE-bench/SWE-bench_Verified -s test `
     -p data\swebench_final_predictions.jsonl `
     -id x6-v25.2.32-final --max_workers 2 -t 1800
@@ -93,7 +93,7 @@ E:\xiao6-swebench-venv\Scripts\python.exe -m swebench.harness.run_evaluation `
 
 ```text
 [ ] docker run --rm hello-world 成功
-[ ] E:\xiao6-swebench-venv\Scripts\python.exe -c "import swebench; print(swebench.__file__)"
+[ ] e:\xiaoliu\.swebench-venv\Scripts\python.exe -c "import swebench; print(swebench.__file__)"
 [ ] tools\swebench_verified.py --check --dataset data\swebench\swebench_verified.jsonl 全绿
 [ ] 1 题 smoke 跑通，report.json 有 resolved_instances 字段
 [ ] 磁盘剩余 ≥ 50 GB 再跑 50 题

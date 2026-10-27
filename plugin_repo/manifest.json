@@ -6,9 +6,108 @@
     "cls": "AgentAnalyst",
     "desc": "子智能体：分析官",
     "group": "智能体",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "button": null,
-    "tools": [],
+    "tools": [
+      {
+        "name": "agent_analyze",
+        "method": "analyze",
+        "desc": "分析专家：检索证据，给出利弊、风险和建议",
+        "args": {
+          "topic": "要分析的问题或对象",
+          "baseline": "对比基准/对象（可选）"
+        },
+        "readonly": true,
+        "hints": [
+          "深度分析",
+          "分析一下",
+          "利弊",
+          "风险分析"
+        ],
+        "contract": {
+          "params": {
+            "topic": {
+              "type": "string",
+              "required": true
+            },
+            "baseline": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "network:llm",
+            "network:deep_search"
+          ],
+          "idempotent": false,
+          "timeout_ms": 120000,
+          "concurrency_safe": true,
+          "description": "查本地图谱/外部搜索后，输出分点分析与风险清单",
+          "not_responsible": [
+            "替用户决策",
+            "写记忆"
+          ]
+        }
+      },
+      {
+        "name": "agent_compare",
+        "method": "compare",
+        "desc": "分析专家：A/B 数据或方案对比",
+        "args": {
+          "left": "方案/数据 A",
+          "right": "方案/数据 B",
+          "dimensions": "对比维度，逗号分隔（可选）"
+        },
+        "readonly": true,
+        "hints": [
+          "对比一下",
+          "哪个好",
+          "方案对比",
+          "数据对比"
+        ],
+        "contract": {
+          "params": {
+            "left": {
+              "type": "string",
+              "required": true
+            },
+            "right": {
+              "type": "string",
+              "required": true
+            },
+            "dimensions": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "network:llm",
+            "network:deep_search"
+          ],
+          "idempotent": false,
+          "timeout_ms": 120000,
+          "concurrency_safe": true,
+          "description": "先算数值差异，再按维度给出对比结论与风险",
+          "not_responsible": [
+            "替用户决策"
+          ]
+        }
+      }
+    ],
     "api_version": "1.0",
     "first_party": true,
     "capabilities": {
@@ -43,9 +142,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 257,
-    "sha256": "cf9ceccbdcce5030f1ff7df5dba6ff904b51379cbd5041193b04d1910dabff53",
-    "signature": "2096ad58b3e2d61f2ad33046b59025010bbfbdeba9c889f9c8475d3a79c02cf4167ac806f0ceb35b99d3d8dfa99aee3c9050b02e8b254a76699f9a5d83ea545de4698fd243cfb0372ff26bf925dec544067c4aa15f8d25c701ce08636051ebcefafb89897d12fec44137c37314b39f4dfa96e9f4c70baa44a6e496bf67a7cd3ea0959efd07b001779a9ca0a82d76cd296251dff625fbd84c8e204ca6d0b8f7a2a780ebfe1aaceb9bdd9b78f198cfc342d053fd62de57832ca9dfdbe2c03c188c72adb16d5fda623aa899d44946d8452d4c30d780ba528a1df8112dfa9dd2b40968b5941dd686a2b8335c88ff187c43f8d867ed290b749ad85490ce86a0d0570b"
+    "size": 11277,
+    "sha256": "cf31ce961d896c339d7018fb1613a5fb3ff8c6e646327db09d8d7ac24f813971",
+    "signature": "586b10da665dd9777dcc79c43bb8e91e6de2af978f49980dfec5a2f5cf6f55c83e43d8ec1f7572a7f15337920771332e0494fc787c314eb4ef8f03f76b2af4e32894249279b08610ea63f8514e6efd1f3d07535d43d6b8b006d53e754a91fb932b17c074df06a77ff6933ebce6d20922ee13776e93164993d658af70ed447a0df673d1749de399d6f7f5e476975a62e35dcbb472f3ff7a89b8ef74a04e299d3a835949f4b978f2511e2e2e470b261da2b271b8460a1685f13c63269a40cc970ef4ee698b5fe1a6b27e9c39897e723590139d218626ea2cfe37d24af93826e351fe54b52bba3f73c2a845d91eda95421940dd5faa99e1c86c24e49496de5a5fa6"
   },
   {
     "name": "agent_coder",
@@ -54,9 +153,154 @@
     "cls": "AgentCoder",
     "desc": "子智能体：编程小匠",
     "group": "智能体",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "button": null,
-    "tools": [],
+    "tools": [
+      {
+        "name": "agent_code_solve",
+        "method": "solve",
+        "desc": "编程小匠：写代码并在沙箱运行，失败自动修",
+        "args": {
+          "task": "要实现的功能或要修的 bug",
+          "language": "语言（默认 python）",
+          "tests": "测试代码或校验脚本（可选）"
+        },
+        "readonly": false,
+        "confirm": true,
+        "danger": true,
+        "risk": "exec",
+        "hints": [
+          "写代码并运行",
+          "代码验证",
+          "帮我跑一下",
+          "修 bug"
+        ],
+        "contract": {
+          "params": {
+            "task": {
+              "type": "string",
+              "required": true
+            },
+            "language": {
+              "type": "string",
+              "required": false
+            },
+            "tests": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_NOT_AVAILABLE",
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "network:llm",
+            "process:code_runner"
+          ],
+          "idempotent": false,
+          "timeout_ms": 240000,
+          "concurrency_safe": false,
+          "description": "生成代码后用 code_runner 沙箱执行，失败最多再修 2 轮",
+          "not_responsible": [
+            "改项目文件",
+            "保证业务正确"
+          ]
+        }
+      },
+      {
+        "name": "agent_code_run",
+        "method": "run_code",
+        "desc": "编程小匠：在沙箱里运行一段 Python 代码",
+        "args": {
+          "code": "要运行的 Python 代码",
+          "timeout": "超时秒数（可选，默认 10）"
+        },
+        "readonly": false,
+        "confirm": true,
+        "danger": true,
+        "risk": "exec",
+        "hints": [
+          "运行代码",
+          "跑 Python",
+          "沙箱运行"
+        ],
+        "contract": {
+          "params": {
+            "code": {
+              "type": "string",
+              "required": true
+            },
+            "timeout": {
+              "type": "integer",
+              "required": false
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_NOT_AVAILABLE"
+          ],
+          "side_effects": [
+            "process:code_runner"
+          ],
+          "idempotent": false,
+          "timeout_ms": 30000,
+          "concurrency_safe": false,
+          "description": "只执行、不修改文件，输出 stdout/stderr",
+          "not_responsible": [
+            "代码生成",
+            "代码审查"
+          ]
+        }
+      },
+      {
+        "name": "agent_code_review",
+        "method": "review",
+        "desc": "编程小匠：审查代码（不执行）",
+        "args": {
+          "code": "要审查的代码"
+        },
+        "readonly": true,
+        "hints": [
+          "代码审查",
+          "review 代码",
+          "看看有没有 bug"
+        ],
+        "contract": {
+          "params": {
+            "code": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "network:llm"
+          ],
+          "idempotent": false,
+          "timeout_ms": 120000,
+          "concurrency_safe": true,
+          "description": "先用 compile 做语法检查，再让模型列问题；绝不执行代码",
+          "not_responsible": [
+            "执行代码",
+            "修改代码"
+          ]
+        }
+      }
+    ],
     "api_version": "1.0",
     "first_party": true,
     "capabilities": {
@@ -91,9 +335,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 271,
-    "sha256": "42e796b99accb0b21e0cc7258cf6fce036753945250a1df8790409d6b0794333",
-    "signature": "537a40e8b07808d99838c64c4110b7239c8ed269a7abafd15f359bf46fbebf9409b3906bcf36d0428d1e1d1a036d9c20d37e11e4401a9c5fb293ee3d9cf98f4423115e622ae62db1cc6b7b94f9859936fefc097b38cc8f0f55e5ad0f953677cc51f132bc54edd3ba9df04b9446910d77e28be757d03172c5281c6e6817ed13136db166acc92cc662b322e189e962d023066f96f0b9647c3c11370a23fb34f8a5cc9904e7e3407b867f29534d04d8e7fac72c8407fd7343f230435ed864994c9231d5d6f5a298c338b1c2925f9dbe025e6832af63eb9d7f80717d24f597dcdd4f3e9107c40314f22c4374e63c99886dd30b676978480d513eb35a3eae7e570717"
+    "size": 11472,
+    "sha256": "e31c33bf1e52665ef88340d430c16870c02d612de18df88bccb043e48fc8a356",
+    "signature": "4b7e8c729945556e311a34cd6733c6d4c326aed81e441429667d0926b1f9dec63e534d7dc53443945b9f4fea0cbd7bf4fc20f6d04985d27c7f69b3759b7e757b7dcb53af3d62f37ba3d30c289fb447fc8229b7ba8d34a5ad83544400e18e72f5af56fd9f1d75afa5bf536575dda79bf5a54f30b75b08d48b5df1eff88c9dcb42abd6029c11526227c78128b41dd4a97d156a083c6d9f615eb53472dab656cd6f02f939ade3aa841eabf73de2769402dbfaf8224520889f666e2d6e4ee9aaf5683dd5f779244eb2b6dda796515547ffbcea68ea8179702e95f71bb9871c48c7b0946d98b070ef20e054c87b025737848dc7c60c0ea42be8cfba98f7e04f533faa"
   },
   {
     "name": "agent_planner",
@@ -102,9 +346,158 @@
     "cls": "AgentPlanner",
     "desc": "子智能体：策划师",
     "group": "智能体",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "button": null,
-    "tools": [],
+    "tools": [
+      {
+        "name": "agent_plan",
+        "method": "plan",
+        "desc": "策划专家：把目标拆成可执行 JSON 步骤",
+        "args": {
+          "goal": "要达成的目标",
+          "constraints": "约束/资源/截止时间（可选）"
+        },
+        "readonly": true,
+        "hints": [
+          "做个计划",
+          "拆解目标",
+          "执行步骤",
+          "方案步骤"
+        ],
+        "contract": {
+          "params": {
+            "goal": {
+              "type": "string",
+              "required": true
+            },
+            "constraints": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "network:llm"
+          ],
+          "idempotent": false,
+          "timeout_ms": 120000,
+          "concurrency_safe": true,
+          "description": "输出带 id、动作、依赖和验收标准的步骤列表",
+          "not_responsible": [
+            "执行步骤",
+            "替用户批准"
+          ]
+        }
+      },
+      {
+        "name": "agent_plan_workflow",
+        "method": "plan_to_workflow",
+        "desc": "策划专家：把计划写成 workflow_runner 工作流",
+        "args": {
+          "goal": "目标",
+          "name": "工作流名（可选）",
+          "run": "写完后是否立即后台执行（true/false，默认 false）",
+          "overwrite": "同名文件是否覆盖（true/false，默认 false）"
+        },
+        "readonly": false,
+        "confirm": true,
+        "hints": [
+          "计划变工作流",
+          "生成可执行工作流",
+          "自动执行计划"
+        ],
+        "contract": {
+          "params": {
+            "goal": {
+              "type": "string",
+              "required": true
+            },
+            "name": {
+              "type": "string",
+              "required": false
+            },
+            "run": {
+              "type": "boolean",
+              "required": false
+            },
+            "overwrite": {
+              "type": "boolean",
+              "required": false
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_BAD_INPUT",
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "filesystem_write:data/workflows",
+            "network:llm",
+            "network:deep_search",
+            "process:code_runner"
+          ],
+          "idempotent": false,
+          "timeout_ms": 240000,
+          "concurrency_safe": false,
+          "description": "生成计划并写成 YAML，可选立即交给 workflow_runner 后台跑",
+          "not_responsible": [
+            "保证计划正确",
+            "替用户批准"
+          ]
+        }
+      },
+      {
+        "name": "agent_plan_next",
+        "method": "next_steps",
+        "desc": "策划专家：按依赖算出下一步能做什么",
+        "args": {
+          "steps": "步骤列表（JSON 字符串）",
+          "done": "已完成的 id，逗号分隔（可选）"
+        },
+        "readonly": true,
+        "hints": [
+          "下一步做什么",
+          "计划执行到哪",
+          "哪些步骤能做"
+        ],
+        "contract": {
+          "params": {
+            "steps": {
+              "type": "string",
+              "required": true
+            },
+            "done": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_BAD_INPUT"
+          ],
+          "side_effects": [],
+          "idempotent": true,
+          "concurrency_safe": true,
+          "timeout_ms": 5000,
+          "description": "返回 ready/blocked/remaining 三组步骤 id",
+          "not_responsible": [
+            "执行步骤"
+          ]
+        }
+      }
+    ],
     "api_version": "1.0",
     "first_party": true,
     "capabilities": {
@@ -139,9 +532,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 278,
-    "sha256": "052bf6331641794068e3f45d69f79382ab368b505dc588335729f864ef87aa02",
-    "signature": "4634b0385dcc818c6297e5813f51144681d983884c1805b4a5351924f1fec7058854f312ccf0518e3c22871d30a80c2a9139c600a623f02c2a15b5067d1d8fdff1efb21144a8d2de36401e60bc85df643b285f3618da8b2c679d14436bf5314d7e01721f04e6e0d327f2b200538089fed52ce141aa470d6405ddf475878763cd79526c52a6de46d924467bb709c4387751e2fc67380c1fae47d6ae323091c49d33566cb073971315d02178cd0c1d33789742832e33fe39ba62ed84429da0053b3ec9355c522c0d738818f8266e3065206a9b47d3fc4be660f9d08c4632a96608816207a228b3f40440b5990db9ab831c7dd335e709accdd6abc05e3b933fd88e"
+    "size": 17387,
+    "sha256": "2e37d6053902dc00478aa0f0e12208f1c2b64d1beefcbbc8ccef7a6e9a5f3534",
+    "signature": "0ec7a37f058dda4fce3ba9ec48001719f206fa7cab27cfda8778f0fc30b4d837c5a1c726a33a96d18cd255996bab3e9ce7a333c2d6b0e135c7f8bfc101105b9695a0309c14d967bb83b75d2cfb55cc079359075d016e432579dc2ba3f398435b12ddebb3e4a12817bb8bc895744edab7df8b70cb77b5d50aa5e0773c16eda90ee8439b54ce1cbe8b9f6aa118d055aa330e2fd03dd73b70c3b74f03e07fdccfe045cb9298d0cd010d2e91b9653c2466c426924dbb6baf3e255a4d192da4fd15db46e3e3ffb394e76e7897ebc61d93aa1166a4e6e9f1a140179374bdb012dcffe59aeae1082de70f67686d8b672d42f99c44f2a096e1c7b9bf5507ac13d0d2902e"
   },
   {
     "name": "anomaly_detector",
@@ -974,9 +1367,117 @@
     "cls": "GraphRAG",
     "desc": "P2-3: GraphRAG 社区摘要",
     "group": "联网检索",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "button": null,
-    "tools": [],
+    "tools": [
+      {
+        "name": "graph_rag_build",
+        "method": "build",
+        "desc": "重建知识图谱社区摘要",
+        "args": {},
+        "readonly": false,
+        "confirm": true,
+        "hints": [
+          "社区摘要",
+          "图谱摘要",
+          "GraphRAG",
+          "重建图谱摘要"
+        ],
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_NOT_AVAILABLE",
+            "PLUGIN_INTERNAL_ERROR",
+            "PLUGIN_CANCELLED"
+          ],
+          "side_effects": [
+            "filesystem_write:data/graph_communities.json"
+          ],
+          "idempotent": true,
+          "timeout_ms": 120000,
+          "concurrency_safe": false,
+          "description": "读取图谱三元组、检测社区并覆盖社区摘要文件",
+          "not_responsible": [
+            "知识图谱抽取",
+            "向量检索"
+          ]
+        }
+      },
+      {
+        "name": "graph_rag_query",
+        "method": "query",
+        "desc": "按问题检索相关社区并下钻三元组",
+        "args": {
+          "question": "要查询的问题"
+        },
+        "readonly": true,
+        "hints": [
+          "图谱检索",
+          "知识关系",
+          "社区查询",
+          "GraphRAG 查询"
+        ],
+        "contract": {
+          "params": {
+            "question": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_NOT_AVAILABLE",
+            "PLUGIN_BAD_OUTPUT"
+          ],
+          "side_effects": [
+            "filesystem_read:data/graph_communities.json"
+          ],
+          "idempotent": true,
+          "concurrency_safe": true,
+          "description": "两级检索：先匹配社区摘要，再返回相关三元组和实体",
+          "not_responsible": [
+            "知识图谱构建",
+            "向量检索"
+          ]
+        }
+      },
+      {
+        "name": "graph_rag_status",
+        "method": "status",
+        "desc": "查看社区摘要的构建状态",
+        "args": {},
+        "readonly": true,
+        "hints": [
+          "图谱摘要状态",
+          "社区摘要有多少"
+        ],
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "filesystem_read:data/graph_communities.json"
+          ],
+          "idempotent": true,
+          "concurrency_safe": true,
+          "timeout_ms": 5000,
+          "description": "返回已保存的社区数、三元组数与更新时间",
+          "not_responsible": [
+            "重建摘要"
+          ]
+        }
+      }
+    ],
     "api_version": "1.0",
     "first_party": true,
     "capabilities": {
@@ -1011,9 +1512,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 4195,
-    "sha256": "1e1196e759ea6c54810c8a9c477ca84aec3b576f1ac210f1919ecd8d5af67f78",
-    "signature": "8c14c1d405689c90eeedac656cde852583fa2f9eca63e8a05a3faebe74af780900df032c0cdce588a823a8d243b2f65e4d55fbd2c77d9813de873f3738618e62783bcbfaf72fa3930d80c064c1500a5506e5d149e35c4ce207423b5eab16212b30e1f11b3c02f18c28b465671d9a1cf1699dba8e09a4bd43dc0fcca769934fa096668f3c10ac04bc761904d1b9e1dd8ff37a1345c17c723be32a0857813c5c2d59a43e366ece35dc48baedea4db750c7712281339cb30abe4efbde416ef66da0a5917a71ffba0dea4301fb97f83f99537a405cfba9da0177b431c7a69c98c21942414e9e5fd96f06b26573a11d5529a35c4721043bda34871d25ff5604604569"
+    "size": 16667,
+    "sha256": "a6a6be39692e4dc2ec77b352f0c620f023faf2831f650852cd8d3e455baf8ba9",
+    "signature": "00ec8101fb05a626584ee6c034cdaf14943d46849ee8dc1105c941f231f06cc07bf33a1de0d73785d6800e575bce3b3070eadb14db0c82b05a5e40e85829faa01bf9eda190fa76115ac37019c77e4a6e4a89b7b8e02842dd276d73962822ce29421c5ecfa2945de772471c89046db67e142a2c53570c6491d025706e42dcd0eb3d35bc4350a0bbee1728e866be5254ecb7339187b5847df962439b58cf474ccaad3f369fec65b1c83c88f8b6d17eb5aa9c16d2b759c5bdc11323ee42170e9fb670e0920c2a0949fc5180b1d133f01c35b5c3274e15e3c873f8cc59e1b6c3b910023f5886743202d59ed8bd63e59dc56af24903e6c54464ee0e046ade212efe81"
   },
   {
     "name": "group_chat",
@@ -2063,9 +2564,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 10458,
-    "sha256": "010b84a0381f1589ebd3aa091b416343b49ecf9d0fbb631844e0ea6205d5a707",
-    "signature": "602c51312a3bc1d328008ed388b07c452c1af81f57a3c1388ef036a01c31218480f614d4919462c6ea2d38e3bc01a1fb23128949d22bccb8968355fa41e61f0c1c4662c944bc3bc0cf1da07f92d9e2b1edc3e7e10c67c57e908f1d690df1ec15ba2e0e1e33d67fff7b30a4d0e14c17baab37cd8096d6cb6099494512d39f64fd931c1b6da1c9a0dc3b5583fc5e1ac69aa86100ea59e3eafe324ca618e9450fd4d5eb6b9b63077b8c276400978acb9e96a61b9b7628bf344677b62eaf3b418b49454452b49646d724c50ca31c677bf57df5d27718498104ba9b1ae27dba8074f5962fd6558008cb4d644b24d2598a424765773c055a469cde06508dac1e50a3fe"
+    "size": 11812,
+    "sha256": "1de38330665d1cf42e130fb485f77c45fe32c686e2a35ee7bb2376df80c613af",
+    "signature": "7f4f61480fc9457a619ce75c0303ad9a8ed4f53016dd47c1c3fa3cb41678778bcc96933966d00dbb97bcd21799fe25de18d0c076c5af8c93c97a728d1f0e2c38c7f10309d91c48c316401130f5b83dcd2b0638eaf88ef68b7eb37b1fa0e6ff04e6dac7dc77d38ba7e202edb8ae0eb493892234e53df91e7f22730014649490509d20319ca1c759e15eef0e51148ff9584b89078202e6df6dd3e5d0e184a7479c392399c3ce3a28d9c890c54d08e30bf98009280a07b981b5ada97ec8983181d25cbc07fca6059915cab45ad78edd85c79118816af37c57725edf1f355be564bdc4b7abb593f38dc9f8fc324818c4e901aca9b9988b913d492f2a08bbc305bc61"
   },
   {
     "name": "self_reflect",
@@ -2808,9 +3309,157 @@
     "cls": "WorkflowRunner",
     "desc": "P1-1: 轻量工作流 DSL（不做拖拽画布）",
     "group": "其他",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "button": null,
-    "tools": [],
+    "tools": [
+      {
+        "name": "workflow_list",
+        "method": "list_workflows",
+        "desc": "列出可用工作流（含内置模板）",
+        "args": {},
+        "readonly": true,
+        "hints": [
+          "工作流列表",
+          "有哪些工作流",
+          "工作流模板"
+        ],
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "errors": [
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "filesystem_read:data/workflows"
+          ],
+          "idempotent": true,
+          "concurrency_safe": true,
+          "timeout_ms": 5000,
+          "description": "返回工作流 id 列表，内置模板即使还没落盘也会列出",
+          "not_responsible": [
+            "执行工作流"
+          ]
+        }
+      },
+      {
+        "name": "workflow_templates",
+        "method": "ensure_templates",
+        "desc": "把内置工作流模板写入 data/workflows",
+        "args": {},
+        "readonly": false,
+        "confirm": true,
+        "hints": [
+          "工作流模板",
+          "创建工作流模板",
+          "内置工作流"
+        ],
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_INTERNAL_ERROR",
+            "PLUGIN_NOT_AVAILABLE"
+          ],
+          "side_effects": [
+            "filesystem_write:data/workflows"
+          ],
+          "idempotent": true,
+          "timeout_ms": 10000,
+          "concurrency_safe": false,
+          "description": "只补齐缺失的内置模板，不覆盖用户已改的文件",
+          "not_responsible": [
+            "编辑工作流内容"
+          ]
+        }
+      },
+      {
+        "name": "workflow_run",
+        "method": "run",
+        "desc": "运行工作流（后台执行）",
+        "args": {
+          "name": "工作流名",
+          "input": "初始输入（可选）"
+        },
+        "readonly": false,
+        "confirm": true,
+        "bg": true,
+        "hints": [
+          "跑工作流",
+          "执行工作流",
+          "运行工作流"
+        ],
+        "contract": {
+          "params": {
+            "name": {
+              "type": "string",
+              "required": true
+            },
+            "input": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_BAD_INPUT",
+            "PLUGIN_CANCELLED",
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "filesystem_read:data/workflows",
+            "network:llm",
+            "network:deep_search",
+            "process:code_runner"
+          ],
+          "idempotent": false,
+          "timeout_ms": 600000,
+          "concurrency_safe": false,
+          "description": "按步骤执行工作流，支持变量、条件、重试和失败继续",
+          "not_responsible": [
+            "模型调用",
+            "代码沙箱"
+          ]
+        }
+      },
+      {
+        "name": "workflow_status",
+        "method": "status",
+        "desc": "查看工作流运行状态与最近结果",
+        "args": {},
+        "readonly": true,
+        "hints": [
+          "工作流状态",
+          "工作流跑完了吗"
+        ],
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [],
+          "idempotent": true,
+          "concurrency_safe": true,
+          "timeout_ms": 5000,
+          "description": "返回是否运行中、取消标记、工作流数量和最近一次结果",
+          "not_responsible": [
+            "启动工作流"
+          ]
+        }
+      }
+    ],
     "api_version": "1.0",
     "first_party": true,
     "capabilities": {
@@ -2845,8 +3494,8 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 4322,
-    "sha256": "c769e99700b7954b1c9b310879d98483f38da31e3697fa5920729a2e44794cea",
-    "signature": "2e39163c09adba795dfaf2b8982364e43e1b742fa1f629a66fa05da319507b6aa5431d355a34997596d0f6c663bfc2a68581a479014af4ce3fafeaf5ba8c3c62398fb864108a0faeb5dd217653f5b612cc005c8e9a7b712b5ecdb4467575cd55330c6a8fa5697698a03fdb524ebe7af0ac32045b2f652c6b3092f4e0007192f3e0915be32163062845acffec89319ef3f453c8a196a5979514c6746004681b392530a8986072c3c1284ea2d4f6919109c1c7128abc5bb4bfe3f26528807181abb28929980f34a491351c1a1ba2b6e5d3c5874587508c57a8f2e8e79b70ca1f4200c38abaff53b394337489cba69c53f5bfc83d3fbb063cf381e5d89d5b91f128"
+    "size": 28723,
+    "sha256": "ffc86b327e97bb40448a26ee15a4a4fdad52bdda8c7ead98a498e51d7f087f24",
+    "signature": "0d800c3f0f122c0f5ef1e423a2cf4f236c37922b74da3b228f1d7a76058a71a28c1f7e78711f2269d8f2170d7b5472e78234d2b65f21276d82b52fa36567bcf54d1ebf4502b9ee717cf719f06bf611b640175901582a4a6834d29b65e9e9f804442a7bbe3a819e4c63a1a87574a091409513c2f99fbe951842d6b6c06352125d13a85c4be1e40aee74bcddd210a5335ab8618f27121c1ea943718d2d9ff9691df9eebe4ed3d94ccec42d64db2049f2a0536268491c58c6081dcf0a0e1886b64d49cffab255a9ba6ddd4e5ede15bfd465cb23f70ff41087de52b6dc100a392282d93ab2d9fd125fdf343ed4cb41c11818ea22f712ab679420a5f45c873432654d"
   }
 ]

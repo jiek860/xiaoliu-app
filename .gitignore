@@ -72,6 +72,10 @@ __pycache__/
 .venv/
 .runtime-venv/
 .build-venv/
+# SWE-bench 评测专用环境（331 MB，2026-10-27 从 E:\xiao6-swebench-venv 移入）
+.swebench-venv/
+# 本机私密文件目录（私钥仍放在项目外，这里只做兜底忽略）
+.secrets/
 venv/
 env/
 .idea/

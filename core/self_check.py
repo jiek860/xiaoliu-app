@@ -356,13 +356,14 @@ def deep_check(trunk):
         mem=psutil.virtual_memory()
         log("💾 内存: 已用%d%% 可用%dMB"%(mem.percent,mem.available//1048576))
     except Exception: log("💾 内存: psutil未装")
-    # 启动耗时：接上 startup_optimizer（它登记了很久没人调用）。
-    # 只报数，不做任何"优化动作"——它的 precompile() 会在启动时
-    # 编译整个项目，放到这里会把启动拖慢好几秒，不调。
+    # 进程运行时长：**不是启动耗时**。以前这行写成"启动耗时: 2253.8秒"，
+    # 用户会以为自己电脑开个程序要半个多小时，其实只是程序已经开了这么久。
+    # 真正的启动耗时在下面（读 trunk._boot_ms）；这里只报数，也不做任何
+    # "优化动作"——startup_optimizer.precompile() 会编译整个项目，放自检里会拖慢。
     try:
         import time as _tb
         _el = _tb.time() - getattr(trunk, "_process_start", _tb.time())
-        log("⏱ 启动耗时: %.1f秒（进程起到现在）" % _el)
+        log("⏱ 已运行: %.1f秒（进程起到现在）" % _el)
     except Exception as e:
         _x6_swallowed(__name__, e)
     try:
@@ -459,8 +460,16 @@ def deep_check(trunk):
     except Exception as e:
         _x6_swallowed(__name__, e)
     try:
-        boot=getattr(trunk,"_boot_time",None)
-        if boot: log("🚀 启动耗时: %.1f秒"%(time.time()-boot))
+        # 真正的启动耗时：启动完成时 gui/app_pyqt.py 会调
+        # core.startup.log_summary(trunk)，那里把总毫秒挂到 trunk._boot_ms。
+        # 兜底兼容老写法 trunk._boot_time（秒级时间戳）。
+        _bm = getattr(trunk, "_boot_ms", None)
+        if _bm:
+            log("🚀 启动耗时: %.1f秒" % (float(_bm) / 1000.0))
+        else:
+            _bt = getattr(trunk, "_boot_time", None)
+            if _bt:
+                log("🚀 启动耗时: %.1f秒" % (time.time() - _bt))
     except Exception as e:
         _x6_swallowed(__name__, e)
     try:
