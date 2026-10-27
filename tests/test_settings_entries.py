@@ -238,10 +238,18 @@ def test_settings_entries_are_links_not_buttons():
         "模型选择又变成「每个模型一个按钮」了（模型多时是一屏按钮）"
 
 
-def test_settings_has_few_buttons_and_many_links(win):
-    """实际建出来的设置窗口：按钮个位数，入口是链接。"""
+def test_settings_has_few_buttons_and_many_links(win, monkeypatch):
+    """实际建出来的设置窗口：按钮个位数，入口是链接。
+
+    必须显式指定「高级模式」：简单模式本来就只放少量入口（3 页），
+    而这里要验的是「旧入口一个没丢」。CI 上没有 data/config.json，
+    get_ui_mode() 会退回简单模式，链接只有 9 个 —— 以前本机跑过、
+    CI 上挂，就是栽在这个默认值上。
+    """
     from PyQt5.QtWidgets import QDialog, QLabel, QPushButton
     import gui.settings_dialog as sd
+    from gui import ui_mode
+    monkeypatch.setattr(ui_mode, "get_ui_mode", lambda *a, **k: "advanced")
 
     made = []
 
