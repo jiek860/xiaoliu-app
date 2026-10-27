@@ -65,10 +65,16 @@ jobs:
       - name: Write artifact hash manifest
         shell: pwsh
         run: |
-          $rows = Get-ChildItem -Path dist -Recurse -File | ForEach-Object {
-            $h = Get-FileHash -Algorithm SHA256 -Path $_.FullName
+          # ⚠️ 用 -LiteralPath + 预先算好的 $root：
+          # 2026-10-28 打包进 jedi 的 typeshed（5000+ 个 .pyi）后，这步报
+          # "You cannot call a method on a null-valued expression"。
+          # Get-FileHash/-Path 会把路径里的 [ ] 当通配符，匹配不上就返回空；
+          # 另外 $root 不能每轮都 Resolve-Path 一次（相对路径依赖 cwd）。
+          $root = [IO.Path]::GetFullPath('dist')
+          $rows = Get-ChildItem -LiteralPath $root -Recurse -File | ForEach-Object {
+            $h = Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName
             [ordered]@{
-              path = $_.FullName.Substring((Resolve-Path dist).Path.Length + 1).Replace('\', '/')
+              path = $_.FullName.Substring($root.Length + 1).Replace('\', '/')
               size = $_.Length
               sha256 = $h.Hash.ToLower()
             }

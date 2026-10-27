@@ -15,6 +15,59 @@ FORBIDDEN_NAMES = {"config.json", "data", "tests", "tools", "backups",
 PRIVATE_HINTS = ("私钥",)
 POLICY_EXEMPT = {"公钥.pem", "激活公钥.pem", "cacert.pem"}
 
+# 口径 A（2026-10-27 起）：exe 也保留"电脑控制"和 Word 能力。
+# 下面这些是**编译扩展 / 数据文件**，缺了功能会静默失效；纯 Python 模块
+# 在 exe 内部的 PYZ 里、文件系统看不到，所以只挑能验证的文件。
+# 为什么要这道检查：本批次就是被两类静默缺失坑到的 ——
+#   ① `xiao6.spec` 把 PIL 排除（截图/图像对比整条链路废掉）；
+#   ② uiautomation 的 dll 写进 datas 时元组顺序反了（PyInstaller 只记一行
+#      "Ignoring non-existent resource"，dll 直接没进包）。
+CAPABILITY_FILES = (
+    ("截图与图像对比（Pillow）",
+     lambda r: r.startswith("pil/_imaging") and r.endswith(".pyd")),
+    ("窗口操作（pywin32 win32gui）",
+     lambda r: r == "win32/win32gui.pyd"),
+    ("键鼠操作（pywin32 win32api）",
+     lambda r: r == "win32/win32api.pyd"),
+    ("pywin32 运行时（pywintypes）",
+     lambda r: r.startswith("pywin32_system32/pywintypes")
+     and r.endswith(".dll")),
+    ("控件级操作（uiautomation）",
+     lambda r: r == "uiautomation/bin/uiautomationclient_vc140_x64.dll"),
+    ("Word 读写（python-docx 模板）",
+     lambda r: r == "docx/templates/default-docx-template/[content_types].xml"),
+)
+
+
+def _relative_lower(base, files):
+    """产物的相对路径（小写、去掉一层 _internal/），便于逐条比对能力文件
+
+    注意 base 要用**exe 所在目录**，不是 dist 根：onedir 产物是
+    `dist/<程序名>/<程序名>.exe` + `dist/<程序名>/_internal/...`，
+    相对 dist 根算出来的路径会多一层程序名。
+    """
+    out = set()
+    for p in files:
+        try:
+            rel = p.relative_to(base).as_posix().lower()
+        # 静默是故意的：散落在 dist 根目录的文件（清单等）不参与能力比对
+        except ValueError:
+            continue
+        if rel.startswith("_internal/"):
+            rel = rel[len("_internal/"):]
+        out.add(rel)
+    return out
+
+
+def check_capabilities(base, files):
+    """返回缺失能力的说明列表（空 = 都在）"""
+    rel = _relative_lower(base, files)
+    missing = []
+    for label, match in CAPABILITY_FILES:
+        if not any(match(r) for r in rel):
+            missing.append(label)
+    return missing
+
 
 def find_exe(dist):
     exes = sorted(Path(dist).rglob("*.exe"))
@@ -71,6 +124,13 @@ def validate_dist(dist):
         errors.append("缺少 Qt5Core.dll")
     if not qwindows:
         errors.append("缺少 Qt platform 插件 qwindows.dll")
+
+    missing_caps = check_capabilities(exe.parent, files)
+    info["capabilities"] = "%d/%d" % (len(CAPABILITY_FILES) - len(missing_caps),
+                                      len(CAPABILITY_FILES))
+    if missing_caps:
+        errors.append("缺少能力文件（对应功能在 exe 里会失效）: "
+                      + "、".join(missing_caps))
     return not errors, errors, info
 
 
@@ -127,9 +187,10 @@ def main():
     a = ap.parse_args()
     ok, errors, info = validate_dist(a.dist)
     print("PyInstaller 产物检查")
-    for key in ("exe", "exe_mb", "files", "mb", "qt_core", "qwindows"):
+    for key in ("exe", "exe_mb", "files", "mb", "qt_core", "qwindows",
+                "capabilities"):
         if key in info:
-            print("  %-10s %s" % (key + ":", info[key]))
+            print("  %-13s %s" % (key + ":", info[key]))
     if ok and a.launch_seconds > 0:
         alive, code = launch_smoke(info["exe"], a.launch_seconds)
         print("  launch    %s (exit=%s)" % ("alive" if alive else "exited", code))
