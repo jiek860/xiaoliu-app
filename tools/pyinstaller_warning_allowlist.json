@@ -108,6 +108,7 @@
       "simplejson",
       "socks",
       "threadpoolctl",
+      "tree_sitter_languages",
       "typing_extensions",
       "urllib3_secure_extra",
       "yaml"
