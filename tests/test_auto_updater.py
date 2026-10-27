@@ -425,3 +425,137 @@ def test_allow_unsigned_default_off(up, monkeypatch):
     u2 = AutoUpdater(FakeTrunk(str(up.base)))
     assert not u2._allow_unsigned_update(), \
         "未签名更新默认是开着的 —— 非常危险"
+
+
+# ══════════════════════════════════════════════════════════════
+# ⑥ 质量闸（2026-10-27）：更新前后都必须过门禁
+# ══════════════════════════════════════════════════════════════
+def _stub_pipeline(up, monkeypatch, gate_before=(True, ["ok"]),
+                   gate_after=(True, ["ok"])):
+    """把自更新闭环除质量闸外的每一步都换成假的（不联网、不写盘）"""
+    state = {"deploy": False, "rollback": False}
+
+    monkeypatch.setattr(up, "collect_problems", lambda: ["测试问题"])
+    monkeypatch.setattr(up, "build_suggestion",
+                        lambda p: {"建议": "改一行", "目标模块": "todo.py"})
+    monkeypatch.setattr(up, "gen_patch",
+                        lambda s, t: {"ok": True, "补丁": "p", "代码长度": 1})
+    monkeypatch.setattr(up, "sandbox_verify_patch", lambda p: (True, "ok"))
+    monkeypatch.setattr(up, "run_health_checks", lambda: (60, 60, []))
+    monkeypatch.setattr(up, "ask_confirm", lambda plan: True)
+    monkeypatch.setattr(up, "_allow_self_upgrade", lambda: True)
+    monkeypatch.setattr(up, "backup_current",
+                        lambda: os.path.join(up.base, "backup_fake"))
+
+    def fake_deploy(t, p, b):
+        state["deploy"] = True
+        return {"ok": True}
+
+    monkeypatch.setattr(up, "deploy_patch", fake_deploy)
+    monkeypatch.setattr(up, "quality_gate",
+                        lambda stage="部署前": gate_before if stage == "部署前"
+                        else gate_after)
+
+    def fake_rollback(b):
+        state["rollback"] = True
+        return True
+
+    monkeypatch.setattr(up, "rollback", fake_rollback)
+    return state
+
+
+def test_quality_gate_before_deploy_runs_full_pre_commit(up, monkeypatch):
+    """部署前必须跑**全套** pre_commit_check（含 pytest / 结构契约）"""
+    seen = []
+
+    def fake(label, cmd, timeout=None):
+        seen.append(list(cmd))
+        return True, label + "：通过"
+
+    monkeypatch.setattr(up, "_run_gate_cmd", fake)
+    ok, notes = up.quality_gate("部署前")
+    assert ok is True and notes
+    flat = " ".join(" ".join(c) for c in seen)
+    assert "pre_commit_check.py" in flat
+    assert "--full" in seen[0], "部署前没跑全套门禁"
+
+
+def test_quality_gate_after_deploy_runs_smoke_pytest(up, monkeypatch):
+    """部署后必须跑快检 + 冒烟 pytest"""
+    seen = []
+
+    def fake(label, cmd, timeout=None):
+        seen.append(list(cmd))
+        return True, label + "：通过"
+
+    monkeypatch.setattr(up, "_run_gate_cmd", fake)
+    ok, _notes = up.quality_gate("部署后")
+    assert ok is True
+    flat = " ".join(" ".join(c) for c in seen)
+    assert "pytest" in flat and "test_smoke.py" in flat, flat
+
+
+def test_quality_gate_failure_blocks_deploy(up, monkeypatch):
+    """部署前质量闸不过 → 一个文件都不许动"""
+    state = _stub_pipeline(up, monkeypatch,
+                           gate_before=(False, ["提交前检查(全套)：失败 1 项"]))
+    r = up.run_auto_update(confirm=True)
+    assert r["ok"] is False, r
+    assert "质量闸" in r["原因"], r
+    assert state["deploy"] is False, "门禁没过却部署了"
+
+
+def test_quality_gate_failure_after_deploy_rolls_back(up, monkeypatch):
+    """部署后质量闸不过 → 必须回滚，不能留一个装坏的版本"""
+    state = _stub_pipeline(up, monkeypatch,
+                           gate_after=(False, ["冒烟测试：失败"]))
+    r = up.run_auto_update(confirm=True)
+    assert r["ok"] is False, r
+    assert r.get("已回滚") is True, r
+    assert state["rollback"] is True, "部署后检查失败却没回滚"
+
+
+def test_quality_gate_success_reports_notes(up, monkeypatch):
+    """两道闸都过 → 结果里带上闸门说明，便于排查"""
+    _stub_pipeline(up, monkeypatch, gate_before=(True, ["甲"]), gate_after=(True, ["乙"]))
+    r = up.run_auto_update(confirm=True)
+    assert r["ok"] is True, r
+    assert r["质量闸"] == ["甲", "乙"], r
+
+
+# ══════════════════════════════════════════════════════════════
+# 质量闸真正执行命令的分支（成功/失败/超时/命令不存在）
+# 上面的用例都把 quality_gate 桩掉了，这里补上「真跑一条命令」的路径：
+# 找不到命令或超时都必须算失败 —— 宁可不更新，也不能放过去。
+# ══════════════════════════════════════════════════════════════
+import subprocess  # noqa: E402
+
+
+def test_run_gate_cmd_success(up):
+    ok, note = up._run_gate_cmd(
+        "演示", [sys.executable, "-c", "print('hi')"])
+    assert ok is True, note
+    assert "通过" in note
+
+
+def test_run_gate_cmd_reports_exit_code_and_tail(up):
+    ok, note = up._run_gate_cmd(
+        "演示", [sys.executable, "-c",
+                 "import sys; print('前一行'); sys.exit(3)"])
+    assert ok is False
+    assert "退出码 3" in note
+    assert "前一行" in note
+
+
+def test_run_gate_cmd_missing_command_is_failure(up):
+    ok, note = up._run_gate_cmd("演示", ["x6-no-such-command-anywhere"])
+    assert ok is False
+    assert "找不到命令" in note
+
+
+def test_run_gate_cmd_timeout_is_failure(up):
+    ok, note = up._run_gate_cmd(
+        "演示", [sys.executable, "-c", "import time; time.sleep(5)"],
+        timeout=0.2)
+    assert ok is False
+    assert "未完成" in note

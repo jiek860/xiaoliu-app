@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """代码工作区索引与多文件 patch 引擎测试。"""
 import os
 import sys
@@ -109,5 +109,44 @@ def test_code_agent_dialog_constructs(tmp_path):
     try:
         assert d.windowTitle() == "代码 Agent"
         assert d.goal.placeholderText()
+        assert hasattr(d.output, "appendPlainText"), \
+            "输出框必须是 QPlainTextEdit，否则生成预览时直接 AttributeError"
+    finally:
+        d.close()
+
+
+def test_code_agent_dialog_rollback_covers_every_round(tmp_path, monkeypatch):
+    """连续几轮修复后「一键撤销」必须撤销每一轮，而不是只撤最后一轮。"""
+    from tests.conftest import make_trunk
+    import gui.code_agent_dialog as mod
+    from gui.code_agent_dialog import CodeAgentDialog
+
+    class _Dlg:
+        manifest = "m1"
+
+        def __init__(self, *_a, **_k):
+            self.accepted = True
+            self.result = {"backup_manifest": _Dlg.manifest,
+                           "applied": ["a.py"]}
+
+        def exec_(self):
+            return 1
+
+    trunk = make_trunk()
+    d = CodeAgentDialog(trunk, root=str(tmp_path))
+    try:
+        monkeypatch.setattr(mod, "DiffReviewDialog", _Dlg)
+        monkeypatch.setattr(d, "_run_tests", lambda: None)
+        d._on_prepared({"ok": True, "patch": {}, "context_files": []})
+        _Dlg.manifest = "m2"
+        d._on_prepared({"ok": True, "patch": {}, "context_files": []})
+        assert d._backups == ["m1", "m2"]
+        assert d.rollback_btn.isEnabled() is True
+
+        monkeypatch.setattr(d.agent, "rollback_all",
+                            lambda backups: {"restored": list(backups)})
+        d._rollback()
+        assert d._backups == []
+        assert d.rollback_btn.isEnabled() is False
     finally:
         d.close()

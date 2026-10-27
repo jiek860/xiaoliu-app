@@ -150,7 +150,6 @@ class OnboardingLocalMixin:
         self._dl_stop = False
         self._dl_kind = "model"
         self.btn_dl.setEnabled(False)
-        self.btn_pull.setEnabled(False)
         self.btn_cancel_dl.setVisible(True)
         self.bar_dl.setVisible(True)
         self.bar_dl.setValue(0)
@@ -187,7 +186,6 @@ class OnboardingLocalMixin:
     def _on_pull_done(self, r):
         self._dl_busy = False
         self.btn_dl.setEnabled(True)
-        self.btn_pull.setEnabled(True)
         self.btn_cancel_dl.setVisible(False)
         if r.get("ok"):
             self.bar_dl.setValue(100)

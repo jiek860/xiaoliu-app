@@ -123,6 +123,41 @@ class TaskRuntime:
     def subscribe(self, callback):
         self._subscribers.append(callback)
 
+    def unsubscribe(self, callback):
+        """注销订阅；返回是否真的移除了。
+
+        对话框每打开一次就 subscribe 一次，关闭时必须注销，否则订阅列表
+        只增不减（已销毁的对话框还会被逐条 emit）。
+        """
+        with self._lock:
+            try:
+                self._subscribers.remove(callback)
+                return True
+            except ValueError:
+                return False
+
+    def plan_async(self, task_id, on_done=None):
+        """后台拆步：拆步会同步调用模型，不能在 GUI 线程里做。
+
+        `on_done(task_id, ok)` 在工作线程里被调用；GUI 侧只负责把它 emit
+        成信号（Qt 会排队回主线程），不要在里面碰控件。
+        """
+        def work():
+            ok = False
+            try:
+                ok = bool(self.plan(task_id))
+            except Exception as e:
+                _x6_swallowed(__name__, e, "async task plan")  # 静默是故意的
+            if callable(on_done):
+                try:
+                    on_done(task_id, ok)
+                except Exception as e:
+                    _x6_swallowed(__name__, e, "async task plan callback")  # 静默是故意的
+
+        th = threading.Thread(target=work, daemon=True, name="task-plan")
+        th.start()
+        return th
+
     def create(self, goal, *, mode="agent"):
         tid = "task_" + time.strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
         task = {"id": tid, "goal": str(goal or "").strip(), "mode": mode,

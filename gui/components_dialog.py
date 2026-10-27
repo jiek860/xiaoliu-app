@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel,
                              QPushButton, QScrollArea, QVBoxLayout, QWidget)
 
 from gui.dep_dialog import _Installer
+from gui.feedback_states import make_action_links
 
 # (分组, 显示名, import 名, pip 规格, 装到哪, 大小)
 PACKAGES = [
@@ -148,9 +149,8 @@ class ComponentsDialog(QDialog):
 
         # ---- 底部 ----
         bottom = QHBoxLayout()
-        self._one = QPushButton("一键安装全部未装组件")
-        self._one.setStyleSheet("padding:6px 14px;")
-        self._one.clicked.connect(self._install_all)
+        self._one = make_action_links([
+            ("⚡ 一键安装全部未装组件", self._install_all)])
         bottom.addWidget(self._one)
 
         self._status = QLabel("")
@@ -161,9 +161,7 @@ class ComponentsDialog(QDialog):
         self._status.setStyleSheet("color:#475569;font-size:11px;")
         bottom.addWidget(self._status, 1)
 
-        close = QPushButton("关闭")
-        close.clicked.connect(self.close)
-        bottom.addWidget(close)
+        bottom.addWidget(QLabel("Esc 关闭"))
         outer.addLayout(bottom)
 
     def _pkg_row(self, name, mod, spec, target, size):
@@ -195,10 +193,10 @@ class ComponentsDialog(QDialog):
                      % (name, desc))
         lab.setWordWrap(True)
         row.addWidget(lab, 1)
-        b = QPushButton("打开下载页")
-        b.setFixedWidth(96)
-        b.clicked.connect(lambda _, u=url: webbrowser.open(u))
-        row.addWidget(b)
+        # 「打开下载页」是一次性跳转 → 链接，不占按钮位
+        row.addWidget(make_action_links([
+            ("打开下载页", lambda _u=url: webbrowser.open(_u)),
+        ]))
         return w
 
     def _mirror_row(self, name, url):
@@ -209,10 +207,9 @@ class ComponentsDialog(QDialog):
                      % (name, url))
         lab.setWordWrap(True)
         row.addWidget(lab, 1)
-        b = QPushButton("复制")
-        b.setFixedWidth(64)
-        b.clicked.connect(lambda _, u=url: self._copy(u))
-        row.addWidget(b)
+        row.addWidget(make_action_links([
+            ("复制", lambda _u=url: self._copy(_u)),
+        ]))
         return w
 
     # ---------------- 动作 ----------------

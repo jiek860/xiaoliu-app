@@ -12,6 +12,7 @@ import atexit
 import concurrent.futures
 import os, re, threading, time
 from core.safe import safe
+from core.plugin_errors import error_result as _error_result
 from modules.base import BaseModule
 
 try:
@@ -19,6 +20,11 @@ try:
 except ImportError:
     def _x6_swallowed(component, error, context=""):
         return None
+
+
+def _err(message, code="PLUGIN_BAD_INPUT"):
+    """历史 ``{"错误": ...}`` 的统一出口（标准 6.1 结构化错误）"""
+    return _error_result(code, str(message)[:300], module="browser")
 
 
 
@@ -40,6 +46,12 @@ def _browser_thread(fn):
 
 
 class Browser(BaseModule):
+
+    # 标准 1.1：本模块不负责的事（给调用方一个明确边界，避免什么都能问）
+    NOT_RESPONSIBLE = (
+        "界面呈现与用户交互（由 gui 负责）",
+        "模块加载、调度与权限判定（由 core 负责）",
+    )
     NAME = "browser"
     VERSION = "1.0"
     def __init__(self, trunk=None):
@@ -110,9 +122,9 @@ class Browser(BaseModule):
         外部已设过这个变量就尊重外部设置。
         """
         p = os.path.join(self.base, "data", "browsers")
-        if os.path.isdir(p) and not os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
-            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = p
-        return os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or ""
+        if os.path.isdir(p) and not self.env("PLAYWRIGHT_BROWSERS_PATH"):
+            self.set_env("PLAYWRIGHT_BROWSERS_PATH", p)
+        return self.env("PLAYWRIGHT_BROWSERS_PATH") or ""
 
     def chromium_info(self):
         """chromium 装了没 / 缺什么 / 怎么装（#7：第一次用才提示下载）
@@ -198,91 +210,91 @@ class Browser(BaseModule):
                 self.history = self.history[-20:]
             return {"ok": True, "标题": page.title()}
         except Exception as e:
-            return {"错误": str(e)[:80]}
+            return _err(str(e)[:80], "PLUGIN_INTERNAL_ERROR")
 
     @safe
     @_browser_thread
     def click(self, selector):
         """点击元素"""
         if not self._page:
-            return {"错误": "先打开网页"}
+            return _err("先打开网页", "PLUGIN_BAD_INPUT")
         try:
             self._page.click(selector)
             return {"ok": True}
         except Exception as e:
-            return {"错误": str(e)[:80]}
+            return _err(str(e)[:80], "PLUGIN_INTERNAL_ERROR")
 
     @safe
     @_browser_thread
     def type_text(self, selector, text):
         """输入文字"""
         if not self._page:
-            return {"错误": "先打开网页"}
+            return _err("先打开网页", "PLUGIN_BAD_INPUT")
         try:
             self._page.fill(selector, text)
             return {"ok": True}
         except Exception as e:
-            return {"错误": str(e)[:80]}
+            return _err(str(e)[:80], "PLUGIN_INTERNAL_ERROR")
 
     @safe
     @_browser_thread
     def get_text(self, selector=None):
         """获取页面文字"""
         if not self._page:
-            return {"错误": "先打开网页"}
+            return _err("先打开网页", "PLUGIN_BAD_INPUT")
         try:
             if selector:
                 return {"文字": self._page.text_content(selector)[:500]}
             return {"文字": self._page.content()[:1000]}
         except Exception as e:
-            return {"错误": str(e)[:80]}
+            return _err(str(e)[:80], "PLUGIN_INTERNAL_ERROR")
 
     @safe
     @_browser_thread
     def screenshot(self, path=None):
         """截图"""
         if not self._page:
-            return {"错误": "先打开网页"}
+            return _err("先打开网页", "PLUGIN_BAD_INPUT")
         try:
             if not path:
                 path = os.path.join(self.base, "data", "browser_screenshot.png")
             self._page.screenshot(path=path)
             return {"ok": True, "截图": path}
         except Exception as e:
-            return {"错误": str(e)[:80]}
+            return _err(str(e)[:80], "PLUGIN_INTERNAL_ERROR")
 
     @safe
     @_browser_thread
     def scroll(self, direction="down", pixels=500):
         """滚动页面"""
         if not self._page:
-            return {"错误": "先打开网页"}
+            return _err("先打开网页", "PLUGIN_BAD_INPUT")
         try:
             delta = pixels if direction == "down" else -pixels
             self._page.mouse.wheel(0, delta)
             return {"ok": True}
         except Exception as e:
-            return {"错误": str(e)[:80]}
+            return _err(str(e)[:80], "PLUGIN_INTERNAL_ERROR")
 
     @safe
     @_browser_thread
     def back(self):
         """返回上一页"""
         if not self._page:
-            return {"错误": "先打开网页"}
+            return _err("先打开网页", "PLUGIN_BAD_INPUT")
         try:
             self._page.go_back()
             time.sleep(0.5)
             return {"ok": True}
         except Exception as e:
-            return {"错误": str(e)[:80]}
+            return _err(str(e)[:80], "PLUGIN_INTERNAL_ERROR")
 
     @safe
     @_browser_thread
     def list_interactables(self, limit=40):
         """列出页面上可交互元素，供 Agent 做 DOM-first 决策。"""
         if not self._page:
-            return {"错误": "先打开网页"}
+            return _err("先打开网页", "PLUGIN_BAD_INPUT")
         try:
             items = self._page.eval_on_selector_all(
                 "button, input, textarea, select, a[href]",
@@ -297,7 +309,7 @@ class Browser(BaseModule):
                 }))""" % int(limit))
             return {"ok": True, "元素": items}
         except Exception as e:
-            return {"错误": str(e)[:80]}
+            return _err(str(e)[:80], "PLUGIN_INTERNAL_ERROR")
 
     @safe
     @_browser_thread
@@ -324,20 +336,20 @@ class Browser(BaseModule):
             time.sleep(2)
             return {"ok": True, "标题": self._page.title()}
         except Exception as e:
-            return {"错误": str(e)[:80]}
+            return _err(str(e)[:80], "PLUGIN_INTERNAL_ERROR")
 
     @safe
     @_browser_thread
     def fill_form(self, fields):
         """批量填表: fields = {selector: value}"""
         if not self._page:
-            return {"错误": "先打开网页"}
+            return _err("先打开网页", "PLUGIN_BAD_INPUT")
         try:
             for sel, val in fields.items():
                 self._page.fill(sel, str(val))
             return {"ok": True, "填写数": len(fields)}
         except Exception as e:
-            return {"错误": str(e)[:80]}
+            return _err(str(e)[:80], "PLUGIN_INTERNAL_ERROR")
 
     @safe
     @_browser_thread
@@ -351,7 +363,7 @@ class Browser(BaseModule):
             self._page = page
             return {"ok": True, "标题": page.title()}
         except Exception as e:
-            return {"错误": str(e)[:80]}
+            return _err(str(e)[:80], "PLUGIN_INTERNAL_ERROR")
 
     # ---------- 统一入口（工具调用 / 聊天用）----------
     # ---------- DOM 感知（供电脑 Agent 使用）----------
@@ -492,7 +504,7 @@ class Browser(BaseModule):
                 import json as _json
                 return self.fill_form(_json.loads(m.group(0)))
             except Exception as e:
-                return {"错误": "填表内容不是合法 JSON: " + str(e)[:50]}
+                return _err("填表内容不是合法 JSON: " + str(e)[:50], "PLUGIN_BAD_INPUT")
 
         # 输入：在 <selector> 输入 <text>
         m = re.search(r"(?:在|往)\s*(\S+)\s*(?:里|中)?\s*(?:输入|填|打)\s*(.+)$", t)

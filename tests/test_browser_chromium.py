@@ -108,7 +108,8 @@ def test_open_gives_actionable_message_not_raw_playwright_error(browser_cls):
     b = _with_base(browser_cls, tempfile.mkdtemp(prefix="x6nobrowser_"))
     r = b.open("https://example.com")
     assert isinstance(r, dict)
-    msg = str(r.get("错误", ""))
+    from core.plugin_errors import error_of
+    msg = str((error_of(r) or {}).get("message", ""))
     assert msg, "没给错误信息"
     assert "playwright install chromium" in msg, \
         "没给出安装命令：%s" % msg
@@ -126,7 +127,8 @@ def test_command_survives_the_80_char_truncation(browser_cls):
     修法：把命令放最前面。
     """
     b = _with_base(browser_cls, tempfile.mkdtemp(prefix="x6nobrowser_"))
-    msg = str(b.open("https://example.com").get("错误", ""))
+    from core.plugin_errors import error_of
+    msg = str((error_of(b.open("https://example.com")) or {}).get("message", ""))
     assert len(msg) <= 80 or "playwright install chromium" in msg[:80], \
         "命令落在 80 字之外，会被截断：%s" % msg
     assert "playwright install chromium" in msg

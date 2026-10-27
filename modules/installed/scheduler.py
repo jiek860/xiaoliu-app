@@ -11,6 +11,12 @@ from modules.base import BaseModule
 import threading, time
 
 class Scheduler(BaseModule):
+
+    # 标准 1.1：本模块不负责的事（给调用方一个明确边界，避免什么都能问）
+    NOT_RESPONSIBLE = (
+        "界面呈现与用户交互（由 gui 负责）",
+        "模块加载、调度与权限判定（由 core 负责）",
+    )
     NAME = "scheduler"
     VERSION = "1.0"
     def __init__(self, trunk=None):
@@ -27,6 +33,7 @@ class Scheduler(BaseModule):
         self.last_health = 0  # P2-9: 模型健康巡检
         self.last_auto = 0  # 自动更新巡检（P0-3: 每6小时检查建议，部署需手动确认）
         self.last_anomaly = 0  # 异常检测（接上 anomaly_detector，只读检查）
+        self.last_workflow = 0  # 定时工作流（workflow_runner.tick，仅跑带 schedule 的）
         self._boot_time = time.time()  # v10.1: 启动先让用户用聊天，后台闭环延后开跑，不抢 Ollama
         self.last_error = ""  # D7: 最近一次任务失败信息
         self.fail_count = 0
@@ -75,8 +82,10 @@ class Scheduler(BaseModule):
                 rc_iv = self.trunk.rule("定时.热检间隔秒", 300)
                 auto_iv = self.trunk.rule("定时.自动更新间隔秒", 21600)
                 an_iv = self.trunk.rule("定时.异常检测间隔秒", 3600)
+                wf_iv = self.trunk.rule("定时.工作流间隔秒", 60)
             except Exception:
                 bk_iv, heal_iv, rv_iv, rc_iv, auto_iv, an_iv = 3600, 14400, 1800, 300, 21600, 3600
+                wf_iv = 60
             # 每小时备份（D7: 失败自动重试+告警）
             if now - self.last_backup > bk_iv:
                 def _do_backup():
@@ -187,12 +196,29 @@ class Scheduler(BaseModule):
                                 self.trunk._log("热更新失败: " + str(msg)[:120])
                 self._safe_run("热更新检测", _reload)
                 self.last_check = now
+            # 每分钟看一眼带 schedule 的工作流；聊天中让路，避免和模型抢资源
+            if now - self.last_workflow > wf_iv and now - self._boot_time > 120 and not busy:
+                def _workflows():
+                    self.trunk.call("workflow_runner", "__no__")
+                    wr = self.trunk.modules.get("workflow_runner")
+                    if wr and hasattr(wr, "tick"):
+                        result = wr.tick() or {}
+                        if result.get("ran"):
+                            self.trunk._log("定时工作流: 已运行 %s" % ", ".join(
+                                str(x) for x in result.get("ran")))
+                        errors = result.get("errors") or {}
+                        if isinstance(errors, dict):
+                            for name, message in errors.items():
+                                self.trunk._log("定时工作流 %s 失败: %s" % (
+                                    name, str(message)[:120]))
+                self._safe_run("定时工作流", _workflows)
+                self.last_workflow = now
             time.sleep(60)  # 每分钟检查一次
 
     def status(self):
         return {"运行中": self.running, "上次备份": self.last_backup,
-                "上次学习": self.last_learn, "失败次数": self.fail_count,
-                "最近错误": self.last_error}
+                "上次学习": self.last_learn, "上次工作流": self.last_workflow,
+                "失败次数": self.fail_count, "最近错误": self.last_error}
 
     def run(self, *args):
         return self.status()

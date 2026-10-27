@@ -82,16 +82,15 @@ class AgentLauncherMixin:
             return False
 
     def activity_center_dialog(self):
-        """统一查看运行中任务、后台活动和等待确认。"""
+        """统一查看运行中任务、后台活动和等待确认。
+
+        非模态窗口，改成单实例：连点只把已有窗口前置，不叠窗。
+        """
         try:
             from gui.activity_center_dialog import ActivityCenterDialog
-            d = ActivityCenterDialog(self.trunk, self)
-            if not hasattr(self, "_activity_centers"):
-                self._activity_centers = []
-            self._activity_centers.append(d)
-            d.show()
-            d.raise_()
-            return d
+            return self._singleton_window(
+                "activity_center",
+                lambda: ActivityCenterDialog(self.trunk, self))
         except Exception as e:
             QMessageBox.warning(self, "活动中心", "打不开：" + str(e)[:120])
             return None

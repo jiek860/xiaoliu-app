@@ -4,6 +4,8 @@ from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButt
 from PyQt5.QtCore import QEvent
 from core.bot_server import BotServer
 
+from gui.feedback_states import make_action_links
+
 
 class BotDialog(QDialog):
     def __init__(self, trunk, parent=None):
@@ -59,13 +61,13 @@ class BotDialog(QDialog):
         self.start_btn.clicked.connect(self._start)
         btn_row.addWidget(self.start_btn)
 
-        self.test_btn = QPushButton("发测试消息")
-        self.test_btn.clicked.connect(self._test)
-        btn_row.addWidget(self.test_btn)
-
-        close_btn = QPushButton("关闭")
-        close_btn.clicked.connect(self.close)
-        btn_row.addWidget(close_btn)
+        # 发测试消息 / 关闭都是次要动作 → 链接；只留「启动」一个主按钮
+        btn_row.addWidget(make_action_links([
+            ("发测试消息", self._test),
+            ("关闭", self.close),
+        ]))
+        btn_row.addStretch(1)
+        btn_row.addWidget(QLabel("Esc 关闭"))
         layout.addLayout(btn_row)
 
     def _start(self):

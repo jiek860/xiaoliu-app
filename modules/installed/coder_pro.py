@@ -48,11 +48,27 @@ class CoderPro(BaseModule):
     def __init__(self, trunk=None):
         super().__init__(trunk)
         self.trunk = trunk
+        # 模块卸载后置位：让排队中的下一步立刻退出，不再动用户仓库
+        self._closed = False
+
+    def close(self):
+        """取消后续任务（模块卸载/退出时调）。
+
+        这个模块没有常驻资源：git 快照和测试都是 subprocess.run 同步跑完就回收。
+        所以 close() 只做一件事 —— 把 _closed 置位，让已经开始排队/下一步的
+        run_task 立刻返回「已停止」，不再对用户仓库动手。
+        """
+        self._closed = True
+        return {"ok": True, "状态": "已停止"}
 
     def _safe_root(self, project_path=None):
         """安全解析项目根目录，防止越界"""
+        # 不再退回「当前工作目录」：它是进程级全局，从快捷方式启动时可能是
+        # C:\Windows\System32 —— 那样 project_root 会解析到系统目录。
+        # 用本文件所在的项目树兜底，结果可预测。
         base = getattr(self.trunk, "base", None) if self.trunk else None
-        base = base or os.getcwd()
+        base = base or os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))
         if project_path:
             root = os.path.join(base, project_path)
         else:
@@ -126,6 +142,8 @@ class CoderPro(BaseModule):
         """
         from core.code_agent import CodeAgent
 
+        if getattr(self, "_closed", False):
+            return {"ok": False, "error": "coder_pro 已停止（模块被卸载）"}
         root = self._safe_root(project_path)
         if not os.path.isdir(root):
             return {"ok": False, "error": f"目录不存在: {root}"}

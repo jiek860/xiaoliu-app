@@ -293,9 +293,32 @@ def test_deploy_rollback_failure_is_reported(mk, monkeypatch):
     assert any("回滚失败" in x for x in o.trunk.logs), o.trunk.logs
 
 
-def test_rollback_without_backup_dir_is_noop(mk):
+def test_rollback_without_backup_dir_reports_failure(mk):
     o = mk()
-    assert o.rollback(os.path.join(o.base, "backups", "没有这个")) is True
+    assert o.rollback(os.path.join(o.base, "backups", "没有这个")) is False
+    assert any("回滚失败" in x for x in o.trunk.logs), o.trunk.logs
+
+
+def test_rollback_restores_backup_files_without_wiping_new_ones(tmp_path):
+    """回滚只覆盖备份里有的文件：更新后新装的插件不能被抹掉。
+
+    老实现是 rmtree(core/modules) + copytree(备份)——回滚一次，
+    用户更新后自己装的插件和改过的文件全没了。
+    """
+    o = Obj(str(tmp_path))
+    o.trunk = FakeTrunk(tmp_path)
+    core = os.path.join(o.base, "core")
+    installed = os.path.join(o.base, "modules", "installed")
+    open(os.path.join(core, "a.py"), "w", encoding="utf-8").write("new = 2\n")
+    open(os.path.join(installed, "新装的插件.py"), "w", encoding="utf-8").write("x = 1\n")
+    bk = os.path.join(o.base, "backups", "backup_x")
+    os.makedirs(os.path.join(bk, "core"), exist_ok=True)
+    open(os.path.join(bk, "core", "a.py"), "w", encoding="utf-8").write("old = 1\n")
+
+    assert o.rollback(bk) is True
+    assert open(os.path.join(core, "a.py"), encoding="utf-8").read() == "old = 1\n"
+    assert os.path.exists(os.path.join(installed, "新装的插件.py")), \
+        "回滚不该删掉更新之后新装的文件"
 
 
 def test_reload_touched_matches_lazy_and_swallows_error(mk):
@@ -441,7 +464,33 @@ def test_download_success_writes_files_and_history(tmp_path, monkeypatch, allow_
     assert open(os.path.join(o.base, "core", "a.py"), encoding="utf-8").read() == "x = 1\n"
     hist = os.path.join(o.base, "updates", "update_history.jsonl")
     assert os.path.exists(hist) and "v99.0.0" in open(hist, encoding="utf-8").read()
+    entry = json.loads(open(hist, encoding="utf-8").read().splitlines()[-1])
+    # 历史里要记备份目录：更新对话框靠它提供「回滚到这次更新之前」
+    assert entry["backup"] and os.path.isdir(entry["backup"]), entry
+    assert entry["verified"] is True
     assert seen and seen[-1][0] == seen[-1][1]
+
+
+def test_download_history_records_unsigned_state_honestly(tmp_path, monkeypatch, allow_net):
+    """放行未签名更新时，历史不能写成 verified=True（否则回滚时看起来像验过签）"""
+    _stub_sign(monkeypatch, ok=False)
+    body = b"x = 1\n"
+    m = _manifest("v99.1.0")
+    m["files"] = [{"path": "core/a.py", "url": "https://x/a.py",
+                   "sha256": hashlib.sha256(body).hexdigest()}]
+
+    class Resp:
+        def read(self):
+            return body
+    monkeypatch.setattr(au, "safe_open_url", lambda req, timeout=30: Resp())
+    o = Obj(str(tmp_path))
+    o.trunk = FakeTrunk(tmp_path, config={"allow_unsigned_update": True})
+    r = o.download_and_install(m, confirm=False)
+    assert r["ok"] is True, r
+    hist = os.path.join(o.base, "updates", "update_history.jsonl")
+    entry = json.loads(open(hist, encoding="utf-8").read().splitlines()[-1])
+    assert entry["verified"] is False
+    assert os.path.isdir(entry["backup"])
 
 
 def test_download_rolls_back_when_replace_fails(tmp_path, monkeypatch, allow_net):

@@ -160,12 +160,11 @@ class DeepResearch(BaseModule):
         except Exception as e:
             _x6_swallowed(__name__, e)
 
-        # 环境变量兜底
-        import os
+        # 环境变量兜底（走基类 env()，不再直接读进程级环境变量）
         for name in self._PROVIDERS:
-            env_key = f"{name.upper()}_API_KEY"
-            if env_key in os.environ and name not in keys:
-                keys[name] = os.environ[env_key]
+            v = self.env(f"{name.upper()}_API_KEY")
+            if v and name not in keys:
+                keys[name] = v
 
         for name, key in keys.items():
             self._providers.append(self._PROVIDERS[name](self.trunk, key))

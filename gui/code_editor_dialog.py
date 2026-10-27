@@ -23,6 +23,8 @@ from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPla
 from PyQt5.QtCore import Qt, QProcess, pyqtSignal, QRect, QSize, QTimer
 from PyQt5.QtGui import QFont, QTextCharFormat, QColor, QSyntaxHighlighter, QTextDocument, QTextCursor, QPainter
 
+from gui.feedback_states import make_action_links
+
 
 # ============ Python 语法高亮 ============
 
@@ -72,8 +74,8 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin, QMainWindow):
         tree_panel = QWidget(); tl = QVBoxLayout(tree_panel); tl.setContentsMargins(4,4,4,4)
         bar = QHBoxLayout()
         bar.addWidget(QLabel("📂"))
-        btn_root = QPushButton("换目录"); btn_root.clicked.connect(self._change_root)
-        bar.addWidget(btn_root)
+        # 「换目录」低频 → 链接；工具条按钮已经够多了（按钮预算只许降）
+        bar.addWidget(make_action_links([("换目录", self._change_root)]))
         tl.addLayout(bar); tl.addWidget(self.tree)
         splitter.addWidget(tree_panel)
 

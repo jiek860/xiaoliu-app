@@ -19,7 +19,11 @@ def test_singleton_helper_exists():
     src = open(os.path.join(BASE, "gui", "mixins", "dialog_mixin.py"),
                encoding="utf-8").read()
     assert "def _singleton_dialog" in src
-    assert "def _singleton_fn_dialog" in src
+    assert "def _singleton_window" in src
+    assert "def _run_modal_once" in src
+    chrome = open(os.path.join(BASE, "gui", "chrome.py"), encoding="utf-8").read()
+    assert "def singleton_window" in chrome
+    assert "def run_modal_once" in chrome
 
 
 def test_mcp_dialog_returns_window():
@@ -62,6 +66,87 @@ def test_dialog_functions_use_singleton():
         if ".show()" in body:
             missing.append(node.name)
     assert not missing, "这些入口没有复用机制，连点会开多个窗口: %s" % missing
+
+
+def test_all_mixin_entries_reuse_or_guard():
+    """主窗口所有 _dialog / open_ 入口都要有复用或重入守卫。
+
+    真实问题：以前只查 dialog_mixin，漏掉了任务中心、活动中心这两个
+    非模态窗口，连点会各叠一份。这里把 gui/mixins 下全部入口一起查。
+    """
+    import glob
+    allowed = ("_singleton", "_run_modal_once", "_dialog_cache", "_dlg(",
+               "exec_()", "open_panel", "_workbench", "_desktop_pet")
+    missing = []
+    for path in glob.glob(os.path.join(BASE, "gui", "mixins", "*.py")):
+        tree = ast.parse(open(path, encoding="utf-8").read())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            if not node.name.endswith("_dialog") and not node.name.startswith("open_"):
+                continue
+            if node.name.startswith("_"):
+                continue
+            body = ast.unparse(node)
+            if any(k in body for k in allowed):
+                continue
+            if ".show()" in body:
+                missing.append("%s:%s" % (os.path.basename(path), node.name))
+    assert not missing, "这些入口没有复用/守卫，连点会开多个窗口: %s" % missing
+
+
+def test_non_modal_window_reuses_instance_and_reopens():
+    """非模态窗口：连点复用同一个，关掉后能重建。"""
+    from PyQt5.QtWidgets import QApplication, QDialog
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    from gui.mixins.dialog_mixin import DialogMixin
+
+    # 不建主窗口：这里只验证缓存逻辑本身
+    class Holder:
+        pass
+
+    holder = Holder()
+    made = []
+
+    def factory():
+        d = QDialog()
+        made.append(d)
+        return d
+
+    d1 = DialogMixin._singleton_window(holder, "_test_reuse", factory)
+    d2 = DialogMixin._singleton_window(holder, "_test_reuse", factory)
+    assert d1 is d2, "连点两次应复用同一个窗口"
+    assert len(made) == 1, "工厂被调用了 %d 次" % len(made)
+    d1.close()
+    app.processEvents()
+    d3 = DialogMixin._singleton_window(holder, "_test_reuse", factory)
+    assert d3 is not d1, "关闭后应重新创建"
+    assert len(made) == 2
+
+
+def test_high_frequency_buttons_click_twice_open_one_window():
+    """高频入口连点两次：命令面板 / 反馈 / 任务中心 / 活动中心 / 系统检测。"""
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    os.environ["X6_DISABLE_LOGIN_PROMPT"] = "1"
+    from gui.main_window import JarvisWindow
+
+    w = JarvisWindow()
+    try:
+        w.show()
+        app.processEvents()
+        for name in ("command_palette", "show_feedback", "open_task_center",
+                     "activity_center_dialog", "sys_dialog"):
+            fn = getattr(w, name)
+            first = fn()
+            second = fn()
+            assert first is not None, "%s 没打开" % name
+            assert second is first, "%s 连点两次开了两个窗口" % name
+    finally:
+        try:
+            w.close()
+        except Exception:  # 静默是故意的
+            pass
 
 
 def test_mcp_clicking_three_times_opens_one_window():

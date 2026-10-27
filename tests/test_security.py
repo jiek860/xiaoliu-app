@@ -10,7 +10,8 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
 SKIP_DIRS = {"libs", "optional_libs", "backups", "__pycache__", ".git",
-             "node_modules", ".venv", "updates"}
+             "node_modules", ".venv", ".runtime-venv", ".build-venv",
+             ".swebench-venv", "updates"}
 
 
 def _all_text_files():

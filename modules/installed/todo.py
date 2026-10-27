@@ -11,20 +11,49 @@ from modules.base import BaseModule
 
 
 class Todo(BaseModule):
+
+    # 标准 1.1：本模块不负责的事（给调用方一个明确边界，避免什么都能问）
+    NOT_RESPONSIBLE = (
+        "界面呈现与用户交互（由 gui 负责）",
+        "模块加载、调度与权限判定（由 core 负责）",
+    )
     NAME = "待办工具"
     VERSION = "1.0"
 
     TOOLS = [
-        {"name": "todo_add", "method": "add",
+        {
+         "contract": {
+             "params": {
+                 "text": {"type": "string"},
+                 "priority": {"type": "string"}
+             },
+             "returns": {"type": "object"},
+             "description": "记一条待办事项",
+         },
+         "name": "todo_add", "method": "add",
          "desc": "记一条待办事项",
          "args": {"text": "要做什么", "priority": "优先级 1-5，默认 3"},
          "hints": ["待办", "记一下要做", "提醒我", "todo", "任务清单"]},
-        {"name": "todo_list", "method": "list_pending",
+        {
+         "contract": {
+             "params": {},
+             "returns": {"type": "object"},
+             "description": "看看还有哪些待办没做",
+         },
+         "name": "todo_list", "method": "list_pending",
          "desc": "看看还有哪些待办没做",
          "args": {},
          "readonly": True,
          "hints": ["待办列表", "还有什么没做", "没做完的", "待办事项"]},
-        {"name": "todo_done", "method": "done",
+        {
+         "contract": {
+             "params": {
+                 "idx": {"type": "integer"}
+             },
+             "returns": {"type": "object"},
+             "description": "把某条待办标记为已完成",
+         },
+         "name": "todo_done", "method": "done",
          "desc": "把某条待办标记为已完成",
          "args": {"idx": "第几条（从 1 开始，先查列表）"},
          "hints": ["做完了", "完成待办", "划掉"]},

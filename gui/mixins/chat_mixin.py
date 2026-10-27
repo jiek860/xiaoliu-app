@@ -35,6 +35,11 @@ class ChatMixin:
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
         
+        # 90 分要求：模型没配好时先给一条可执行提示（每次会话一次），
+        # 而不是让用户对着"没反应"发呆。提示不拦发送 —— 用户可能就是想
+        # 先试试兜底回复，或已经在本机起了 Ollama。
+        self._hint_model_not_ready_once()
+
         # [任务模式] 输入框已切到任务时，统一走任务运行时
         try:
             if self._composer_is_task():
@@ -262,7 +267,10 @@ class ChatMixin:
             get_logger().error("移除思考块失败: %s" % e)
         
         try:
-            self.account.save_line("a", a)
+            # 失败占位不写进历史：否则切会话时满屏"出了点问题"，
+            # 而且重新生成时还得先删掉这条假回复。
+            if not self._reply_failed(a):
+                self.account.save_line("a", a)
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
         
@@ -295,6 +303,7 @@ class ChatMixin:
             _x6_swallowed(__name__, e, "best-effort fallback")
 
         # 权限 / 网络 / 工具不存在等失败，给一条唯一下一步
+        guided = False
         try:
             low = str(a or "").lower()
             triggers = ("权限", "拒绝", "网络被拒绝", "工具不存在", "not found")
@@ -304,8 +313,13 @@ class ChatMixin:
                     guide.get("title"), guide.get("message"),
                     "guidance://" + guide.get("action"),
                     guide.get("action_label"))
+                guided = True
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
+
+        # 兜底：失败占位 / 模型没配好，也只给一个下一步，别叠两张卡
+        if not guided:
+            self._after_reply_guidance(a)
 
         # 回复里如果出现了"缺依赖"，弹一个"要不要现在装"的框
         # （改之前只留一句让用户自己复制命令的文字，很多人到这就放弃了，
@@ -351,6 +365,63 @@ class ChatMixin:
                 self.chat.append(
                     "<div style='color:#16a34a'>✅ 组件装好了，"
                     "再试一次刚才那个功能就行。</div>")
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+
+    # ---------------- 90 分兜底：模型没配好 / 回复失败 ----------------
+    _FAIL_REPLY_MARKS = ("回复时出了点问题", "（无回复）", "功能不可用",
+                         "Pipeline 不可用", "服务不可用")
+
+    def _reply_failed(self, a):
+        """这条回复是"没成功"还是"模型说的话"。
+
+        程序兜底是短句占位（见 StreamWorker / trunk.reply 的错误分支），
+        真回复一般不会这么短，也不会正好命中这些话。
+        """
+        t = str(a or "").strip()
+        if not t:
+            return True
+        return len(t) <= 200 and any(m in t for m in self._FAIL_REPLY_MARKS)
+
+    def _model_ready(self):
+        """配置层面能不能聊（不发网络探测）。检查本身失败时按"能聊"处理。"""
+        try:
+            from core import model_setup
+            return bool(model_setup.check(self.trunk, probe=False).get("ready"))
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+            return True
+
+    def _append_chat_card(self, title, message, action, label):
+        card = getattr(self.chat, "append_guidance_card", None)
+        if callable(card):
+            card(title, message, action, label)
+
+    def _hint_model_not_ready_once(self):
+        """每次会话只提醒一次，别再让用户"发了没反应"却不知道为什么。"""
+        if getattr(self, "_model_hint_shown", False) or self._model_ready():
+            return
+        self._model_hint_shown = True
+        self._append_chat_card(
+            "模型还没配好",
+            "现在发出去可能没人回。先花一分钟配一个模型，"
+            "或在本机启动 Ollama 再试。",
+            "guidance://open_model_settings", "去配置模型")
+
+    def _after_reply_guidance(self, a):
+        """失败回复只给**一个**下一步，不叠提示。"""
+        try:
+            if self._reply_failed(a):
+                self._append_chat_card(
+                    "这次没有回复成功",
+                    "已经记进日志。可以直接重试；连续失败就到"
+                    "「设置 → 模型」检查 Key / 地址 / 本地服务。",
+                    "chat-retry://", "重试这条")
+            elif not self._model_ready():
+                self._append_chat_card(
+                    "模型还没配好",
+                    "刚才那句是程序兜底回复，不是模型回答。配好模型就能正常聊。",
+                    "guidance://open_model_settings", "去配置模型")
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
 

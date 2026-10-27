@@ -121,7 +121,7 @@ class ChatView(QTextBrowser):
 
     def append_thinking(self) -> int:
         try:
-            self.append('<div style="color:#888;font-style:italic">... 正在思考 ...</div>')
+            self.append('<div style="color:#888;font-style:italic">... 正在思考（Esc 可停）...</div>')
             return self.document().lastBlock().position()
         except Exception:  # 静默是故意的
             try:
@@ -400,7 +400,7 @@ class ChatView(QTextBrowser):
                 _x6_swallowed(__name__, e, "best-effort fallback")
         elif u.startswith(("task://", "retry://", "settings://",
                            "plugins://", "security://", "guidance://",
-                           "task-budget://", "history://")):
+                           "task-budget://", "history://", "chat-retry://")):
             try:
                 self.actionRequested.emit(u)
             except Exception as e:  # 静默是故意的

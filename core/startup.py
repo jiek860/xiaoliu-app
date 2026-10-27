@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Startup timing recorder.
 
 Every mark is milliseconds since process start, so ``python -c "import core.startup;
@@ -54,8 +54,18 @@ def log_summary(trunk=None):
         data = report()
         parts = ["%s=%.0fms" % (s["name"], s["at_ms"]) for s in data["stages"]]
         line = "[启动耗时] 总 %.0f ms | %s" % (data["total_ms"], " → ".join(parts))
-        if trunk is not None and hasattr(trunk, "_log"):
-            trunk._log(line)
+        if trunk is not None:
+            # 顺手把总耗时挂到躯干上：深度自检读它报"🚀 启动耗时"。
+            # 以前自检读的是 trunk._boot_time —— 那个属性根本不存在
+            # （它属于 scheduler 模块），所以那行从来没打印过。
+            try:
+                trunk._boot_ms = data["total_ms"]
+            # 静默是故意的：只做“顺手上报耗时”，躯干属性可能只读或没有
+            # __dict__；写不进去也不该影响启动或日志。
+            except Exception:
+                pass
+            if hasattr(trunk, "_log"):
+                trunk._log(line)
         return line
     except Exception:
         return ""

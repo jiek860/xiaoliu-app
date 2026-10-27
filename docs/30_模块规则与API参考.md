@@ -29,7 +29,7 @@
 > | `core/lazy_config.py` | 模块登记表 | **72 个模块** |
 > | `core/rules_engine.py` | 规则定义 | **63 条规则** |
 > | `core/core_caps.py` | core 侧能力声明 | 19 条 |
-> | `core/module_caps.py` | 能力注册表（合并两来源） | 49 条能力 |
+> | `core/module_caps.py` | 能力注册表（合并两来源） | 64 条能力 |
 > | `modules_repo/manifest.json` | 插件清单（RSA 签名） | 48 条 |
 >
 > **本文已知对不上的地方（点名列出，不藏）**
@@ -183,32 +183,35 @@
 
 ### 三、子智能体规则（3 个）
 
+> 三个智能体的工具链参数、返回字段、示例和降级：见 `31_三个智能体使用手册.md`。
+> 人设对话走 `reply()`；`TOOLS` 里的分析/沙箱/工作流能力走命令面板或 `trunk.call()`，两者不是同一条路径。
+
 #### 3.1 agent_coder（编程小匠·小七）
 | 规则项 | 规则 |
 |---|---|
-| L1 触发 | 智能路由判 `code` / 群聊 ROLE_MOD 命中编程 / 用户点名小七 |
-| L2 处理 | 先检索代码相关记忆/知识库 → 生成代码 → 可交 `code_runner` 沙盒验证 |
-| L3 判定 | 代码正确性靠沙盒跑通；复杂任务拆子步骤 |
-| L4 动作 | 聊天框回复代码块；可调 `code_runner` 执行 |
-| L5 降级 | LLM 失败 → 返回示例模板，不空答 |
+| L1 触发 | 智能路由判 `code` / 群聊 ROLE_MOD 命中编程 / 用户点名小七 / 命令面板搜“写代码并运行” |
+| L2 处理 | LLM 只出代码块 → `code_runner` 沙箱执行 → 失败回传 stderr 最多再修 2 轮；`review` 只做 compile + 静态审查 |
+| L3 判定 | 代码正确性靠沙箱跑通（`运行成功`）；非 Python 只生成、不执行 |
+| L4 动作 | 工具：`agent_code_solve` / `agent_code_run` / `agent_code_review`；聊天框回复代码块 |
+| L5 降级 | LLM 不可用 → `PLUGIN_NOT_AVAILABLE`；`code_runner` 不可用 → 明确报不可用，不直接 exec |
 
 #### 3.2 agent_analyst（分析官·小八）
 | 规则项 | 规则 |
 |---|---|
-| L1 触发 | 路由 `analysis` / 群聊分析类问题 |
-| L2 处理 | 检索数据/记忆/知识 → 因果/对比/归因分析 |
-| L3 判定 | 结论给证据和置信度，避免臆断 |
-| L4 动作 | 结构化回复（结论+依据+建议） |
-| L5 降级 | 无数据 → 明确说"需要数据"，不编数字 |
+| L1 触发 | 路由 `analysis` / 群聊分析类问题 / 命令面板搜“分析一下”“对比” |
+| L2 处理 | `deep_search` 取外部证据 + `graph_rag` 取本地三元组 → 数值配对（差值/变化率）→ LLM 结论与风险 |
+| L3 判定 | 结论给证据和风险；无证据时明确标注“主要来自推理”，不编造百分比 |
+| L4 动作 | 工具：`agent_analyze` / `agent_compare`；结构化回复（结论+依据+建议） |
+| L5 降级 | 无 LLM → 结构化兜底（`llm=false`）；搜索/图谱失败 → 记 `警告`，不阻断分析 |
 
 #### 3.3 agent_planner（策划师·小九）
 | 规则项 | 规则 |
 |---|---|
-| L1 触发 | 路由 `planner` / 群聊方案策划 |
-| L2 处理 | 目标拆解 → 步骤/资源/风险 → 时间线 |
-| L3 判定 | 步骤可执行性检查（每步有动作和产出） |
-| L4 动作 | 方案式回复；复杂目标交 `task_loop` 执行 |
-| L5 降级 | 目标不清 → 反问澄清 |
+| L1 触发 | 路由 `planner` / 群聊方案策划 / 命令面板搜“做个计划” |
+| L2 处理 | LLM 输出 JSON 步骤（action 限定 search/llm/code/set/wait）→ 校验依赖 → 可落成 `workflow_runner` 工作流 |
+| L3 判定 | 每步有动作、参数和 `done_when`；依赖只保留真实存在的 id |
+| L4 动作 | 工具：`agent_plan` / `agent_plan_workflow` / `agent_plan_next`；复杂目标可交 `task_loop` |
+| L5 降级 | LLM/JSON 失败 → 4 步通用模板 + `警告`；同名工作流默认不覆盖（`PLUGIN_BAD_INPUT`） |
 
 ---
 ### 四、闭环模块规则（6 个编排者）
@@ -817,7 +820,7 @@ tc._dispatch(info, args, query, tool_name)
 
 - 模块登记：`core/lazy_config.py` 的 `LAZY_MAP`，当前 72 个。
 - 规则定义：`core/rules_engine.py`，当前 63 条。
-- 能力注册：`core/module_caps.py`，当前 49 条。
+- 能力注册：`core/module_caps.py`，当前 64 条。
 - 插件清单：`modules_repo/manifest.json`，当前 48 条。
 
 新增能力时：
@@ -1537,3 +1540,22 @@ py -3 tools\perf_baseline.py --check --tolerance 0.10 --warn-only --json-out dat
 # Agent 回归基线（20 道固定本地样本）
 py -3 tools\run_eval.py --out data\eval_result.json --markdown docs\92_Agent回归基线.md
 ```
+
+---
+
+## 窗口单实例 API（v25.2.33）
+
+`gui/mixins/dialog_mixin.py` 统一了主窗口的弹窗入口，避免连点叠窗。
+
+| API | 说明 |
+|---|---|
+| `_singleton_window(key, factory, focus=None)` | 非模态窗口：已开着就 `show/raise_/activateWindow` 并返回同一实例；关闭后下次重建 |
+| `_run_modal_once(key, opener)` | 模态窗口：同一 key 正在打开时第二次调用返回 `None`，不再建窗 |
+| `_open_simple_dialog(modname, clsname, modal=True)` | `(trunk, parent)` 签名窗口的通用打开器；模态走守卫，非模态走单例 |
+| `TaskCenterDialog.show_task(task_id)` | 复用的任务中心切到指定任务并刷新 |
+
+- 新窗口必须选其一，不要直接 `QDialog(...).show()` / `.exec_()`。
+- 关闭主窗口时 `JarvisWindow.closeEvent` 会先关闭所有 `QDialog` 子窗口，
+  让任务中心 / 活动中心注销运行时订阅、停掉定时器。
+- 守卫：`tests/test_dialog_singleton.py`（静态检查 + 真实连点），
+  详见 `docs/10_开发流程与工程手册.md`「窗口单实例」。

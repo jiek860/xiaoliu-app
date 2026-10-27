@@ -1,15 +1,66 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """插件市场窗口 - 网格卡片/安装/卸载/热加载"""
 import os, sys, importlib, threading
 from core.plugin_capabilities import plugin_manifest_info
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QWidget, QFrame, QGridLayout, QMessageBox, QFileDialog, QProgressDialog, QApplication
 from PyQt5.QtCore import QObject, pyqtSignal
 
+from gui.feedback_states import make_action_links
+
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:  # 独立导入时兜底
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 
 class _OnlineSignals(QObject):
     """把后台取在线清单的结果送回主线程（Qt 控件只能主线程碰）"""
     done = pyqtSignal(object)
     failed = pyqtSignal(str)
+
+
+def merge_mods(local_mods, online):
+    """本地清单 + 在线清单取并集。
+
+    以前在线清单一回来就整块替换网格：本地装了但不在在线清单里的模块
+    会从界面上消失（用户既看不到也卸不掉）。现在两边合并，本地那份为准。
+    """
+    by_file = {}
+    for m in local_mods or []:
+        item = dict(m)
+        item["online"] = bool(item.get("online"))
+        by_file[item.get("file") or item.get("name") or "?"] = item
+    for o in online or []:
+        f = o.get("file") or o.get("name") or "?"
+        try:
+            meta = plugin_manifest_info(o) or {}
+        except Exception as e:
+            # 静默是故意的：在线清单里的条目没有清单文件属于正常情况，
+            # 缺元信息只是少显示几行，不该让整个合并失败。
+            _x6_swallowed(__name__, e, "plugin manifest info")
+            meta = {}
+        cur = by_file.get(f)
+        if cur is not None:
+            # 在线清单负责补充校验/版本/描述信息；installed/active 以本地为准。
+            for k in ("desc", "sha256", "signature"):
+                if o.get(k):
+                    cur[k] = o[k]
+            if o.get("size"):
+                cur["size"] = o["size"]
+            for k, v in meta.items():
+                if v not in (None, "", [], {}):
+                    cur[k] = v
+            cur["online"] = True
+            continue
+        item = {"name": o.get("name", "?"), "file": f, "cls": "?",
+                "installed": False, "active": False,
+                "desc": o.get("desc", ""), "size": o.get("size", 0),
+                "icon": "🧩", "sha256": o.get("sha256", ""),
+                "signature": o.get("signature", ""), "online": True}
+        item.update(meta)
+        by_file[f] = item
+    return list(by_file.values())
 
 
 def show_plugin_dialog(parent, dlg, trunk, open_mcp=None, show_components=None):
@@ -42,15 +93,12 @@ def _build_market(d, l, trunk, pm, dlg, open_mcp=None, show_components=None):
     status = QLabel("🧩 正在扫描模块...")
     status.setStyleSheet("font-weight:bold;color:#1e40af;font-size:13px;")
     head.addWidget(status, stretch=1)
-    refresh_btn = QPushButton("🔄 刷新")
-    refresh_btn.setStyleSheet("padding:6px 14px;")
-    head.addWidget(refresh_btn)
-    file_btn = QPushButton("📥 安装 .py 文件")
-    file_btn.setStyleSheet("padding:6px 14px;")
-    head.addWidget(file_btn)
-    update_btn = QPushButton("🔄 检查更新")
-    update_btn.setStyleSheet("padding:6px 14px;")
-    head.addWidget(update_btn)
+    # 三个低频动作做成链接：卡片本身已经有安装/卸载，头部不需要再堆按钮。
+    head.addWidget(make_action_links([
+        ("🔄 刷新", lambda: _refresh_all()),
+        ("📥 安装 .py 文件", lambda: _pick_file()),
+        ("⬆ 检查更新", lambda: _check_updates()),
+    ]))
     l.addLayout(head)
 
     scroll = QScrollArea()
@@ -80,6 +128,16 @@ def _build_market(d, l, trunk, pm, dlg, open_mcp=None, show_components=None):
             it = grid.takeAt(0)
             w = it.widget()
             if w: w.deleteLater()
+
+    busy = set()            # 正在安装/卸载的文件名，防重复触发
+    state = {"local": []}   # 上次本地扫描结果，在线清单回来时用来合并
+
+    def _render(mods):
+        _clear_grid()
+        cols = 4
+        for idx, m in enumerate(mods):
+            grid.addWidget(_card(m), idx // cols, idx % cols)
+        grid.setRowStretch((len(mods) - 1) // cols + 1, 1)
 
     def _card(m):
         card = QFrame()
@@ -129,62 +187,75 @@ def _build_market(d, l, trunk, pm, dlg, open_mcp=None, show_components=None):
         pub.setStyleSheet("color:#94a3b8;font-size:9px;")
         v.addWidget(pub)
         if m["installed"]:
-            b = QPushButton("🗑 卸载")
-            b.setStyleSheet("background:#fee2e2;color:#b91c1c;border:none;border-radius:6px;padding:5px;")
             def _make_un(mm):
                 def _un():
-                    b.setEnabled(False)
-                    pg = QProgressDialog("正在卸载 %s ..." % mm.get("file", ""), None, 0, 0, d)
+                    key = mm.get("file", "")
+                    if key in busy:
+                        return
+                    busy.add(key)
+                    pg = QProgressDialog("正在卸载 %s ..." % key, None, 0, 0, d)
                     pg.setWindowTitle("卸载中")
                     pg.setMinimumDuration(0)
                     pg.setModal(True)
                     pg.show()
                     # 必须是 QApplication.processEvents()。
-                    # 原来写的是 d.processEvents()（d 是 QDialog）—— processEvents
-                    # 是 QApplication 的静态方法，QDialog/QWidget/QObject 都没有，
-                    # 这一行必然抛 AttributeError；而它在 try 之外，
-                    # 于是整个点击处理中断，下面的 uninstall() 根本不会执行 ——
-                    # 「卸载」按钮点了没反应就是这个原因。
+                    # 原来写的是 d.processEvents()（d 是 QDialog）——
+                    # 这一行必然抛 AttributeError，且它在 try 之外，
+                    # 于是 uninstall() 根本不会执行 ——「卸载」点了没反应就是这个原因。
                     QApplication.processEvents()
                     try:
                         r = pm.uninstall(mm["name"])
                         msg.setText(("✅ " if r.get("ok") else "❌ ") + str(r.get("msg") or r.get("原因") or r))
                     except Exception as e:
                         msg.setText("❌ " + str(e)[:60])
+                    finally:
+                        busy.discard(key)
                     pg.close()
                     _refresh()
                 return _un
-            b.clicked.connect(_make_un(m))
-            rowb = QHBoxLayout()
-            rowb.addWidget(b)
-            rb = QPushButton(" 回滚")
-            rb.setStyleSheet("background:#e0f2fe;color:#0369a1;border:none;border-radius:6px;padding:5px;")
+
             def _make_rb(mm):
                 def _rb():
-                    r = pm.rollback_module(mm["name"])
-                    msg.setText((" " if r.get("ok") else " ") + str(r.get("msg") or r.get("原因") or r))
+                    key = mm.get("file", "")
+                    if key in busy:
+                        return
+                    busy.add(key)
+                    try:
+                        r = pm.rollback_module(mm["name"])
+                        msg.setText(("✅ " if r.get("ok") else "❌ ")
+                                    + str(r.get("msg") or r.get("原因") or r))
+                    except Exception as e:
+                        msg.setText("❌ " + str(e)[:60])
+                    finally:
+                        busy.discard(key)
                     _refresh()
                 return _rb
-            rb.clicked.connect(_make_rb(m))
-            rowb.addWidget(rb)
+
+            rowb = QHBoxLayout()
+            rowb.addWidget(make_action_links([
+                ("🗑 卸载", _make_un(m)),
+                ("↩ 回滚", _make_rb(m)),
+            ]))
+            rowb.addStretch(1)
             v.addLayout(rowb)
         else:
-            b = QPushButton("⬇ 在线下载")
-            b.setStyleSheet("background:#4a9eff;color:#fff;border:none;border-radius:6px;padding:5px;")
             def _make_ins(mm):
                 def _ins():
+                    key = mm.get("file", "")
+                    if key in busy:
+                        return
                     risk = str(mm.get("risk_level") or "unknown").lower()
                     if risk in ("high", "unknown"):
                         answer = QMessageBox.question(
                             d, "高风险插件确认",
                             "插件: %s\n风险: %s\n%s\n\n是否继续安装？" % (
-                                mm.get("file", "?"), risk,
+                                key or "?", risk,
                                 mm.get("capability_summary", "能力未知，默认拒绝")),
                             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
                         if answer != QMessageBox.Yes:
                             return
-                    b.setEnabled(False)
-                    pg = QProgressDialog("正在下载安装 %s ..." % mm.get("file", ""), None, 0, 0, d)
+                    busy.add(key)
+                    pg = QProgressDialog("正在下载安装 %s ..." % key, None, 0, 0, d)
                     pg.setWindowTitle("下载安装中")
                     pg.setMinimumDuration(0)
                     pg.setModal(True)
@@ -199,11 +270,12 @@ def _build_market(d, l, trunk, pm, dlg, open_mcp=None, show_components=None):
                         msg.setText(("✅ " if r.get("ok") else "❌ ") + str(r.get("msg") or r.get("原因") or r))
                     except Exception as e:
                         msg.setText("❌ " + str(e)[:60])
+                    finally:
+                        busy.discard(key)
                     pg.close()
                     _refresh()
                 return _ins
-            b.clicked.connect(_make_ins(m))
-        v.addWidget(b)
+            v.addWidget(make_action_links([("⬇ 安装", _make_ins(m))]))
         return card
 
     def _refresh():
@@ -237,15 +309,12 @@ def _build_market(d, l, trunk, pm, dlg, open_mcp=None, show_components=None):
                 msg.setText("本地 %d 个模块 · 正在获取在线清单…" % len(mods))
             except Exception as ee:
                 msg.setText("本地扫描失败: " + str(ee)[:80])
-            _clear_grid()
-            cols = 4
-            for idx, m in enumerate(mods):
-                grid.addWidget(_card(m), idx // cols, idx % cols)
-            grid.setRowStretch((len(mods) - 1) // cols + 1, 1)
+            state["local"] = mods
+            _render(mods)
             st = pm.stats()
             status.setText("🧩 模块 %d 个 · ✅已装 %d · ⬜可装 %d · %.0f KB" % (
                 st["模块总数"], st["已安装"], st["可安装"], st["总大小KB"]))
-            msg.setText("点击卡片按钮 安装/卸载 · 安装自动语法校验+加载验证，失败自动回滚")
+            msg.setText("点击卡片 安装/卸载 · 安装自动语法校验+加载验证，失败自动回滚")
         except Exception as e:
             status.setText("❌ 扫描失败: " + str(e)[:60])
 
@@ -264,27 +333,27 @@ def _build_market(d, l, trunk, pm, dlg, open_mcp=None, show_components=None):
 
     def _on_online_done(online):
         try:
-            local_files = {f for f in os.listdir(pm.installed_dir) if f.endswith(".py")}
-            mods = []
-            for o in online:
-                installed = o.get("file", "") in local_files
-                mods.append({"name": o.get("name", "?"), "file": o.get("file", "?"),
-                             "cls": "?", "installed": installed, "active": installed,
-                             "desc": o.get("desc", ""), "size": o.get("size", 0),
-                             "icon": "🧩" if not installed else "✅",
-                             "sha256": o.get("sha256", ""),
-                             "signature": o.get("signature", ""),
-                             **plugin_manifest_info(o)})
-            _clear_grid()
-            cols = 4
-            for idx, m in enumerate(mods):
-                grid.addWidget(_card(m), idx // cols, idx % cols)
-            grid.setRowStretch((len(mods) - 1) // cols + 1, 1)
-            msg.setText("在线 %d 个模块 · 点击卡片按钮 安装/卸载" % len(mods))
+            local = state.get("local") or []
+            merged = merge_mods(local, online)
+            if not local:
+                # 本地扫描失败时至少把"已装"标对，否则会诱导重复安装。
+                installed = {f for f in os.listdir(pm.installed_dir)
+                             if f.endswith(".py")}
+                for m in merged:
+                    if m.get("file") in installed:
+                        m["installed"] = True
+                        m["active"] = True
+                        m["icon"] = "✅"
+            _render(merged)
+            local_only = len(merged) - len(online or [])
+            msg.setText("在线 %d 个 · 仅本地 %d 个 · 点击卡片 安装/卸载"
+                        % (len(online or []), max(local_only, 0)))
         except Exception as e:
             msg.setText("在线列表刷新失败: " + str(e)[:70])
 
-    refresh_btn.clicked.connect(lambda: (_refresh(), _fetch_online_async()))
+    def _refresh_all():
+        _refresh()
+        _fetch_online_async()
 
     def _pick_file():
         path, _ = QFileDialog.getOpenFileName(d, "选择插件 .py", "", "Python 文件 (*.py)")
@@ -327,8 +396,6 @@ def _build_market(d, l, trunk, pm, dlg, open_mcp=None, show_components=None):
                 msg.setText("没有可用更新")
         except Exception as e:
             msg.setText("检查更新失败: " + str(e)[:80])
-    update_btn.clicked.connect(_check_updates)
-    file_btn.clicked.connect(_pick_file)
     sig.done.connect(_on_online_done)
     _refresh()                 # 本地那份，瞬时
     _fetch_online_async()      # 在线那份，后台

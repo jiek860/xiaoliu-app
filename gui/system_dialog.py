@@ -8,6 +8,8 @@ except ImportError:
 
 from PyQt5.QtWidgets import QVBoxLayout, QLabel, QPushButton, QTextBrowser, QGroupBox, QTabWidget, QWidget
 
+from gui.feedback_states import make_action_links
+
 
 BTN_STYLE = """
 QPushButton {
@@ -129,27 +131,22 @@ def show_system_dialog(self):
     btn1 = QPushButton("🔪 深度自检报告")
     btn1.clicked.connect(lambda: self._bg_call(result, self.trunk._deep_check, "深度自检"))
     l2.addWidget(btn1)
-    btn2 = QPushButton("🗑 清空错误库")
-    # 这个按钮的历史：
+
+    def _clear_errors():
+        self._bg_call(result, lambda: self.trunk.call("error_lib", "clear_all"),
+                      "清空错误库")
+
+    # 这个入口的历史：
     #   一版调 trunk.call("error_lib", "auto_fix") —— error_lib 没有这个方法，
     #   点了只弹「功能不可用」；
     #   一版改调 self_heal.run() —— 但那个模块名字叫"自愈"、实际只把记录标成
     #   已处理、一行代码都不改，还会顺带弹一次确认窗。现已删除。
     # 现在如实做成它一直实际上在做的事：把错误记录标记为已处理并清理掉。
-    btn2.setToolTip("把所有未修复的错误标记为已处理并清理（不改代码）")
-    btn2.clicked.connect(lambda: self._bg_call(
-        result, lambda: self.trunk.call("error_lib", "clear_all"), "清空错误库"))
-    l2.addWidget(btn2)
-
     # 小白使用说明 —— 之前项目里只有 700 行的架构文档，没有一份
     # "点哪个按钮会发生什么"的说明，用户遇到问题只能来问。
-    btn_doc = QPushButton("📖 使用说明（小白版）")
-    btn_doc.setToolTip("打开 使用说明-小白版.txt：怎么配模型、"
-                       "各个功能在哪、常见问题怎么查")
 
     def _open_doc():
         import os as _os
-        import subprocess as _sp
         p = _os.path.join(getattr(self.trunk, "base", ".") or ".",
                           "使用说明-小白版.txt")
         if not _os.path.exists(p):
@@ -164,8 +161,10 @@ def show_system_dialog(self):
             result.setText("打不开（%s）。文件在这里，手动打开即可：\n%s"
                            % (str(e)[:60], p))
 
-    btn_doc.clicked.connect(_open_doc)
-    l2.addWidget(btn_doc)
+    l2.addWidget(make_action_links([
+        ("🗑 清空错误库（只清记录，不改代码）", _clear_errors),
+        ("📖 使用说明（小白版）", _open_doc),
+    ]))
     l1.addWidget(box2)
 
     l1.addWidget(QLabel("运行结果:"))
@@ -177,12 +176,11 @@ def show_system_dialog(self):
     l3 = QVBoxLayout(tab2)
     box3 = QGroupBox("💾 备份与更新")
     l3a = QVBoxLayout(box3)
-    btn3 = QPushButton("备份")
-    btn3.clicked.connect(lambda: self._bg_call(result, lambda: self.trunk.call("backup", "run"), "备份"))
-    l3a.addWidget(btn3)
-    btn4 = QPushButton("📤 导出备份(加密)")
-    btn4.clicked.connect(lambda: self._export_backup_ui(result))
-    l3a.addWidget(btn4)
+    l3a.addWidget(make_action_links([
+        ("💾 立即备份", lambda: self._bg_call(
+            result, lambda: self.trunk.call("backup", "run"), "备份")),
+        ("📤 导出备份（加密）", lambda: self._export_backup_ui(result)),
+    ]))
     # 「🔁 自动更新闭环」按钮已撤：这条能力现在声明成了 auto_update，
     # 在命令面板（Ctrl+K）里搜"自动更新"就能跑，也能直接对聊天说。
     # 撤按钮不是删功能 —— 是让同一个能力有统一入口，不用人记着去哪个面板点。
@@ -213,9 +211,9 @@ def show_system_dialog(self):
 
     box6 = QGroupBox("🎯 任务闭环")
     l6a = QVBoxLayout(box6)
-    btn8 = QPushButton("🚀 编程项目实战")
-    btn8.clicked.connect(lambda: self._run_learn_one(result))
-    l6a.addWidget(btn8)
+    l6a.addWidget(make_action_links([
+        ("🚀 编程项目实战", lambda: self._run_learn_one(result)),
+    ]))
     # 「🎯 任务闭环（拆解执行目标）」按钮已撤：能力声明成了 task_goal
     # （task_loop.run），命令面板搜"任务闭环"或直接说目标都能跑。
     l4.addWidget(box6)
@@ -231,13 +229,13 @@ def show_system_dialog(self):
             if m.get("button") and n != "voice"
             and not (isinstance(m.get("button"), dict) and m.get("button").get("action") == "run")]
     if mods:
-        for name, b in mods:
-            label = b.get("label", name)
-            action = b.get("action", "run")
-            btn = QPushButton(label)
-            btn.setToolTip("%s | %s" % (b.get("desc", ""), name))
-            btn.clicked.connect(lambda checked, n=name, a=action: self._module_button_clicked(n, a))
-            l7a.addWidget(btn)
+        # 模块自带的功能入口也是"一次性动作"，统一做成链接，别再堆按钮
+        l7a.addWidget(make_action_links([
+            (b.get("label", name),
+             lambda n=name, a=b.get("action", "run"):
+             self._module_button_clicked(n, a))
+            for name, b in mods
+        ]))
     else:
         l7a.addWidget(QLabel("（还没有模块按钮）"))
     l7.addWidget(box7)
@@ -245,5 +243,6 @@ def show_system_dialog(self):
 
     l.addWidget(tabs)
     d.show()
+    return d
 
 

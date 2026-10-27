@@ -1,7 +1,10 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Extracted cloud-provider configuration dialog."""
 from __future__ import annotations
 
+import threading
+
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox, QDialog, QFormLayout, QLabel, QLineEdit, QMessageBox,
     QPushButton, QVBoxLayout,
@@ -9,9 +12,13 @@ from PyQt5.QtWidgets import (
 
 from core.llm_providers import provider_names, provider_spec
 from core.model_router import capability_report
+from gui.feedback_states import make_action_links
 
 
 class CloudProviderDialog(QDialog):
+    # 后台线程只负责 emit，改控件一律回到 GUI 线程
+    test_done = pyqtSignal(object)
+
     def __init__(self, parent, trunk):
         super().__init__(parent)
         self.trunk = trunk
@@ -45,6 +52,14 @@ class CloudProviderDialog(QDialog):
         self.api_version = QLineEdit(str(cfg.get("azure_api_version") or "2024-06-01"))
         form.addRow("Azure API version:", self.api_version)
         lay.addLayout(form)
+        # 换完 Key 就能当场验一次：以前只有首次向导里有“测试云端 Key”，
+        # 在设置里换 Key 的人只能等聊天报 401 才发现填错了。
+        test_row = make_action_links([("🔌 测试云端连通", self._test_cloud)])
+        lay.addWidget(test_row)
+        self.test_status = QLabel("")
+        self.test_status.setWordWrap(True)
+        self.test_status.setStyleSheet("font-size:12px;")
+        lay.addWidget(self.test_status)
         self.capability = QLabel("")
         self.capability.setWordWrap(True)
         self.capability.setStyleSheet("color:#667085;font-size:11px;")
@@ -54,6 +69,7 @@ class CloudProviderDialog(QDialog):
         lay.addWidget(save)
         self.provider.currentIndexChanged.connect(lambda _i: self._provider_changed())
         self.model.currentTextChanged.connect(lambda _t: self._refresh_capability())
+        self.test_done.connect(self._show_test_result)
         self._refresh_capability()
 
     def _provider_changed(self):
@@ -74,6 +90,42 @@ class CloudProviderDialog(QDialog):
             "能力: tools=%s json=%s vision=%s context=%s" % (
                 report["tool_calling"], report["json_mode"], report["vision"],
                 report["context_window"]))
+
+    def _test_cloud(self):
+        """用输入框里当前的值真的打一次请求（不必先保存）。"""
+        values = self.values()
+        url = values["cloud_url"]
+        provider = values["cloud_provider"]
+        if provider and not url:
+            url = str((provider_spec(provider) or {}).get("base_url") or "")
+        if not url:
+            self.test_status.setText("先填 API 地址（选上面的服务商会自动填）")
+            return
+        self.test_status.setStyleSheet("font-size:12px;")
+        self.test_status.setText("正在请求 %s（模型 %s）…" % (url, values["cloud_model"]))
+
+        def worker():
+            # 线程里只发请求 + emit，控件留给槽函数在 GUI 线程改
+            from core.model_setup import test_cloud
+            try:
+                result = test_cloud(url, values["cloud_model"], values["cloud_key"])
+            except Exception as e:
+                result = {"ok": False, "code": "error", "status": 0,
+                          "message": str(e)[:160]}
+            self.test_done.emit(result)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_test_result(self, result):
+        result = result or {}
+        if result.get("ok"):
+            self.test_status.setText("✅ " + str(result.get("message") or "连通"))
+            self.test_status.setStyleSheet("color:#0a7;font-size:12px;")
+        else:
+            self.test_status.setText("❌ %s（%s / HTTP %s）" % (
+                result.get("message") or "失败", result.get("code") or "?",
+                result.get("status") or "-"))
+            self.test_status.setStyleSheet("color:#c0392b;font-size:12px;")
 
     def values(self):
         return {

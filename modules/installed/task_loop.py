@@ -12,11 +12,25 @@ from modules.base import BaseModule
 
 
 class TaskPipeline(BaseModule):
+
+    # 标准 1.1：本模块不负责的事（给调用方一个明确边界，避免什么都能问）
+    NOT_RESPONSIBLE = (
+        "界面呈现与用户交互（由 gui 负责）",
+        "模块加载、调度与权限判定（由 core 负责）",
+    )
     NAME = "task_loop"
     VERSION = "1.0"
 
     TOOLS = [
-        {"name": "task_goal", "method": "run",
+        {
+         "contract": {
+             "params": {
+                 "goal": {"type": "string"}
+             },
+             "returns": {"type": "object"},
+             "description": "任务闭环：把一个目标拆成步骤→派子智能体执行→沙盒验证→评分",
+         },
+         "name": "task_goal", "method": "run",
          "desc": "任务闭环：把一个目标拆成步骤→派子智能体执行→沙盒验证→评分",
          "args": {"goal": "要完成的目标，如 写一个计算器脚本"},
          # bg：要派子智能体逐步执行，可能几分钟。聊天触发时是同步调用，必须转后台。
@@ -46,6 +60,16 @@ class TaskPipeline(BaseModule):
             except OSError:  # 静默是故意的：旧数据迁移失败不阻断主流程
                 pass
         self.state = self._load()
+
+    def close(self):
+        """停止任务闭环（模块卸载/退出时调）。
+
+        task_loop 没有常驻线程/句柄：每一步都是同步 subprocess.run，
+        跑完就回收。这里只把 _closed 置位，让排队中的下一步立刻退出，
+        不再继续派子智能体去改仓库。
+        """
+        self._closed = True
+        return {"ok": True, "状态": "已停止"}
 
     def _load(self):
         if os.path.exists(self.state_path):

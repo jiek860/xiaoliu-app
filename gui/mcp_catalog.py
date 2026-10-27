@@ -17,6 +17,8 @@ from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QPushButton,
                              QWidget)
 from PyQt5.QtCore import Qt
 
+from gui.feedback_states import make_action_links
+
 
 # 预置 MCP 服务器（默认值，实际从 data/mcp_catalog.json 加载）
 DEFAULT_PRESETS = [
@@ -124,7 +126,9 @@ def build_presets_tab(dialog, presets):
     v.addWidget(dialog.preset_list, stretch=1)
 
     row = QHBoxLayout()
-    row.addWidget(QPushButton("复制选中命令", clicked=dialog._copy_preset_cmd))
+    row.addWidget(make_action_links([
+        ("复制选中命令", dialog._copy_preset_cmd),
+    ]))
     install = QPushButton("⬇ 一键安装选中")
     install.setStyleSheet("background:#4a9eff;color:white;padding:8px 20px;"
                           "border:none;border-radius:6px;")
@@ -150,14 +154,14 @@ def build_reference_tab(dialog):
     """「📋 配置参考」标签页。"""
     w = QWidget()
     v = QVBoxLayout(w)
-    v.addWidget(QLabel("各家 MCP 服务器的 JSON 配置片段（点按钮复制）："))
+    v.addWidget(QLabel("各家 MCP 服务器的 JSON 配置片段（点「复制」拿走）："))
     for name, desc, cfg in REFERENCE:
         row = QHBoxLayout()
         row.addWidget(QLabel("<b>%s</b> %s" % (name, desc)))
         row.addStretch(1)
-        b = QPushButton("复制配置")
-        b.clicked.connect(lambda _c=False, c=cfg: dialog._copy(c))
-        row.addWidget(b)
+        row.addWidget(make_action_links([
+            ("复制配置", lambda _c=cfg: dialog._copy(_c)),
+        ]))
         v.addLayout(row)
     v.addStretch(1)
     return w

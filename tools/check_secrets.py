@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """High-confidence secret scanner for tracked files.
 
 GitHub secret scanning remains the authoritative service, but this local gate
@@ -44,7 +44,8 @@ TEXT_EXTS = {
     ".cfg", ".conf", ".txt", ".md", ".bat", ".ps1", ".sh", ".spec",
     ".js", ".ts", ".html", ".sql", ".env", ".example",
 }
-SKIP_PARTS = {".git", ".venv", ".runtime-venv", ".build-venv", "libs",
+SKIP_PARTS = {".git", ".venv", ".runtime-venv", ".build-venv",
+              ".swebench-venv", "libs",
               "optional_libs", "node_modules", "__pycache__", "dist", "build",
               "backups", "updates", "staging", "_ci_sim", "_ci_sim2"}
 

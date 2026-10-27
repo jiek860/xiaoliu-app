@@ -2,7 +2,13 @@
 """多模态 v3.0 - 图片 + 音频 + 视频 + 摄像头"""
 import os, time
 from core.safe import safe
+from core.plugin_errors import error_result as _error_result, is_error as _is_error
 from modules.base import BaseModule
+
+
+def _err(message, code="PLUGIN_BAD_INPUT"):
+    """历史 ``{"错误": ...}`` 的统一出口（标准 6.1 结构化错误）"""
+    return _error_result(code, str(message)[:300], module="multimodal")
 
 
 # ── 缺依赖时给用户的安装提示（统一走 core.error_text，别各写各的）──
@@ -20,6 +26,12 @@ def _ih(pkg):
 
 
 class Multimodal(BaseModule):
+
+    # 标准 1.1：本模块不负责的事（给调用方一个明确边界，避免什么都能问）
+    NOT_RESPONSIBLE = (
+        "界面呈现与用户交互（由 gui 负责）",
+        "模块加载、调度与权限判定（由 core 负责）",
+    )
     NAME = "multimodal"
     VERSION = "1.0"
     def __init__(self, trunk=None):
@@ -39,10 +51,10 @@ class Multimodal(BaseModule):
     def describe_image(self, image_path):
         """描述图片（完整版：图片 base64 传给多模态模型）"""
         if not os.path.exists(image_path):
-            return {"错误": "图片不存在"}
+            return _err("图片不存在", "PLUGIN_BAD_PATH")
         llm = self.trunk.modules.get("llm")
         if not llm:
-            return {"错误": "LLM未加载"}
+            return _err("LLM未加载", "PLUGIN_NOT_AVAILABLE")
         try:
             # 读图片成 base64
             import base64
@@ -67,7 +79,7 @@ class Multimodal(BaseModule):
                 self.history = self.history[-20:]
             return {"图片": image_path, "描述": r}
         except Exception as e:
-            return {"错误": str(e)[:80]}
+            return _err(str(e)[:80], "PLUGIN_INTERNAL_ERROR")
 
     @safe
     def batch_describe(self, image_paths):
@@ -83,12 +95,12 @@ class Multimodal(BaseModule):
     def transcribe_audio(self, audio_path):
         """听音频转文字（语音识别）"""
         if not os.path.exists(audio_path):
-            return {"错误": "音频文件不存在"}
+            return _err("音频文件不存在", "PLUGIN_BAD_PATH")
         # 检查whisper是否可用
         try:
             import whisper
         except ImportError:
-            return {"错误": "需要装 whisper。\n" + _ih("openai-whisper")}
+            return _err("需要装 whisper。\n" + _ih("openai-whisper"), "PLUGIN_MISSING_DEPENDENCY")
         try:
             model = whisper.load_model("base")
             result = model.transcribe(audio_path)
@@ -102,13 +114,13 @@ class Multimodal(BaseModule):
             })
             return {"音频": audio_path, "文字": text}
         except Exception as e:
-            return {"错误": str(e)[:80]}
+            return _err(str(e)[:80], "PLUGIN_INTERNAL_ERROR")
 
     @safe
     def audio_summary(self, audio_path):
         """听音频并总结"""
         r = self.transcribe_audio(audio_path)
-        if "错误" in r:
+        if _is_error(r):
             return r
         text = r["文字"]
         llm = self.trunk.modules.get("llm")
@@ -122,11 +134,11 @@ class Multimodal(BaseModule):
     def describe_video(self, video_path, fps=1):
         """看视频：抽帧 + 图片描述"""
         if not os.path.exists(video_path):
-            return {"错误": "视频文件不存在"}
+            return _err("视频文件不存在", "PLUGIN_BAD_PATH")
         try:
             import cv2
         except ImportError:
-            return {"错误": "需要装 opencv。\n" + _ih("opencv-python")}
+            return _err("需要装 opencv。\n" + _ih("opencv-python"), "PLUGIN_MISSING_DEPENDENCY")
         try:
             cap = cv2.VideoCapture(video_path)
             frames = []
@@ -161,7 +173,7 @@ class Multimodal(BaseModule):
                 "总结": summary
             }
         except Exception as e:
-            return {"错误": str(e)[:80]}
+            return _err(str(e)[:80], "PLUGIN_INTERNAL_ERROR")
 
     # ===== 摄像头 =====
     @safe
@@ -170,13 +182,13 @@ class Multimodal(BaseModule):
         try:
             import cv2
         except ImportError:
-            return {"错误": "需要装 opencv。\n" + _ih("opencv-python")}
+            return _err("需要装 opencv。\n" + _ih("opencv-python"), "PLUGIN_MISSING_DEPENDENCY")
         try:
             cap = cv2.VideoCapture(0)
             ret, frame = cap.read()
             cap.release()
             if not ret:
-                return {"错误": "打不开摄像头"}
+                return _err("打不开摄像头", "PLUGIN_NOT_AVAILABLE")
             if not save_path:
                 save_path = os.path.join(self.sandbox, "camera.jpg")
             cv2.imwrite(save_path, frame)
@@ -188,17 +200,17 @@ class Multimodal(BaseModule):
                 "尺寸": f"{frame.shape[1]}x{frame.shape[0]}"
             }
         except Exception as e:
-            return {"错误": str(e)[:80]}
+            return _err(str(e)[:80], "PLUGIN_INTERNAL_ERROR")
 
     @safe
     def find_object(self, object_name):
         """摄像头找东西：拍一张，问AI有没有"""
         r = self.capture_camera()
-        if "错误" in r:
+        if _is_error(r):
             return r
         llm = self.trunk.modules.get("llm")
         if not llm:
-            return {"错误": "LLM未加载"}
+            return _err("LLM未加载", "PLUGIN_NOT_AVAILABLE")
         ans = llm.chat(f"这张照片里有没有{object_name}？有就说在哪，没有就说没看到。照片: {r['照片']}")
         return {"找": object_name, "结果": ans}
 

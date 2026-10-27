@@ -217,7 +217,8 @@ def main():
         dirs[:] = [d for d in dirs if d not in
                    ("__pycache__", "libs", "optional_libs", ".git", "backups",
                     "staging", "data", "modules_repo", ".venv", ".runtime-venv",
-                    ".build-venv", "dist", "build", "_ci_sim", "_ci_sim2")]
+                    ".build-venv", ".swebench-venv", "dist", "build",
+                    "_ci_sim", "_ci_sim2")]
         for f in sorted(fs):
             if not f.endswith(".py"):
                 continue

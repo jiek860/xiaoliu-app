@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Extra coverage for deferred-boot plumbing in trunk and app_pyqt."""
 import os
 import sys
@@ -89,6 +89,19 @@ def test_startup_log_summary_with_trunk_writes_line():
     line = startup.log_summary(T())
     assert seen and "[启动耗时]" in seen[0]
     assert line == seen[0]
+
+
+def test_startup_log_summary_stamps_boot_ms_on_trunk():
+    """深度自检的「🚀 启动耗时」读的就是这个值，别断了这条线"""
+    from core import startup
+
+    class T:
+        def _log(self, line):
+            pass
+
+    t = T()
+    startup.log_summary(t)
+    assert isinstance(t._boot_ms, (int, float)) and t._boot_ms >= 0
 
 
 def test_startup_elapsed_and_report_fields():

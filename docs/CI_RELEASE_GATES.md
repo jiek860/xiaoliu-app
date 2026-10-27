@@ -31,6 +31,20 @@
 - `windows-latest / Python 3.11`
 - `windows-latest / Python 3.12`
 
+## 本地兜底 CI（GitHub 直连不通时）
+
+本机 `github.com:443` 直连被 RST，Actions 的触发与回看都不稳。云端不可用时以本地为准：
+
+```powershell
+py -3 scripts\ci_local.py            # 14 项（含全量 pytest，约 5~6 分钟）
+py -3 scripts\ci_local.py --quick    # 跳过 pytest 与类型检查（约 1 分钟）
+```
+
+- 结果自动追加到 [`96_本地CI运行记录.md`](96_本地CI运行记录.md)（时间 / 结果 / 通过数 / 耗时 / 失败项）。
+- 退出码 `0` 全过、`1` 有失败项，可直接挂 Windows 计划任务（见
+  [`97_异盘备份与本地定时CI.md`](97_异盘备份与本地定时CI.md)）。
+- 覆盖范围与云端 `static` + `test` 基本对齐；云端恢复后仍以 Actions 为准。
+
 ## 配置命令
 
 先在本地安装并登录 GitHub CLI：

@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """新手教程窗口 - 详细版（设置 -> 系统 -> 新手教程，或 Ctrl+K 搜「教程」）"""
 import os
-import webbrowser
 
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QPlainTextEdit)
+                             QPlainTextEdit)
+
+from gui.feedback_states import make_url_links
 
 TEXT = """小6智能体 - 使用详细教程
 ============================================================
@@ -55,6 +56,8 @@ TEXT = """小6智能体 - 使用详细教程
   - 底部
       输入框 + 一行按钮：
       + 附件 / 语音输入 / 实时对话 / 模型切换 / 代码编辑器 / 发送
+      次要动作（打开目录、复制、关闭等）不再做成按钮，而是文字链接；
+      链接支持鼠标点，也能用 Tab 切过去按回车。
   - 右上角内容区
       「?」按钮（如果这个版本有）或 设置 -> 系统 -> 新手教程
 
@@ -239,6 +242,59 @@ TEXT = """小6智能体 - 使用详细教程
 
 ============================================================
 
+【七点九、窗口只开一个（2026-10-26 / v25.2.33）】
+  这一版不新增按钮，只修“连点按钮叠出多个窗口”的问题：
+
+  1) 所有按钮只出一个窗口
+     任务中心 / 活动中心 / 命令面板 / 意见反馈 / 系统检测 / 电脑控制
+     等入口都做了单实例。无论点多少次，都只会把已经开着的窗口前置；
+     关掉之后下次点击才重新打开。
+
+  2) 任务中心会自动切到对应任务
+     聊天里的任务卡片、活动中心的「查看任务」、侧栏和命令面板
+     都复用同一个任务中心，并切到你点的那个任务，不会越点越多。
+
+  3) 关闭主窗口会先关掉这些子窗口
+     这样任务中心和活动中心会注销后台订阅、停掉定时器，
+     不会出现“界面关了，后台还在往旧窗口发消息”的退出崩溃。
+
+  4) 弹窗里找不到按钮了？
+     关闭、复制、打开目录、导出这类次要动作用文字链接代替；
+     Esc 或窗口右上角 × 仍然能关。主要操作按钮都还在。
+
+  5) 自己验一遍
+     py -3 -m pytest tests/test_dialog_singleton.py -q
+     py -3 -m pytest tests/ -q
+
+============================================================
+
+【七点九五、云端 Key 能当场验通了（2026-10-27 / v25.2.33）】
+  这一版不加按钮，只解决“Key 填错要等聊天才发现”这件事：
+
+  1) 设置里能当场测
+     设置 → 模型 →「配置云端模型」，Key 框下面多了一行蓝字
+     「🔌 测试云端连通」。点它就会真发一个 8 token 的请求：
+       401  Key 不对或已过期
+       404  地址不对（要填完整的 chat/completions 地址）
+       429  额度/限流
+       连不上  网络或代理问题
+     不用先保存，改完 Key 想试就试。
+
+  2) 系统自检里的「云端」变成真探测
+     以前只检查“有没有填地址和 Key”，填了就报 ✅ 已配置；
+     现在会真的请求一次，显示成
+       ☁️ 云端: ✅ 可用（glm-4v-flash · 0.8秒）
+     用不了会写中文原因，健康分也会扣 10 分。
+     结果缓存 5 分钟：连点几次「系统自检」不会反复花额度。
+
+  3) 401 不一定是 Key 失效
+     如果配置里存的是加密后的 Key、而当前 Windows 账号解不开
+     （换过电脑 / 换过系统账号 / 从别人机器拷了 config.json），
+     程序会提示“这里存的是加密后的 Key，当前用户解不开”，
+     去服务商后台重新复制一份明文 Key 填回来即可。
+
+============================================================
+
 【八、快捷键】
   Enter         发送
   Shift+Enter   换行
@@ -273,32 +329,22 @@ def show_tutorial_dialog(parent):
 
     row1 = QHBoxLayout()
     row1.addWidget(QLabel("Ollama 下载："))
-    for label, url in [
+    row1.addWidget(make_url_links([
         ("官网", "https://ollama.com/download/windows"),
         ("GitHub", "https://github.com/ollama/ollama/releases/latest"),
         ("加速镜像", "https://ghproxy.net/https://github.com/ollama/ollama/releases/latest"),
-    ]:
-        b = QPushButton(label)
-        b.setStyleSheet("padding:4px 10px;")
-        b.clicked.connect(lambda _, u=url: webbrowser.open(u))
-        row1.addWidget(b)
+    ]), stretch=1)
     l.addLayout(row1)
 
     row2 = QHBoxLayout()
     row2.addWidget(QLabel("模型："))
-    for label, url in [
+    row2.addWidget(make_url_links([
         ("Qwen2.5", "https://ollama.com/library/qwen2.5:4b"),
         ("DeepSeek-R1", "https://ollama.com/library/deepseek-r1:7b"),
         ("魔搭社区", "https://modelscope.cn/models?name=qwen2.5"),
         ("HF镜像", "https://hf-mirror.com/models?search=qwen2.5"),
-    ]:
-        b = QPushButton(label)
-        b.setStyleSheet("padding:4px 10px;")
-        b.clicked.connect(lambda _, u=url: webbrowser.open(u))
-        row2.addWidget(b)
+    ]), stretch=1)
     l.addLayout(row2)
 
-    btn = QPushButton("知道了")
-    btn.clicked.connect(d.close)
-    l.addWidget(btn)
+    # 关闭走 Esc / 窗口右上角；「知道了」按钮撤掉，教程窗口不再占按钮预算
     d.exec_()

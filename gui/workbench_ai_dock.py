@@ -35,6 +35,7 @@ class AgentDock(QWidget):
         self.orchestrator = None
         self.queue = None
         self.current_job_id = ""
+        self._running = False
         self._build()
 
     def _build(self):
@@ -117,6 +118,9 @@ class AgentDock(QWidget):
         return bool(self.current_goal())
 
     def start(self):
+        if self._running:
+            self.timeline.appendPlainText("⚠ 已有任务在运行，请先暂停或取消")
+            return
         goal = self.current_goal()
         if not goal:
             self.timeline.appendPlainText("⚠ 请先描述要做什么")
@@ -140,6 +144,9 @@ class AgentDock(QWidget):
         self._run_job(goal, open_files=open_files)
 
     def _run_job(self, goal, open_files=None, resume_state=None):
+        if self._running:
+            self.timeline.appendPlainText("⚠ 已有任务在运行，请先暂停或取消")
+            return
         try:
             from core.agent_orchestrator import AgentOrchestrator
         except Exception as e:
@@ -187,6 +194,7 @@ class AgentDock(QWidget):
                 self._refresh_queue()
 
         try:
+            self._running = True
             result = self.orchestrator.run(
                 goal, resume_state=resume_state or {}, checkpoint_cb=checkpoint)
             if self.queue and self.current_job_id:
@@ -194,6 +202,7 @@ class AgentDock(QWidget):
                 self._refresh_queue()
             self._on_done(result)
         except Exception as e:  # 静默是故意的 - 出错要显示给用户而不是崩
+            self._running = False
             if self.queue and self.current_job_id:
                 self.queue.mark_paused(self.current_job_id, str(e))
                 self._refresh_queue()
@@ -242,6 +251,7 @@ class AgentDock(QWidget):
             self.timeline.appendPlainText("已载入队列任务，可点击开始执行")
 
     def _on_done(self, result):
+        self._running = False
         if isinstance(result, dict):
             if result.get("ok"):
                 self.timeline.appendPlainText(

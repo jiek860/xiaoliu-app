@@ -105,10 +105,11 @@ class FeedbackDialog(QDialog):
             "background-color: #2196f3; color: white; border: none; "
             "padding: 8px 20px; border-radius: 6px;")
         self.submit_btn.clicked.connect(self._submit)
-        cancel_btn = QPushButton("取消")
-        cancel_btn.clicked.connect(self.close)
         btn_row.addWidget(self.submit_btn)
-        btn_row.addWidget(cancel_btn)
+        btn_row.addStretch(1)
+        hint = QLabel("Esc 取消")
+        hint.setStyleSheet("color:#888;font-size:11px;")
+        btn_row.addWidget(hint)
         layout.addLayout(btn_row)
 
     # ---------- 本地限流（防连点 / 误触） ----------
