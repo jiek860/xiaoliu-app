@@ -10,6 +10,7 @@ openpyxl==3.1.5
 pillow==13.0.0
 psutil==7.2.2
 pycparser==3.11
+pypdf==6.21.3
 PyQt5==5.15.11
 PyQt5-Qt5==5.15.2
 PyQt5_sip==12.20.0
