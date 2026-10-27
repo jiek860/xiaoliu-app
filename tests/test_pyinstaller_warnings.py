@@ -95,3 +95,26 @@ def test_pypdf_missing_modules_are_all_classified():
     assert not unknown
     for name in PYPDF_MISSING_MODULES:
         assert name in cats["optional_python_packages"]
+
+
+# 2026-10-28 追加：exe 依赖集补 pywin32 / uiautomation / pyautogui / jedi
+# （口径 A：exe 保留电脑控制）后，构建门禁列出这 4 个名字。
+# colorama / numpydoc 都是 jedi 的 try-import（彩显、numpy 风格文档解析），
+# olefile 只有 Pillow 的 FPX/MIC 格式插件用，都属于可选；
+# win32com.gen_py 是 pywin32 运行时生成的 COM 缓存包，构建时不存在。
+BATCH26_MISSING_MODULES = [
+    "colorama", "numpydoc", "olefile", "win32com.gen_py",
+]
+
+
+def test_batch26_new_missing_modules_are_all_classified():
+    text = "\n".join("missing module named %s" % n
+                     for n in BATCH26_MISSING_MODULES)
+    names = extract_missing(text)
+    assert names == sorted(BATCH26_MISSING_MODULES)
+    cats, unknown = classify(names)
+    assert not unknown
+    assert "colorama" in cats["optional_python_packages"]
+    assert "numpydoc" in cats["optional_python_packages"]
+    assert "olefile" in cats["optional_python_packages"]
+    assert "win32com.gen_py" in cats["runtime_generated"]
