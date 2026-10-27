@@ -44,15 +44,30 @@ def check_ollama(trunk):
         return {"ok": False, "error": str(e)[:50]}
 
 
-def check_cloud(trunk):
+def check_cloud(trunk, timeout=5):
+    """云端可用性：不只问「配了没」，还要问「能不能用」。
+
+    为什么改（2026-10-27）
+    --------------------
+    原来只判断 `cloud_url` 和 `cloud_key` **非空** 就返回 ok=True。于是 Key
+    过期、泄露后作废、或被 DPAPI 换成本机解不开的密文之后，自检照样报
+    「✅ 已配置」，健康分还是 100 —— 用户要到第一次聊天收到 401 才发现，
+    而那时界面上只有一句"出了点问题"。现在真的打一次最小请求（8 token），
+    把「配置齐但用不了」和「配置齐且能用」区分开。
+
+    实现放在 core.model_setup.probe_cloud_cached（含 5 分钟结果缓存，
+    连点自检不会反复花额度）；本文件只做配置读取和兜底。
+    """
     try:
-        import requests
-        url = trunk.config.get("cloud_url", "")
-        key = trunk.config.get("cloud_key", "")
+        url = str(trunk.config.get("cloud_url", "") or "").strip()
+        key = str(trunk.config.get("cloud_key", "") or "").strip()
         if not url or not key:
             return {"ok": False, "error": "未配置"}
-        return {"ok": True}
+        from core.model_setup import probe_cloud_cached
+        model = str(trunk.config.get("cloud_model", "") or "").strip()
+        return probe_cloud_cached(url, model, key, timeout=timeout)
     except Exception as e:
+        _x6_swallowed(__name__, e)
         return {"ok": False, "error": str(e)[:50]}
 
 
@@ -187,9 +202,21 @@ def deep_check(trunk):
         errors.append("Ollama: " + _e)
 
     # 5. 云端
+    #    这里现在会**真打一次最小请求**（见 check_cloud），所以这一行能区分
+    #    「配了但用不了」（Key 过期/密文解不开/地址错）和「能用」。
     c = trunk._check_cloud() or {}
     if c.get("ok"):
-        log("☁️ 云端: ✅ 已配置")
+        _lat = 0.0
+        try:
+            _lat = float(c.get("latency") or 0)
+        except (TypeError, ValueError):
+            _lat = 0.0
+        _bits = [str(c.get("model"))] if c.get("model") else []
+        if _lat:
+            _bits.append("%.1f秒" % _lat)
+        if c.get("cached"):
+            _bits.append("缓存")
+        log("☁️ 云端: ✅ 可用%s" % (("（%s）" % " · ".join(_bits)) if _bits else ""))
     else:
         _e = str(c.get("error") or "未配置")[:60]
         log("☁️ 云端: ❌ %s" % _e)

@@ -37,6 +37,7 @@ import argparse
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -166,6 +167,41 @@ def sample_final(instances, count=50, seed=20261123):
 
 
 # ------------------------------------------------------------------ 环境自检
+# 实测（2026-10 这台机器）：Docker Hub（registry-1.docker.io / auth.docker.io）
+# 与几家常见加速器的 443 都不通，只有下面这几个能连上；不配加速器时
+# harness 连基础镜像都拉不下来，装了 Docker 也跑不了分。
+DOCKER_MIRRORS = ("docker.1ms.run", "hub.rat.dev", "docker.xuanyuan.me",
+                  "docker.nju.edu.cn")
+DOCKER_HUB = "registry-1.docker.io"
+
+
+def _tcp_ok(host, port=443, timeout=2.0):
+    """纯 TCP 探测：连上就算通，不读数据、不抛异常（离线也安全）。"""
+    try:
+        with socket.create_connection((str(host), int(port)),
+                                      timeout=float(timeout)):
+            return True
+    except OSError:
+        return False
+
+
+def _docker_daemon():
+    """返回 (ok, detail)。CLI 不在、daemon 没起，都算不可用。"""
+    exe = shutil.which("docker")
+    if not exe:
+        return False, "判分需要 Docker（生成 patch 不需要）"
+    try:
+        p = subprocess.run(
+            [exe, "info", "--format", "{{.ServerVersion}}"],
+            capture_output=True, text=True, timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, "CLI 在但 daemon 没响应：%s" % str(exc)[:80]
+    if p.returncode != 0:
+        return False, "CLI 已装，daemon 未启动（先开 Docker Desktop）"
+    return True, "daemon %s" % (p.stdout or "").strip()
+
+
 def check(dataset=None, workdir=None):
     checks = []
 
@@ -191,8 +227,18 @@ def check(dataset=None, workdir=None):
         from core.error_text import install_cmd
         add("swebench", False, "未安装（判分需要）：\n    "
             + install_cmd("swebench", target=None))
-    docker = shutil.which("docker")
-    add("Docker", bool(docker), docker or "判分需要 Docker（生成 patch 不需要）")
+    docker_ok, docker_detail = _docker_daemon()
+    add("Docker", docker_ok, docker_detail)
+    mirrors = [h for h in DOCKER_MIRRORS if _tcp_ok(h)]
+    if _tcp_ok(DOCKER_HUB):
+        add("镜像加速", True, "Docker Hub 直连可用")
+    else:
+        add("镜像加速", bool(mirrors),
+            "Hub 不通，可用加速器：" + "、".join(mirrors) if mirrors
+            else "Hub 与常见加速器都不通（拉不到基础镜像）")
+    free_gb = shutil.disk_usage(str(BASE)).free / float(1024 ** 3)
+    add("磁盘", free_gb >= 20,
+        "剩余 %.1f GB（10 题建议 ≥ 20 GB，50 题 ≥ 50 GB）" % free_gb)
     if dataset:
         add("数据集", Path(dataset).is_file(), str(dataset))
     else:

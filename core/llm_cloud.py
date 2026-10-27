@@ -13,6 +13,22 @@ except ImportError:
         return None
 
 
+def _plain_cloud_key(value):
+    """cloud_key 兜底解密。
+
+    `core.config.load_config()` 读配置时已经把 DPAPI 密文解开了，
+    这里只是防"某条路径拿到的是密文"：把 `dpapi:v1:...` 当 Bearer
+    发出去，服务端只会回 401「令牌已过期或验证不正确」，看起来像
+    Key 失效，实际是密文被当成了明文。
+    """
+    try:
+        from core.model_setup import _plain_key
+        return _plain_key(value)
+    except Exception as e:
+        _x6_swallowed(__name__, e, "best-effort fallback")
+        return str(value or "")
+
+
 def _is_local_target(url, base_url=""):
     """判断请求目标是不是"本机服务"（本地模型 / 本地 MCP）。
 
@@ -106,6 +122,7 @@ class LLMCloudMixin:
         key = normalize_provider(provider)
         spec = provider_spec(key)
         connector = config_for_provider(self.config, key)
+        connector["api_key"] = _plain_cloud_key(connector.get("api_key"))
         if not spec:
             raise ValueError("unknown cloud provider: %s" % provider)
         if not connector["local"] and not connector["api_key"]:
@@ -157,7 +174,7 @@ class LLMCloudMixin:
 
     def _try_cloud(self, message):
         url = self.config.get("cloud_url", "")
-        key = self.config.get("cloud_key", "")
+        key = _plain_cloud_key(self.config.get("cloud_key", ""))
         model = self.config.get("cloud_model", "qwen-turbo")
         try:
             if isinstance(message, list):
@@ -201,7 +218,7 @@ class LLMCloudMixin:
         每块前再检查一次，取消后立刻返回已收到内容，不再写错误提示。
         """
         url = self.config.get("cloud_url", "")
-        key = self.config.get("cloud_key", "")
+        key = _plain_cloud_key(self.config.get("cloud_key", ""))
         model = self.config.get("cloud_model", "qwen-turbo")
 
         def _cancelled():

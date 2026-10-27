@@ -81,13 +81,13 @@ py -3 tools/swebench_verified.py --dataset data/swebench/swebench_verified.jsonl
 > 一是里面含 Sphinx 测试用的 `tests/certs/cert.pem`，会被"项目里不得有私钥"
 > 的守卫拦下；二是不该把第三方仓库塞进产品仓库。重跑时脚本会重新 clone。
 
-## 五、三项硬阻塞（解除办法都写清楚）
+## 五、三处硬阻塞（Key 已恢复，另两处仍在）
 
 | 阻塞 | 现状 | 解除步骤 |
 |---|---|---|
 | 模型产不出 patch | 4B 量化模型在 4~6 轮内不改文件；换更大模型才有意义 | 云端换有效 Key（DeepSeek / 智谱 / 硅基流动），或本机装 `qwen2.5-coder:7b` 以上 |
-| 云端 Key 失效 | `https://open.bigmodel.cn/api/paas/v4/chat/completions` → **HTTP 401** | 设置 → 模型 → 云端，换 Key 后点「测试云端 Key」看到 ✅ |
-| 官方判分环境 | ⚠️ `swebench` 已装（独立 venv `e:\xiaoliu\.swebench-venv`，5.0.2），**Docker 仍未装** | 管理员 PowerShell：`wsl --install` → 重启 → `winget install -e --id Docker.DockerDesktop`，详见 `docs/95` |
+| 云端 Key 401 | ✅ **2026-10-27 复核已恢复**：配置里存的是 DPAPI 密文（`dpapi:v1:`），解密后为 49 字符明文（智谱 `<id>.<secret>` 格式），`test_cloud` 与 `glm-4v-flash` 直连均返回 **HTTP 200**。10-26 那次 401 是旧 Key 失效；另查到一个会复现同样 401 的坑：把密文当 `Bearer` 发出去 | 设置 → 模型 → 「云端模型 / 服务商」对话框里新增「🔌 测试云端连通」：用输入框当前值真打一次请求，当场显示 ✅ / ❌ + HTTP 码，不必先保存 |
+| 官方判分环境 | ⚠️ `swebench` 已装（独立 venv `e:\xiaoliu\.swebench-venv`，5.0.2），**Docker 仍未装**；且本机 Docker Hub 不通、C 盘仅剩 10 GB | 提权后跑 `tools\setup_swebench_docker.ps1`（开 WSL + 装 Docker Desktop + 写国内镜像加速），再把磁盘镜像位置指到 E 盘；详见 `docs/95` |
 
 判分命令（环境齐了以后直接跑；本轮没有跑，所以没有分数）：
 
@@ -97,7 +97,7 @@ $env:HF_HUB_DISABLE_XET = "1"
 e:\xiaoliu\.swebench-venv\Scripts\python.exe -m swebench.harness.run_evaluation `
     -d SWE-bench/SWE-bench_Verified -s test `
     -p data\swebench_final_predictions.jsonl `
-    -id x6-v25.2.32-final --max_workers 2 -t 1800
+    -id x6-v25.2.33-final --max_workers 2 -t 1800
 ```
 
 环境细节与 Docker 安装步骤见 `docs/95_SWE_bench_环境准备.md`。

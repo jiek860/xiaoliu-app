@@ -216,6 +216,82 @@ def test_swebench_check_flags_missing_dataset():
     assert "数据集" in bad
 
 
+def test_swebench_check_flags_low_disk(monkeypatch, tmp_path):
+    """镜像很吃磁盘：剩余 < 20 GB 要直接报出来，而不是等构建时爆盘。"""
+    monkeypatch.setattr(sb, "_docker_daemon", lambda: (True, "daemon 27.0"))
+    monkeypatch.setattr(sb, "_tcp_ok", lambda *a, **k: True)
+
+    class _Usage:
+        total = 100 * 1024 ** 3
+        used = 96 * 1024 ** 3
+        free = 4 * 1024 ** 3
+
+    monkeypatch.setattr(sb.shutil, "disk_usage", lambda _p: _Usage)
+    result = sb.check(dataset=None, workdir=str(tmp_path / "w"))
+    by_name = {c["name"]: c for c in result["checks"]}
+    assert by_name["磁盘"]["ok"] is False
+    assert "4.0 GB" in by_name["磁盘"]["detail"]
+
+
+def test_swebench_check_names_reachable_docker_mirrors(monkeypatch, tmp_path):
+    """Hub 直连不通时，要说出哪个加速器可用（否则装了 Docker 也拉不到镜像）。"""
+    monkeypatch.setattr(sb, "_docker_daemon", lambda: (False, "未安装"))
+
+    def fake_tcp(host, port=443, timeout=2.0):
+        return host == "docker.1ms.run"
+
+    monkeypatch.setattr(sb, "_tcp_ok", fake_tcp)
+
+    class _Usage:
+        total = 100 * 1024 ** 3
+        used = 40 * 1024 ** 3
+        free = 60 * 1024 ** 3
+
+    monkeypatch.setattr(sb.shutil, "disk_usage", lambda _p: _Usage)
+    ds = tmp_path / "ds.jsonl"
+    ds.write_text("{}\n", encoding="utf-8")
+    result = sb.check(dataset=str(ds), workdir=str(tmp_path / "w"))
+    by_name = {c["name"]: c for c in result["checks"]}
+    assert by_name["镜像加速"]["ok"] is True
+    assert "docker.1ms.run" in by_name["镜像加速"]["detail"]
+    assert "docker.nju.edu.cn" not in by_name["镜像加速"]["detail"]
+    assert result["ok"] is False      # Docker 仍未装
+
+
+def test_docker_daemon_reports_three_states(monkeypatch):
+    """没 CLI / CLI 在但 daemon 没起 / daemon 正常，三种状态要能区分。"""
+    monkeypatch.setattr(sb.shutil, "which", lambda _n: None)
+    ok, detail = sb._docker_daemon()
+    assert ok is False and "Docker" in detail
+
+    monkeypatch.setattr(sb.shutil, "which", lambda _n: "docker")
+
+    class _Down:
+        returncode = 1
+        stdout = ""
+
+    monkeypatch.setattr(sb.subprocess, "run", lambda *a, **k: _Down())
+    ok, detail = sb._docker_daemon()
+    assert ok is False and "daemon" in detail
+
+    class _Up:
+        returncode = 0
+        stdout = "27.0.3\n"
+
+    monkeypatch.setattr(sb.subprocess, "run", lambda *a, **k: _Up())
+    ok, detail = sb._docker_daemon()
+    assert ok is True and "27.0.3" in detail
+
+
+def test_tcp_probe_swallows_network_errors(monkeypatch):
+    """离线时探测要返回 False，不能把异常抛给自检。"""
+    def boom(*_a, **_k):
+        raise OSError("network unreachable")
+
+    monkeypatch.setattr(sb.socket, "create_connection", boom)
+    assert sb._tcp_ok("registry-1.docker.io") is False
+
+
 def test_swebench_final_sample_is_reproducible_and_excludes_pilot():
     insts = [{"instance_id": "repo__x-%03d" % i} for i in range(120)]
     a = sb.sample_final(insts, 50)

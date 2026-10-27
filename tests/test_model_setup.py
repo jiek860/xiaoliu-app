@@ -85,6 +85,42 @@ def test_cloud_mode_complete_is_ready():
     assert "未检测" in r["ollama"]["error"]
 
 
+def test_plain_key_passes_plaintext_through():
+    assert model_setup._plain_key("dd95.demo-secret") == "dd95.demo-secret"
+    assert model_setup._plain_key("  spaced  ") == "spaced"
+    assert model_setup._plain_key("") == ""
+    assert model_setup._plain_key(None) == ""
+
+
+def test_plain_key_decrypts_dpapi_ciphertext():
+    """配置里的 cloud_key 是 DPAPI 密文，测试入口必须能还原成明文。"""
+    from core.secret_store import PREFIX, encrypt_value
+    enc = encrypt_value("dd95.demo-secret")
+    if not str(enc).startswith(PREFIX):
+        return          # 非 Windows / DPAPI 不可用时退化为明文，没什么可解
+    assert model_setup._plain_key(enc) == "dd95.demo-secret"
+
+
+def test_plain_key_drops_undecryptable_ciphertext():
+    """解不开的密文要返回空串：宁可不发请求，也不拿密文去换一个 401。"""
+    assert model_setup._plain_key("dpapi:v1:not-a-real-ciphertext") == ""
+
+
+def test_test_cloud_reports_encrypted_key_instead_of_401():
+    """2026-10-27 的真实坑：把密文当 Bearer 发出去，服务端只会回 401。"""
+    r = model_setup.test_cloud("https://example.com/v1/chat", "glm-4-flash",
+                               "dpapi:v1:not-a-real-ciphertext")
+    assert r["ok"] is False
+    assert r["code"] == "key_encrypted"
+    assert "明文" in r["message"]
+
+
+def test_llm_cloud_never_sends_ciphertext_as_bearer():
+    from core import llm_cloud
+    assert llm_cloud._plain_cloud_key("dpapi:v1:not-a-real-ciphertext") == ""
+    assert llm_cloud._plain_cloud_key("dd95.demo-secret") == "dd95.demo-secret"
+
+
 def test_local_mode_without_ollama_is_not_ready():
     t = FakeTrunk({"model_mode": "本地模型", "local_model": "qwen2.5:3b",
                    "ollama_url": DEAD})
