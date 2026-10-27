@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """RAG and team management dialog construction tests."""
 import os
 import sys
@@ -48,6 +48,35 @@ def test_cloud_provider_dialog_reports_capabilities(tmp_path, qapp):
         d.provider.setCurrentIndex(d.provider.findData("anthropic"))
         assert d.values()["cloud_provider"] == "anthropic"
         assert "tools=" in d.capability.text()
+    finally:
+        d.close()
+
+
+def test_cloud_provider_dialog_can_test_connection_in_place(tmp_path, qapp):
+    """换完 Key 要能当场验证，而不是等聊天报 401 才发现填错。"""
+    from gui.cloud_provider_dialog import CloudProviderDialog
+
+    class T:
+        base = str(tmp_path)
+        config = {"cloud_provider": "", "cloud_model": "glm-4-flash",
+                  "cloud_url": "", "cloud_key": "dd95.demo"}
+        def save_config(self):
+            self.saved = dict(self.config)
+
+    d = CloudProviderDialog(None, T())
+    try:
+        assert hasattr(d, "test_status")
+        d._test_cloud()          # 没填地址：要给提示，且不发请求
+        assert "API 地址" in d.test_status.text()
+
+        d._show_test_result({"ok": True, "status": 200,
+                             "message": "云端连通，模型「glm-4-flash」可以正常回复。"})
+        assert "✅" in d.test_status.text()
+
+        d._show_test_result({"ok": False, "code": "http_401", "status": 401,
+                             "message": "Key 不对或已过期，去服务商后台重新复制一份。"})
+        assert "401" in d.test_status.text()
+        assert "❌" in d.test_status.text()
     finally:
         d.close()
 

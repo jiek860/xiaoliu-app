@@ -16,6 +16,12 @@ from modules.base import BaseModule
 import os, sys, importlib, importlib.util, subprocess, hashlib, threading
 
 class HotReload(BaseModule):
+
+    # 标准 1.1：本模块不负责的事（给调用方一个明确边界，避免什么都能问）
+    NOT_RESPONSIBLE = (
+        "界面呈现与用户交互（由 gui 负责）",
+        "模块加载、调度与权限判定（由 core 负责）",
+    )
     NAME = "hot_reload"
     VERSION = "1.0"
     def __init__(self, trunk=None):
@@ -33,6 +39,8 @@ class HotReload(BaseModule):
         self.core_dir = os.path.join(self.base, "core")
         # 同一时刻只允许一个热更新在跑：避免并发写 staging、并发抢 sys.modules
         self._reload_lock = threading.RLock()
+        # 重启时拉起的新进程句柄（stop() 要能把它收掉）
+        self._child = None
         os.makedirs(self.staging, exist_ok=True)
 
     def check_changes(self):
@@ -234,17 +242,59 @@ class HotReload(BaseModule):
             return False
 
     def _restart_program(self):
-        """启动新进程并退出当前（平滑重启）"""
+        """启动新进程 + 当前进程优雅退出（2026-10-27 改）
+
+        原来直接 os._exit(0)：atexit、备份落盘、sqlite close 全被跳过，
+        日志也可能只写了一半（崩溃现场分析时最怕这个）。
+        现在先让 trunk 做收尾（shutdown 会停定时器、关端口、落盘），再退出。
+        收尾本身抛错也不能把重启卡住 —— 否则用户点了热更新就永远卡死。
+        """
         try:
             exe = sys.executable
             if exe.lower().endswith("python.exe"):
                 exe = exe[:-4] + "w.exe"
-            subprocess.Popen([exe, os.path.join(self.base, "gui", "app_pyqt.py")],
-                             cwd=self.base)
+            self._child = subprocess.Popen(
+                [exe, os.path.join(self.base, "gui", "app_pyqt.py")],
+                cwd=self.base)
         except Exception as e:
-            _x6_swallowed(__name__, e)
-            pass
+            _x6_swallowed(__name__, e, "spawn successor process")
+        self._graceful_exit()
+
+    def _graceful_exit(self):
+        """尽力收尾（落盘/关端口/停定时器），最后仍然要 os._exit。
+
+        为什么最后还要硬退：这个方法可能在非主线程里被调用，Qt 主循环不归它管；
+        只 shutdown 不退出的话，旧进程会留着占端口、跟新进程抢 data/。
+        shutdown 已经把该写的都写了，这时硬退是安全的。
+        """
+        try:
+            trunk = getattr(self, "trunk", None)
+            if trunk is not None and hasattr(trunk, "shutdown"):
+                trunk.shutdown()
+        except Exception as e:
+            _x6_swallowed(__name__, e, "graceful shutdown")
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                if stream is not None:
+                    stream.flush()
+            except Exception:  # 静默是故意的：管道已关时 flush 会抛，不能挡住退出
+                pass
         os._exit(0)
+
+    def stop(self):
+        """收掉重启时拉起的新进程（模块卸载/退出时调）。
+
+        注意：只有"新进程还在跑、旧进程还没退"这种瞬间才需要它；
+        正常重启路径下 _graceful_exit 会直接结束旧进程。
+        """
+        child = getattr(self, "_child", None)
+        if child is not None and child.poll() is None:
+            try:
+                child.terminate()
+            except Exception as e:
+                _x6_swallowed(__name__, e, "terminate child")
+        self._child = None
+        return {"状态": "已停止"}
 
     def auto_reload(self):
         """自动热更新（installed 模块热更 + core 整包重载）"""

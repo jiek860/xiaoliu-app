@@ -9,6 +9,8 @@ except ImportError:
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QLineEdit, QMessageBox, QProgressBar
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
+from gui.feedback_states import make_action_links
+
 
 class PullWorker(QThread):
     """后台下载模型"""
@@ -105,9 +107,8 @@ class ModelManagerDialog(QDialog):
         btn_pull = QPushButton("下载")
         btn_pull.clicked.connect(self._pull)
         row.addWidget(btn_pull)
-        btn_del = QPushButton("删除选中")
-        btn_del.clicked.connect(self._delete)
-        row.addWidget(btn_del)
+        # 「删除选中」是破坏性低频动作 → 链接（带确认框）
+        row.addWidget(make_action_links([("删除选中", self._delete)]))
         layout.addLayout(row)
 
         # 进度条

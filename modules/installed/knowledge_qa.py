@@ -16,6 +16,12 @@ except ImportError:
 
 
 class KnowledgeQnA(BaseModule):
+
+    # 标准 1.1：本模块不负责的事（给调用方一个明确边界，避免什么都能问）
+    NOT_RESPONSIBLE = (
+        "界面呈现与用户交互（由 gui 负责）",
+        "模块加载、调度与权限判定（由 core 负责）",
+    )
     NAME = "knowledge_qa"
     VERSION = "1.0"
 
@@ -30,35 +36,86 @@ class KnowledgeQnA(BaseModule):
     #   knowledge_qa  文件级知识库（data/knowledge/*.txt + 子串匹配），
     #                 适合"我自己放进去的文档，按字面找"
     TOOLS = [
-        {"name": "kqa_ask", "method": "ask",
+        {
+         "contract": {
+             "params": {
+                 "question": {"type": "string"}
+             },
+             "returns": {"type": "object"},
+             "description": "就知识库里的文档回答问题（先按字面找到相关文档再让模型答）",
+         },
+         "name": "kqa_ask", "method": "ask",
          "desc": "就知识库里的文档回答问题（先按字面找到相关文档再让模型答）",
          "args": {"question": "要问的问题"},
          "hints": ["问知识库", "根据文档回答", "知识库问答", "文档里怎么说的"]},
-        {"name": "kqa_list", "method": "list_docs",
+        {
+         "contract": {
+             "params": {},
+             "returns": {"type": "object"},
+             "description": "看知识库里放有哪些文档",
+         },
+         "name": "kqa_list", "method": "list_docs",
          "desc": "看知识库里放有哪些文档",
          "args": {},
          "readonly": True,
          "hints": ["知识库文档", "有哪些文档", "文档列表"]},
-        {"name": "kqa_search", "method": "search_doc",
+        {
+         "contract": {
+             "params": {
+                 "keyword": {"type": "string"}
+             },
+             "returns": {"type": "object"},
+             "description": "在知识库文档里按字面搜关键词，返回命中的文档名",
+         },
+         "name": "kqa_search", "method": "search_doc",
          "desc": "在知识库文档里按字面搜关键词，返回命中的文档名",
          "args": {"keyword": "要搜的词"},
          "readonly": True,
          "hints": ["搜文档", "文档里有没有", "找资料"]},
-        {"name": "kqa_add", "method": "add_doc",
+        {
+         "contract": {
+             "params": {
+                 "title": {"type": "string"},
+                 "content": {"type": "string"}
+             },
+             "returns": {"type": "object"},
+             "description": "往知识库加一篇文档（存成 data/knowledge/标题.txt）",
+         },
+         "name": "kqa_add", "method": "add_doc",
          "desc": "往知识库加一篇文档（存成 data/knowledge/标题.txt）",
          "args": {"title": "文档标题", "content": "正文内容"},
          "hints": ["加进知识库", "存个文档", "记到知识库"]},
-        {"name": "kqa_stats", "method": "stats",
+        {
+         "contract": {
+             "params": {},
+             "returns": {"type": "object"},
+             "description": "知识库用量统计",
+         },
+         "name": "kqa_stats", "method": "stats",
          "desc": "知识库用量统计",
          "args": {},
          "readonly": True,
          "hints": ["知识库统计", "知识库用了多少"]},
-        {"name": "kqa_import_file", "method": "import_file",
+        {
+         "contract": {
+             "params": {
+                 "path": {"type": "string"}
+             },
+             "returns": {"type": "object"},
+             "description": "导入文档到知识库（PDF/Word/Excel）",
+         },
+         "name": "kqa_import_file", "method": "import_file",
          "desc": "导入文档到知识库（PDF/Word/Excel）",
          "args": {"path": "文件路径"},
          "confirm": True,
          "hints": ["导入文档", "导入知识库", "上传PDF", "导入Word"]},
-        {"name": "kqa_rebuild_index", "method": "rebuild_index",
+        {
+         "contract": {
+             "params": {},
+             "returns": {"type": "object"},
+             "description": "清空并重建知识库检索索引",
+         },
+         "name": "kqa_rebuild_index", "method": "rebuild_index",
          "desc": "清空并重建知识库检索索引",
          "args": {},
          "confirm": True,

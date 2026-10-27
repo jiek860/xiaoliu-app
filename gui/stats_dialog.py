@@ -2,7 +2,9 @@
 """v26-6.2: 数据统计报表 完整版（GUI对话框）"""
 import os, json
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QTextBrowser, QComboBox)
+                             QTextBrowser, QComboBox)
+
+from gui.feedback_states import make_action_links
 
 
 class StatsDialog(QDialog):
@@ -24,9 +26,8 @@ class StatsDialog(QDialog):
         self.period.currentIndexChanged.connect(self._refresh)
         top.addWidget(self.period)
         top.addStretch(1)
-        btn = QPushButton("导出Markdown")
-        btn.clicked.connect(self._export_md)
-        top.addWidget(btn)
+        # 「导出」是纯展示弹窗里的次要动作：链接同样能点，不占按钮预算
+        top.addWidget(make_action_links([("导出 Markdown", self._export_md)]))
         layout.addLayout(top)
         self.tb = QTextBrowser()
         layout.addWidget(self.tb)

@@ -4,6 +4,8 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QTextEdit, QPushButton, QMessageBox)
 from PyQt5.QtCore import Qt
 
+from gui.feedback_states import make_action_links
+
 
 class PlanConfirmDialog(QDialog):
     """计划确认对话框：显示 AI 生成的计划，用户可以编辑后批准"""
@@ -25,9 +27,7 @@ class PlanConfirmDialog(QDialog):
         lay.addWidget(self.editor, stretch=1)
 
         row = QHBoxLayout()
-        cancel = QPushButton("取消")
-        cancel.clicked.connect(self.reject)
-        row.addWidget(cancel)
+        row.addWidget(make_action_links([("取消", self.reject)]))
 
         row.addStretch(1)
 

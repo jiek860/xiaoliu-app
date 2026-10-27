@@ -12,6 +12,12 @@ from modules.base import BaseModule
 
 
 class MemoryPipeline(BaseModule):
+
+    # 标准 1.1：本模块不负责的事（给调用方一个明确边界，避免什么都能问）
+    NOT_RESPONSIBLE = (
+        "界面呈现与用户交互（由 gui 负责）",
+        "模块加载、调度与权限判定（由 core 负责）",
+    )
     NAME = "memory_loop"
     VERSION = "1.0"
     """记忆闭环：只当指挥，具体活 trunk.call 给记忆卡/遗忘曲线/向量库/统一记忆"""

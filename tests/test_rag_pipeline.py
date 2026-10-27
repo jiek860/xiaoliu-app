@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Incremental permission-aware RAG tests."""
 import os
 import sys
@@ -73,3 +73,39 @@ def test_directory_ingest_only_supported_extensions(tmp_path):
     r = kb.ingest_directory(docs)
     assert r["files"] == 1
     assert kb.stats()["sources"] == 1
+
+
+def test_sources_list_for_management_ui(tmp_path):
+    """管理界面要能列出已索引来源：手打相对路径删除是不可用的交互。"""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "a.md").write_text("alpha", encoding="utf-8")
+    (docs / "b.md").write_text("beta", encoding="utf-8")
+    kb = KnowledgeBase(tmp_path, "ui")
+    kb.ingest_directory(docs, acl_roles=["admin"])
+    got = kb.sources()
+    assert [x["source"] for x in got] == ["docs/a.md", "docs/b.md"]
+    assert all(x["chunks"] >= 1 for x in got)
+    assert got[0]["acl_roles"] == ["admin"]
+    assert kb.sources()[0]["source"] in kb._manifest
+
+
+def test_summarize_ingest_is_readable():
+    """导入结果给人话，不是 JSON 转储。"""
+    from gui.rag_dialog import summarize_ingest
+
+    single = summarize_ingest({"ok": True, "source": "docs/a.md", "chunks": 3})
+    assert "docs/a.md" in single and "3" in single
+    skipped = summarize_ingest({"ok": True, "source": "docs/a.md",
+                                "chunks": 3, "skipped": True})
+    assert "没有变化" in skipped
+    bulk = summarize_ingest({"ok": True, "files": 3, "results": [
+        {"source": "docs/a.md", "ok": True, "skipped": False},
+        {"source": "docs/b.md", "ok": True, "skipped": True},
+        {"source": "docs/c.pdf", "ok": False, "error": "解析失败"},
+    ]})
+    assert "新增/更新 1 个" in bulk
+    assert "跳过 1 个" in bulk
+    assert "docs/c.pdf" in bulk and "解析失败" in bulk
+    failed = summarize_ingest({"ok": False, "error": "磁盘满了"})
+    assert "磁盘满了" in failed

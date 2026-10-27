@@ -2,9 +2,10 @@
 """P0-3: Trace 视图 - 任务时间树回看"""
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QListWidget, QListWidgetItem, QTreeWidget,
-    QTreeWidgetItem, QSplitter, QMessageBox
+    QListWidget, QListWidgetItem, QTreeWidget,
+    QTreeWidgetItem, QSplitter, QMessageBox, QShortcut
 )
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtCore import Qt
 
 
@@ -22,17 +23,19 @@ class TraceViewDialog(QDialog):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        # 顶部：刷新 + 过滤
+        # 顶部：过滤（F5 刷新，Esc 关闭 —— 不再各配一个按钮）
         row = QHBoxLayout()
         row.addWidget(QLabel("过滤:"))
         self.filter_input = QLineEdit()
         self.filter_input.setPlaceholderText("输入关键词过滤...")
         self.filter_input.textChanged.connect(self._render)
         row.addWidget(self.filter_input)
-        btn_refresh = QPushButton("刷新")
-        btn_refresh.clicked.connect(self._load)
-        row.addWidget(btn_refresh)
+        hint = QLabel("F5 刷新 · Esc 关闭")
+        hint.setStyleSheet("color:#667085;font-size:11px;")
+        row.addWidget(hint)
         layout.addLayout(row)
+        self.refresh_shortcut = QShortcut(QKeySequence("F5"), self)
+        self.refresh_shortcut.activated.connect(self._load)
 
         # 分割器：左任务列表，右时间树
         splitter = QSplitter(Qt.Horizontal)
@@ -62,14 +65,7 @@ class TraceViewDialog(QDialog):
 
         splitter.setSizes([250, 650])
         layout.addWidget(splitter, stretch=1)
-
-        # 关闭按钮
-        row = QHBoxLayout()
-        row.addStretch(1)
-        btn_close = QPushButton("关闭")
-        btn_close.clicked.connect(self.accept)
-        row.addWidget(btn_close)
-        layout.addLayout(row)
+        # 关闭交给 Esc（QDialog 默认行为），不再单配一个按钮
 
     def _load(self):
         """从 data/traces/*.jsonl 读事件"""

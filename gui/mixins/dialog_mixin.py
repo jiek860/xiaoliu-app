@@ -28,35 +28,65 @@ class DialogMixin(BackgroundTaskMixin):
         ml.addWidget(scroll)
         return d, lay
 
+    # ---- 单窗口入口：点多少次都只出一个（实现见 gui/chrome.py） ----
+    # 非模态走 singleton_window 缓存复用；模态走 run_modal_once 重入守卫。
+    # 真实问题：任务中心 / 活动中心 / 命令面板 / 意见反馈用 .show()，
+    # 每点一次 new 一个；链接双击也会把两次调用排进事件队列。
+    def _run_modal_once(self, key, opener):
+        """模态窗口只允许一个：正在打开时重复调用直接返回 None。"""
+        from gui.chrome import run_modal_once
+        return run_modal_once(self, key, opener)
+
+    def _singleton_window(self, key, factory, focus=None):
+        """非模态窗口单例：已开着就前置；用户关掉后才允许重建。"""
+        from gui.chrome import singleton_window
+        return singleton_window(self, key, factory, focus)
+
     def graph_dialog(self):
         from gui.graph_dialog import show_graph_dialog
-        show_graph_dialog(self, self._dlg, self.trunk)
+        return self._run_modal_once(
+            "graph_dialog",
+            lambda: show_graph_dialog(self, self._dlg, self.trunk))
 
     def kb_dialog(self):
         from gui.kb_dialog import show_kb_dialog
-        show_kb_dialog(self, self._dlg, self.trunk, self._safe_stop_workers)
+        return self._run_modal_once(
+            "kb_dialog",
+            lambda: show_kb_dialog(self, self._dlg, self.trunk,
+                                   self._safe_stop_workers))
 
     def rag_dialog(self):
         from gui.rag_dialog import show_rag_dialog
-        show_rag_dialog(self.trunk, self)
+        return self._run_modal_once(
+            "rag_dialog", lambda: show_rag_dialog(self.trunk, self))
 
     def team_dialog(self):
         from gui.team_dialog import show_team_dialog
-        show_team_dialog(self.trunk, self)
+        return self._run_modal_once(
+            "team_dialog", lambda: show_team_dialog(self.trunk, self))
 
     def usage_dialog(self):
         from gui.usage_dialog import show_usage_dialog
-        show_usage_dialog(self.trunk, self)
+        return self._run_modal_once(
+            "usage_dialog", lambda: show_usage_dialog(self.trunk, self))
 
     def sys_dialog(self):
         from gui.system_dialog import show_system_dialog
-        show_system_dialog(self)
-        self._safe_stop_workers()
+
+        def _make():
+            w = show_system_dialog(self)
+            self._safe_stop_workers()
+            return w
+
+        return self._singleton_window("sys_dialog", _make)
 
     def computer_dialog(self):
         from gui.computer_dialog import show_computer_dialog
-        show_computer_dialog(self, self._dlg, self.trunk, self.chat,
-                             self.set_dialog, self.kb_dialog)
+        return self._singleton_window(
+            "computer_dialog",
+            lambda: show_computer_dialog(
+                self, self._dlg, self.trunk, self.chat,
+                self.set_dialog, self.kb_dialog))
 
     def log_dialog(self):
         from gui.log_dialog import show_log_dialog
@@ -64,7 +94,7 @@ class DialogMixin(BackgroundTaskMixin):
         # （它们是重复入口，能力已归到注册表的 crash_export / migrate_export，
         #  命令面板搜"导出"就能找到）。这里不再传自己的那份实现，
         # 免得同一件事有两个真相。
-        return self._singleton_fn_dialog(
+        return self._run_modal_once(
             "log_dialog",
             lambda: show_log_dialog(self, self._dlg, self.base,
                                     self.import_data))
@@ -73,39 +103,17 @@ class DialogMixin(BackgroundTaskMixin):
         from gui.plugin_dialog import show_plugin_dialog
         # 插件市场里那个「🔌 MCP」按钮也指向唯一的 MCP 面板
         # （以前指向 show_mcp_market，那是另一个只显示 JSON 的窗口）
-        show_plugin_dialog(self, self._dlg, self.trunk,
-                           self.mcp_dialog, self.show_components)
+        return self._run_modal_once(
+            "plugin_dialog",
+            lambda: show_plugin_dialog(
+                self, self._dlg, self.trunk,
+                self.mcp_dialog, self.show_components))
 
     def mcp_dialog(self):
         """打开 MCP 面板。重复点击切到同一个标签页，不再单开窗口。"""
         from gui.chrome import open_panel
         return open_panel(self, "mcp_dialog", "🔌 MCP",
                           "gui.mcp_dialog", "MCPDialog")
-
-    def _singleton_fn_dialog(self, key, opener):
-        """函数式开窗入口的单例复用。
-
-        show_log_dialog / show_plugin_dialog 这类函数**不返回窗口**，
-        但它们内部用 self._dlg(...) 构造，所以靠 _dlg 的缓存复用。
-        这里只负责"不要重复调用 opener 造成重复构造"。
-        """
-        cache = getattr(self, "_fn_dialog_cache", None)
-        if cache is None:
-            cache = {}
-            self._fn_dialog_cache = cache
-        d = cache.get(key)
-        if d is not None:
-            try:
-                d.show()
-                d.raise_()
-                d.activateWindow()
-                return d
-            except RuntimeError:
-                cache.pop(key, None)
-        result = opener()
-        if result is not None:
-            cache[key] = result
-        return result
 
     def _singleton_dialog(self, key, module, cls_name):
         """按 key 复用窗口：已存在就 raise+activate，否则新建。
@@ -148,25 +156,30 @@ class DialogMixin(BackgroundTaskMixin):
 
     def security_center_dialog(self):
         from gui.security_center_dialog import SecurityCenterDialog
-        d = SecurityCenterDialog(self.trunk, self)
-        d.exec_()
+        return self._run_modal_once(
+            "security_center",
+            lambda: SecurityCenterDialog(self.trunk, self).exec_())
 
     def task_center_dialog(self):
-        from gui.task_center_dialog import TaskCenterDialog
-        d = TaskCenterDialog(self.trunk, self)
-        d.exec_()
+        # 兼容旧命令面板入口；统一走任务中心的单窗口实现
+        return self.open_task_center()
 
     def show_feedback(self):
         from gui.feedback_dialog import FeedbackDialog
-        FeedbackDialog(self.trunk, self).show()
+        return self._singleton_window(
+            "feedback", lambda: FeedbackDialog(self.trunk, self))
 
     def show_tutorial(self):
         from gui.tutorial_dialog import show_tutorial_dialog
-        show_tutorial_dialog(self)
+        return self._run_modal_once(
+            "tutorial", lambda: show_tutorial_dialog(self))
 
     def show_components(self):
         from gui.components_dialog import show_components_dialog
-        show_components_dialog(self, self.base, self._install_component)
+        return self._run_modal_once(
+            "components",
+            lambda: show_components_dialog(
+                self, self.base, self._install_component))
 
     # center_dialog() 已移除：它那 8 个入口全部并入上面的设置窗口，
     # 按用途分成了 工具 / 扩展 / 记录 / 系统 四个标签页。
@@ -175,25 +188,11 @@ class DialogMixin(BackgroundTaskMixin):
     # 后台的 knowledge_graph / knowledge_qa / vector_store 照常运行。
 
     def history_dialog(self):
-        """历史记录窗口（签名不同：需要 account，所以单独处理单例）。"""
-        cache = getattr(self, "_dialog_cache", None)
-        if cache is None:
-            cache = {}
-            self._dialog_cache = cache
-        d = cache.get("history_dialog")
-        if d is not None:
-            try:
-                d.show()
-                d.raise_()
-                d.activateWindow()
-                return d
-            except RuntimeError:
-                cache.pop("history_dialog", None)
+        """历史记录窗口（签名不同：需要 account，所以单独给 factory）。"""
         from gui.history_dialog import HistoryDialog
-        d = HistoryDialog(self.trunk, self.account, self)
-        cache["history_dialog"] = d
-        d.show()
-        return d
+        return self._singleton_window(
+            "history_dialog",
+            lambda: HistoryDialog(self.trunk, self.account, self))
 
     # ---------------- 以下 9 个窗口原本是"孤儿" ----------------
     # 它们写好了、类也完整，但全项目没有任何地方能打开它们（实测过：
@@ -205,24 +204,29 @@ class DialogMixin(BackgroundTaskMixin):
         """打开一个 (trunk, parent=None) 签名的窗口
 
         modal=True 走 exec_()（适合"看完就关"的）；
-        否则走 show() 并留引用，免得窗口一闪就没（Python 侧被回收）。
+        否则走 show() 并复用同一个窗口，免得连点叠窗。
         """
-        try:
-            mod = __import__("gui." + modname, fromlist=[clsname])
-            cls = getattr(mod, clsname)
-            w = cls(self.trunk, self)
-        except Exception as e:
-            QMessageBox.warning(self, "打开失败",
-                                "%s 打不开：%s" % (clsname, str(e)[:120]))
-            return None
-        if modal:
-            w.exec_()
-        else:
-            if not hasattr(self, "_keep_windows"):
-                self._keep_windows = []
-            self._keep_windows.append(w)
-            w.show()
-        return w
+        def _make():
+            try:
+                mod = __import__("gui." + modname, fromlist=[clsname])
+                cls = getattr(mod, clsname)
+                return cls(self.trunk, self)
+            except Exception as e:
+                QMessageBox.warning(self, "打开失败",
+                                    "%s 打不开：%s" % (clsname, str(e)[:120]))
+                return None
+
+        key = "simple:" + modname
+        if not modal:
+            return self._singleton_window(key, _make)
+
+        def _open():
+            w = _make()
+            if w is not None:
+                w.exec_()
+            return w
+
+        return self._run_modal_once(key, _open)
 
     def model_manager_dialog(self):
         """本地模型管理：列出 / 下载 / 删除 Ollama 模型"""
@@ -274,7 +278,16 @@ class DialogMixin(BackgroundTaskMixin):
         """
         try:
             from gui.command_palette import show_command_palette
-            return show_command_palette(self.trunk, self._panel_commands(), self)
+            d = self._singleton_window(
+                "command_palette",
+                lambda: show_command_palette(
+                    self.trunk, self._panel_commands(), self))
+            if d is not None:
+                try:
+                    d.search.setFocus()
+                except Exception as e:  # 静默是故意的 - 聚焦失败不影响面板
+                    _x6_swallowed(__name__, e, "focus command palette")
+            return d
         except Exception as e:
             QMessageBox.warning(self, "命令面板", "打不开：" + str(e)[:120])
             return None
@@ -284,15 +297,9 @@ class DialogMixin(BackgroundTaskMixin):
 
         保留这个方法是因为设置里可能还有旧按钮指向它；
         它内部不再创建任何按钮（见 gui/module_tools_dialog.py 的说明）。
+        直接转命令面板：两个入口开同一个窗口，不会叠出两份。
         """
-        try:
-            from gui.module_tools_dialog import ModuleToolsDialog
-            w = ModuleToolsDialog(self.trunk, self)
-            w.exec_()
-            return w
-        except Exception as e:
-            QMessageBox.warning(self, "实用工具", "打不开：" + str(e)[:120])
-            return None
+        return self.command_palette()
 
     def module_map_dialog(self):
         """🕸️ 模块星图 —— 用系统浏览器打开
@@ -346,17 +353,23 @@ class DialogMixin(BackgroundTaskMixin):
         """重新打开首次设置向导（模型没配好时随时可用）"""
         try:
             from gui.onboarding_wizard import show_onboarding
-            ok = show_onboarding(self.trunk, self)
-            QMessageBox.information(
-                self, "首次设置向导",
-                "配置完成，可以正常聊天了。" if ok else
-                "还没配好：问它话可能不会有回复。\n"
-                "缺什么上面写清楚了，随时可以再打开这个向导。")
+
+            def _open():
+                ok = show_onboarding(self.trunk, self)
+                QMessageBox.information(
+                    self, "首次设置向导",
+                    "配置完成，可以正常聊天了。" if ok else
+                    "还没配好：问它话可能不会有回复。\n"
+                    "缺什么上面写清楚了，随时可以再打开这个向导。")
+                return ok
+
+            return self._run_modal_once("onboarding", _open)
         except Exception as e:
             QMessageBox.warning(self, "引导", "打开失败: " + str(e)[:100])
 
     def show_login(self):
         from gui.login_dialog import show_login_dialog
+
         def on_success(username):
             try:
                 self.login_btn_sb.setText("🔑 " + str(username))
@@ -366,7 +379,10 @@ class DialogMixin(BackgroundTaskMixin):
             self._save_draft_now()
             self.account.switch_user(username)
             self._reload_chat_history()
-        return show_login_dialog(self, self.trunk, self.base, on_success)
+        return self._run_modal_once(
+            "login",
+            lambda: show_login_dialog(self, self.trunk, self.base,
+                                      on_success))
 
     def open_code_editor(self):
         try:

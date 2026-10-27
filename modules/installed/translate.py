@@ -6,17 +6,40 @@ from modules.base import BaseModule
 
 
 class Translator(BaseModule):
+
+    # 标准 1.1：本模块不负责的事（给调用方一个明确边界，避免什么都能问）
+    NOT_RESPONSIBLE = (
+        "界面呈现与用户交互（由 gui 负责）",
+        "模块加载、调度与权限判定（由 core 负责）",
+    )
     NAME = "translate"
     VERSION = "1.0"
 
     TOOLS = [
-        {"name": "translate_text", "method": "translate",
+        {
+         "contract": {
+             "params": {
+                 "text": {"type": "string"},
+                 "to_lang": {"type": "string"}
+             },
+             "returns": {"type": "object"},
+             "description": "把一段文字翻译成目标语言",
+         },
+         "name": "translate_text", "method": "translate",
          "desc": "把一段文字翻译成目标语言",
          "args": {"text": "要翻译的文字",
                   "to_lang": "目标语言代码，如 en/zh/ja，默认 en"},
          "readonly": True,
          "hints": ["翻译", "translate", "译成", "英文怎么说", "中文意思"]},
-        {"name": "translate_detect", "method": "detect_lang",
+        {
+         "contract": {
+             "params": {
+                 "text": {"type": "string"}
+             },
+             "returns": {"type": "object"},
+             "description": "判断一段文字是什么语言",
+         },
+         "name": "translate_detect", "method": "detect_lang",
          "desc": "判断一段文字是什么语言",
          "args": {"text": "要判断的文字"},
          "readonly": True,

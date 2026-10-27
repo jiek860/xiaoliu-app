@@ -70,7 +70,7 @@ scripts\check_envs.ps1
 
 - 已同步简单/高级模式、头像五项菜单、高级模式更多菜单、任务中心、左栏滚动与模块数量提示。
 - 已同步自动补报误报修复和日志摘要最近启动过滤。
-- 当前验证（2026-10-23）：1686 passed，2 skipped；按钮预算 184；质量门禁 81 warn / 0 error。
+- 当前验证（2026-10-26 冻结版 B3）：按钮预算 184 → 170；其余见发布记录。
 
 ## 2026-10-20 兼容性与插件 API 同步
 
@@ -103,7 +103,7 @@ scripts\check_envs.ps1
 .venv\Scripts\python.exe tools/check_silent.py        # 静默异常棘轮
 .venv\Scripts\python.exe tools/check_threads.py       # 子线程不得碰控件
 .venv\Scripts\python.exe tools/check_file_sizes.py    # 单文件 <= 600 行
-.venv\Scripts\python.exe tools/check_buttons.py       # 按钮预算 184
+.venv\Scripts\python.exe tools/check_buttons.py       # 按钮预算 170
 .venv\Scripts\python.exe tools/check_shapes.py        # 结构漂移
 .venv\Scripts\python.exe -m pytest tests/ -q
 ```

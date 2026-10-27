@@ -1,16 +1,26 @@
 # -*- coding: utf-8 -*-
-"""P0-4: 群聊角色管理对话框"""
-import json, os
+"""P0-4: 群聊角色管理对话框
+
+控件预算：整窗只留「保存」一个按钮，加/删/导入/导出都改成链接。
+另外补齐三处会直接抛异常的地方：
+    · 导入一份坏 JSON -> 现在给原因，不再弹 traceback
+    · 导出到不可写目录 -> 现在提示换目录
+    · 保存后没有同步给已加载的 group_chat 模块 -> 群聊里还是旧人设
+"""
+import json
+import os
+
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QListWidget, QListWidgetItem, QTextEdit,
-    QMessageBox, QFileDialog
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QListWidget, QListWidgetItem, QTextEdit, QWidget, QMessageBox, QFileDialog,
 )
-from PyQt5.QtCore import Qt
+
+from gui.feedback_states import make_action_links
 
 
 class RolesDialog(QDialog):
     """群聊角色管理：列表 + 编辑 + 加删 + 导入导出"""
+
     def __init__(self, trunk, parent=None):
         super().__init__(parent)
         self.trunk = trunk
@@ -20,24 +30,21 @@ class RolesDialog(QDialog):
         self._build_ui()
         self._load()
 
+    def _path(self):
+        return os.path.join(getattr(self.trunk, "base", ".") or ".",
+                            "data", "group_roles.json")
+
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        # 按钮行
         row = QHBoxLayout()
-        btn_add = QPushButton("➕ 加角色")
-        btn_add.clicked.connect(self._add_role)
-        row.addWidget(btn_add)
-        btn_del = QPushButton("➖ 删选中")
-        btn_del.clicked.connect(self._del_role)
-        row.addWidget(btn_del)
+        row.addWidget(make_action_links([
+            ("➕ 加角色", self._add_role),
+            ("➖ 删选中", self._del_role),
+            ("📥 导入", self._import),
+            ("📤 导出", self._export),
+        ]))
         row.addStretch(1)
-        btn_import = QPushButton("导入")
-        btn_import.clicked.connect(self._import)
-        row.addWidget(btn_import)
-        btn_export = QPushButton("导出")
-        btn_export.clicked.connect(self._export)
-        row.addWidget(btn_export)
         btn_save = QPushButton("保存")
         btn_save.clicked.connect(self._save)
         row.addWidget(btn_save)
@@ -60,30 +67,31 @@ class RolesDialog(QDialog):
         right.addWidget(QLabel("触发关键词 (逗号分隔):"))
         self.keywords_input = QLineEdit()
         right.addWidget(self.keywords_input)
-        from PyQt5.QtWidgets import QWidget
         rw = QWidget()
         rw.setLayout(right)
         row.addWidget(rw, stretch=2)
         layout.addLayout(row, stretch=1)
 
-        # 关闭
         row = QHBoxLayout()
         row.addStretch(1)
-        btn_close = QPushButton("关闭")
-        btn_close.clicked.connect(self.accept)
-        row.addWidget(btn_close)
+        row.addWidget(QLabel("Esc 关闭"))
         layout.addLayout(row)
 
     def _load(self):
-        """从 data/group_roles.json 读"""
         gc = self.trunk.modules.get("group_chat") if self.trunk else None
         if gc and hasattr(gc, "roles"):
             self._roles = gc.roles.copy()
-        else:
-            # 直接读文件
-            path = os.path.join(getattr(self.trunk, "base", "."), "data", "group_roles.json")
-            if os.path.exists(path):
-                self._roles = json.load(open(path, encoding="utf-8"))
+        elif os.path.exists(self._path()):
+            try:
+                with open(self._path(), encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    self._roles = data
+            except Exception as e:
+                QMessageBox.warning(
+                    self, "读取角色失败",
+                    "data/group_roles.json 解析不了：%s\n先显示空列表，"
+                    "修好文件或重新导入一份。" % str(e)[:120])
         self._render_list()
 
     def _render_list(self):
@@ -108,7 +116,6 @@ class RolesDialog(QDialog):
             i += 1
         self._roles[name] = {"persona": "", "keywords": []}
         self._render_list()
-        # 选中新角色
         for i in range(self.role_list.count()):
             if self.role_list.item(i).text() == name:
                 self.role_list.setCurrentRow(i)
@@ -117,17 +124,20 @@ class RolesDialog(QDialog):
     def _del_role(self):
         item = self.role_list.currentItem()
         if not item:
+            QMessageBox.information(self, "删除角色", "先在左边列表里选中一个角色")
             return
         name = item.text()
-        del self._roles[name]
+        if QMessageBox.question(
+                self, "删除角色", "确定删除「%s」？保存后才真正生效。" % name,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No) != QMessageBox.Yes:
+            return
+        self._roles.pop(name, None)
         self._render_list()
 
     def _save(self):
-        """保存到 data/group_roles.json"""
-        # 先把当前编辑的写回
         name = self.name_input.text().strip()
         if name:
-            # 如果改名了，删掉旧的
             current_item = self.role_list.currentItem()
             if current_item and current_item.text() != name:
                 old_name = current_item.text()
@@ -135,19 +145,54 @@ class RolesDialog(QDialog):
                     del self._roles[old_name]
             self._roles[name] = {
                 "persona": self.persona_input.toPlainText().strip(),
-                "keywords": [k.strip() for k in self.keywords_input.text().split(",") if k.strip()],
+                "keywords": [k.strip() for k in
+                             self.keywords_input.text().split(",") if k.strip()],
             }
-        path = os.path.join(getattr(self.trunk, "base", "."), "data", "group_roles.json")
-        json.dump(self._roles, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-        QMessageBox.information(self, "保存", f"已保存 {len(self._roles)} 个角色")
+        try:
+            os.makedirs(os.path.dirname(self._path()), exist_ok=True)
+            with open(self._path(), "w", encoding="utf-8") as f:
+                json.dump(self._roles, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            QMessageBox.warning(
+                self, "保存失败",
+                "写不进 %s：%s\n检查目录权限后重试。" % (self._path(), str(e)[:120]))
+            return
+        # 已加载的群聊模块要跟着换，否则保存完聊天里还是旧人设
+        gc = self.trunk.modules.get("group_chat") if self.trunk else None
+        if gc is not None and hasattr(gc, "roles"):
+            gc.roles = dict(self._roles)
+        self._render_list()
+        QMessageBox.information(self, "保存", "已保存 %d 个角色" % len(self._roles))
 
     def _import(self):
-        path, _ = QFileDialog.getOpenFileName(self, "导入角色 JSON", "", "JSON (*.json)")
-        if path:
-            self._roles = json.load(open(path, encoding="utf-8"))
-            self._render_list()
+        path, _ = QFileDialog.getOpenFileName(
+            self, "导入角色 JSON", "", "JSON (*.json)")
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                raise ValueError("顶层必须是 {角色名: {...}} 的对象")
+        except Exception as e:
+            QMessageBox.warning(self, "导入失败",
+                                "这个文件读不出来：%s" % str(e)[:150])
+            return
+        self._roles = data
+        self._render_list()
+        QMessageBox.information(
+            self, "导入完成", "读入 %d 个角色，点「保存」才会写进配置" % len(data))
 
     def _export(self):
-        path, _ = QFileDialog.getSaveFileName(self, "导出角色 JSON", "group_roles.json", "JSON (*.json)")
-        if path:
-            json.dump(self._roles, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出角色 JSON", "group_roles.json", "JSON (*.json)")
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self._roles, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            QMessageBox.warning(self, "导出失败",
+                                "写不进这个位置：%s\n换个目录再试。" % str(e)[:120])
+            return
+        QMessageBox.information(self, "导出完成", "已导出 %d 个角色" % len(self._roles))

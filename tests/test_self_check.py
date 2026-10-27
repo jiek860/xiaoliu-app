@@ -162,6 +162,25 @@ def test_health_score_never_crashes_on_empty_dict():
     assert self_check.health_score(t) == 70
 
 
+def _stub_cloud_probe(monkeypatch, result):
+    """把 core.model_setup.test_cloud 换成假的 —— 单测绝不真发网络请求
+
+    返回 calls 列表，便于断言"到底有没有真的去探一次、带没带对参数"。
+    """
+    import core.model_setup as ms
+    calls = []
+
+    def fake(url=None, model=None, key=None, timeout=8):
+        calls.append({"url": url, "model": model, "key": key, "timeout": timeout})
+        if isinstance(result, Exception):
+            raise result
+        return dict(result)
+
+    monkeypatch.setattr(ms, "test_cloud", fake)
+    ms.cloud_probe_cache.clear()
+    return calls
+
+
 def test_check_cloud_reports_not_configured():
     t = FakeTrunk(".")
     t.config = {}
@@ -169,10 +188,68 @@ def test_check_cloud_reports_not_configured():
     assert r["ok"] is False and r["error"] == "未配置"
 
 
-def test_check_cloud_ok_when_configured():
+def test_check_cloud_probes_instead_of_trusting_config(monkeypatch):
+    """⚠️ 配了 ≠ 能用：Key 失效时不能继续报「✅ 已配置」
+
+    实测（2026-10-27）：Key 过期、或被 DPAPI 换成本机解不开的密文之后，
+    原自检只看"非空"，照样报已配置、健康分 100 —— 用户要到聊天收到 401
+    才发现，而那时界面只有一句"出了点问题"。这条钉住"真的去探一次"。
+    """
     t = FakeTrunk(".")
-    t.config = {"cloud_url": "https://x", "cloud_key": "k"}
-    assert self_check.check_cloud(t)["ok"] is True
+    t.config = {"cloud_url": "https://x/v1/chat", "cloud_key": "bad-key",
+                "cloud_model": "m1"}
+    calls = _stub_cloud_probe(monkeypatch, {
+        "ok": False, "code": "unauthorized", "status": 401,
+        "message": "Key 不对或已过期，去服务商后台重新复制一份。"})
+    r = self_check.check_cloud(t)
+    assert r["ok"] is False
+    assert "Key 不对" in r["error"]
+    assert r["status"] == 401
+    assert calls and calls[0]["url"] == "https://x/v1/chat"
+    assert calls[0]["key"] == "bad-key", "探测没把配置里的 Key 带出去"
+
+
+def test_check_cloud_ok_when_probe_succeeds(monkeypatch):
+    t = FakeTrunk(".")
+    t.config = {"cloud_url": "https://x", "cloud_key": "k", "cloud_model": "m"}
+    _stub_cloud_probe(monkeypatch, {"ok": True, "code": "ok", "status": 200,
+                                    "message": "云端连通"})
+    r = self_check.check_cloud(t)
+    assert r["ok"] is True and r["cached"] is False
+    assert r["latency"] >= 0
+    assert r["model"] == "m"
+
+
+def test_check_cloud_probe_result_is_cached(monkeypatch):
+    """连点自检不该反复花额度：TTL 内复用上次结果"""
+    t = FakeTrunk(".")
+    t.config = {"cloud_url": "https://x", "cloud_key": "k", "cloud_model": "m"}
+    calls = _stub_cloud_probe(monkeypatch, {"ok": True, "status": 200})
+    first = self_check.check_cloud(t)
+    second = self_check.check_cloud(t)
+    assert len(calls) == 1, "第二次又打了一次网络请求"
+    assert first["cached"] is False and second["cached"] is True
+
+
+def test_cloud_probe_cache_never_holds_plaintext_key(monkeypatch):
+    """缓存里不许留明文 Key（它活在进程整个生命周期，崩溃转储会带出去）"""
+    import core.model_setup as ms
+    t = FakeTrunk(".")
+    secret = "sk-should-never-be-cached-123456"
+    t.config = {"cloud_url": "https://x", "cloud_key": secret, "cloud_model": "m"}
+    _stub_cloud_probe(monkeypatch, {"ok": True, "status": 200})
+    self_check.check_cloud(t)
+    dumped = repr(ms.cloud_probe_cache)
+    assert secret not in dumped, "明文 Key 被留在探测缓存里"
+
+
+def test_check_cloud_probe_exception_is_reported_not_raised(monkeypatch):
+    """探测炸了要返回错误，不能把整份自检带崩"""
+    t = FakeTrunk(".")
+    t.config = {"cloud_url": "https://x", "cloud_key": "k", "cloud_model": "m"}
+    _stub_cloud_probe(monkeypatch, RuntimeError("名字解析失败"))
+    r = self_check.check_cloud(t)
+    assert r["ok"] is False and "名字解析失败" in r["error"]
 
 
 def test_check_ollama_unreachable_is_not_an_exception():
@@ -348,6 +425,29 @@ def test_health_score_reflects_problems(proj):
     m = re.search(r"(\d+)", line[0])
     assert m, "健康分不是数字：%s" % line[0]
     assert 0 <= int(m.group(1)) <= 100, "健康分越界：%s" % line[0]
+
+
+def test_uptime_line_is_not_labelled_boot_time(proj):
+    """⏱ 那行是"进程已运行时长"，不能写成"启动耗时"
+
+    实测：程序开了 37 分钟，自检显示「⏱ 启动耗时: 2253.8秒」，
+    用户会以为启动一次要半个多小时。
+    """
+    b, t = proj
+    r = self_check.deep_check(t)
+    line = [l for l in r.splitlines() if "已运行" in l]
+    assert line, "报告里没有「已运行」这一行"
+    assert "启动耗时" not in line[0], "运行时长又被写成启动耗时：%s" % line[0]
+
+
+def test_boot_time_reported_from_trunk_boot_ms(proj):
+    """真实启动耗时读 trunk._boot_ms（core.startup.log_summary 写入）"""
+    b, t = proj
+    t._boot_ms = 2600.0
+    r = self_check.deep_check(t)
+    line = [l for l in r.splitlines() if "🚀 启动耗时" in l]
+    assert line, "报告里没有启动耗时这一行"
+    assert "2.6秒" in line[0], "没按 _boot_ms 报启动耗时：%s" % line[0]
 
 
 # ══════════════════════════════════════════════════════════════

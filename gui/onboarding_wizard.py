@@ -32,6 +32,8 @@ from PyQt5.QtWidgets import QWizard, QWizardPage, QVBoxLayout, QHBoxLayout, QLab
 
 from core import model_setup, ollama_installer
 
+from gui.feedback_states import make_action_links
+
 
 def _model_text(w):
     """从"可能是 QLineEdit、也可能是可编辑 QComboBox"的控件里取值"""
@@ -124,6 +126,8 @@ class OnboardingWizard(
 
     pull_done = pyqtSignal(dict)
 
+    cloud_test_done = pyqtSignal(dict)
+
     def __init__(self, trunk, parent=None):
         super().__init__(parent)
         self.trunk = trunk
@@ -131,6 +135,10 @@ class OnboardingWizard(
         self.setWizardStyle(QWizard.ClassicStyle)
         self.setOption(QWizard.NoBackButtonOnStartPage, True)
         self._build_pages()
+        # 两个单选分属不同分组框，Qt 的 autoExclusive 管不到它们
+        # （用户能同时勾上两个，保存时云端悄悄赢）—— 这里手动互斥。
+        self.rb_local.toggled.connect(self._sync_mode_radios)
+        self.rb_cloud.toggled.connect(self._sync_mode_radios)
         # 尺寸按内容算（别再手写猜测值 —— 见类文档里那段实测数据）
         self.fit_to_content(grow=True)
         self.currentIdChanged.connect(self._on_page_changed)
@@ -140,6 +148,7 @@ class OnboardingWizard(
         self.dl_done.connect(self._on_dl_done)
         self.pull_prog.connect(self._on_pull_progress)
         self.pull_done.connect(self._on_pull_done)
+        self.cloud_test_done.connect(self._apply_cloud_test)
         self._dl_busy = False
         self._dl_stop = False
         self._dl_ready_path = None
@@ -245,19 +254,19 @@ class OnboardingWizard(
         self.bar_dl.setVisible(False)
         gl.addWidget(self.bar_dl)
         hdl = QHBoxLayout()
-        # 只放两个按钮：一个是"下载/安装"（同一个按钮按状态换动作），
-        # 一个是"取消"（1.5GB 的下载不给取消说不过去）。
+        # 只放一个按钮：下载/安装按状态换动作。
         # 原来做成三个（下载/安装/取消），下载完再冒出一个"安装"——
         # 多一个按钮多一分犹豫，而且"下完了当然就该装"。
+        # 「取消下载」只有下载中才出现，属于低频兜底 → 做成链接。
         self.btn_dl = QPushButton("⬇️ 一键下载 Ollama 安装包")
         self.btn_dl.setToolTip(
             "约 %d MB。自动选国内加速源（实测比官网快 100 倍以上），"
             "下完这个按钮会变成「📦 立即安装」。" % ollama_installer.APPROX_MB)
         self.btn_dl.clicked.connect(self._on_dl_button)
         hdl.addWidget(self.btn_dl)
-        self.btn_cancel_dl = QPushButton("取消下载")
+        self.btn_cancel_dl = make_action_links(
+            [("取消下载", self._cancel_download)])
         self.btn_cancel_dl.setVisible(False)
-        self.btn_cancel_dl.clicked.connect(self._cancel_download)
         hdl.addWidget(self.btn_cancel_dl)
         hdl.addStretch(1)
         gl.addLayout(hdl)
@@ -290,19 +299,14 @@ class OnboardingWizard(
         hl2.addWidget(self.ed_local_model, 1)
         gl.addLayout(hl2)
         hr = QHBoxLayout()
-        hr.addWidget(QPushButton("🔄 重新检测", clicked=self._recheck))
-        # 「⬇️ 下载模型」—— 原来这一步要用户自己开 cmd 跑
-        # `ollama run qwen2.5:3b`：要会开命令行、会粘命令、看着黑窗口，
-        # 还得自己判断什么时候算下完。对比同类程序，它们把这一步也做成了
-        # 程序内一键完成。
-        # 复用上面那套进度条和取消按钮（两种下载互斥，不会同时进行），
-        # 所以这里**只多一个按钮**。
-        self.btn_pull = QPushButton("⬇️ 下载模型")
-        self.btn_pull.setToolTip(
-            "从 Ollama 拉取「模型」框里那个模型（约 2GB），带进度和取消。\n"
-            "不用自己开命令行跑 ollama run 了。")
-        self.btn_pull.clicked.connect(self._start_pull)
-        hr.addWidget(self.btn_pull)
+        # 「重新检测」「下载模型」都是辅助动作 → 链接。
+        # 「⬇️ 下载模型」原来要用户自己开 cmd 跑 `ollama run qwen2.5:3b`：
+        # 要会开命令行、会粘命令、看着黑窗口，还得自己判断什么时候算下完。
+        # 现在复用上面那套进度条和取消链接（两种下载互斥，不会同时进行）。
+        hr.addWidget(make_action_links([
+            ("🔄 重新检测", self._recheck),
+            ("⬇️ 下载模型", self._start_pull),
+        ]))
         hr.addStretch(1)
         gl.addLayout(hr)
         l2.addWidget(self.grp_local)
@@ -362,6 +366,20 @@ class OnboardingWizard(
         self.lbl_result.setWordWrap(True)
         self.lbl_result.setStyleSheet("padding:6px;border-radius:4px;")
         l2.addWidget(self.lbl_result)
+        # ── 真连一次云端 ──
+        # 「保存并检测」只看配置齐不齐：Key 少一位也显示 ready，
+        # 用户要到第一次聊天才知道 401，而那时只看到一句"出了点问题"。
+        # 这里给一个当场验证的入口；用动作链接而不是按钮（按钮预算只许降）。
+        self.lbl_cloud_test = QLabel()
+        self.lbl_cloud_test.setWordWrap(True)
+        self.lbl_cloud_test.setVisible(False)
+        l2.addWidget(self.lbl_cloud_test)
+        self.lnk_cloud_test = make_action_links([
+            ("测试云端 Key 是否可用（真发一次请求）", self._test_cloud)])
+        self.lnk_cloud_test.setVisible(False)
+        l2.addWidget(self.lnk_cloud_test)
+        self.rb_cloud.toggled.connect(self._update_cloud_test_visible)
+        self.rb_local.toggled.connect(self._update_cloud_test_visible)
         l2.addStretch(1)
         self.addPage(p2)
 

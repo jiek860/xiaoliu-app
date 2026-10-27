@@ -58,6 +58,37 @@ def _market(tmp_path):
     return pm
 
 
+def test_plugin_market_merges_local_and_online_lists():
+    """在线清单只能补充信息，不能把"仅本地"的模块从界面上挤掉。"""
+    from gui.plugin_dialog import merge_mods
+
+    local = [{"name": "本地插件", "file": "local_only.py", "installed": True,
+              "active": True, "size": 10}]
+    online = [{"name": "在线插件", "file": "online.py", "desc": "d", "size": 20}]
+    merged = {m["file"]: m for m in merge_mods(local, online)}
+    assert set(merged) == {"local_only.py", "online.py"}
+    assert merged["local_only.py"]["installed"] is True
+    assert merged["local_only.py"]["online"] is False
+    assert merged["online.py"]["installed"] is False
+    assert merged["online.py"]["online"] is True
+
+
+def test_plugin_market_merge_keeps_installed_flag_and_takes_online_meta():
+    from gui.plugin_dialog import merge_mods
+
+    local = [{"name": "同名", "file": "same.py", "installed": True,
+              "desc": "本地", "size": 1}]
+    online = [{"name": "同名", "file": "same.py", "desc": "在线",
+               "version": "2.0", "size": 2}]
+    merged = merge_mods(local, online)
+    assert len(merged) == 1
+    m = merged[0]
+    assert m["installed"] is True
+    assert m["online"] is True
+    assert m["desc"] == "在线"
+    assert str(m.get("version") or "") == "2.0"
+
+
 def test_plugin_market_scan_and_metadata(tmp_path):
     pm = _market(tmp_path)
     repo_file = tmp_path / "modules_repo" / "notes.py"

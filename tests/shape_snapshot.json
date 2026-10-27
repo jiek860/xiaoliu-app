@@ -55,6 +55,7 @@
       "ai_name",
       "ai_persona",
       "auto_report_crash",
+      "azure_api_version",
       "bot_allow_tools",
       "browser_timeout",
       "chat_history_limit",

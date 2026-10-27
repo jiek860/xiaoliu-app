@@ -17,8 +17,8 @@
     · 列表标签一直写着"勾选启用/禁用"，但 QListWidgetItem 从来没设过 checkbox，
       勾选功能根本没实现；而 mcp_client.reload_servers() 又确实按 enabled 过滤，
       于是那个开关形同虚设。现在真的能勾。
-    · _build_ui 里 `QPushButton("测试选中", clicked=...)` 建完没加进布局，
-      白造一个孤儿控件；下一行才又建了一个同样的并加进去。
+    · _build_ui 里先建了一个"测试选中"按钮，建完却没加进布局，白造一个孤儿控件；
+      下一行才又建了一个同样的并加进去。
     · _del_selected 存完配置不调 reload_servers()，删掉的服务器客户端仍然连着。
     · _test_selected 名字叫"测试选中"，实际没看选中的是哪一行，只报了个总数。
     · 全局 config["mcp_url"] 是死设置 —— 全项目只有设置界面自己读写它，
@@ -47,6 +47,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 
 from gui.mcp_catalog import (build_presets_tab, build_reference_tab,
                              load_presets, valid_presets)
+from gui.feedback_states import make_action_links
 
 # 全局变量，加载一次
 PRESETS = load_presets()
@@ -102,7 +103,7 @@ class MCPDialog(QDialog):
         tabs.addTab(self._build_reference_tab(), "📋 配置参考")
         lay.addWidget(tabs, stretch=1)
 
-        lay.addWidget(QPushButton("关闭", clicked=self.close))
+        lay.addWidget(QLabel("Esc 关闭"))
 
     def _build_servers_tab(self):
         w = QWidget()
@@ -118,9 +119,11 @@ class MCPDialog(QDialog):
         v.addWidget(self.list, stretch=1)
 
         row = QHBoxLayout()
-        row.addWidget(QPushButton("测试选中", clicked=self._test_selected))
-        row.addWidget(QPushButton("删除选中", clicked=self._del_selected))
-        row.addWidget(QPushButton("全部重连", clicked=self._reload_all))
+        row.addWidget(make_action_links([
+            ("🔍 测试选中", self._test_selected),
+            ("🗑 删除选中", self._del_selected),
+            ("🔄 全部重连", self._reload_all),
+        ]))
         row.addStretch(1)
         v.addLayout(row)
 

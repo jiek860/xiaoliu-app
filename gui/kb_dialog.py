@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """知识库窗口 - 搜索/分类列表/详情"""
-from PyQt5.QtWidgets import QLabel, QLineEdit, QTextBrowser, QListWidget, QTabWidget, QPushButton, QFileDialog, QMessageBox
+from PyQt5.QtWidgets import QLabel, QLineEdit, QTextBrowser, QListWidget, QTabWidget, QFileDialog, QMessageBox
+
+from gui.feedback_states import make_action_links
 
 
 def show_kb_dialog(parent, dlg, trunk, safe_stop_workers):
@@ -38,6 +40,8 @@ def show_kb_dialog(parent, dlg, trunk, safe_stop_workers):
     learnw.itemClicked.connect(show_detail)
     s.textChanged.connect(lambda t: (allw.clear(), [allw.addItem(doc.get("text", "")[:60]) for doc in (trunk.call("vector_store", "search", t, top_k=20) or []) if t in doc.get("text", "")]))
     l.addWidget(QLabel("🧠 知识管理"))
-    l.addWidget(QPushButton("知识图谱", clicked=lambda: kbres.setPlainText(str(trunk.call("knowledge_graph", "run")))))
+    l.addWidget(make_action_links([
+        ("知识图谱", lambda: kbres.setPlainText(str(trunk.call("knowledge_graph", "run")))),
+    ]))
     d.exec_()
     safe_stop_workers()

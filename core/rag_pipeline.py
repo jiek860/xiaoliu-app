@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Incremental, permission-aware RAG pipeline.
 
 This is the product-level knowledge layer on top of the existing document
@@ -225,6 +225,20 @@ class KnowledgeBase:
         return {"namespace": self.namespace, "sources": len(sources),
                 "chunks": len(self._chunks),
                 "manifest_files": len(self._manifest)}
+
+    def sources(self):
+        """已索引来源清单（分块数 + 可访问角色），给管理界面列出用。
+
+        以前管理界面只统计"来源 N 个"，用户想删某个来源只能手打相对路径，
+        打错一个字符就是"没有找到该来源"。
+        """
+        out = []
+        for src in sorted(self._manifest):
+            info = self._manifest.get(src) or {}
+            out.append({"source": src,
+                        "chunks": int(info.get("chunks") or 0),
+                        "acl_roles": [str(x) for x in (info.get("acl_roles") or [])]})
+        return out
 
     def _save(self):
         self._atomic_json(self.index_path, self._chunks[-20000:])

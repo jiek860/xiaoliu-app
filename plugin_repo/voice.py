@@ -20,6 +20,12 @@ def _ih(pkg):
                 "-i https://pypi.tuna.tsinghua.edu.cn/simple" % pkg)
 
 class _BackendFasterWhisper:
+
+    # 标准 1.1：本模块不负责的事（给调用方一个明确边界，避免什么都能问）
+    NOT_RESPONSIBLE = (
+        "界面呈现与用户交互（由 gui 负责）",
+        "模块加载、调度与权限判定（由 core 负责）",
+    )
     name = "faster-whisper"
     def __init__(self, model_name="base", device="cpu", compute_type="int8"):
         from faster_whisper import WhisperModel
@@ -74,6 +80,7 @@ class Voice(BaseModule):
         self._total_seconds = 0.0
         self._total_chars = 0
         self._hotwords = []
+        self._stopped = False
         threading.Thread(target=self._idle_unload_loop, daemon=True).start()
 
     def _pick_device(self):
@@ -104,10 +111,25 @@ class Voice(BaseModule):
 
     def _idle_unload_loop(self):
         if self.idle_unload_sec <= 0: return
-        while True:
+        while not getattr(self, "_stopped", False):
             time.sleep(60)
             if self._backend and time.time() - self._last_use >= self.idle_unload_sec:
                 self.unload_model()
+
+    def stop(self):
+        """停止空闲卸载线程并立刻释放模型（模块卸载/退出时调）。
+
+        线程本身是 daemon，进程退出会自然结束，这里用 _stopped 让它别再定时跑；
+        模型对象占着内存/显存，显式置空才能立刻还回去（否则卸载后仍压着几百 MB）。
+        """
+        self._stopped = True
+        try:
+            with self._model_lock:
+                self._backend = None
+            self._backend_kind = None
+        except Exception as e:
+            _x6_swallowed(__name__, e)
+        return {"ok": True, "状态": "已停止"}
 
     def transcribe(self, audio_path, language=None, hotwords=None, **kw):
         if not isinstance(audio_path, str): return {"ok": False, "error": "不支持数组输入"}

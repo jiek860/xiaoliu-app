@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
-"""P1-14: 消息搜索对话框 - 全局搜索所有会话"""
+"""P1-14: 消息搜索对话框 - 全局搜索所有会话
+
+交互取舍：搜索框回车即搜（returnPressed 已接），关闭交给 Esc。
+所以这里不放「搜索 / 关闭」两个按钮 —— 纯展示弹窗不占按钮预算。
+"""
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QListWidget, QListWidgetItem, QMessageBox
+    QListWidget, QListWidgetItem, QMessageBox
 )
 
 
@@ -18,29 +22,22 @@ class SearchDialog(QDialog):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        # 搜索框
+        # 搜索框（回车触发）
         row = QHBoxLayout()
         row.addWidget(QLabel("关键词:"))
         self.input = QLineEdit()
-        self.input.setPlaceholderText("输入搜索关键词...")
+        self.input.setPlaceholderText("输入搜索关键词，回车搜索（Esc 关闭）")
         self.input.returnPressed.connect(self._search)
         row.addWidget(self.input)
-        btn_search = QPushButton("搜索")
-        btn_search.clicked.connect(self._search)
-        row.addWidget(btn_search)
         layout.addLayout(row)
 
         # 结果列表
         self.result_list = QListWidget()
         layout.addWidget(self.result_list, stretch=1)
 
-        # 关闭按钮
-        row = QHBoxLayout()
-        row.addStretch(1)
-        btn_close = QPushButton("关闭")
-        btn_close.clicked.connect(self.accept)
-        row.addWidget(btn_close)
-        layout.addLayout(row)
+        hint = QLabel("回车搜索 · Esc 关闭")
+        hint.setStyleSheet("color:#667085;font-size:11px;")
+        layout.addWidget(hint)
 
     def _search(self):
         kw = self.input.text().strip()

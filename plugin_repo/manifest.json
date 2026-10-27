@@ -6,9 +6,108 @@
     "cls": "AgentAnalyst",
     "desc": "子智能体：分析官",
     "group": "智能体",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "button": null,
-    "tools": [],
+    "tools": [
+      {
+        "name": "agent_analyze",
+        "method": "analyze",
+        "desc": "分析专家：检索证据，给出利弊、风险和建议",
+        "args": {
+          "topic": "要分析的问题或对象",
+          "baseline": "对比基准/对象（可选）"
+        },
+        "readonly": true,
+        "hints": [
+          "深度分析",
+          "分析一下",
+          "利弊",
+          "风险分析"
+        ],
+        "contract": {
+          "params": {
+            "topic": {
+              "type": "string",
+              "required": true
+            },
+            "baseline": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "network:llm",
+            "network:deep_search"
+          ],
+          "idempotent": false,
+          "timeout_ms": 120000,
+          "concurrency_safe": true,
+          "description": "查本地图谱/外部搜索后，输出分点分析与风险清单",
+          "not_responsible": [
+            "替用户决策",
+            "写记忆"
+          ]
+        }
+      },
+      {
+        "name": "agent_compare",
+        "method": "compare",
+        "desc": "分析专家：A/B 数据或方案对比",
+        "args": {
+          "left": "方案/数据 A",
+          "right": "方案/数据 B",
+          "dimensions": "对比维度，逗号分隔（可选）"
+        },
+        "readonly": true,
+        "hints": [
+          "对比一下",
+          "哪个好",
+          "方案对比",
+          "数据对比"
+        ],
+        "contract": {
+          "params": {
+            "left": {
+              "type": "string",
+              "required": true
+            },
+            "right": {
+              "type": "string",
+              "required": true
+            },
+            "dimensions": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "network:llm",
+            "network:deep_search"
+          ],
+          "idempotent": false,
+          "timeout_ms": 120000,
+          "concurrency_safe": true,
+          "description": "先算数值差异，再按维度给出对比结论与风险",
+          "not_responsible": [
+            "替用户决策"
+          ]
+        }
+      }
+    ],
     "api_version": "1.0",
     "first_party": true,
     "capabilities": {
@@ -43,9 +142,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 257,
-    "sha256": "cf9ceccbdcce5030f1ff7df5dba6ff904b51379cbd5041193b04d1910dabff53",
-    "signature": "2096ad58b3e2d61f2ad33046b59025010bbfbdeba9c889f9c8475d3a79c02cf4167ac806f0ceb35b99d3d8dfa99aee3c9050b02e8b254a76699f9a5d83ea545de4698fd243cfb0372ff26bf925dec544067c4aa15f8d25c701ce08636051ebcefafb89897d12fec44137c37314b39f4dfa96e9f4c70baa44a6e496bf67a7cd3ea0959efd07b001779a9ca0a82d76cd296251dff625fbd84c8e204ca6d0b8f7a2a780ebfe1aaceb9bdd9b78f198cfc342d053fd62de57832ca9dfdbe2c03c188c72adb16d5fda623aa899d44946d8452d4c30d780ba528a1df8112dfa9dd2b40968b5941dd686a2b8335c88ff187c43f8d867ed290b749ad85490ce86a0d0570b"
+    "size": 11277,
+    "sha256": "cf31ce961d896c339d7018fb1613a5fb3ff8c6e646327db09d8d7ac24f813971",
+    "signature": "586b10da665dd9777dcc79c43bb8e91e6de2af978f49980dfec5a2f5cf6f55c83e43d8ec1f7572a7f15337920771332e0494fc787c314eb4ef8f03f76b2af4e32894249279b08610ea63f8514e6efd1f3d07535d43d6b8b006d53e754a91fb932b17c074df06a77ff6933ebce6d20922ee13776e93164993d658af70ed447a0df673d1749de399d6f7f5e476975a62e35dcbb472f3ff7a89b8ef74a04e299d3a835949f4b978f2511e2e2e470b261da2b271b8460a1685f13c63269a40cc970ef4ee698b5fe1a6b27e9c39897e723590139d218626ea2cfe37d24af93826e351fe54b52bba3f73c2a845d91eda95421940dd5faa99e1c86c24e49496de5a5fa6"
   },
   {
     "name": "agent_coder",
@@ -54,9 +153,154 @@
     "cls": "AgentCoder",
     "desc": "子智能体：编程小匠",
     "group": "智能体",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "button": null,
-    "tools": [],
+    "tools": [
+      {
+        "name": "agent_code_solve",
+        "method": "solve",
+        "desc": "编程小匠：写代码并在沙箱运行，失败自动修",
+        "args": {
+          "task": "要实现的功能或要修的 bug",
+          "language": "语言（默认 python）",
+          "tests": "测试代码或校验脚本（可选）"
+        },
+        "readonly": false,
+        "confirm": true,
+        "danger": true,
+        "risk": "exec",
+        "hints": [
+          "写代码并运行",
+          "代码验证",
+          "帮我跑一下",
+          "修 bug"
+        ],
+        "contract": {
+          "params": {
+            "task": {
+              "type": "string",
+              "required": true
+            },
+            "language": {
+              "type": "string",
+              "required": false
+            },
+            "tests": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_NOT_AVAILABLE",
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "network:llm",
+            "process:code_runner"
+          ],
+          "idempotent": false,
+          "timeout_ms": 240000,
+          "concurrency_safe": false,
+          "description": "生成代码后用 code_runner 沙箱执行，失败最多再修 2 轮",
+          "not_responsible": [
+            "改项目文件",
+            "保证业务正确"
+          ]
+        }
+      },
+      {
+        "name": "agent_code_run",
+        "method": "run_code",
+        "desc": "编程小匠：在沙箱里运行一段 Python 代码",
+        "args": {
+          "code": "要运行的 Python 代码",
+          "timeout": "超时秒数（可选，默认 10）"
+        },
+        "readonly": false,
+        "confirm": true,
+        "danger": true,
+        "risk": "exec",
+        "hints": [
+          "运行代码",
+          "跑 Python",
+          "沙箱运行"
+        ],
+        "contract": {
+          "params": {
+            "code": {
+              "type": "string",
+              "required": true
+            },
+            "timeout": {
+              "type": "integer",
+              "required": false
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_NOT_AVAILABLE"
+          ],
+          "side_effects": [
+            "process:code_runner"
+          ],
+          "idempotent": false,
+          "timeout_ms": 30000,
+          "concurrency_safe": false,
+          "description": "只执行、不修改文件，输出 stdout/stderr",
+          "not_responsible": [
+            "代码生成",
+            "代码审查"
+          ]
+        }
+      },
+      {
+        "name": "agent_code_review",
+        "method": "review",
+        "desc": "编程小匠：审查代码（不执行）",
+        "args": {
+          "code": "要审查的代码"
+        },
+        "readonly": true,
+        "hints": [
+          "代码审查",
+          "review 代码",
+          "看看有没有 bug"
+        ],
+        "contract": {
+          "params": {
+            "code": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "network:llm"
+          ],
+          "idempotent": false,
+          "timeout_ms": 120000,
+          "concurrency_safe": true,
+          "description": "先用 compile 做语法检查，再让模型列问题；绝不执行代码",
+          "not_responsible": [
+            "执行代码",
+            "修改代码"
+          ]
+        }
+      }
+    ],
     "api_version": "1.0",
     "first_party": true,
     "capabilities": {
@@ -91,9 +335,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 271,
-    "sha256": "42e796b99accb0b21e0cc7258cf6fce036753945250a1df8790409d6b0794333",
-    "signature": "537a40e8b07808d99838c64c4110b7239c8ed269a7abafd15f359bf46fbebf9409b3906bcf36d0428d1e1d1a036d9c20d37e11e4401a9c5fb293ee3d9cf98f4423115e622ae62db1cc6b7b94f9859936fefc097b38cc8f0f55e5ad0f953677cc51f132bc54edd3ba9df04b9446910d77e28be757d03172c5281c6e6817ed13136db166acc92cc662b322e189e962d023066f96f0b9647c3c11370a23fb34f8a5cc9904e7e3407b867f29534d04d8e7fac72c8407fd7343f230435ed864994c9231d5d6f5a298c338b1c2925f9dbe025e6832af63eb9d7f80717d24f597dcdd4f3e9107c40314f22c4374e63c99886dd30b676978480d513eb35a3eae7e570717"
+    "size": 11472,
+    "sha256": "e31c33bf1e52665ef88340d430c16870c02d612de18df88bccb043e48fc8a356",
+    "signature": "4b7e8c729945556e311a34cd6733c6d4c326aed81e441429667d0926b1f9dec63e534d7dc53443945b9f4fea0cbd7bf4fc20f6d04985d27c7f69b3759b7e757b7dcb53af3d62f37ba3d30c289fb447fc8229b7ba8d34a5ad83544400e18e72f5af56fd9f1d75afa5bf536575dda79bf5a54f30b75b08d48b5df1eff88c9dcb42abd6029c11526227c78128b41dd4a97d156a083c6d9f615eb53472dab656cd6f02f939ade3aa841eabf73de2769402dbfaf8224520889f666e2d6e4ee9aaf5683dd5f779244eb2b6dda796515547ffbcea68ea8179702e95f71bb9871c48c7b0946d98b070ef20e054c87b025737848dc7c60c0ea42be8cfba98f7e04f533faa"
   },
   {
     "name": "agent_planner",
@@ -102,9 +346,158 @@
     "cls": "AgentPlanner",
     "desc": "子智能体：策划师",
     "group": "智能体",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "button": null,
-    "tools": [],
+    "tools": [
+      {
+        "name": "agent_plan",
+        "method": "plan",
+        "desc": "策划专家：把目标拆成可执行 JSON 步骤",
+        "args": {
+          "goal": "要达成的目标",
+          "constraints": "约束/资源/截止时间（可选）"
+        },
+        "readonly": true,
+        "hints": [
+          "做个计划",
+          "拆解目标",
+          "执行步骤",
+          "方案步骤"
+        ],
+        "contract": {
+          "params": {
+            "goal": {
+              "type": "string",
+              "required": true
+            },
+            "constraints": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "network:llm"
+          ],
+          "idempotent": false,
+          "timeout_ms": 120000,
+          "concurrency_safe": true,
+          "description": "输出带 id、动作、依赖和验收标准的步骤列表",
+          "not_responsible": [
+            "执行步骤",
+            "替用户批准"
+          ]
+        }
+      },
+      {
+        "name": "agent_plan_workflow",
+        "method": "plan_to_workflow",
+        "desc": "策划专家：把计划写成 workflow_runner 工作流",
+        "args": {
+          "goal": "目标",
+          "name": "工作流名（可选）",
+          "run": "写完后是否立即后台执行（true/false，默认 false）",
+          "overwrite": "同名文件是否覆盖（true/false，默认 false）"
+        },
+        "readonly": false,
+        "confirm": true,
+        "hints": [
+          "计划变工作流",
+          "生成可执行工作流",
+          "自动执行计划"
+        ],
+        "contract": {
+          "params": {
+            "goal": {
+              "type": "string",
+              "required": true
+            },
+            "name": {
+              "type": "string",
+              "required": false
+            },
+            "run": {
+              "type": "boolean",
+              "required": false
+            },
+            "overwrite": {
+              "type": "boolean",
+              "required": false
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_BAD_INPUT",
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "filesystem_write:data/workflows",
+            "network:llm",
+            "network:deep_search",
+            "process:code_runner"
+          ],
+          "idempotent": false,
+          "timeout_ms": 240000,
+          "concurrency_safe": false,
+          "description": "生成计划并写成 YAML，可选立即交给 workflow_runner 后台跑",
+          "not_responsible": [
+            "保证计划正确",
+            "替用户批准"
+          ]
+        }
+      },
+      {
+        "name": "agent_plan_next",
+        "method": "next_steps",
+        "desc": "策划专家：按依赖算出下一步能做什么",
+        "args": {
+          "steps": "步骤列表（JSON 字符串）",
+          "done": "已完成的 id，逗号分隔（可选）"
+        },
+        "readonly": true,
+        "hints": [
+          "下一步做什么",
+          "计划执行到哪",
+          "哪些步骤能做"
+        ],
+        "contract": {
+          "params": {
+            "steps": {
+              "type": "string",
+              "required": true
+            },
+            "done": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_BAD_INPUT"
+          ],
+          "side_effects": [],
+          "idempotent": true,
+          "concurrency_safe": true,
+          "timeout_ms": 5000,
+          "description": "返回 ready/blocked/remaining 三组步骤 id",
+          "not_responsible": [
+            "执行步骤"
+          ]
+        }
+      }
+    ],
     "api_version": "1.0",
     "first_party": true,
     "capabilities": {
@@ -139,9 +532,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 278,
-    "sha256": "052bf6331641794068e3f45d69f79382ab368b505dc588335729f864ef87aa02",
-    "signature": "4634b0385dcc818c6297e5813f51144681d983884c1805b4a5351924f1fec7058854f312ccf0518e3c22871d30a80c2a9139c600a623f02c2a15b5067d1d8fdff1efb21144a8d2de36401e60bc85df643b285f3618da8b2c679d14436bf5314d7e01721f04e6e0d327f2b200538089fed52ce141aa470d6405ddf475878763cd79526c52a6de46d924467bb709c4387751e2fc67380c1fae47d6ae323091c49d33566cb073971315d02178cd0c1d33789742832e33fe39ba62ed84429da0053b3ec9355c522c0d738818f8266e3065206a9b47d3fc4be660f9d08c4632a96608816207a228b3f40440b5990db9ab831c7dd335e709accdd6abc05e3b933fd88e"
+    "size": 17387,
+    "sha256": "2e37d6053902dc00478aa0f0e12208f1c2b64d1beefcbbc8ccef7a6e9a5f3534",
+    "signature": "0ec7a37f058dda4fce3ba9ec48001719f206fa7cab27cfda8778f0fc30b4d837c5a1c726a33a96d18cd255996bab3e9ce7a333c2d6b0e135c7f8bfc101105b9695a0309c14d967bb83b75d2cfb55cc079359075d016e432579dc2ba3f398435b12ddebb3e4a12817bb8bc895744edab7df8b70cb77b5d50aa5e0773c16eda90ee8439b54ce1cbe8b9f6aa118d055aa330e2fd03dd73b70c3b74f03e07fdccfe045cb9298d0cd010d2e91b9653c2466c426924dbb6baf3e255a4d192da4fd15db46e3e3ffb394e76e7897ebc61d93aa1166a4e6e9f1a140179374bdb012dcffe59aeae1082de70f67686d8b672d42f99c44f2a096e1c7b9bf5507ac13d0d2902e"
   },
   {
     "name": "anomaly_detector",
@@ -187,9 +580,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 3147,
-    "sha256": "93275d99dfe9cc2bf44d3992b6224e9a44914a5b7b11c50637c0e3e47505f280",
-    "signature": "5c098933e537fe8d7ba7b8eb6f8b2d37e9a87c6158b4b69d674298d2134a6b340344120f7f52967a4ba1c89f0a7c31946dc59f62f3dd7d918f20d7368d76fb512f592328e0625384fc790712032db95fe17b7fd3e0cbe35ecc7f8938327076d71b58a0ce2c2c37dde966b1c1fc9283ca8ae17e73fa3695ba3d5af8a496b31e83676fd7dc050f63a518946f12d37364d7835b25f87f6caa468d363575944c89997310693991527b61814b461f7c21b814f7e58eb47921e001cb82bc1037b13bf2bb4941020c7bd1b5dcc067a304a09cf04afcf660f0482a445b149c204ca492c59af1d7cfe53c14cb0fe0c64ffe3eb12b86aa578b68c3caacd275024853a5d769"
+    "size": 3311,
+    "sha256": "fc976cf9373611c5fe2ca5f071ebb5dffce9771974255c18a5ea9d3f5bcbc9c6",
+    "signature": "20ed862be0974fa5559ee2bdfbc9ba9a6194c29bb7badc36d0ce596e74e1985654941a623bb8418c62efd7cf9fe8183572f085465aacff1dc086166416405f734ed4d854a3ee48603fd1dd47937bbbaad333e68c9e2c2b8f27695605ef1833b5068795bb0eb9eeb49eb4469e06d8623aa52d11997bcd2a369b903b90e8ec2c20a77b70aed26f212737dac831b3b80426b4f8215d980d4026e06b98d3d6bfe1a74d62e60ff792c47716c2811a11d4b715081b2917c1bb0f6f974683b5f4dc0f99fe6fe5a43563b5b8f87f77e9eb4de42defe80d0675bd73e718ced79f4146446f678cfe51317673409537d8196fd65c0031e62da7f50ea7ec806fd058703d945c"
   },
   {
     "name": "api_server",
@@ -250,6 +643,13 @@
     "button": null,
     "tools": [
       {
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "description": "自更新：分析问题→打补丁→验证→确认→部署"
+        },
         "name": "auto_update",
         "method": "run_auto_update",
         "desc": "自更新：分析问题→打补丁→验证→确认→部署",
@@ -299,9 +699,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 5723,
-    "sha256": "707ae3eded69bd346968bb9b492da9c79257523d1f3621065539657ea6c3ded6",
-    "signature": "7c2fa3853dc87ce4b18161926545b6ba6a81abea8b6d50eb5b04d618e4f8b1a78601bca2ee4286f92089f662ea46bafafe7c1e3ddafa7af97afa167c46c37ffcffc884e27da3751ffc522b0212c4414c8032702f75a1caba58312e00d99634a908332b82a90351470f52ad1df2548f5de1260da16950cf2a57e51be1ac3524c3bd234bcc2282923c7bcb500ba0b9484b5135deb7616be51157953c2bcdaceae683183922fe4937f4ae50a937e96b8d15b5cd0a335e83617e2ee08ea436eccb5755ffd8ec92d6c9c0c8831572d1cd2c671bf6ec9235a40ea9fa77841053d0e412f16d9c9155841c0616423323c56d60fabb119f49b3f91bca86054b75f432fe5e"
+    "size": 10295,
+    "sha256": "346bf49caaeb8850eb10e81b5f4a574c78b5b6e01807c5be8fc619df5d71578d",
+    "signature": "8509a80a1d2dc57ff40fa554ebdc2e9ff6f956295a27eb107a584e958a4abacaaa8180e17bf85ca3330e4e30c22e55891f5d57ab15313cd55f110058b3029b2f7071ca2f229bb140ae273fd8bcf6a8521f6cb4c528073eeadcb976a39270b5d4b7c93d586258bcec743733f63c93e8a04d6d09e1e6e158725c7a5e967795e65359bdf8b276319324827e9e682617d771f6fa829d02630378f973bbb24fd465a98fea27760c0f487c2b34ce57acf77b09797d431a4e82ddcce799301613682b85360ee27e4ec3e00daba1f4c6b71702c32723c84b1004946615b147e5564d1bd74f3dc5612db8022843c8512875467d0a9501f5af5dfda718fc5c409adfe44b8c"
   },
   {
     "name": "browser",
@@ -351,9 +751,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L2",
     "risk_level": "medium",
-    "size": 21655,
-    "sha256": "eaf17c179b3b20eef0252dee0eb0f473b456076dcab5daf1d2f979526dd18172",
-    "signature": "7fdc866959016101adfbce9161108955e042f1fc201dc6d83fa57651bed0b4887bf8ae905f53f9130d59d81b65825e49edbd5cc2421cc5c9f477dd432dbb40655cfda49d0edc1925c989ded4bf0dfa50f78a3d9bc305008b775390f399c9b478fd73b6bc7b246b5faae21950eebd55bb2fab18bafcf69f29076ce849e130bc07af7f66192ef4f4f56a20f2792561e558e47ce333a745087e443624f032be58938f32b1b953145386574e74b36f778fa24b236003bc17f4b0ecae73a13c82e813b69008296deb0a8ed4c1ebb50bba8bfbf7d5be7449d7199f0e602ef72588ad74193ecbfd521acf56d7703789a3f318dbcb32cd9e5394a21f7fdce51f122f3aa0"
+    "size": 21985,
+    "sha256": "b0c312b5ba44250f0171ba04a65887bf5f07005290dcbe1f073357fc8a538b1c",
+    "signature": "7c0f78261c3436c8f24feb28ae0ab31684200d93a00695db7e3790a7141b2dc2adacafe1a17a73c6804564e1e27ed0c8cf344f324fa2b0eba928391d3a42e682af498f8a7666fe99130d453513a06522192b82fc2160c8b707b1cbe94ef5713be5aae0b9a60b7b28bcaa7aa84790001287c7452c59e0ee1af2c6ad058988da8b6bf9a7259ace4b3d7e8e1ae77099f78694d95bfc056dcf428e0c774ccdd15973243ea06c88f4a7eb50d656f254b45aace74695b1b36cc54686f31bd0418abae4c0e09f6ac25d40bda973e62da7ed14bdec1c457073a811dd7c5b81036b077865918c057c2edaa70cd9d9c77d3844c9bbf669124ca202adfe934ec051bfe49c28"
   },
   {
     "name": "cache",
@@ -399,9 +799,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 4385,
-    "sha256": "f335b84d26d3a2eb2f9a305b6e75b44abeb1f34618afe294fdd080f7b3c866ea",
-    "signature": "653a7587de875beda86f40760df72e7535263b0da72c00cfd385b691f289187f142d76f0ce25f1f8c13db61f4bb2f206a109b540181e170b12a757f024658c32082bdd33d73293f7e0de7f6358e0c0e62aa4251925e9710503887732da4dc386bd20db7b5e4352bffc95f11a96fc0bba1070eb74e492eb460be880e60e9b6de513b04eb4ab2108b82323757b814961e34117d36ed4ddacfbb8c644a1d9df8ff830f003dbc6cb6e2b7a8bd7a50aefa5e4eaebdab4e30e518e73ae73a2f6b1465be6fa30e7e22635c3a241858db3600465ada8cf484646fc1ce8edb657ffdecff5561df6f65c7535255d9ca0243131e31deebbe7d7c71dbac494e279370c52772f"
+    "size": 5112,
+    "sha256": "d8b022472c4a70ac23b214e7c67c0b4ff7d7dbf703068639519e608cb6456826",
+    "signature": "7692ada2d56897bfcaa53823d69406f6940db23bd22c4a7ef849bb4c17e4d80a4de098fd9c76c013c815a8a8aa37c41dd731f5c46b681953af620a963c805e14ff29aaf92478da282b020cf0d9968f2362b0ba19827f007464aa8597891d258327243dbdb7897e8ff5d4aacf3a8fde003aced750326d69ca75c5f717074dfb9c0b348c786b4b4243633bd707243c70d38c140cdebdfaecb27b20efd566bfa59fb901d7ca0b41993866aace2c6954734222469e0e6fcd9395617769390222f373a08acd5d4e27ef8f943a80bd6665ee3244884e764a8905cd391dc25ff2a89e80bfbea0e1a0358125b038345a0e0c19c98aeadee96bcb0a6f8900d6b1df6d46bc"
   },
   {
     "name": "calendar",
@@ -414,6 +814,13 @@
     "button": null,
     "tools": [
       {
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "description": "看今天有什么日程安排"
+        },
         "name": "calendar_today",
         "method": "today",
         "desc": "看今天有什么日程安排",
@@ -427,6 +834,23 @@
         ]
       },
       {
+        "contract": {
+          "params": {
+            "title": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string"
+            },
+            "time_": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "加一个日程事件"
+        },
         "name": "calendar_add",
         "method": "add_event",
         "desc": "加一个日程事件",
@@ -477,9 +901,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 2035,
-    "sha256": "3327251fe5f9b320755c20bcdb5fa0f2ca276e125690f9179abb2a36bea459f0",
-    "signature": "8a2dee73d1b9a079d115ff8f5852d2afa1c55fc840e8fb5fef58b1070ac9b14b9b0783fe9ae0d72ef7e1463ff1e7688abf44935f4939d778d7cc5c2442d099353a3f4b9aa49bf3ed44907789940f52cbc7edcd46b2fb559ebca5f99e2a8ce08b79b7264d6cec36ed369d18f0ac49781b834a6ed99e668b296ff04eefef5cae8ae70c841af6545637d9333ca846b4ee538314b133fb3ebdf4583b2c01fd6a2811466359d39600528830cef0bf5c7ac7e6b4f28587d9f023ef3227405cbd4c29eb43afe77dd5188414c213c5654da145f0f5f7066ef1b7aa902656248c6baedf0f27c865fc2e60dc4e31058a96a6962ffe6dfd6a8703e6d654c8cbf0ca2e04229c"
+    "size": 2734,
+    "sha256": "d9a2f882cf1490758e2a749996f27e6c0900d77b0daa24117fd5946bca58a3e7",
+    "signature": "3c81e621b6a6cf74e42d14e53aabeb110563f44982ecc77c18e99a39360cbeb205ae5f9e3ae5a74b6793810e8f53a4478884e003dc122c81c371766d504938a61eefae160f5e004d5aa08a969a90dc61b0f28e4b9961aa934bf3623e066a3877c210a9e361bf73d9483a52fbddebeea7216055318604f86caa49acc7e3763828914ab4a71db702462b814a26f3b351096a5d76d457013191707937a16f3b4e6486d68e244f0066b48182190226d14c5113b643391767f63d4568aa76c7dddd242b3d15181ec1f49d5ba8c68579ffa8eb413c385377f6f4898a80bc3181dc19de932d5134b9eeef8abc72a0a49a4f6a78d99385a10b0a2e9dd4960b906c16f173"
   },
   {
     "name": "code_runner",
@@ -530,9 +954,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L3",
     "risk_level": "high",
-    "size": 4208,
-    "sha256": "c04db3e50ce96a763b49e4ada79d8933f2807af0c7fc18b27da6d5f51a329467",
-    "signature": "48a59a18c5a31c195fd252fe02fae83c75ac188a4f9e1eaba6ebb48a6323da55c8c091f26390f5ce4530a74da4b53977a736b4c4df9158286f016dfd83f957c96173c3f5daddb4a45a243c8813f0d86ad50be7763f1e8baefcc30379991ecbc6a70db8a078dadbc7fb805201a9355abe526ba740ef999ea34c2f508bbfdf2d5fd3df94ebad017edc986233ccd274eb4366e5fc81c7f5625d98025e2b3ef3a2ec2c66a1eab2d6f9e34ddf4c52594ae28fbbfdd57e2c4d68d8ee14a265d1c53eac751a8b511c3fe591530355b9e48754d8077db310132cf47e3b37a58fea243b99e40de9812d85ff1847f631e4db393312e9f5c8b92c5586763d421ab1da0b7c6a"
+    "size": 4351,
+    "sha256": "d5224998975eec78c6e9be5b81032963309acbb58daec119617121722d9d591d",
+    "signature": "85a87fea712807f15cdd436098d6f2970095ee8d0301a7908289ef811859fb39c0e0289cba57f93a632831b539de020f696f3fa08abf6ceab63ccd9062c193593bb704609ddad688d634e58cd0cfb0d3ad88e433a6ebcfc05a48e8abdca2b1dcb4bda36676e4296f865409f07b6dac482473d8df13eaa397c80f2c14fed7056cbaf9baab78f3fd98f360423a43ae9b09c519bc49bc9c45736395a337f603e22a708b05cae4f24d24279beefb31960121725d5f3e0e6450df82b19b2900a120319d2d57d06cd28d02c43a6b29fbf2988ec176c2aeebc7a12c786d35b54707f6bd1d881ddab7d7cd9a5da4b2a5e6d1107b17569289e592a0e7ecea192edd78e9d6"
   },
   {
     "name": "coder_pro",
@@ -627,9 +1051,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 6424,
-    "sha256": "7bb5801d358aa8b65bc2c5ec19d2d7f80eeed106d3857eb46bc0bef21c490923",
-    "signature": "15fd150efc81af2b2217afee4dacdbaa9fa2b7b20547b3fedb9f2b405e5f266cd3c082c94897cc9013509129460e19b4bc2d6e44729ebff42e4bc7e30fd9633880fdb9aef957e45214e93100116b28e6a871e1ed3f43424fd63e03c2c2c2a1c6e48c667c6f238a621ae1b12f144cb188c37d4de826d968e00d45f0bff026d3cf39e447c80b1298dcaec58d2b50ac04127b2ca7a9f11a54b502c98930012bea5d0050037e8de345941db94f45633f0b0deae3d0f15ac57cb962b5f4625ecf4565a4214c1114eadc91106e4ae34015ea4bec891e076547520a7b162b88d0b1c2d5da44794aa17735e4185aa62bcbc86c3b896e813d2865de278916bb3d85514a9f"
+    "size": 7499,
+    "sha256": "120592d4b709ec06c71831f09333df8c9a2eb07e549010c7898db1de26695520",
+    "signature": "6a344653a9de2d4c351480d1740d03d7314884abcf66b41a409a8cb5e3324cd50aaf11c09f9b195d3ab9d253b7c9f329ecf18f3819922cfd1a55da9cdd9f62dda19eed438026c893b92da853d83b152a2592056ec4f10b58a40750503f54643986f890220911fef3bcb3eb438037035b744ffdb796cdf5652254df6c90ad4d42cdf3e9f6864835a6db485cf88aad2cb48980b9be7a74e68952de5c601ce220b461f955989bdcfdc4aefcd228775845ca637ffea6cd36cdef4c84d1512092019be702c81fa978ba25a4429b28bb4f721583b3f54c46f0bccf38c15a4303b8f83540733e04a8dbfd381e536aba249385a91ee1c42373e58f517524a13b0341cfeb"
   },
   {
     "name": "computer_controller",
@@ -676,9 +1100,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L3",
     "risk_level": "high",
-    "size": 9427,
-    "sha256": "ea98973a794b72d93d034bb74f2267bd3db6c8d84ad2935b4f54f4fefc824f37",
-    "signature": "8ceebab9ea917aacce0d16829adc6c894024f3b3d4c26371f746f2cd4159b5a0832bab14248a2ca8436ba6f960d61b3602110e31c1e4f78c136dcb0e994f389ae84a83a8f954401bdb89a2aec1f412bd623009ac69a96cb24f1fdea10d62bfc9a1c27e247fd3ac5d82e1e3941cb41867ac6f0d473085ed179b00bc0903a97ff37dfb1211bac1b7a70ac17310bc3c85505ff2e9e5f2ce7475ce65087f0f324961784409d4f5df019c05e2f3c2b07136f3deda66e396140ffd7595a4c42e99be9fc63de62305d3a11f50198a0381d28f2d5217ed97383aaa2c375dbf1697a07866f213766edc2038395b816fd2b4b7d398a87f7285c6c5b4309414170d6479b249"
+    "size": 9470,
+    "sha256": "37a19cfa770c1b49bdcddde57f0577b1a7755b78695f9fefdc1358247e8f566a",
+    "signature": "5073ef21ce0c2bb79dacba28e72f8a209c4a6524ecb592b919692f90e52bad542a952dfc4b872bfe84bb4fdfb11747a3c2dd936274f94e40fdfc24eb48a77891b1b9d818751b061ea891b9e7a610f408eee259029a6de8c67d666d0201c5eb22231b26f23b85bb45569760646a9874c7227fd4901857093f87d3d760d612df00db8f7d8953cf4f5c531bca1d85ad5d9eb37644ad66697ee25c85e21b9443e1ac173d1d0867ace9be00bdf90f5378710c00d86915faeafb7a9f7e1ae068f477c994d12ce2a9bd2e2ad274ce65b4097f9e80dcabe353569a6330775df7fcb1abb0654f88ceb29477b568d5ff591dc60669a74b67322cff8927a9763ea847e55c37"
   },
   {
     "name": "deep_research",
@@ -763,9 +1187,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 12919,
-    "sha256": "45ec91731a8c7b45b158f34e59eb694dd047aa2290fce7b705c2f564a4407115",
-    "signature": "19caac2288fbd44f26b19e53031de026724b8b8ae2ecf1bd6d0ba5745df44dd2663cdcd0820c0fdcb4c4126bb93a249b98b938061cbecda7eb0f253066fa48182c0833edd4f57c764cb1f0a2575a2bef634ca75549be9f9e30555dbc5f1d6a88fc9b150a9f3e9ce753417d8b8118b5c78f17bc3f6bd8287e5751e21729f6c233ab63444a184b51e12881365798faae352dea2908dd23722b79445961daf0dfe23d1db391b5a9c3002b7bf86694a3ef32288a2ccbb42d3b25438aa34d3f346299733a8a00e0cabbe04fef2cd702ec0506ee02bbafd120b5287b3606c04c7deefc16317c8634b5f8a506e2f691abd29a829332114d501a9af01131813819059ae7"
+    "size": 12926,
+    "sha256": "6c664248f61fce47174c8f537d59e132c4dbc1c3286305a51322096deea8ca36",
+    "signature": "3218985333185be34b2abf82d15eebb01238d53b7711250d99d27d28cfe3b51bcd892bcd8e909b90416e82651ff0d72e8b56dec3ccd2c8251a641c898a63334ac1c03383a8df6821f457d4e641440e46a9785187fe96c411396789ae7eb290762fd3be13b41d478b8bf826b5514062b15c28989ee2ed056eb18013310ff5c0edd8cb592b8ac48ad93c68332e815d5579bd229a894224097019c230d0d56aaf6bc80fff37045bb2cc73b36c93c108dd9e536dca7d16d508fb82b03e76513b32c025c28d0264ff35752ef468073ef4ce3fa302ce2c79ad883c164e55645c1483a691756616051cc591320e2fa26d774a82072f1d4ebd2d71fa6a085d51697d62eb"
   },
   {
     "name": "deep_search",
@@ -816,9 +1240,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L2",
     "risk_level": "medium",
-    "size": 10938,
-    "sha256": "410d2e8f6b34bb91514cd617d2c4eaf85c2e189fbfde9fac7871b82231e8e14b",
-    "signature": "3c5cdfdb83fcc2caf6efe3b90f09fcad18599c3a356e691b44f14f3bfc14c25bdac2465074b9f54fe0dcd6f2e57a064ac632b37f6ebd9aa6a9fc6ad51ec69704670e378e0a71ca80171c12e9be7f0b7a8c8f884cdbbb796a7f192b725854bd73916319a2fbae25f74bc3a93667f55ef190c2312180bcf872e700fbcc7e1d3005331af60ac4d427547f773b3d2bcf8d496881ccbaf0c0b08d2bfc112bf0e181f18f09b4d2a19597ffbd5d7f706053e8c9e8795313e5adcbc0600087040ef7d45b1e429f281cbac4371e4b3f8eb20fd53177a9e03e7cc44f39078f9e0f82b660102bd21003c43d8d441fc7c9991f4eea011b77dd563bec8c0576cf35dccc4d5b9a"
+    "size": 10953,
+    "sha256": "da38c5896fcb643ff8d74e287b248d61f94f4de08328b5aac9fc6b0ada5efb45",
+    "signature": "04d314930280558aeddf68c9b48dd62e708f372a00b7d17e11c3388ea4ef279291aebe0f7bca7da958e04f1a67de815d4b3dd9dde99318705ac50511dea207f494f441ffe06e7a54363f3b47812e84fe21d8b904339a93b4a2b753b3dc13bc41b6c06fa54974c1f506ce465b3295e4bf2e6a81cc35421aaaaee2b77835ec17201c2d120a84c46d883e412a31afa88cfcc4f89ee819f522844a6a65d15cabf8af97b84b316be6d1f0572a5ccc1d6b58939deee3dc77bf01f905187f341b7d0fb04b7a79997dffbdf8ccde8988c2aea622b062ec4552a992bca60b80ac03a106a27190d22bb4c7c7df2d9b5bd0ceaee09d2351b71ea6faa8ffc9336a2da1a804b2"
   },
   {
     "name": "error_lib",
@@ -867,9 +1291,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 9019,
-    "sha256": "acce6dd887d20bd40067d75bf30a31f3b099b87fc597971a5639b149619e0e85",
-    "signature": "60dae1c3b2a4edac90ebaf7fb878fd07c93cfbb5d50c12129a258ad6431cc7edaae95a459ed817c531c9c4f38764ec752bf7d1f847ef2fa48461469e7ffaef8542f74045545148b63c3a06193a705ab9c6331ecdbdaa60448e52eba08699b65bce091a4702dc88e4ea40b65f6ea14dd5ced7a71048c583270567b74a41a2ac7497dfa018c358ccf78038cb37dd7a99db1411bbb00297adda51ff15990da7df93386cea4c86cd495a9960d4368c417ec8761b8097a2086f385f73f2332d3f02225d65f75ae6ab754f4a78b3fa2e3f42de5cb9495c84aef7aa4979078529644777c65a9cefe3aa83002f2fdca9b6fd1f570e7991e97985260fff6cf28f670c2ce7"
+    "size": 9036,
+    "sha256": "70bf90f170ff6d939852157c2ec5d445e6719a45535ceeead35732a8f90c0262",
+    "signature": "174191d3afad922297eb713d58ce013ea15a14d17cea6a16938f8803ce1818ce04940128e12dab0d4e2855e018c1dae73b23ee8102bf0fbc57ceadb04121340f3293cf11712360da310d548c332b069de805b86bd2bb121817c966c836a1cdd95e86c788379392513b906a983db699d848271dd336db593a48de97d9a30b1e5ed570248c1ea134cc1d0a4e38d863c1bd58d70cac9f637831bceb4d774f9324fc463bdf7a93405c395803c28063278cbeda09d2fe6a7936c069a20d986ce7beb49a06f7c9dcc00d54267357355f311ef3d4dd076b9cbc70188f2a46df2fada0d653ab7180fd546a7c086f15345502f5e50634a849634156f96b27d6c1a5ef9d23"
   },
   {
     "name": "file_upload",
@@ -915,9 +1339,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 5052,
-    "sha256": "73c7526f4170a71cd346e985f97e37f025cb2614e3605d121592328c1c481b48",
-    "signature": "475dd4316d7346436e09b9dd1abad9c260d0d7019e287d3285cded52b3900fdc66867bc64b068c1b254db3599a3b51f2bbff9bfcee2da0e6a6713dcef1ac86c96440bf3ea167563f5317e53680341758cee9afb7f0b7fa0540e040af18ba5225aa4cf81cceeba977619791bbb72ae447c8a3edebb5c481c9aaa13bd82597fec386b0533c37b67857f926485996bd6bd1a1fc412c20ebb82c63184d06e74f2dd6f7fe6289a46427a10dce8ec7d9af234ead52c2820b22dc68ca668368a64da7df044c89fe3473daeb6aaf22446463e4ee2e5997d873aaf60059e18263506225c2c60d46b46b35d1552e67327a018005c94d76a4774244b491bc0a8e4c8dda959c"
+    "size": 5535,
+    "sha256": "cd9fa366b6b03b59e0dc0f85e7fe620c6aea39e823bb58b28f09f39868c306e7",
+    "signature": "0a431102838f1cc70b2c47173d540e9cc8b9d161853c5e93bcfe2166602fb077623a4c6a722ab1e87d23f62ee2a597d055de04429d2a24449e753459f3bbeefe78be0f11ca886ae5464b108c68c922d98db32fac74def15ccdb1c821eb5f2185a4621bfe817f961cf38ff25953d1913decdc1bb0b535e42cc04aac6a17737c1822514e83b93ababf9376d9a4fc5ec71273f301f5cfe5b5e1eb7b0fb9fc38638097dde7ad154d6a27f63a86d58203be518b094a06e3aaead5e7b4e0b4e2993f3a5394eb81b9381d77c67b44d5560f6eb332535bf8b531f6f433b93cdb28ea5d06eda8893bede002c1a9d8b9bdde3330c3c134bd535ae2639b0bfa89a506f8a7f5"
   },
   {
     "name": "forgetting_curve",
@@ -963,9 +1387,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 5844,
-    "sha256": "8fa7b59f18b3a3816a93623da023f2045be2600b62e83e23a759787767db57a7",
-    "signature": "5bb4ef039d83e0cae196dde0d86ad12119f57b6bd88fa864f45084556ecc7f7e8d5c5dca757a3969b21f0168d6b61af86dee9f827056e10ea117ae9f3ddab107f4c1c5d15cfcd0f978c2b0970d5708dd3588db6ec9d1778721619894e3d986813619922242ffc4356ea4c246f642f8aaf29ba587e48d84efee0ea720a345fba818bfee35ad145cc86616611341e399b764f28941396f09c9dfa4e6c1de9e187fd3ec7e78a95fda9c88c27ced34c8427244655fa9f1748505a4d6f8e933a91eb47bcaf583beb0c1a9fe31ce14c2be144a8199d655549e4f57ac8f13e58807b0841190205649feecc0042db68e1d204225f57b32c162305bd34ae045d3258c3baa"
+    "size": 5934,
+    "sha256": "4b8df0e15a94a7bf942cb5c192a88f56b18216db4599891930ba49fcb3295b12",
+    "signature": "64c0d34486399b7fdb1f8d09b290467dd736cb55e7312c9a5255dbdcfce20409035ca93c17dc3ed32421c9fa106900979d9098af215360a7eb857e233beab0ac796dd69500780a87e6dc81c58a208f338008bcfe60bc7632871137cb00bb385bac0dd9da06b877ee3e6a3d508883f0724cc819dbf59a12ee705c560ef52e7213c6db099bb816fc83fd01a7b711684ee2eb1387e3ad5e74903efd372b94300c8789fe500c5bb4c10acce550a8ccdedc42433335a30a0eb6f1d0520d301d0db31299dd6c90877e6e8dd8b59acccdc817c43219a3ec491a8a07c819439831e7c979482db2dc69ea284eb58429a509a668a1f5601d2b036037b97901c56d6b2fb768"
   },
   {
     "name": "graph_rag",
@@ -974,9 +1398,117 @@
     "cls": "GraphRAG",
     "desc": "P2-3: GraphRAG 社区摘要",
     "group": "联网检索",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "button": null,
-    "tools": [],
+    "tools": [
+      {
+        "name": "graph_rag_build",
+        "method": "build",
+        "desc": "重建知识图谱社区摘要",
+        "args": {},
+        "readonly": false,
+        "confirm": true,
+        "hints": [
+          "社区摘要",
+          "图谱摘要",
+          "GraphRAG",
+          "重建图谱摘要"
+        ],
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_NOT_AVAILABLE",
+            "PLUGIN_INTERNAL_ERROR",
+            "PLUGIN_CANCELLED"
+          ],
+          "side_effects": [
+            "filesystem_write:data/graph_communities.json"
+          ],
+          "idempotent": true,
+          "timeout_ms": 120000,
+          "concurrency_safe": false,
+          "description": "读取图谱三元组、检测社区并覆盖社区摘要文件",
+          "not_responsible": [
+            "知识图谱抽取",
+            "向量检索"
+          ]
+        }
+      },
+      {
+        "name": "graph_rag_query",
+        "method": "query",
+        "desc": "按问题检索相关社区并下钻三元组",
+        "args": {
+          "question": "要查询的问题"
+        },
+        "readonly": true,
+        "hints": [
+          "图谱检索",
+          "知识关系",
+          "社区查询",
+          "GraphRAG 查询"
+        ],
+        "contract": {
+          "params": {
+            "question": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_NOT_AVAILABLE",
+            "PLUGIN_BAD_OUTPUT"
+          ],
+          "side_effects": [
+            "filesystem_read:data/graph_communities.json"
+          ],
+          "idempotent": true,
+          "concurrency_safe": true,
+          "description": "两级检索：先匹配社区摘要，再返回相关三元组和实体",
+          "not_responsible": [
+            "知识图谱构建",
+            "向量检索"
+          ]
+        }
+      },
+      {
+        "name": "graph_rag_status",
+        "method": "status",
+        "desc": "查看社区摘要的构建状态",
+        "args": {},
+        "readonly": true,
+        "hints": [
+          "图谱摘要状态",
+          "社区摘要有多少"
+        ],
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "filesystem_read:data/graph_communities.json"
+          ],
+          "idempotent": true,
+          "concurrency_safe": true,
+          "timeout_ms": 5000,
+          "description": "返回已保存的社区数、三元组数与更新时间",
+          "not_responsible": [
+            "重建摘要"
+          ]
+        }
+      }
+    ],
     "api_version": "1.0",
     "first_party": true,
     "capabilities": {
@@ -1011,9 +1543,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 4195,
-    "sha256": "1e1196e759ea6c54810c8a9c477ca84aec3b576f1ac210f1919ecd8d5af67f78",
-    "signature": "8c14c1d405689c90eeedac656cde852583fa2f9eca63e8a05a3faebe74af780900df032c0cdce588a823a8d243b2f65e4d55fbd2c77d9813de873f3738618e62783bcbfaf72fa3930d80c064c1500a5506e5d149e35c4ce207423b5eab16212b30e1f11b3c02f18c28b465671d9a1cf1699dba8e09a4bd43dc0fcca769934fa096668f3c10ac04bc761904d1b9e1dd8ff37a1345c17c723be32a0857813c5c2d59a43e366ece35dc48baedea4db750c7712281339cb30abe4efbde416ef66da0a5917a71ffba0dea4301fb97f83f99537a405cfba9da0177b431c7a69c98c21942414e9e5fd96f06b26573a11d5529a35c4721043bda34871d25ff5604604569"
+    "size": 16667,
+    "sha256": "a6a6be39692e4dc2ec77b352f0c620f023faf2831f650852cd8d3e455baf8ba9",
+    "signature": "00ec8101fb05a626584ee6c034cdaf14943d46849ee8dc1105c941f231f06cc07bf33a1de0d73785d6800e575bce3b3070eadb14db0c82b05a5e40e85829faa01bf9eda190fa76115ac37019c77e4a6e4a89b7b8e02842dd276d73962822ce29421c5ecfa2945de772471c89046db67e142a2c53570c6491d025706e42dcd0eb3d35bc4350a0bbee1728e866be5254ecb7339187b5847df962439b58cf474ccaad3f369fec65b1c83c88f8b6d17eb5aa9c16d2b759c5bdc11323ee42170e9fb670e0920c2a0949fc5180b1d133f01c35b5c3274e15e3c873f8cc59e1b6c3b910023f5886743202d59ed8bd63e59dc56af24903e6c54464ee0e046ade212efe81"
   },
   {
     "name": "group_chat",
@@ -1059,9 +1591,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 16394,
-    "sha256": "75484cbf669a63d8c0c798389114042af4f0435240af04f6b0250ea4414d8948",
-    "signature": "118654225c78ddf44b88f274b0db6a1474ee078232f25b1724a53651b2b0a66d11fe9aa533d42b02b9eacc72ec1c1743db836536b097e0bc567caead1ea953c05b6fc09700be42756c84caedec6a3334a6bc50431505bd43a3d140da209bc2c757a908d159bbaea7e5e9e9bc7b00fa45f28c093ab2ee497b1a9c58567e04f6fe6539fb6f8aacc5fc8fa52c88b4137d9b29f2bdbc7e043ffe8c18aa7245ca0a963e75a36a9d24944fb029da5882784413c655c4aa615756325dcdd5b59e6355051010009bd0aafd682b74cea519a9965a9b538bf0052eeb3b822a47a5b414dff4351f69a89be19100f8254bc5cfc8c619d3468768ce36843198c4dd2800de214e"
+    "size": 16298,
+    "sha256": "6fbbaf329a44fad351e28e176035cf798a13b46522273eee8c281612c0bfd803",
+    "signature": "0a716545a3876cf822753bdea57d3538d789d2a59254d996da187bce5e7de20589c8f1b1bb03f2726b230913ccb22fbb17fe712dde14b332c4d319a3365d0b03c48f3d1168234ac9ce426dac131e525b413b5bc4eaaf79df13b71aa207ce40c29db4e536e5ccb57c7cf0cee4d28b64940f7ae7606b0477691b8f6c14fe66ef92e9d90ba0fc1955c0f484d6881c59fd1a7af416e6ec798fc6ca1c0406757c9c7d4b7302fcedef1f04a276ef86a64d67268562400291836a4919e5d69920c2fa63307ac719e59bd797ccdb678c48eb015ae63853f5222f070a91297bc796b956b1dae29783d74fb5f03af5f5daa742921ad37a6e49fee164676a55f08f1fc1cd82"
   },
   {
     "name": "group_loop",
@@ -1074,6 +1606,13 @@
     "button": null,
     "tools": [
       {
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "description": "群聊闭环统计：累计轮次、好评率、差评数"
+        },
         "name": "grouploop_stats",
         "method": "stats",
         "desc": "群聊闭环统计：累计轮次、好评率、差评数",
@@ -1086,6 +1625,17 @@
         ]
       },
       {
+        "contract": {
+          "params": {
+            "n": {
+              "type": "integer"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "看看群聊里表现最差的几轮"
+        },
         "name": "grouploop_worst",
         "method": "worst_rounds",
         "desc": "看看群聊里表现最差的几轮",
@@ -1134,9 +1684,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 4879,
-    "sha256": "eaa7c9141db2cfee8372521dc75566512fcb33aaaf526b3977a574e715a76597",
-    "signature": "860e26e8c472bde1168983364e2ce65f3bbc9a3738b1d845be0aaf9fa8c611f95e43a9455f70100c93e1654bd8f0264e459913c4c9a229ad43482cf9f93626ccc7cccb9d07be4c8d97abfaf8ebca6db59ceef85fbfc991800365e4c54ee29664a5cc72fd4a1ed839e1c3011812673d0902fb2b760c425573e5df7c39dac936c9a849d780afe37f9a4e877631f2ee0ca41f64b21184cef3344de28af3b10b5a2223564c32b75910b37f046a4767cc047c0eb9f056148f41a79d67fbba336e3fdd7632ec734678464e7e2229207a6fd830ebbc065f926633d2b750cfa5a2675089c257b4ca68b371e3b851616a71b0aed0ec494a5a36823b630d1702050ec35ec4"
+    "size": 5436,
+    "sha256": "ba34b6b04107a2bc86caf1802e63f38f5f8488d48b77b6e4db81cf8aa8827b58",
+    "signature": "68d2b6e8d8d29f9890385929383533a29f60ea5a450cc1f2cdeabfc4dad0c54de34cd8eac1b00d6b5d5dfc71089521c3467cc4a4a204d5a943d23f1ac5df856274f6da70251bb2e990a91c5e54a964d260a8649689ef21bc480f3aa3a1270efeeb4dd55110a950deef72953f91b7d825e7dcd779034ec82ea0e3e2c72c6f46a8b687cc86c3826ae075430465849a2b232d7cb9f156035e26aac38131d080855143a4a1cdedfeac5feed036c02311326453e1c5e2af70b1ae0a3f92f26a8dc7da2c59ef19831174d7c106f656abd3e464ae3a66c42c004e425a37f966567f07e8eaf91d71669cb41383472d9390ae22f8ddc75b60f26295bc3c87d99c02c7ea4a"
   },
   {
     "name": "group_parallel",
@@ -1149,6 +1699,13 @@
     "button": null,
     "tools": [
       {
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "description": "列出群聊里有哪些智能体角色"
+        },
         "name": "group_roles",
         "method": "list_roles",
         "desc": "列出群聊里有哪些智能体角色",
@@ -1195,9 +1752,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 3774,
-    "sha256": "d437b7a3efe21eb08d366737f8e5ef812abb4637c5d899d3df4bdbf7bcbf2bcc",
-    "signature": "2ced3cced6544cc3663768fe2cf73b5a45dcd0d92e7a7d3baa1c6aace3f3ec089538bb8f0e87c5aa5b1e9bb5951fe103e46bbac0293fdffb0b05affad881f54d59c38c77fe0578607d59c5fb3f3267addaae5a3a12f1a377393e0d181abceb74f2c3f9b9c61c914cd99c640baf5e091cfbc8ccd56714bc9e7e20f1398226fa2ef61fadbafb4dd11c20ba133e53e186a0cf3a2a57f6cea2ffbdeff5359827dc8c31ea33ed095af2179b08cec99e5b4b2291858af2d45727dc6f17cb49a7f3df27706e5546dbdf3bc52fa05c86f2cf533667b0b0daca174c3d3f23375a2732192e137c8fa0ee10e85c1ee67645275cf07a3d93c2da3c37e57f957ccc1b4b3b58d0"
+    "size": 4102,
+    "sha256": "ea4cf1e2820ecd08b83b5e326f76b4e18507aa824c64fbc15ad318d458b6ae37",
+    "signature": "4ce98d9998495c528ce4a04a5298599ca3dbff6f2c7e73ddb3b1600edecc6c1f211fb81aebf9b69107a91594cffb597eeae35c4e0f0e3194f99da201bcf6d776dd3b0308a2ef9f6fddf5e50260bedec3e33f8d2176a31eb486d3767a0ea57318d2f68a8416a41a24ddfbb1b5403ba2d469a59e80c7eac5473d6c3794dd24d91f634a99f03ff045e97af7652cfa786ed84f6d47c35340d5b70902e7a05e352fb709630b6bf1493a04c23063710f3eadcf45c65f25e596fe365c43d0d527ac9351cb542e90836ebf3f38cbeb90c2ce5b52f6d33d600075ad9456575af868c393a73758cffda4c7cd306fc57f89e046bad38c2ace5ac43ea97bd1736751c1104bb4"
   },
   {
     "name": "hot_reload",
@@ -1243,9 +1800,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 12493,
-    "sha256": "5855a689d70e26091e6138ff1ec68ddbc2b597bb63557e468be9df4ad93b07ec",
-    "signature": "35a171f252b9401331d0f30eeaea1a25dcd484d3842978ced235d767f5122128f6c5b67a16b27edbfa55b20d7bf1f618c32b4b81c2effc3158306f849f31907252f517132cc427bf69d1bcb06077880601687734013cdcb6edad57f5bd6ad0e8d0baa8a6d653e4cb328f949d782379957f68716a6e8918a185fc6f118c4b2122e51eec8c19669888ad16d67cdeb76a63c97328d77d585854234013ce4657eab81fefac23f92034c60a0d52b1b25d38230cd378f4bd32cbdc935130516167c038ae2a911fa7ca2de65c0dd04e584267b6f2d5c10e140bbc5b7286bae1f22e672ba4de771349cba985d2d6a91c21d566da6ce4198d1acb77904090120aefa55ed2"
+    "size": 14569,
+    "sha256": "db2f48e95e2c17d49a8ff1a42940758bd9b31b6c4829b3a80481c58253ae7df6",
+    "signature": "2a3685c5cbfdf9d31949b440d9c217e0d021f801613e32c9332cf0cb9e8d8113c3abc948dc808eda34995d48461d2cf6cd88dd48edae534ee348a9164f1b5ff78a524d7e9245972df4f05fc9d4f3b91241ae694555579ee82bb2cf4134a9740adbb6de927b693099b08bde2bd289c8c518b504864f6b43f95fbc8841ff42423a649a78d0bf5969465d12e09daaed31c70391aaea8e6f3a58e41061f13acc0d5ce0b114e6769a0f62c577491f1f985f7d7c8c32c33f5edb9428f6bd5ed90871125839b65e19a6be66c871b6b07dd2ba1067bb4558d951cfb5c15297a64b5c8c46afd62f8f699f6598ebbb22d7ce540f9a29f8b3bd6000b9d30f0f2d99a377d275"
   },
   {
     "name": "image_ocr",
@@ -1258,6 +1815,13 @@
     "button": null,
     "tools": [
       {
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "description": "检查图片识别功能能不能用（依赖可选组件）"
+        },
         "name": "ocr_available",
         "method": "available",
         "desc": "检查图片识别功能能不能用（依赖可选组件）",
@@ -1269,6 +1833,17 @@
         ]
       },
       {
+        "contract": {
+          "params": {
+            "image_path": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "识别一张图片里的文字"
+        },
         "name": "ocr_read",
         "method": "recognize",
         "desc": "识别一张图片里的文字",
@@ -1284,6 +1859,17 @@
         ]
       },
       {
+        "contract": {
+          "params": {
+            "count": {
+              "type": "integer"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "以前识别过哪些图片"
+        },
         "name": "ocr_history",
         "method": "get_history",
         "desc": "以前识别过哪些图片",
@@ -1331,9 +1917,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 5203,
-    "sha256": "1a749fefb2d31de02937e136fa29a78948ec9097bf02b7b67d6e228740e1a1f7",
-    "signature": "02dbb95ba0923d91369afb624c3649794261d595e85bc54a679fbdaa0b02529823ab54da87341d6d0497ad002c97cc561d942b18164925fc9b3125aa85c39c85047f7e6857d5a43b63b97c3ae33d5ae80d0c67d46297173b81511658836a108d8ddc25e8af9c1dc23ddada31d41ea69f709606f71626c88eea89072f8c96a50463bc5ff47a70bf14fe4edd13cabe5518e32233c6765098c37970fe11d21f0002f882c97734c9b0667574528c78e1ac249dc7838681ad1b061deae46709cdd220be95ff3864688c5a297a89d1186bc27121621e000cbc8d376a7b9f026ab914b71ea12ec7c28918480e366721a107b819029fda5f51d1b19c32a1e2c42b62649b"
+    "size": 6151,
+    "sha256": "c2470f82680cd407545c493872ec7fb951b9049ac29d3d1502307a908293b1ad",
+    "signature": "8672c950f56fd831c0569dbba7608b3f66b703dc519723f2962ae007236fe563a5b92e6caa6dd51176e90de9b22c51b09990752be2d4e6f56a4998f58364f22d34b87645b480d1eb15268b8932bb68d3eaa6a2a1433fc44dbfa4728aa3933da6c00c3f3c1dcdf40a4f212ac3f36a643c1c1c6a703aba3be7d3de42dc6d192f833e82ce6f484aa30deaa25455c7f517aac9fac5ed73f4e8fc90d5d10d498e27220cc6805f1df12d0f586af9be2acb0a8abb72a163fb97dc055c3dcbc35da965b2cc026b97417bba9bcd4e9e863512259c752cbb79103619a089247f49b024d44cac3388ac2f44fe6d68e0aebd1792c827f86d7d6fc6e4c01e3469c1f1c7fa7c98"
   },
   {
     "name": "knowledge_qa",
@@ -1346,6 +1932,17 @@
     "button": null,
     "tools": [
       {
+        "contract": {
+          "params": {
+            "question": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "就知识库里的文档回答问题（先按字面找到相关文档再让模型答）"
+        },
         "name": "kqa_ask",
         "method": "ask",
         "desc": "就知识库里的文档回答问题（先按字面找到相关文档再让模型答）",
@@ -1360,6 +1957,13 @@
         ]
       },
       {
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "description": "看知识库里放有哪些文档"
+        },
         "name": "kqa_list",
         "method": "list_docs",
         "desc": "看知识库里放有哪些文档",
@@ -1372,6 +1976,17 @@
         ]
       },
       {
+        "contract": {
+          "params": {
+            "keyword": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "在知识库文档里按字面搜关键词，返回命中的文档名"
+        },
         "name": "kqa_search",
         "method": "search_doc",
         "desc": "在知识库文档里按字面搜关键词，返回命中的文档名",
@@ -1386,6 +2001,20 @@
         ]
       },
       {
+        "contract": {
+          "params": {
+            "title": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "往知识库加一篇文档（存成 data/knowledge/标题.txt）"
+        },
         "name": "kqa_add",
         "method": "add_doc",
         "desc": "往知识库加一篇文档（存成 data/knowledge/标题.txt）",
@@ -1400,6 +2029,13 @@
         ]
       },
       {
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "description": "知识库用量统计"
+        },
         "name": "kqa_stats",
         "method": "stats",
         "desc": "知识库用量统计",
@@ -1411,6 +2047,17 @@
         ]
       },
       {
+        "contract": {
+          "params": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "导入文档到知识库（PDF/Word/Excel）"
+        },
         "name": "kqa_import_file",
         "method": "import_file",
         "desc": "导入文档到知识库（PDF/Word/Excel）",
@@ -1426,6 +2073,13 @@
         ]
       },
       {
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "description": "清空并重建知识库检索索引"
+        },
         "name": "kqa_rebuild_index",
         "method": "rebuild_index",
         "desc": "清空并重建知识库检索索引",
@@ -1472,9 +2126,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 16367,
-    "sha256": "97ed4ed557e2774f99ffb2df7472b5050aa0b85f9d3a5e7fb09dd5b6d366606f",
-    "signature": "613e951399cd192f9e0df3421f6784b5d7c4575e18860b5a2f7378142a50bb8e13b07c7b3084e2a2d6bc188a040b6d5b64efacf3a111431143799a74800996d62a60fa05a869393820744e51fab95f334c3b1565387cf37a57747a4fa5c3bedbebf41667fbb7b9b47ebca7c164366d4fcea73d0a5bd94b7f383533c995d6bde41d1e6f60dadf346ea2c07644835a7f6b1792d72a8514f4678519ab582d78f91bf29cabfc6e0c59cacedfb9077c0105da07c5d4d0178973e1393d923bd8e88c5ecf84cfba6f962f4ad85bf6bcbe02d1def580f102a7ef715109e39efde9f41e8197138db81e488fb23663a5caab6eb04b8898ef4c89908f30ae80da786437d851"
+    "size": 17925,
+    "sha256": "e654d6095faa628de4a3046978e17158ee9e0f66ba58da553fe8d4f064e75374",
+    "signature": "369c1ca8e5a526c05c7166b88799d54147cca6adbc25485645d913a1f3857043cc9118f8b670aacb04c8984c5b8275c47924fc01982981f9ba31117a449ef6ac09d0269cdc00aa560d3c2b8bb5a1824dcf801711bddcad4464cde73ac3d05b664019f20e07d54a7add489669fd894abdeb83e948947268a7223585608d5f8719b3d9fa8ec0889358a2007bfc4622c150cac9901b8fcb92030699f08c6316cabdfcf79f16c2f4c2d7268a0fbbbdb7a4df45020e94c4e80366dfeb060d95d7d06c115a1d0faa1a3c5980e15efe5fd3b7e76ce9917091d12a35e375223402fbfba85cf3a69e531685d60e14bf7cf7046ffa93947bb07263faee7225f4658d9aabee"
   },
   {
     "name": "learning_loop",
@@ -1487,6 +2141,17 @@
     "button": null,
     "tools": [
       {
+        "contract": {
+          "params": {
+            "topic": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "学一个网址/主题：搜资料→提炼→存进知识库和向量库"
+        },
         "name": "learn_topic",
         "method": "run",
         "desc": "学一个网址/主题：搜资料→提炼→存进知识库和向量库",
@@ -1503,6 +2168,13 @@
         ]
       },
       {
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "description": "看学习闭环的状态和累计轮次"
+        },
         "name": "learn_status",
         "method": "status",
         "desc": "看学习闭环的状态和累计轮次",
@@ -1549,9 +2221,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 14160,
-    "sha256": "2354ede22eb08410df26fd99c316b1a38fa42b5e522a67fa41e7854e0b7ca386",
-    "signature": "5ec2c48a0ce31c6d22080a4d93bd4326adc59bc45c5756d6b414e8d916955a35eddaedce84f6ed6831a97ee00a1a0de9023bdc39e3679a7072a5e987072a5cb9f48e9e7739b1349955865af505e3f2e1ebb5c11c4235587f49c5e24feab4e26781f8d541a40b26ec858305b3f2da4773755c2cb417adf0128842acfb6eba86da6f084e04c97c5b928bb11dfe59a4b1fed00aac00bacc8afb9931307742146e643cd44d0a851c61084d3b334f27ab6e51bfec56782db22fcbf4917c20c5e9b8a74a8ec2d3279b4a27739ff1c85227f16d55625ba3bed176745f786ad19abcf62ba4686a018dd4d5cdf95b76e610ba69906f30b5726eb5c0e632d64063cabd1574"
+    "size": 15233,
+    "sha256": "f5897712b9c7cb8ab971cafc40c5e498f8140bd1bee9971f948317f01f320eb3",
+    "signature": "0beea5c9a72bdf2d0a9c33b97720bcf211c70d54ca0fed80b1aa398010788326e5de515ede39e1bfbca4ce1c0d01c175637d219c3579a3f9a04d592e8c76cd2c0a9daf6e43083fff3f5492f00684738ada4e1276fc6a07a3c63be1503f2fab999db06bbb77462538c32b37b8c91a41cf8ceaa94146fe029518571699318e98e6598a8c02b4a446101b3964fe3ac672acf9a1fa22de9600436e29342452068c35d798fe8b9dbae3fcd66c58080fcad7db9f173c2cc4c83925b0193e9ab8769b992f5ec8f39b7bfbaf937005433f6efd5fe6e2e4f3f9271bf47df08f686d9c57272e7258b3c6d7f5cde5b1342efbb76fde8426647638f1d2e5b0a4015f749c9727"
   },
   {
     "name": "mcp_client",
@@ -1600,9 +2272,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L2",
     "risk_level": "medium",
-    "size": 25815,
-    "sha256": "06a4d0902357e4692002e48afa60140609d435d6ec1ee2f0c80b15a2263f8e8b",
-    "signature": "268c42a2e2a3f8e7d29c144b2c1a23f625dd94e63dc5a718519cdc927a940fd7ce6eaed136e93f2aedf55af8728d9bc3230868a93226653a010fbff952458fcae0b5c5c986b25d54e1f753616c4a10a03982bb92b63898573617fed2114f7eda5f76c2b7f579ad7c8d1e4f422005c1953fb58cfab918e57ac8c275bf2591b1c4045da8b7ae6f3f1111f6546797a143b1e697718076155b0c1fb6591a65b926ba0b483b5f7340332ffa6db1d4e60d4ea9c30e94e0a1812827d0d4bcbd8b2af05210e9729beba245c26f697ee5d828218a3451a967e15ef140126a9ff8432cb39edaee3b8c8d0cd9c13626417c906ce425c0fb967306750529d5c1a852d810bb74"
+    "size": 25496,
+    "sha256": "11478fb96cfdab687db7f169f010a687465573b0aa217dc75c8383ff89bf29f2",
+    "signature": "1e151fa1749392f52f72de553d810e0d4b263470939a5bb0b5638bf8f422c0d12d4b302b2f5965fc2f75362203b39e5907e4bcf97f58f5c4a823057e809986ea3ecfec2b5c09419cb051a668532762905f4de6f6d8688b42ee78627ac8f368f4d8d35faa32c4ff49a895d6b2cae823df6a8f89c97613aef4d461d511bb6820d3e9291c9435a0868f975be722fdf1922d883e30483765e94a4b82ca699a940005ad37e3934ba24d2a749e2a3b5afed1e0a59cb2fffac24123971c3810d4d21eab713f775c9c6f550724f45ce9b965b1ed4f0ab89dcab800bf28dfa45583fcc6b58da3a16db66c182ac4a5bf5c7468e0eacffa7fce4b7ec0faadf29d4b21d286ac"
   },
   {
     "name": "mcp_server",
@@ -1648,9 +2320,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 19496,
-    "sha256": "afe02336774c486c64c1c9ff7add9c9cb1cb61a195b79ea949652997f90a99d2",
-    "signature": "7bfe5683da5bc49c3cad6df1a846cf6b84ea46b1bbfe1fb4ebea9f36b400ac6ff9eb5cf1eacd1bd194003672cc91017b0fe011c0bf14d29e0dd681ab5d480a342d3e0c5bd260b8672126bf38bf885fabcbf2a40db9016ecd63cd128a2611611c913e5d8f7a2066c3bb8d78c4891b2e860e2a07049c4abae40faac5b019d91559a81b100e09ce94f273e7c750aeae229f18c2575c2e65c31f6c3260444f7669764e9e394b6e1699b550c1ccb220520bafde7732afa0634ef15fb967d003bcebf25104df4d592e1f44322dc4bb5f982a6ce66ab7de6c41bb0a8abfef9b5da29a4dc6619a762eb124e0e622597cce190aba1547570d1db9655980eeeea8b0b5444d"
+    "size": 19604,
+    "sha256": "3e3f56787df9befb12c505164f176695f8cd2f76c3c17afa5686f21a426857c0",
+    "signature": "679fd2ebfacd145e8bcc30af9ccc6503d4abad0e6fdb0be18830c32bd07aa2c933bd9d20a379e54a27c557102b418c6a3c8a47f2e89b18c28c6603d3adebd65a12571e4bd1f6630dc7cabb277f04913eab64d6ad12fbe9334e573762ff617a7053b155d03c9e06e12f579f8691afb861a903b2e87f1cbae4a3b1a7901081f7931a4b2aec6f3f283ea5fa89b46313e0d95c4c09028f325c5e0f4bc1631f2b70a85a812a71b08ccb08f03c29386f7229e96b49ddf00a31faeb67c5e4db18ea716e7f72dee45a2b49e77fa1155a84c591d8074511c481a6b5a393c66acf5d5c6f9dcca9930c6ac88a5ea66be0bba14b6681a67b566991407b6adb01eb4ee2274f2a"
   },
   {
     "name": "memory_cards",
@@ -1696,9 +2368,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 12964,
-    "sha256": "97d263deadb6bad78ac1a2225f1a737ec60b8c60bdcffa83dc5aee0808ad3333",
-    "signature": "604c521fbcfa61b05111c73db54953c6b2641b0713c5de9a03c3a976b7811b1de85e7ee32238a1f1440c79c2d7fd6f060bbe917d1af9724dd322de15f9f1f8b7c79a24152abee943923b1f49de99e2e2d6fceb0e222ed5a7ea24a83c134c26460c768e72b7b1022b44f351fe183ddd4cad88d377d89c80da19e055d21cf891d7afcae24cf201e903d719a9c2ea62ee4633bef4c58dbac0470fd58338c00c704e0e143965afb5b754c2625294c757d9e5786491196defa01952ed72fee3463bdb8983cc5dd2964dcd0c2f3b9a744c58d741827dbb75599a7ef7154da9bcaa9cda970616f5f985fe523130c6bfba75794f8fba389cf282e0ee5836e99014ea4049"
+    "size": 12938,
+    "sha256": "6299828adccab3f824603b2b1fe32e6ca45a137eadcd20591712443d0897226a",
+    "signature": "63c283711a3633b6364ae3b49086f25fd15908ca261f4ccd60f46d3b6a9b4aa2f6b48a7de1b4d6d1eb349772c942d8280e4c275f8e31550b1daeb6f8db63b5f590f6ab057482b03edb15716447c2803c922a269b7117ca214a78662810824d27093ba3ceadc59e981ad17f67542c83d8c6fc28035ee311647cb8570549a52731edecfc1723e07ab667d24f34027194d6227a25be27e1685fe4cd8c4d742be1733332163590ae7a34ed69c7684b31c71f449c54169afa7e11bde687d7fb95107cb1f7578c9b5cf1a8450b1330ed581c9e9f39890a365ab889949edeeffda5a9fe4eef9e2bafe95e469f95c04978e838948fecbcc9cfed1f93edb86fc9dcf00ab9"
   },
   {
     "name": "memory_loop",
@@ -1744,9 +2416,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 12149,
-    "sha256": "374d9dd8ecb5784dcb1b7f079c8edc4c333b14d20032fbe848980c38d8522716",
-    "signature": "6a161df58a099d8c82c95cd814fbdfa125063897b0d345cfd44f936a4fc1974538b297bb67b2eca666e06941f0f4b79f3229d1c4f0bcb55324b1f314355d38e00075902cf716989222fbf6c4b50e0c2484cf0719e49e95c764e4c273f8ab4d2b2b5f7ee37f4a4b7fd2fc993f1fe5840c2f058218a1f18aaf70d493c8801804a108033191df4d26fc716b938fef202a7a6b465363140b3754175222e4ccb073314e5fa399dcac79dafe8d006eb7d39a4b7e612ea30d21b8f34b47638f7b4f6bdd9e363fe1a463df2b5e78fe86b36ec4e0f3585827d687281231745bbf4f90601864b83411d632f94bc2bfb77889bbe9773b5a65cadb6a94bc12e6edae1ddbd6bc"
+    "size": 12115,
+    "sha256": "66bde3d24c6f29f5732e0086efbc4aee49cd45b813ce659d57f71e444166eca4",
+    "signature": "33f04bd1d9afef9e4a58e980024e1956de4c922ca1a829be5daf3f6f07bec4c67867100e8d9d1a5d52f58f629e821c411f5fdb81bdb923d5b9d1afd6800bf785cfccfac3b31755d9ec93a430ca26b7862206d419b2e1ad5e1a0a17a0b34d5aa234421cd7e5ffc771335b26d461086fc1ecaadb83949f8b8655a686d2a079d8924b4446ae365aa02f730d637d2cb9816a8011cc0c8a09c6883f5685dd1017d1cf2f3e7b5fa5702c9649e7ed5c1471e98bd6dfddc8b531c84c44936ca280f3c5a27ae77af0c803effb09b34773834cbafb92126823b6b6d05e95d188d0ece852db4384c70fd300f44ea938ca7ff59011240cd73294c857d99a4f8347c50e9aba83"
   },
   {
     "name": "multimodal",
@@ -1792,9 +2464,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 8391,
-    "sha256": "f77d5f0cbe7b7bdc97a0e541047b2cd78a4b0b35e644b0b12228436cc6460ce1",
-    "signature": "8c72e4a087bf9e41705144cb127b3246891bf5ed02ffe28282f14354b632120717e82a980d06d02fd14126aedd9fc0b7aee43b50568d5b825b83d12e1d2ad7ddf263fe0644eb5b1440dfa11c8f1d4795d248f7249d2bc0d0bb1cb8580f33fbc045f9a57f82e83b56cdbf148e28c0156af039080e4c0b8343a01106252c04da320f65d654a3599ac737fb28cff0d9e2044ee0e5062a8b747b8d9511e208143dbac7669ac908e4354e01d0dfe1142f27e9b4b002d6cb20ac635d13e52f52bd3841773743e7d67f869f53a27629a66a2ea6988d27332d6f24e22f155d126bc5c3fbb9f17ba8ecf0232483674baf6a52b680a21d993e7d20bc97b84f41aa26db79e4"
+    "size": 8952,
+    "sha256": "9ff094c03a3f02b832640a4111e9279bbfa6bafc8373cf4f132702d6694d8b7e",
+    "signature": "47f4a5ac129fefab5fc860a88df73f58dae2ecbef927714fcc4bcd80c59a76316a2232d991f9d35ae9c86699ff80f4bcfd8e3db2438ed60468b7809861caa71d94ac86e35d9b1faf89b39c0ab21a6e8df979dd49f35a98ccae760234b9cef94071cb0ae3a4ed5d35f6bf3fc8f45ba32ade91f55aaaabddfc991f86ce74a994e8b31735443b2637598ff3ef371eaae71d71a3aadd4461960fee9641dfab558222247dedce34a7d5dc29df790c243592975ea838345559a1ece058ca571ee40080117dd5a8854f4c672ef870bb43eed72a6c28e611d46faa2d511ba2b981506c7b3915fb0246aba681e926a6c61ce1cb63313239fa21b800c689943f390370c549"
   },
   {
     "name": "notes",
@@ -1807,6 +2479,23 @@
     "button": null,
     "tools": [
       {
+        "contract": {
+          "params": {
+            "title": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "记一条笔记"
+        },
         "name": "note_add",
         "method": "add",
         "desc": "记一条笔记",
@@ -1823,6 +2512,17 @@
         ]
       },
       {
+        "contract": {
+          "params": {
+            "keyword": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "在笔记里搜关键词"
+        },
         "name": "note_search",
         "method": "search",
         "desc": "在笔记里搜关键词",
@@ -1871,9 +2571,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 2450,
-    "sha256": "3a191e9f499b079b817b9e8b56ab9efa756e8de057c8d168714cafed82d154c3",
-    "signature": "7e3535ba0719fa2d06f7cfd7d9b361e436ad66df881ce2791fdae441acb322fefc094bc967eadfcc56112d3395bffd5e14e0ee6b71d6429a0ebf2e5ed791066d774e7ded81c227148076d26c2f23c124aee1aa36d97e78f6e87707995a932a8d0439ea1a0b55c94339fcb9b6c85d62062154a9e93c91059c3880630bd435c82addb91e46b762e7dfd706e5d704fcccb5bc56b64864786c44372c6e3e138a3af9257d6bdd6de4b0225cd313ee5937b57a4fac46a2b94c3fde10fed3165a473b60206bbe5c6f9fc7d715bfa866e9e0a228e656c21b2858c1cb67ea8c962c62b338f786b661ca79ced1e54adfd549fa67d1ee2ec2e8e34f905babee77be5c1a151d"
+    "size": 3190,
+    "sha256": "de327772abc62fb485e0cb6f386cd638a40604bb65b58729cc7eae99026c7129",
+    "signature": "2c8de13d861c9d0f30340fc1af99a1092a87f1ca5d2b535bea8659be1ef5706f640df0446518ac11d7d60c35d36ef37e1159a743b7533361de583617e13d25d6b8091d4e0c7a6378006ba6345ed292f97d23fe647bd6a76034bafa1e36d5620a104cdbd3145aa294b64505ebd5bc954d2c02b0a254dbe01827c78b7abfbdab05489ecf4535c170366c8432c9d4db331a76021e0bf41f27db1200549d2844aef05681b0c02ec082e9e4e90db1dd43a669af4130dd94feb70e62eb55e075e0e74946c0e061292426308c0e732bdd94e7b83c47e3a196f1c7f1e5f63dc8c94953c91afe41b818342602d1c1824297d5016959af0912625a0f45a24275b4b5e691d7"
   },
   {
     "name": "personality",
@@ -1919,9 +2619,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 1868,
-    "sha256": "7d332428c75d8cc5a791e5db139d30b7189a16149afc0d9444159ff2c50cce65",
-    "signature": "8f48a5d0f724f2964104647fdb3aa69198f16b68cb00f3acd7b4be4ae5f9c42321a67f63d002f94577ba47f5d0fd1696c78a577388ddfbc0e476753a619542f381f5b929219d3d38498608a1f15720dbc87d15f989475ce01b7d38b9f998597fb270ec14aaddfef1be6435b14e664d0cd748b153a8745362bf8d4291bd64d9fe5e11d3dc53697e2675ee3316e5c46dffe3cb44a0b89cb190ea608ff19c61f8a0d9f9fd55eef3c82a628add0d73a2740c96c74f790b344b1cb7dd8836cb15c9c6a623fa59ca7c61b748cf983e6077830c9853a862d1fd3fa2ab17d21c99a8c07d45151c5e0e666c25ba55003b27dd3205ea5ab1dd9df3c661999647c0b5b15696"
+    "size": 2080,
+    "sha256": "db4e0cfb12bcfe401e698bd28abb93d7ee705836ecec9a2f7a611a65ef750ba9",
+    "signature": "723046a3c39a880b82e241849746a0b9114c15ab15bbeada46789b3f76bc3a1c5885e1949ee46fe05267abe45cd7bae28f360af12ecc4d1687bc5a0a88a200d58d71e5f3c6ebdea0f4e0774e5f8bf5cc6f099c1d42f1ab35b8d645d8a9ee70cdccc9ff29676bd3d1d88e078a0187b378a646ef7b5cdc8c66211c6491bb69b3bd531bb0723c1e644c49a261a5b2795fd1517166479e0a74bd035a85e5906f576d30c6abf1d30a1b9840181230c3ed67e61e003a0f1e22d5866ccbcf27b542b1ac26265dab2a1df7ea82e2955505f86f224b0d131294124b748b95268e0a053d1a2363a8a54ed01bf2eb88f45e745bac96f67c27cacfbdf50a888cac2cacf5d10b"
   },
   {
     "name": "plugin_market",
@@ -1967,9 +2667,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 21995,
-    "sha256": "cef1ff4c40252d134aa46b400da736ed7728454de2e89d4098d58a9200fe86d9",
-    "signature": "7992a5ea3ab222445301b48fec49259265be4f4c46c3ecacbf2bdf9ff108b7e8b209a6e51804b81c483c76eaa1db820991571b9b8de86c4cbbb4c9656060d28bf6a8c0479307990d4abdd9cdfcaa96aabdb6bda0bc243f81c9eeeae9d3b8a8ab85dba494daca428c328ffbf1ea326cfbddcaad4ceca413e8d4aa4ca637ef309d406f3f604c0369a2bdf2095bd2649001a2c44b989463da5d22cbf80619609433c0d6b4a2d325ef5744b22c1eafb1b3efe67fe4f19bfbf283970384f52f996c377729a18918f0fde1c74a241579e551be18c79ef95338cd77dbc848aab7a6aa34cdaf81374c9dcc67a0eeb39bcf2c6ddba507c2679b7d940c88ea73eeb1d099be"
+    "size": 21774,
+    "sha256": "32fa2ffe9d987a58dfdcb71fb3a1bfcf22b9d7d9a04cdf2f04b768e850aa661f",
+    "signature": "381551efe2f1f1649082c0ade754421c281662364af500e3d82866abfe228daa07576e94bbeb9e93a5bd4c1e4f9ab85ebeed0c23a4008eb4e94df80e883b4ae8c0b2b1cb1b61d4d4100ac0b76d5e5e25aa8c80f72569d51798ee9145d26bc8f2770480c95d7b5a9555605cd57b243779e7aafffc9e55365a8215af7385f31b892fd0ca7b4e8fcc245f7f4e4674764bb314da8df508cc403d6d438dc24e99075558d8fe45c0d488ee5a99464a841a89d85d7e2d515e755c718c1cd1bcbbc3e0918bc53432f01a0e0728df0e919f6eff0d205bd8adae7f2a4cca3c17a6cb62c52819be9d7086c1d4cad60644af078a742ef14eda4be534f59be6711410587cfbcf"
   },
   {
     "name": "realtime_chat",
@@ -2015,9 +2715,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 2304,
-    "sha256": "c75d3b68265152ef067db9bdc7822a22928d5db8c21dbf44439676df98e1c056",
-    "signature": "51ecc569291c41360d7dbcd8c06e668452b15c9f31eafc9b7d116b7df8c51009cff8c0b9415c87b6210755b14ff4e72ade5bcc9418e13fb59c598626d6bec10af575767bee362697c811256b900e528489002a4e6ed7b070ae313f87186c926b14e56445a7c29298fd95de266358267e137d83f449b049f1192f8e5e0fc87e98e82c2f722d10226c414f1c24438a795c93469c8f02a061af522d4f603afa5117dd349d7eb1d71a40d15f67fa696fd8f27112faf370efd16bd1ecb0a00f5715f29933bc5d89a67f17463bb5461f64b0b757185d533ca75144cae829e982b7e02349d9df0c433b89995bc0512dc3ac7242b5c41b0ec1aa90620fa387d1a31d45cf"
+    "size": 2512,
+    "sha256": "16d3823e8960f7ed6743bc2993b5682c5f73d25c81d75180971848f93799b7c6",
+    "signature": "566e7e22ce53b4fdc110307a4e93e4f36304d431fb8dec80fc280e3538571f8b0fb47548a290cb278d4b97a8ada27ea804793ebb4a89bc57c0db6eb33ead6610390c74d48b78a7619c8e1c11da58b04ebf8864fc2bf43fb3e5ab45fb591dd3c29e59d0a31ec54e1ae1be1f29fe9461ccbaf51d8967e42ba318ca792a0923c9ba0d1f4decca75b37578f640ca089248d017b66b668706c307440a9351fdeace7b7a64cc66fb0835e38034e15bf155ed5139a6d9788b2a2b9c9be5f0db84567fa59c5900eb0533676896fd614047e52828ea6e02a48a49de9cb26abc939014cdb4bc927cfd4c80cb218579a282be4fa173c77e3360dc47221a5e0ddbd3ace24774"
   },
   {
     "name": "scheduler",
@@ -2063,9 +2763,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 10458,
-    "sha256": "010b84a0381f1589ebd3aa091b416343b49ecf9d0fbb631844e0ea6205d5a707",
-    "signature": "602c51312a3bc1d328008ed388b07c452c1af81f57a3c1388ef036a01c31218480f614d4919462c6ea2d38e3bc01a1fb23128949d22bccb8968355fa41e61f0c1c4662c944bc3bc0cf1da07f92d9e2b1edc3e7e10c67c57e908f1d690df1ec15ba2e0e1e33d67fff7b30a4d0e14c17baab37cd8096d6cb6099494512d39f64fd931c1b6da1c9a0dc3b5583fc5e1ac69aa86100ea59e3eafe324ca618e9450fd4d5eb6b9b63077b8c276400978acb9e96a61b9b7628bf344677b62eaf3b418b49454452b49646d724c50ca31c677bf57df5d27718498104ba9b1ae27dba8074f5962fd6558008cb4d644b24d2598a424765773c055a469cde06508dac1e50a3fe"
+    "size": 11857,
+    "sha256": "a42f2ca05d868826765923ee4b9a023fa0d3c36053f4bb532bf31d8a3bab6424",
+    "signature": "5d7658c475150453b0ae60b1717a73dfdaca630a85a43c503370c46cae274162ea26e1e16741ce1b85eeccd7fbadae6c7d74f0d751a8cd8e80c7cf2c0a43d0af0ad30f5d69831949e5dd6cfd847f6823b9875507f82f906cd89d28413600f7429d89f55b08e716ca47924cd7ffef2780cd01ed069d577eab7422502ffea80b143fb0236c20d99bf64066f5702b17d07d1cb6f0456caf6a528960d6ef63c5453ecc45e9493ee544dbc44c24be1d5ec36743954d70bb96996051b422caf8614c13a4ccc6ed141622d68a6f0c1f16cbd37584a2639505b5bc46b937d20c21503109336c93e3a43cccc51a6efafff75f49fda16e6ee5d538bf6b8f2d518a2ee39611"
   },
   {
     "name": "self_reflect",
@@ -2111,9 +2811,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 8200,
-    "sha256": "9c004b85919b77e06dd4f2480c7929bcc828b9ad13bf438a271459421870e28f",
-    "signature": "03585371f9c8547ba5f18768a766e2669fd02dee2cd3e7a382d937a999187166be90966dcd6d540a906250fa2902b6d5404750e4a8a7352663a179b6b99d409173ce1ce96799987422d863a0ea377cf77519b32512a92d61b112821b3b7c70b4a23c872f812715d9bd3d0d577ef9878147d50ea1c77ce0f3934e4cf2d747284e58fd4f954ad54d2fad9545ea58f28742939fcb100151c6fa99caa3003ce530048a1c5b84dcfcfa9fa576c4448e645207922c7d5f7b228905b17a72e9e6cd53ed0b5a4e13aa4002cfb50310e61fe245080c125da355775d795e58dfcef3447038350f4ac6e6dded894fb6f0c7a9f0b4d71489529e997d90e1d09bc3e0d9b5c690"
+    "size": 8249,
+    "sha256": "97de2c1f04c74e18dcfef0a353a51b968d590a605bf9dacbf60dc17f4d852441",
+    "signature": "364de01ea289543aeeac78b783a442f988162f0aa7b44325ce08be09951c29fd1187cce8e8c67439f4c2e0bbd5c2fcfc823b54357933002875833bb63b36c9b7c9b2936a2c2191c1bb4d3534e095e8fec6c9b4a586281d4ad5de21afdc297e51ff20e27ea83519ef1ad1f340ca1d1ba5876f7f89f30e7c4361fd7157bedbac521d45d0e821b73cfe2b32054489ce1c70c12e7362e1038d82743dbc9b62fc8b9e00c01126a0a636cade0933a4eb4767c3b0be2cc8d60055780e3544b4058814bb03ff2807925c66a7a0ec202db147868b04e499f583710953b2acd3b49014563c635ce9aca16985e792876673dd5ea928d5d5710ac3b703f6401d2c1f2bafc78f"
   },
   {
     "name": "skill_capture",
@@ -2159,9 +2859,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 4750,
-    "sha256": "6657cbe95acb64986de9500ef743a0c215c6d50950217382c992b62d45f5fe85",
-    "signature": "17096d13a50dfede7e22c044a11cf615c376964ac216e550b7955c9d05c61f9591f158f35c1de1cf4c532334dae50dbde558a86efb579a7e26e8960669259c93169c219905ffdb3793dbfff58455349761e91663e61558c427ad610840a71a68bf97f687be51ad9c203c1aced2583ac5b244b394a34f654b1a27f73ed7778bb7b096d646d3c0de76db449804a5b3847a28f2f7f380ab132c18a5ebc0e303a98bf9e883b5e40dcdee3c40ad1d04d6a965dcdfd89c9e9b9bab08866f3280245545d3a5d43658de6885e935bc1cf61da5203f724c137d62ece2f37e7e957b4df10b47a27455d9c682c1b7f6811fa2e854f30084fb212e1f07109b09e22016f3151e"
+    "size": 4879,
+    "sha256": "90a630bcb2d339a2b4313593ac4fc76a244e5710fcf880f21534ceb3047945a9",
+    "signature": "0d878efafe7143d0528a658f27a889d5aa3bdf9d5fcc928250b2d91bff333089146cdd6a83e7ab5d72e8573efb934f17de08f2021d96f5d774532e76ccbca402fcb20f815e9d3c5a1952c2316afdc5a800dbe6d7065320d452975bc9f33b1c4bc1036a5fd05e0c73e82b8b71e855b3a0f121a10e38473989e1ae4e577c4306d130fe024ec749d8922d72b8746339c0fc4683c9613a60975611c606c797cd4f95618145b64b9cddea01c9ca3f59d8445f13106250c5b5b49150cdd916ec5a265eeb959df12f3223d2f70e918762c7b1318aaeef30555c495471b02c94664a8b720d6372795ba3c50e13029469884d6372181632c57391b6b336023f1bf5e6c25c"
   },
   {
     "name": "smart_router",
@@ -2207,9 +2907,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 7551,
-    "sha256": "3c752e076fe08f1dda382fcf3f57e217b35cb512992070a2ad23deb1d1c02626",
-    "signature": "6789fe143fdfd417bc22e66a2dc97dd0da95ce6caf283ad8aba97e815b9e7f69e756952ab5831efdec6262426ec269bdde253f2b5a425a804a1dc62f75e021d96c5bd9b8a48d5f92cbcf84fd5ad1bff71ee8df986edd4593409cadd8401b743cafca60f3c5badec75d62f78e9a8b3082795b495af268a02f9fe3bece00e7ac3c2e3094caead76c64d9503d150081dba3e9d3489e8745e4c45edae8b62df19f4fc04305ce5253d8deb9b275213601d2baa78cf98cf8d9c2a69be4cb00ffe7aa20dc14ddb870ef0a920dfeb24e400883b6b55cbcd3ffa8be5b7f79c3c4302883f0bd82dfe3730d5d26585d58a5d23d1c7d1fc788a79b713e3179a607ed7a3611d4"
+    "size": 7659,
+    "sha256": "6531006fda7dcd518a8f4c7efd6b373b149905900c31bd88677d331785eb7eb6",
+    "signature": "75a63568fa21b6ccbe0e9684dd4848db0f3cd7843d8a762fb4fbec2b4318cab68465d522d320d011b5bc0a6bc33fb90d5d37f3262b918be669ea9623a51d97f7f4d75fa3cac4e98cd8ab805850e86f9028e835b142d0378cde8ed7b32387c6bbf21488dddcc4716ed27153df9e17559560c2395491a558d8a4666e6892cc0cf953b5562858bcfc0fd4921d5c036000e94466f778fdebdb595eb67d9a1aa6b481b6c85209a430e02f33e8a39bdbcc0626439056845e485887adddce3af9d3bdfc1df7d85b9fa85af055a02a79c88da6436c2539b4a946117fd49bfa0b54c1270dc11f0b2725157b0faa09696dc3ed9c0fea53d5e1afdd3f6aae67ddde1f575255"
   },
   {
     "name": "stt",
@@ -2255,9 +2955,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 7539,
-    "sha256": "d26e7e2f3bc844ca7357599876a9d44dd44d7cb3408039f13d753df717992695",
-    "signature": "658025fd37443f64244afdd3797f01f106ef751f00165427391547389d0cc05359c51eed30db943344c3fc2c5d45aa4a48ee4dea63ce5817db474033d26770dfa02a0ebb86c54be81a3910faa378cbbfa86ab6dbc118233947cb3a12b054f74af6eb71d64d8bbe79a9c36e6e6b3468de52e6a6389d53250345ba665461f7db8dfe7d3860b5fbe40b5f2abe4fd7221b1fc7485252a54603dfcc47211a435d853a4929ccceb9cd40e9b07cda1cef136e04079b9cc00c46637aafa2d4073829f0d0234d6a674b6cc2e087d34eca00deeee3b50a70b7a7ec0c530157ee3e75ad959814cf38b75b16ed0bedcee3840fd11fc4508385d0fddae4101313875371d88c74"
+    "size": 8322,
+    "sha256": "fa911df536c59e73785e0ce22f54883fb3c7fe73f70a726641784fbfc0cb21ef",
+    "signature": "6fc01fa4d74f5c14334c2fb15f9c7a28aaca82ad801ee91d3f6cbee5aee78f4796abedbe4da8ef323abd4ca951f8ea4bc05cf276afda8d3f72441cef8b46487e6ef72c63262aede57348a84198615e443ca157a256613bf1af4aed7e2e688180ffc6d3da9868c8c0602870cfc78f4ea71bb2b1daa6366fc025b5a9727621d22dbceaa6c0da3f5160da8eee0a2e98920eb20ca6f212bbb7edada8e80eaf7280304978e5442b26a1ccacfccff04bacf342100e2dd79d63b13ee45c9e854197e040602b4fb6053d5222ff60ab5a61ff8e0a64ff8850bb755831d9641fc6657ee6ced86a1fcb51414d5c2242c74596e4bcb51f64bcb4677c984e58dc7f0ece24d1e3"
   },
   {
     "name": "task_loop",
@@ -2270,6 +2970,17 @@
     "button": null,
     "tools": [
       {
+        "contract": {
+          "params": {
+            "goal": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "任务闭环：把一个目标拆成步骤→派子智能体执行→沙盒验证→评分"
+        },
         "name": "task_goal",
         "method": "run",
         "desc": "任务闭环：把一个目标拆成步骤→派子智能体执行→沙盒验证→评分",
@@ -2320,9 +3031,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 7638,
-    "sha256": "88380f4b7e720ff9122cf873ad67776bfc2201ee2d4ed3d1ed51d3ea986cc80d",
-    "signature": "3368f12d7ca6ad001bb5281888d552d703df6229156e442e697380fdcdabfac1b351eb9fd2e3d6357a83d0578444e38e8acd027e3d8c6125fad1d88ae7b4c49eb2e5646b83322ea24b548b2ea5ed4ce7dceb9f95590c92067644a89226c6a8eff450310e0063836c58bdbcc4d53520eeafb3d4557a0a6cffe12a30baa2f407c09d6d158c2045a11074c324f33de9428a4aba1c9ad841dc694ab62a518245938b58a507f46bc738c7a619131d69e4a4cdb96720b58ba018223a14369bc5af34ba14e186067c92e09014c9189d60742ea04355d343f3f16adc636ce86e8ac971fd7503b12d91463c04e5a2515eddd9fa499220bdaddb6266fdc50965da8dd880b7"
+    "size": 8416,
+    "sha256": "c27cca969fc79c73ae939e1aa35fdeeccb247aef693e58538e60c55931b602fb",
+    "signature": "1ebcd54f08d75ce53cbfc191890b3705234b9387c52c2bbf31e2c9b6882aeb3fccd6b05301ec9abe2d898c28d04a127a78d02df7b7c85f9923402bcc10d3606fb99e4e2788532965ff0ab07a9ece207c7daaf5c7a5c545fe5bbf7e779038fb0e46b121aec7f86a9868086856100da824e317e0daae5371a100b29dc437d1f6c924ef92f2ab13fb523b8955394e93eb991c804d7b541a20a5b137389e1de511b9370dbef4fefa9ad11de60a0a61791fd11a46fd3eac814fb5f6d8d6af6cd322c9ed0ce3dabe517f4356c3bb039fa1b5116b5b89e16fb42ba38432ecd5372ba6b670440139c2cd5f209e2bf660c97508a71a279bacb52e2b99abbadab4c945cce6"
   },
   {
     "name": "task_planner",
@@ -2368,9 +3079,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 7503,
-    "sha256": "c57e33436ca4b36409349aca457cd5bcaefe7195e5f9dc3cdf62afe91407dec6",
-    "signature": "1241c51ac6eed9015196ca9adeb8b2c03da3c62b9b325b94f307758edc8d43d4b240fbd5ad4166f4a924010f01282b784220af02e50849f1203b856fa347e77e95bd56eeecc773dfb69c7f64836d11ef5740fc9618b9550aeac958341e3c8a90f6e717e06f3e15bbaa8230693d6dbbb65056c424aae13dd83e3f99a8a4cdf1d60af58b0e42bb284e25fae3d4eee68cfb12691f6f9d9f5a90007ea36ce66efc0141393fd091a4fa889029fc1ad8bc17c343ac0aa0ef60882e94687049ca99f47bb6deeaf4fe7b86def6ab68d02f43579801ed5a727da448abcdad99e0abc77d1d82a6d12a6260197a296db92aaffb8f3d4eb528d88bc286939761fc1b0b41af3d"
+    "size": 7599,
+    "sha256": "5781775c2492c39ca1eb2c77fe654850cd548f4f9ac27a502b9c7bc92ad8f60d",
+    "signature": "11aea951f9ff1833c11b0c0e006e0beebfc518a99f452c889fa5a44915445b55ecf86beb5fd26f7a83bf322fa4c11f79ca6cc09633d3c96a69e8222f22133120455e0752bd78aeced20d1840af4fefe0d12e544b2870501c14e950ac7f547b4965c92cc3c8c88769ad3ab83a22bb4d9d1b45ba4ffebf9c9c830c6c8874c2473d14b185d5d80b77a4f882c7783c6aed4beaeee4208210305bcba0133180de7d87a83f509310aae04c16cb2a6d4d5f8058e01b656caf7074aab80025e4d269417d075edc6e28da4c04ebc4c70d98942a9938cada620bc88eecbcf84a86dc09678dd566489ac48937cea50635c997cba9900fd6e2fbaf60b6534385e47fcafd0a56"
   },
   {
     "name": "todo",
@@ -2383,6 +3094,20 @@
     "button": null,
     "tools": [
       {
+        "contract": {
+          "params": {
+            "text": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "记一条待办事项"
+        },
         "name": "todo_add",
         "method": "add",
         "desc": "记一条待办事项",
@@ -2399,6 +3124,13 @@
         ]
       },
       {
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "description": "看看还有哪些待办没做"
+        },
         "name": "todo_list",
         "method": "list_pending",
         "desc": "看看还有哪些待办没做",
@@ -2412,6 +3144,17 @@
         ]
       },
       {
+        "contract": {
+          "params": {
+            "idx": {
+              "type": "integer"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "把某条待办标记为已完成"
+        },
         "name": "todo_done",
         "method": "done",
         "desc": "把某条待办标记为已完成",
@@ -2459,9 +3202,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 2812,
-    "sha256": "9f59f7534ecdad4a3b004ad7f339fc7706eb7a9ea29de8b55c768f3d29255f31",
-    "signature": "3281e52d8a29a026e9884cc37a40460a00ef9875aef0b6f0987cd8d2c1bc95d9935ce2f1a7f5a5731434a57fbe4e0c7ea72824b7937c218c2b4aa699eb81761eaf1fde6499a01f6c097f71a0876bb54c1b94be6e05de5f644280a9e8fd160b3e0199deaaca75592fc9a64d87e1cb60e9c344de4ba75dc46168f4daa66fdb5a7043b63172004f2b642d428121f611107444d4236f927d0f16503a0235f6070e3bd73f6285ab58dc25cab169f5d88a759018b6be31d1c55395bea620a073f3b01beafd3dfc5dce9575d86c517cf77854ace0d17869d5a1645ecfe77ff5cd5e4dba9acb14c12fe1b1ff877b1293b868fca291c0632bda8722a7e064b7383555f15b"
+    "size": 3691,
+    "sha256": "b83017d634bcb4e34b7d5ad49bb7be2fbe334ab93c9190ecde190c672d3170cb",
+    "signature": "2273f89c5d878a1929779cc003e42bed6c01a57b4aeb42bd01065bb47f5a45b11913a8c5ad1eae2278f0191b5717130aacc0baf6651a8397e11cf08e3fd6ee38b88011b2764701afc16a9c19d16de23c16cfba3f14d31adf091b97ea0b98f452aa1ca462308801474b576349af2cdcbefeea992641608a4449f7b1ec7292c1165f61e6f4b9635a3f9d57111c7d3efd1770e1e4b4718a4445075a378f5476894f6a174188c5c7deebe84f79cb3d9c65ed8ded399a8dc94a094d2e6acde084db31721986931f7cd7fe29650ea2d54a3d582355434964c3e4992823f2dbc78a7980016b95631cfc6a4c4649bb398d96fd8401dc7bc1b14efbda283666ea87a04531"
   },
   {
     "name": "tool_caller",
@@ -2507,9 +3250,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 24456,
-    "sha256": "c7ded711dcd4cc5f360ed16854be8c23d5bad6f89d9ad7216cfb06f8c07be99b",
-    "signature": "853dcc85d081a179f45cfcd1340cad9bc4f38321904113a59b9355c256ba422a1cbaf8e3981d65c2763a93b521bd024a583043c92d327deb389ff07c0d1c4acdf97dfff56a5280978c8da6bc03d9677d83cac7e500673b0b77ee489b35131bd44dca67b8388b8c148e59f71bec46339e75c3a02cdc25e1db839f8dbb95a3843f47ec82abfa7c49417ed4d7f5e7eecc3af118fa5329b8ed477edc625ba3d6a70695cc55327475817a6c5ff67cdd784a8d62b41a36e727050e475ebaa2f6c32cb5fc8844e1c04c1958a8b6ff78f7af20c66d7e7c026b489a20993d5b201f7da0f731fd047c4543377402ddbe8459c530f1eea712436da4fd85ba695f6064c1d943"
+    "size": 24553,
+    "sha256": "c24d77cd8b553e45adbf60d8664fda175eafb4e25560bdb7f01cdd57693fb4aa",
+    "signature": "759eb17c7413730707a28402828c5359656c5860eb5403d872e398940c00b539f86035be94e944395e5feaa3d46ef2a9a83eec66809ab278fbbab492438c807a67eb6e79f09535956447f7fe24f94de2570179946bb0621c24046ba7b65a2b3bb4aa3a788221d37e36f74e03174b166c00727e7f1ba29733e9afb49c6a51568f84f59bec28f6236e8ce0c4d523fa1398028b34e7c38aec67af9c8c56d5e51dd4fb3f63b97f96c528504e7e2959d8791c58192b7d2621317f8dad008e32471f70ca4f978113d0c291a003c421919d56527f478d278a91a7ccc21bfd5150acb53c788d30b4e0396701e785a69f028a815f4096d7e43ae81176577c7ee15a335ab1"
   },
   {
     "name": "translate",
@@ -2522,6 +3265,20 @@
     "button": null,
     "tools": [
       {
+        "contract": {
+          "params": {
+            "text": {
+              "type": "string"
+            },
+            "to_lang": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "把一段文字翻译成目标语言"
+        },
         "name": "translate_text",
         "method": "translate",
         "desc": "把一段文字翻译成目标语言",
@@ -2539,6 +3296,17 @@
         ]
       },
       {
+        "contract": {
+          "params": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "判断一段文字是什么语言"
+        },
         "name": "translate_detect",
         "method": "detect_lang",
         "desc": "判断一段文字是什么语言",
@@ -2587,9 +3355,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 3878,
-    "sha256": "bf09d24553d2a2c30217f52dc50ca2e1fbc8273d288d00784320adfb185ab648",
-    "signature": "19a56410f248a68ea317bb90b9c655adf0c69496f6c712bbf8bb71e3d9dacf6dbb09ceb2c82e69fd94d5fcdfb98b6763e0503bb01c1a389953767909c4107f8775e652d1b98367baa827781ed0881a051cac4bae0cf167320e06f27a693db293299d06627e4d0c436c151f543d66ff59f35b5f4686ca8a4d3a467b9eb41475dbaef876d377ef510b2f9be55a5bcfd5253277da235ca13fcfb2f8b70ef264773402496bee94cbabf7cb16bdce4684b7a3f167c0333c542928c44da5501fa4526d5997efaacd5c26fae7f9f9d4bfe1ff1c7ad76fc79c4b968bcbb9347b96133d8b3abbdce98f7aa01838a35d0710a25c5a424edcf79292e319df300a64844403b2"
+    "size": 4670,
+    "sha256": "ceaf02a2cd0ced84027e7611297363911862c7cc0a8abfecb54b7f7db7af561b",
+    "signature": "3426c4272ae78296b4176e451c4cf0c3519c8d37da3f5e80e0279567bf10763e9f5a69d0e160136543d934dee445ec71e6f7715fec47914ac01b423be4989fa4d4d4d67cf2488da51634fe3006c810739d59a18f6567fffb92f2d40d0e9fa0fb41cc1dd0a6861dbc27489d357e671ab65b0121f9571f9f9d5e02a58a204988aff644592004be989e8afb742fa50e3d9404a8b90c4f452ca4ab8f916e9a3ef337ad01433645878adc0481fdb10ae3b8e261d2bd6a80152f0f1a0af4a1b6ddd16a63c66abef81cc13a57c863529777eba62896aaa6846e03b22c13f925870acb149adaa58ac8397b237d10b47f88f02350caceea79099b890e56ba5e737c7afebb"
   },
   {
     "name": "tts",
@@ -2635,9 +3403,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 1848,
-    "sha256": "4f8cd124e24f78f956b5527f213ccacd922cb51ddbaf1c4b797146892a749191",
-    "signature": "3ee452d7813bbf5b63e301baa5b32acc09f1d2258ea35da8a8a309c505a868f88b3c53383046a5a7b8a721e2fe3669a554b9f42724f45860c75c773f16399c3ea55b3afd428574f18bffabbe462a3e76259a3db1428142a726fac484b12c1a2b9f7191523897e4a29adbb37dc62c8375ef80553ce5194296698f5b5013f86b4f27563b820712ae9e3f842cc0fb62faf452f10f8eb616426fee5b29542d3f555c68d5dac1631356c53bf69864554f556df62f3bf88ad5519c4af90cfab9bb8a3962e1f3198ac1fe826cc3726e3c0d409b8d4a862401dd54ddf1b1d8921ea3d2d8fc0b1bcb494838744e29c23696388c069f643f672b8bda315a2bf8b3e5775e49"
+    "size": 2062,
+    "sha256": "90cfc197941e3af4c64c69d6e5d5d23be1abebaba5b5efa0e55396173555d19d",
+    "signature": "5007113bc701cab5af31b525c99309b036e6bf722e4ffb2c2ae1ce5cef2942d31a3b8de3a0c3081771a7d104bbd3990cafd21154f37de468c10dc03d8e7595cb248479c3ed19427159a6bdfbef1dcedc22ac01f719d33bc540c0277a1d1cf2d5bcd5faebe5d14ce1f23a5826cfd6d874dcd641507480584b42ad14b1035e06ef7684f1a007014fff2d402d3860aed0490666c0e46e3e62d040802b2f64385a1a59b14592e8aa30597731ecb294f6b218dc15d2dab9ecb4f9a4323399edde160733ae2c50821d8ecaac184c6bf4baebc6978416ea6628b2cb5153cfb174f95c52f69bd18c5b7353547208b2289f90dcf999404da114d4780bd1c1c56ea055fbdc"
   },
   {
     "name": "weather",
@@ -2650,6 +3418,17 @@
     "button": null,
     "tools": [
       {
+        "contract": {
+          "params": {
+            "city": {
+              "type": "string"
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "description": "查某个城市现在的天气（温度/天气/湿度）"
+        },
         "name": "weather_now",
         "method": "get",
         "desc": "查某个城市现在的天气（温度/天气/湿度）",
@@ -2705,9 +3484,9 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L2",
     "risk_level": "medium",
-    "size": 1973,
-    "sha256": "188b3381d1a2f79e7cba4d075d44db4959d50579e90309bd13c81af2846864c5",
-    "signature": "741fe7fe0a5fca6e053fd8944d4a607b3e8b31fa835447d94c81e61d896fe4d91713b14a1e1bb39501eb05d2770664e3c4adaf31c0452efc1bc284bd830cf6b1f9855453f8ba921921e512f181d53ee506d4d45212bd9ec00e2473ccf6882d40ff41a3813ffe0bbcedd8ec9c72311b0b3ad8150a23b16e14791de1fe11cb1891e34d16865286819cb4e0359270847ee0e356122beda33535a77f3c8ec206e0acc88bbf0eb9efdd78aa96b3a52661230c996c395c489de23bda3aa9385edd6b22ffaeee3150102379b9a0a18de9b9407b1cd92f1b71f65b404115d57f8eb87de74fe1e74e1190cd066cdf89962cf3d6075b5e0bdd632e2d0ed8f684cf17973a2b"
+    "size": 2446,
+    "sha256": "6aa289c67644108d1300e6a9193ced84743936575eaf0e0702b65debf2a02e18",
+    "signature": "6fd276aad8a6dbb8baa2b19112171a4186f856462619e832a83221fd3c0fdb11dcdb6611282aa3ef70dcf531dd65313a13b89cb4ee8d223e227f314fdc90a4b7790a71f2efa4ddccc914fd234a4dbe9a63d93afc016d5296234d413ea20b2cfafb7bec54b0c95b0a8e2200b929b4172e4d15a5371a6cf23e20b2be10aefb2bb80d5020bf2c235ab781b5107c7187360ad47c261d04f97e093d1d9c967b8f70af9768e993bb1d40244a98c05d1ad64621ee022051abcd9b0799381654a77d75357f18e255b30a8abfdf5dedfe35fd11964c55dd14227696b3a441e550a09415b65f215f834a86465b48a188a4e8baccfafbce48a5f27408eb48f54d15913116ff"
   },
   {
     "name": "web_agent",
@@ -2808,9 +3587,157 @@
     "cls": "WorkflowRunner",
     "desc": "P1-1: 轻量工作流 DSL（不做拖拽画布）",
     "group": "其他",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "button": null,
-    "tools": [],
+    "tools": [
+      {
+        "name": "workflow_list",
+        "method": "list_workflows",
+        "desc": "列出可用工作流（含内置模板）",
+        "args": {},
+        "readonly": true,
+        "hints": [
+          "工作流列表",
+          "有哪些工作流",
+          "工作流模板"
+        ],
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "errors": [
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "filesystem_read:data/workflows"
+          ],
+          "idempotent": true,
+          "concurrency_safe": true,
+          "timeout_ms": 5000,
+          "description": "返回工作流 id 列表，内置模板即使还没落盘也会列出",
+          "not_responsible": [
+            "执行工作流"
+          ]
+        }
+      },
+      {
+        "name": "workflow_templates",
+        "method": "ensure_templates",
+        "desc": "把内置工作流模板写入 data/workflows",
+        "args": {},
+        "readonly": false,
+        "confirm": true,
+        "hints": [
+          "工作流模板",
+          "创建工作流模板",
+          "内置工作流"
+        ],
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_INTERNAL_ERROR",
+            "PLUGIN_NOT_AVAILABLE"
+          ],
+          "side_effects": [
+            "filesystem_write:data/workflows"
+          ],
+          "idempotent": true,
+          "timeout_ms": 10000,
+          "concurrency_safe": false,
+          "description": "只补齐缺失的内置模板，不覆盖用户已改的文件",
+          "not_responsible": [
+            "编辑工作流内容"
+          ]
+        }
+      },
+      {
+        "name": "workflow_run",
+        "method": "run",
+        "desc": "运行工作流（后台执行）",
+        "args": {
+          "name": "工作流名",
+          "input": "初始输入（可选）"
+        },
+        "readonly": false,
+        "confirm": true,
+        "bg": true,
+        "hints": [
+          "跑工作流",
+          "执行工作流",
+          "运行工作流"
+        ],
+        "contract": {
+          "params": {
+            "name": {
+              "type": "string",
+              "required": true
+            },
+            "input": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_MISSING_ARG",
+            "PLUGIN_BAD_INPUT",
+            "PLUGIN_CANCELLED",
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [
+            "filesystem_read:data/workflows",
+            "network:llm",
+            "network:deep_search",
+            "process:code_runner"
+          ],
+          "idempotent": false,
+          "timeout_ms": 600000,
+          "concurrency_safe": false,
+          "description": "按步骤执行工作流，支持变量、条件、重试和失败继续",
+          "not_responsible": [
+            "模型调用",
+            "代码沙箱"
+          ]
+        }
+      },
+      {
+        "name": "workflow_status",
+        "method": "status",
+        "desc": "查看工作流运行状态与最近结果",
+        "args": {},
+        "readonly": true,
+        "hints": [
+          "工作流状态",
+          "工作流跑完了吗"
+        ],
+        "contract": {
+          "params": {},
+          "returns": {
+            "type": "object"
+          },
+          "errors": [
+            "PLUGIN_INTERNAL_ERROR"
+          ],
+          "side_effects": [],
+          "idempotent": true,
+          "concurrency_safe": true,
+          "timeout_ms": 5000,
+          "description": "返回是否运行中、取消标记、工作流数量和最近一次结果",
+          "not_responsible": [
+            "启动工作流"
+          ]
+        }
+      }
+    ],
     "api_version": "1.0",
     "first_party": true,
     "capabilities": {
@@ -2845,8 +3772,8 @@
     "min_host_version": "25.2.23",
     "plugin_tier": "L1",
     "risk_level": "low",
-    "size": 4322,
-    "sha256": "c769e99700b7954b1c9b310879d98483f38da31e3697fa5920729a2e44794cea",
-    "signature": "2e39163c09adba795dfaf2b8982364e43e1b742fa1f629a66fa05da319507b6aa5431d355a34997596d0f6c663bfc2a68581a479014af4ce3fafeaf5ba8c3c62398fb864108a0faeb5dd217653f5b612cc005c8e9a7b712b5ecdb4467575cd55330c6a8fa5697698a03fdb524ebe7af0ac32045b2f652c6b3092f4e0007192f3e0915be32163062845acffec89319ef3f453c8a196a5979514c6746004681b392530a8986072c3c1284ea2d4f6919109c1c7128abc5bb4bfe3f26528807181abb28929980f34a491351c1a1ba2b6e5d3c5874587508c57a8f2e8e79b70ca1f4200c38abaff53b394337489cba69c53f5bfc83d3fbb063cf381e5d89d5b91f128"
+    "size": 28723,
+    "sha256": "ffc86b327e97bb40448a26ee15a4a4fdad52bdda8c7ead98a498e51d7f087f24",
+    "signature": "0d800c3f0f122c0f5ef1e423a2cf4f236c37922b74da3b228f1d7a76058a71a28c1f7e78711f2269d8f2170d7b5472e78234d2b65f21276d82b52fa36567bcf54d1ebf4502b9ee717cf719f06bf611b640175901582a4a6834d29b65e9e9f804442a7bbe3a819e4c63a1a87574a091409513c2f99fbe951842d6b6c06352125d13a85c4be1e40aee74bcddd210a5335ab8618f27121c1ea943718d2d9ff9691df9eebe4ed3d94ccec42d64db2049f2a0536268491c58c6081dcf0a0e1886b64d49cffab255a9ba6ddd4e5ede15bfd465cb23f70ff41087de52b6dc100a392282d93ab2d9fd125fdf343ed4cb41c11818ea22f712ab679420a5f45c873432654d"
   }
 ]

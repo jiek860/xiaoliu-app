@@ -323,3 +323,75 @@ def test_feedback_state_components_construct():
     finally:
         for w in (loading, empty, error):
             w.close()
+
+
+# ──────────────────────────────────────────────────────────────
+# 语音合成 / 更新回滚入口
+# ──────────────────────────────────────────────────────────────
+def test_tts_worker_emits_synthesized_path(tmp_path):
+    """TTSWorker.done 原来从来没 emit，接到播放器上等于没有声音。"""
+    from gui.workers import TTSWorker
+
+    class _TTS:
+        def speak(self, text, autoplay=False):
+            assert autoplay is False, "应由调用方播放，避免双重播放"
+            return {"ok": True, "path": "/tmp/朗读.mp3"}
+
+    reset_run_registry()
+    got = []
+    w = TTSWorker(_worker_trunk(tmp_path, tts=_TTS()), "你好")
+    w.done.connect(got.append)
+    w.run()
+    assert got == ["/tmp/朗读.mp3"]
+    assert get_run_registry().list_runs(limit=5)[0]["status"] == "completed"
+
+
+def test_tts_worker_old_signature_and_failure_are_honest(tmp_path):
+    from gui.workers import TTSWorker
+
+    class _OldTTS:
+        def speak(self, text):
+            return {"ok": False, "error": "没装 edge-tts"}
+
+    reset_run_registry()
+    got = []
+    w = TTSWorker(_worker_trunk(tmp_path, tts=_OldTTS()), "你好")
+    w.done.connect(got.append)
+    w.run()
+    assert got == [""], "合成失败要发空路径，调用方据此降级成文字"
+    run = get_run_registry().list_runs(limit=5)[0]
+    assert run["status"] == "failed" and "edge-tts" in run["error"]
+
+
+def test_update_dialog_history_shows_rollback_state(tmp_path):
+    """更新历史要带备份目录，界面才能判断"可回滚 / 备份已清理"。"""
+    import json
+    import os
+    from gui.update_dialog import UpdateDialog
+
+    base = str(tmp_path)
+    os.makedirs(os.path.join(base, "updates"), exist_ok=True)
+    bk = os.path.join(base, "backups", "backup_1")
+    os.makedirs(bk)
+    hist = os.path.join(base, "updates", "update_history.jsonl")
+    with open(hist, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"time": "2026-10-20 10:00:00", "from": "v0",
+                            "to": "v1", "files": 2}) + "\n")
+        f.write(json.dumps({"time": "2026-10-26 10:00:00", "from": "v1",
+                            "to": "v2", "files": 3, "backup": bk}) + "\n")
+
+    class T:
+        pass
+
+    trunk = T()
+    trunk.base = base
+    trunk.config = {}
+    trunk._load_lazy = lambda name: None
+    d = UpdateDialog(trunk)
+    try:
+        assert len(d._entries) == 2
+        assert "可回滚" in d.history_list.item(0).text()
+        assert "无备份记录" in d.history_list.item(1).text()
+    finally:
+        d.close()
+

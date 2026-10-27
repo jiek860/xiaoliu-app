@@ -181,23 +181,47 @@ class LearnWorker(QThread):
 
 
 class TTSWorker(QThread):
-    """语音合成"""
+    """语音合成
+
+    以前 `done` 声明了却从来没 emit —— SpeechController 把它接到播放器上，
+    于是聊天里的"朗读回复"开关打开后**一直没声音**（用户以为坏了）。
+    现在合成成功就把音频路径发回去，由 GUI 线程播放（可停、不会弹播放器）。
+    """
     done = pyqtSignal(str)
 
-    def __init__(self, trunk, text):
+    def __init__(self, trunk, text, autoplay=False):
         super().__init__()
         self.trunk = trunk
         self.text = text
+        # autoplay=False：交给调用方的播放器播，避免和 os.startfile 双重播放
+        self.autoplay = bool(autoplay)
 
     def run(self):
         rid = _reg_start("tts", "语音合成", _log_path(self.trunk))
+        path = ""
         try:
             tts = self.trunk._load_lazy("tts")
             if tts:
-                tts.speak(self.text)
+                r = self._speak(tts)
+                if isinstance(r, dict):
+                    if r.get("ok") is False:
+                        raise RuntimeError(str(r.get("error") or "语音合成失败"))
+                    path = str(r.get("path") or "")
             _reg_finish(rid, "completed")
         except Exception as e:
             _reg_finish(rid, "failed", str(e)[:200])
+            path = ""
+        try:
+            self.done.emit(path)
+        except Exception as e:  # 静默是故意的 - 窗口已关闭时没人接收
+            _x6_swallowed(__name__, e, "tts done signal")
+
+    def _speak(self, tts):
+        """兼容老插件签名 speak(text)：新签名多一个 autoplay 参数"""
+        try:
+            return tts.speak(self.text, autoplay=self.autoplay)
+        except TypeError:
+            return tts.speak(self.text)
 
 
 class BgWorker(QThread):

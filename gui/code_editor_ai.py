@@ -8,6 +8,8 @@ import os
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QTextEdit, QPushButton)
 
+from gui.feedback_states import make_action_links
+
 try:
     from core.diagnostics import swallowed as _x6_swallowed
 except ImportError:
@@ -34,9 +36,7 @@ class CodeEditorAIMixin:
         lay.addWidget(view, 1)
         row = QHBoxLayout()
         row.addStretch(1)
-        cancel = QPushButton("取消")
-        cancel.clicked.connect(d.reject)
-        row.addWidget(cancel)
+        row.addWidget(make_action_links([("取消", d.reject)]))
         apply_btn = QPushButton("应用修改")
         apply_btn.setStyleSheet(
             "background:#4a9eff;color:white;border:none;border-radius:8px;"
@@ -64,6 +64,18 @@ class CodeEditorAIMixin:
             goal += " 只针对编辑器中选中的代码片段，不要无关大改。"
         try:
             from gui.agent_journey_dialog import AgentJourneyDialog
+            old = getattr(self, "_agent_journey", None)
+            if old is not None:
+                try:
+                    if old.isVisible():
+                        old.goal.setPlainText(goal)
+                        old.route_combo.setCurrentIndex(1)
+                        old.show()
+                        old.raise_()
+                        old.activateWindow()
+                        return
+                except RuntimeError:
+                    self._agent_journey = None
             d = AgentJourneyDialog(
                 self.trunk, self, root=root,
                 open_files=[path] if path else [],

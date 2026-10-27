@@ -6,6 +6,8 @@ from PyQt5.QtWidgets import (
     QTabWidget, QWidget, QTableWidget, QTableWidgetItem, QMessageBox,
     QFileDialog, QInputDialog)
 
+from gui.feedback_states import make_action_links
+
 
 class SecurityCenterDialog(QDialog):
     def __init__(self, trunk, parent=None):
@@ -60,18 +62,12 @@ class SecurityCenterDialog(QDialog):
         self.tabs.addTab(w3, "网络")
         lay.addWidget(self.tabs)
         actions = QHBoxLayout()
-        revoke = QPushButton("撤销选中权限")
-        revoke.clicked.connect(self._revoke)
-        edit_scope = QPushButton("编辑规则范围")
-        edit_scope.clicked.connect(self._edit_scope)
-        export = QPushButton("导出审计")
-        export.clicked.connect(self._export)
-        refresh = QPushButton("刷新")
-        refresh.clicked.connect(self._refresh)
-        actions.addWidget(revoke)
-        actions.addWidget(edit_scope)
-        actions.addWidget(export)
-        actions.addWidget(refresh)
+        actions.addWidget(make_action_links([
+            ("撤销选中权限", self._revoke),
+            ("编辑规则范围", self._edit_scope),
+            ("导出审计", self._export),
+            ("🔄 刷新", self._refresh),
+        ]))
         actions.addStretch(1)
         lay.addLayout(actions)
 
@@ -133,8 +129,14 @@ class SecurityCenterDialog(QDialog):
                     QMessageBox.Yes | QMessageBox.No,
                     QMessageBox.No) != QMessageBox.Yes:
                 return
-        pc.lockdown(not pc.locked)
+        r = pc.lockdown(not pc.locked)
         self._refresh()
+        if not r.get("ok"):
+            QMessageBox.warning(
+                self, "锁定状态没保存",
+                "本次运行内已经生效，但状态没能写进磁盘：\n\n%s\n\n"
+                "重启程序后这个锁定会失效，请检查 data/security 目录是否可写。"
+                % r.get("error", ""))
 
     def _revoke(self):
         row = self.perms.currentRow()
@@ -149,7 +151,10 @@ class SecurityCenterDialog(QDialog):
         if get_permission_center(self.trunk).revoke(rule_id):
             self._refresh()
         else:
-            QMessageBox.warning(self, "安全中心", "撤销失败或规则不存在")
+            QMessageBox.warning(
+                self, "撤销失败",
+                "规则没有删掉：要么它已经不存在，要么权限文件写不进去。\n"
+                "写不进去时重启程序权限会恢复，请检查 data/security 目录。")
 
     def _edit_scope(self):
         row = self.perms.currentRow()
@@ -185,14 +190,36 @@ class SecurityCenterDialog(QDialog):
         if not path:
             return
         from core.permission_center import get_permission_center
-        r = get_permission_center(self.trunk).audit.export_redacted(path, 1000)
-        QMessageBox.information(self, "安全中心",
+        try:
+            r = get_permission_center(self.trunk).audit.export_redacted(path, 1000)
+        except Exception as e:
+            QMessageBox.warning(
+                self, "导出失败",
+                "写不进这个位置：%s\n换个目录（比如桌面）再试。" % str(e)[:120])
+            return
+        if not r.get("ok"):
+            QMessageBox.warning(self, "导出失败",
+                                str(r.get("error") or "未知原因")[:200])
+            return
+        QMessageBox.information(self, "导出完成",
                                 "已导出 %d 条到\n%s"
-                                % (r.get("count", 0), r.get("path", "")))
+                                % (r.get("count", 0), r.get("path", path)))
 
     def _save(self):
         self.trunk.config.setdefault("security", {})
-        self.trunk.config["security"]["network_mode"] = self.net_mode.currentText()
+        mode = self.net_mode.currentText()
+        self.trunk.config["security"]["network_mode"] = mode
         self.trunk.save_config()
-        QMessageBox.information(self, "安全中心", "网络模式已保存")
+        # 保存后立刻读回实际生效的模式，避免"改了没生效"没人发现
+        from core.net_guard import get_net_guard
+        effective = get_net_guard(self.trunk)._mode()
+        if str(effective).lower() != mode.lower():
+            QMessageBox.warning(
+                self, "没生效",
+                "已写入配置，但网络守卫读到的还是 %s。\n"
+                "重启程序后再看；仍不对请检查 data/config.json 的 security 段。"
+                % effective)
+        else:
+            QMessageBox.information(self, "已保存",
+                                    "网络模式已切换为 %s，下一条网络请求就按它判。" % mode)
         self._refresh()

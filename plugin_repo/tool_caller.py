@@ -15,6 +15,10 @@ from core import tool_policy
 
 
 class ToolCaller(BaseModule):
+
+    # 标准 1.1：本模块不负责的事（明确边界，避免什么都能问）
+    NOT_RESPONSIBLE = ("界面呈现与用户交互（由 gui 负责）",
+                       "模块加载、调度与权限判定（由 core 负责）")
     NAME = "tool_caller"
     VERSION = "1.0"
     def __init__(self, trunk=None):
@@ -290,6 +294,11 @@ class ToolCaller(BaseModule):
         #    -> 退回"只传第一个值"，这是现有内置工具的兼容路径
         return self.trunk.call(info["mod"], method, list(args.values())[0])
 
+    def stop(self):
+        """停止派发新任务（不 join：后台线程可能在等 LLM，join 会卡死退出）"""
+        self._stopped = True
+        return {"状态": "已停止"}
+
     def _run_bg(self, info, args, query, label, provenance=None):
         """把长任务丢到后台线程，立刻返回
 
@@ -300,6 +309,8 @@ class ToolCaller(BaseModule):
         import threading
 
         def _work():
+            if getattr(self, "_stopped", False):
+                return          # 模块已被卸载/停止：别再派发，也别回写状态栏
             try:
                 r = self._invoke(info, args, query, label)
                 self.trunk._log("后台能力完成: %s -> %s"

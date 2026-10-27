@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+"""学习闭环 v13.0 - 多方向学习库：编程/拟人化/自主化/自我进化/多智能体 轮换学习
+编排者：找缺口→搜资料→提炼→入库→汇报
+"""
 try:
     from core.diagnostics import swallowed as _x6_swallowed
 except ImportError:
@@ -6,24 +9,41 @@ except ImportError:
         return None
 
 from modules.base import BaseModule
-"""学习闭环 v13.0 - 多方向学习库：编程/拟人化/自主化/自我进化/多智能体 轮换学习
-编排者：找缺口→搜资料→提炼→入库→汇报
-"""
 import os, time, json, re, threading
 
 
 class LearningPipeline(BaseModule):
+
+    # 标准 1.1：本模块不负责的事（给调用方一个明确边界，避免什么都能问）
+    NOT_RESPONSIBLE = (
+        "界面呈现与用户交互（由 gui 负责）",
+        "模块加载、调度与权限判定（由 core 负责）",
+    )
     NAME = "learning_loop"
     VERSION = "1.0"
 
     TOOLS = [
-        {"name": "learn_topic", "method": "run",
+        {
+         "contract": {
+             "params": {
+                 "topic": {"type": "string"}
+             },
+             "returns": {"type": "object"},
+             "description": "学一个网址/主题：搜资料→提炼→存进知识库和向量库",
+         },
+         "name": "learn_topic", "method": "run",
          "desc": "学一个网址/主题：搜资料→提炼→存进知识库和向量库",
          "args": {"topic": "网址或学习主题，如 https://docs.python.org 或 异步编程"},
          # bg：要联网搜资料再让模型提炼，几十秒。聊天触发是同步调用，必须转后台。
          "bg": True,
          "hints": ["学习", "学一下", "了解一下", "查资料学", "深入研究"]},
-        {"name": "learn_status", "method": "status",
+        {
+         "contract": {
+             "params": {},
+             "returns": {"type": "object"},
+             "description": "看学习闭环的状态和累计轮次",
+         },
+         "name": "learn_status", "method": "status",
          "desc": "看学习闭环的状态和累计轮次",
          "args": {},
          "readonly": True,
@@ -221,6 +241,19 @@ class LearningPipeline(BaseModule):
     def stop_continuous(self):
         self._running = False
         return "连续学习已停止"
+
+    def stop(self):
+        """模块卸载/热重载时调：停止连续学习，并等它退出当前轮。
+
+        ⚠️ 只等 3 秒：一轮学习可能要调 LLM 几十秒，join 太久会把热重载/退出卡死。
+        等不到就算了 —— 线程是 daemon，进程退出时自然结束；
+        每轮进度都是实时落盘的（见 run），不会丢已学的内容。
+        """
+        self._running = False
+        th = getattr(self, "_thread", None)
+        if th is not None and th.is_alive():
+            th.join(timeout=3)
+        return {"状态": "已停止", "线程仍在退出": bool(th and th.is_alive())}
 
     def status(self):
         return {"连续学习运行中": self._running,

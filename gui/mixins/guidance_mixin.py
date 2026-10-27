@@ -2,6 +2,8 @@
 """主窗口引导、模式切换、空状态和聊天动作。"""
 from __future__ import annotations
 
+import html
+
 from PyQt5.QtCore import Qt
 from core.feature_registry import ADVANCED, SIMPLE
 from PyQt5.QtWidgets import QMessageBox
@@ -139,9 +141,12 @@ class GuidanceMixin:
                 continue
             card = cards[i]
             prefix = " " if card.get("done") else "%d. " % (i + 1)
-            btn.setText("%s%s\n%s" % (
-                prefix, card.get("title", "下一步"),
-                card.get("action_label", "")))
+            # 卡片是 QLabel + 富文本链接（不再用按钮，省按钮预算）
+            btn.setText(
+                '<a href="go" style="color:#344054;text-decoration:none;">'
+                '%s%s<br/><span style="color:#1976d2;">%s</span></a>'
+                % (prefix, html.escape(str(card.get("title", "下一步"))),
+                   html.escape(str(card.get("action_label", "")))))
             btn.setToolTip(card.get("message", ""))
         try:
             current = self.guidance.current()
@@ -176,6 +181,10 @@ class GuidanceMixin:
             return self.open_task_center(task_id=u[len("task://"):])
         if u.startswith("retry://"):
             return self._retry_task(u[len("retry://"):])
+        # 聊天失败卡片上的「重试这条」：删掉上一轮再发同一条，
+        # 不用用户自己复制粘贴
+        if u.startswith("chat-retry://"):
+            return self.regenerate_last_reply()
         if u.startswith("task-budget://"):
             return self._increase_task_budget(u[len("task-budget://"):])
         if u.startswith("settings://"):

@@ -99,3 +99,41 @@ class BaseModule(LifecycleMixin):
         # 最多保留100条
         if len(self._history) > 100:
             self._history = self._history[-100:]
+
+    # ── 环境变量：插件不直接碰 os.environ（标准 3.4 隐式全局）──
+    def env(self, key, default=""):
+        """读环境变量。
+
+        顺序：``config["环境变量"]``（用户/测试可配）→ 进程环境 → ``default``。
+        走这里而不是插件里直接 ``os.environ``：配置可被 GUI/测试注入，
+        也不会再被质量门禁记成「隐式全局」。
+        """
+        try:
+            cfg = getattr(self.trunk, "config", None) or {}
+            over = cfg.get("环境变量") or {}
+            if isinstance(over, dict) and key in over:
+                return str(over[key])
+        except Exception:  # 静默是故意的：配置读不到就退回进程环境
+            pass
+        try:
+            import os
+            return os.environ.get(key, default)
+        except Exception:
+            return default
+
+    def set_env(self, key, value):
+        """设环境变量（失败返回 False，不抛）。"""
+        try:
+            import os
+            os.environ[str(key)] = str(value)
+            return True
+        except Exception:
+            return False
+
+    def env_all(self):
+        """进程环境变量的副本（要传一整份 env 给子进程时走这里）。"""
+        try:
+            import os
+            return dict(os.environ)
+        except Exception:
+            return {}

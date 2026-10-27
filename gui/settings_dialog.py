@@ -24,8 +24,9 @@ from PyQt5.QtWidgets import (
 )
 from gui.settings_model_page import build_model_page
 from gui.settings_widgets import (
-    make_category_nav, make_hint, make_open_button, make_scroll_tab, make_tab,
+    make_category_nav, make_hint, make_open_link, make_scroll_tab, make_tab,
 )
+from gui.feedback_states import make_action_links
 
 
 def show_settings_dialog(parent, dlg, trunk, base, ai_name,
@@ -48,8 +49,8 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         _x6_swallowed(__name__, e)
         pass
 
-    def _open_btn(icon, name, desc, key=None):
-        return make_open_button(d, CMD, icon, name, desc, key)
+    def _open_link(icon, name, desc, key=None):
+        return make_open_link(d, CMD, icon, name, desc, key)
 
     def _hint(text):
         return make_hint(text)
@@ -86,7 +87,7 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
                 return
             QMessageBox.information(d, "改名", "现在叫「%s」了" % new)
 
-        lay.addWidget(QPushButton("改名", clicked=_rename))
+        lay.addWidget(make_action_links([("改名", _rename)]))
 
         lay.addWidget(QLabel("\n 外观"))
         lay.addWidget(QLabel("字体大小:"))
@@ -145,8 +146,6 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         lay.addWidget(_hint("影响：搜索、云端模型、插件市场和更新检查。"))
 
         lay.addWidget(QLabel("\n AI 人格"))
-        persona_btn = QPushButton("编辑 AI 人格")
-        lay.addWidget(persona_btn)
 
         def _edit_persona():
             cur = trunk.config.get(
@@ -158,7 +157,7 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
                 trunk.config["ai_persona"] = txt.strip()
                 trunk.save_config()
                 QMessageBox.information(d, "已保存", "AI 人格已更新")
-        persona_btn.clicked.connect(_edit_persona)
+        lay.addWidget(make_action_links([("编辑 AI 人格", _edit_persona)]))
 
         lay.addWidget(QLabel("\n 快捷键"))
         shortcut_edit = QLineEdit(
@@ -192,7 +191,7 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
 
         if include_advanced_tools:
             lay.addWidget(QLabel("\n 桌面"))
-            lay.addWidget(_open_btn("", "桌宠", "桌面悬浮窗，再点一次收起"))
+            lay.addWidget(_open_link("", "桌宠", "桌面悬浮窗，再点一次收起"))
         return ne, fs, net_chk, mode_box_holder
 
     mode_box_holder = {"widget": None}
@@ -204,7 +203,7 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         d._settings_font = fs
         d._settings_net = net_chk
         lay.addWidget(QLabel("\n 资料"))
-        lay.addWidget(_open_btn("", "知识库", "导入和管理资料",
+        lay.addWidget(_open_link("", "知识库", "导入和管理资料",
                                 key="知识库"))
         lay.addWidget(QLabel("\n 通知"))
         notify_box = QComboBox()
@@ -216,66 +215,66 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         lay.addWidget(notify_box)
         d._settings_notify = notify_box
         lay.addWidget(QLabel("\n 更新"))
-        lay.addWidget(_open_btn("", "检查更新",
+        lay.addWidget(_open_link("", "检查更新",
                                 "检查新版本 / 回滚 / 更新历史"))
 
     def build_help(lay):
         lay.addWidget(QLabel(" 帮助与安全"))
-        lay.addWidget(_open_btn("", "新手教程",
+        lay.addWidget(_open_link("", "新手教程",
                                 "3 分钟上手 + 兼容性 / 数据迁移 / 插件 API 速查"))
-        lay.addWidget(_open_btn("", "安全中心",
+        lay.addWidget(_open_link("", "安全中心",
                                 "权限、网络事件和审计记录",
                                 key="安全中心"))
-        lay.addWidget(_open_btn("", "意见反馈", "给开发者留言"))
-        lay.addWidget(_open_btn("", "首次设置向导",
+        lay.addWidget(_open_link("", "意见反馈", "给开发者留言"))
+        lay.addWidget(_open_link("", "首次设置向导",
                                 "模型没配好时重新配置"))
 
     def build_tools(lay):
         lay.addWidget(QLabel(" 工具"))
-        lay.addWidget(_open_btn("", "电脑控制",
+        lay.addWidget(_open_link("", "电脑控制",
                                 "操作软件 / 文件 / 窗口 / 系统"))
-        lay.addWidget(_open_btn("", "机器人",
+        lay.addWidget(_open_link("", "机器人",
                                 "企业微信 / 钉钉聊天机器人"))
-        lay.addWidget(_open_btn("", "语音对话",
+        lay.addWidget(_open_link("", "语音对话",
                                 "实时语音对话：静音断句、可随时打断"))
-        lay.addWidget(_open_btn("", "日历待办", "日历 + 待办 + 笔记"))
+        lay.addWidget(_open_link("", "日历待办", "日历 + 待办 + 笔记"))
 
     def build_extensions(lay):
         lay.addWidget(QLabel(" 扩展"))
-        lay.addWidget(_open_btn("", "插件", "安装 / 卸载 / 热加载模块",
+        lay.addWidget(_open_link("", "插件", "安装 / 卸载 / 热加载模块",
                                 key="插件市场"))
-        lay.addWidget(_open_btn("", "MCP",
+        lay.addWidget(_open_link("", "MCP",
                                 "服务器管理 / 预置服务器 / 配置参考",
                                 key="MCP市场"))
-        lay.addWidget(_open_btn("", "可选组件",
+        lay.addWidget(_open_link("", "可选组件",
                                 "语音识别 / 看图 / 浏览器自动化 / 一键安装"))
 
     def build_records(lay):
         lay.addWidget(QLabel(" 记录"))
-        lay.addWidget(_open_btn("", "历史记录",
+        lay.addWidget(_open_link("", "历史记录",
                                 "分页 / 搜索 / 导出全部聊天记录"))
-        lay.addWidget(_open_btn("", "日志", "运行日志 / 错误 / 操作记录",
+        lay.addWidget(_open_link("", "日志", "运行日志 / 错误 / 操作记录",
                                 key="日志中心"))
-        lay.addWidget(_open_btn("", "搜索聊天", "全局搜索所有会话"))
-        lay.addWidget(_open_btn("", "记忆可视化",
+        lay.addWidget(_open_link("", "搜索聊天", "全局搜索所有会话"))
+        lay.addWidget(_open_link("", "记忆可视化",
                                 "记忆时间线 / 图谱 / 搜索 / 编辑"))
-        lay.addWidget(_open_btn("", "数据统计", "用量与数据统计报表"))
+        lay.addWidget(_open_link("", "数据统计", "用量与数据统计报表"))
 
     def build_system(lay):
         lay.addWidget(QLabel(" 系统"))
-        lay.addWidget(_open_btn("", "系统", "深度自检 / 备份 / 训练",
+        lay.addWidget(_open_link("", "系统", "深度自检 / 备份 / 训练",
                                 key="系统自检"))
-        lay.addWidget(_open_btn("", "首次设置向导",
+        lay.addWidget(_open_link("", "首次设置向导",
                                 "模型没配好、它不回话时打开这个"))
-        lay.addWidget(_open_btn("", "新手教程",
+        lay.addWidget(_open_link("", "新手教程",
                                 "激活 / 配模型 / 聊天 / 兼容性与迁移速查"))
-        lay.addWidget(_open_btn("", "意见反馈", "给开发者留言"))
+        lay.addWidget(_open_link("", "意见反馈", "给开发者留言"))
 
     def build_developer(lay):
         lay.addWidget(QLabel(" 开发者"))
-        lay.addWidget(_open_btn("", "命令面板 (Ctrl+K)",
+        lay.addWidget(_open_link("", "命令面板 (Ctrl+K)",
                                 "搜索所有能力和面板"))
-        lay.addWidget(_open_btn("", "模块星图", "模块拓扑图"))
+        lay.addWidget(_open_link("", "模块星图", "模块拓扑图"))
 
     tabs = QTabWidget()
     # 左侧分类 + 右侧内容：QTabWidget 继续当页面容器（搜索和测试都依赖

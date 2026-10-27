@@ -139,12 +139,14 @@ def test_browser_unstarted_guards(tmp_path, monkeypatch):
     b, _page = _browser(tmp_path, monkeypatch)
     b._page = None
     try:
-        assert b.click("x")["错误"]
-        assert b.type_text("x", "y")["错误"]
-        assert b.get_text()["错误"]
-        assert b.screenshot()["错误"]
-        assert b.scroll()["错误"]
-        assert b.fill_form({})["错误"]
+        # 2026-10-27：错误改成结构化（core.plugin_errors），断言跟着改
+        from core.plugin_errors import error_of
+        assert error_of(b.click("x"))["message"]
+        assert error_of(b.type_text("x", "y"))["message"]
+        assert error_of(b.get_text())["message"]
+        assert error_of(b.screenshot())["message"]
+        assert error_of(b.scroll())["message"]
+        assert error_of(b.fill_form({}))["message"]
         assert b.current_info()["started"] is False
     finally:
         b.shutdown()

@@ -1,4 +1,9 @@
 # -*- coding: utf-8 -*-
+"""电脑操作 v12.0 - 完整本地电脑操控
+能力：打开应用/窗口管理/鼠标键盘/截屏/剪贴板/系统信息/文件白名单+确认
+      + 开发者文件工具（读带行号 / 搜内容 / 精确替换并备份）
+安全：文件操作限白名单，删除/关机等危险操作弹窗确认，全部动作留日志
+"""
 from modules.base import BaseModule
 from core.computer_file_tools import ComputerFileToolsMixin
 from core.computer_window_tools import ComputerWindowToolsMixin
@@ -9,11 +14,6 @@ except ImportError:
     def _x6_swallowed(component, error, context=""):
         return None
 
-"""电脑操作 v12.0 - 完整本地电脑操控
-能力：打开应用/窗口管理/鼠标键盘/截屏/剪贴板/系统信息/文件白名单+确认
-      + 开发者文件工具（读带行号 / 搜内容 / 精确替换并备份）
-安全：文件操作限白名单，删除/关机等危险操作弹窗确认，全部动作留日志
-"""
 import os, re, time, json, shutil, subprocess
 from datetime import datetime
 
@@ -48,6 +48,12 @@ class ComputerController(
     ComputerCommandParserMixin,
     BaseModule,
 ):
+
+    # 标准 1.1：本模块不负责的事（给调用方一个明确边界，避免什么都能问）
+    NOT_RESPONSIBLE = (
+        "界面呈现与用户交互（由 gui 负责）",
+        "模块加载、调度与权限判定（由 core 负责）",
+    )
     NAME = "computer_controller"
 
     VERSION = "1.0"

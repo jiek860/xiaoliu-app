@@ -11,6 +11,65 @@ import time
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import QLabel, QTabBar, QTabWidget, QWidget
 
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
+
+def run_modal_once(win, key, opener):
+    """模态窗口重入守卫：同一个 key 正在打开时，第二次调用直接忽略。
+
+    模态 exec_() 会禁用主窗，正常情况下点不到第二次；但链接双击、
+    快捷键连按、命令面板回车会把两次调用先后排进事件队列，
+    第二次数会再建一个窗口叠在上面。
+    """
+    busy = getattr(win, "_modal_busy", None)
+    if busy is None:
+        busy = win._modal_busy = set()
+    if key in busy:
+        return None
+    busy.add(key)
+    try:
+        return opener()
+    finally:
+        busy.discard(key)
+
+
+def _front(w, focus=None):
+    w.show()
+    w.raise_()
+    w.activateWindow()
+    if focus is not None:
+        focus(w)
+
+
+def singleton_window(win, key, factory, focus=None):
+    """非模态窗口单例：已开着就前置；用户关掉/销毁后才允许重建。"""
+    cache = getattr(win, "_window_cache", None)
+    if cache is None:
+        cache = win._window_cache = {}
+    w = cache.get(key)
+    if w is not None:
+        try:
+            if w.isVisible():
+                _front(w, focus)
+                return w
+        except RuntimeError:
+            pass
+        cache.pop(key, None)
+        try:
+            w.deleteLater()
+        except Exception as e:  # 静默是故意的 - 旧对象清理失败不影响新窗口
+            _x6_swallowed(__name__, e, "cleanup stale window")
+    w = factory()
+    if w is None:
+        return None
+    cache[key] = w
+    _front(w, focus)
+    return w
+
 def attach_status_meta(win, statusbar):
     """状态栏补充：模型名 + 当日 token 用量。
 

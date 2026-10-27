@@ -184,8 +184,8 @@ class DepInstallDialog(QDialog):
     # ---- 动作 ----
     def _install(self):
         self.btn_install.setEnabled(False)
-        self.btn_copy.setEnabled(False)
-        self.btn_later.setEnabled(False)
+        self.lnk_copy.setEnabled(False)      # 原来这里写的是 self.btn_copy——
+        self.btn_later.setEnabled(False)     # 那是个不存在的属性，一点"现在装"就 AttributeError
         self.bar.setVisible(True)
         self.lbl.setVisible(True)
         self.lbl.setText("正在准备…")
@@ -210,7 +210,7 @@ class DepInstallDialog(QDialog):
         if ok:
             self.chosen = "never" if self.chk.isChecked() else "installed"
             self.btn_install.setVisible(False)
-            self.btn_copy.setVisible(False)
+            self.lnk_copy.setVisible(False)
 
     def _copy(self):
         cmd = error_text.install_cmd(self.pkg)

@@ -340,14 +340,36 @@ class AutoUpdatePatchMixin:
             return {"ok": False, "原因": str(e)[:80], "已回滚": True}
 
     def rollback(self, backup_path):
-        """手动回滚到备份"""
-        for d in ("core", "modules"):
-            bk = os.path.join(backup_path, d)
-            dst = os.path.join(self.base, d)
-            if os.path.exists(bk):
-                shutil.rmtree(dst, ignore_errors=True)
-                shutil.copytree(bk, dst, dirs_exist_ok=True)
-        return True
+        """手动回滚到备份：逐个文件覆盖回去，**不整目录删除**。
+
+        原来的实现是 rmtree(core) + rmtree(modules) 再从备份 copytree ——
+        回滚会把更新之后新装的插件、用户自己改过的文件一起抹掉，而且备份
+        不存在时还返回 True（界面据此报"回滚成功"，实际什么都没恢复）。
+        现在只覆盖备份里存在的文件，备份不存在直接返回 False。
+        """
+        try:
+            src = os.path.abspath(str(backup_path or ""))
+            if not src or not os.path.isdir(src):
+                self._log("回滚失败: 备份目录不存在 %s" % src)
+                return False
+            restored = 0
+            for d in ("core", "modules"):
+                bk = os.path.join(src, d)
+                if not os.path.isdir(bk):
+                    continue
+                for root, _dirs, fs in os.walk(bk):
+                    for name in fs:
+                        s = os.path.join(root, name)
+                        rel = os.path.relpath(s, bk)
+                        t = os.path.join(self.base, d, rel)
+                        os.makedirs(os.path.dirname(t), exist_ok=True)
+                        shutil.copy2(s, t)
+                        restored += 1
+            self._log("回滚完成: %s（%d 个文件）" % (src, restored))
+            return True
+        except Exception as e:
+            self._log("回滚失败: %s" % str(e)[:80])
+            return False
 
     def _reload_touched(self, rels):
         """对已替换的模块做热重载；只认登记过的懒加载模块，失败不影响更新结果"""
@@ -444,9 +466,9 @@ class AutoUpdateDownloadMixin:
         from core import release_sign
         from core.version import get_version
 
-        if not release_sign.verify_manifest(manifest,
-                                            release_sign.load_release_pubkey(self.base)) \
-                and not self._allow_unsigned_update():
+        verified = release_sign.verify_manifest(
+            manifest, release_sign.load_release_pubkey(self.base))
+        if not verified and not self._allow_unsigned_update():
             return {"ok": False, "错误": "更新包验签失败，已终止安装"}
 
         files = manifest.get("files") or []
@@ -524,7 +546,9 @@ class AutoUpdateDownloadMixin:
                 fh.write(json.dumps({
                     "time": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "from": old_ver, "to": ver,
-                    "files": len(replaced), "verified": True,
+                    "files": len(replaced), "verified": bool(verified),
+                    # 备份目录必须记下来：更新对话框要靠它提供「回滚到这次更新之前」
+                    "backup": bk,
                 }, ensure_ascii=False) + "\n")
         except Exception as e:
             _x6_swallowed(__name__, e)

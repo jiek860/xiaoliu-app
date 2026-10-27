@@ -18,9 +18,10 @@ import urllib.request
 from PyQt5.QtCore import QObject, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton,
-    QComboBox, QMessageBox,
+    QComboBox, QListWidget, QMessageBox,
 )
 from core.safe_http import open_url as safe_open_url
+from gui.feedback_states import make_action_links
 
 
 def build_model_page(d, trunk, parent, lay, hint):
@@ -56,14 +57,27 @@ def build_model_page(d, trunk, parent, lay, hint):
         pick.setWindowTitle("选择本地模型")
         pick.resize(360, 320)
         pl = QVBoxLayout(pick)
-        pl.addWidget(QLabel("检测到 %d 个模型：" % len(models)))
-        for mm in models:
-            def _pick(_checked=False, x=mm):
-                trunk.config["local_model"] = x
-                trunk.save_config()
-                pick.accept()
-                QMessageBox.information(d, "成功", "已选择: " + x)
-            pl.addWidget(QPushButton(mm, clicked=_pick))
+        pl.addWidget(QLabel(
+            "检测到 %d 个模型（双击或回车选中，Esc 取消）：" % len(models)))
+        # 不再给每个模型造一个按钮：模型多的时候那是一屏按钮。
+        lst = QListWidget()
+        lst.addItems([str(m) for m in models])
+        pl.addWidget(lst)
+
+        def _pick(item=None):
+            cur = item if item is not None else lst.currentItem()
+            mm = cur.text() if cur is not None else ""
+            if not mm:
+                return
+            trunk.config["local_model"] = mm
+            trunk.save_config()
+            ollama_lbl.setText(" 已选择本地模型：%s" % mm)
+            pick.accept()
+
+        lst.itemDoubleClicked.connect(_pick)
+        lst.itemActivated.connect(_pick)      # 回车
+        if models:
+            lst.setCurrentRow(0)
         pick.exec_()
 
     mr.done.connect(on_models)
@@ -172,14 +186,11 @@ def build_model_page(d, trunk, parent, lay, hint):
     threading.Thread(target=probe_ollama, daemon=True,
                      name="settings-ollama-probe").start()
 
-    cloud_btn = QPushButton("配置云端模型")
-    lay.addWidget(cloud_btn)
-
     def cloud_set():
         from gui.cloud_provider_dialog import configure_cloud_provider
         configure_cloud_provider(d, trunk)
 
-    cloud_btn.clicked.connect(cloud_set)
+    lay.addWidget(make_action_links([("配置云端模型", cloud_set)]))
     lay.addWidget(QLabel(
         "本地：先安装 Ollama；云端：填 API 地址和 Key。"))
     return mode_box
