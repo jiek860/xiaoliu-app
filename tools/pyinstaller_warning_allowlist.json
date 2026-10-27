@@ -80,15 +80,21 @@
     ],
     "optional_python_packages": [
       "BeautifulSoup",
+      "Crypto",
+      "Crypto.Cipher",
+      "Crypto.Util",
       "IPython",
       "IPython.core",
       "IPython.display",
       "OpenSSL",
       "OpenSSL.SSL",
       "OpenSSL.crypto",
+      "PIL.Image",
       "PyPDF2",
+      "arabic_reshaper",
       "attr",
       "bcrypt",
+      "bidi",
       "brotli",
       "brotlicffi",
       "bs4",
@@ -99,6 +105,8 @@
       "defusedxml.ElementTree",
       "docx",
       "filelock",
+      "fontTools",
+      "fontTools.ttLib",
       "h2",
       "h2.config",
       "h2.connection",
@@ -143,5 +151,6 @@
       "asyncio.DefaultEventLoopPolicy"
     ]
   },
-  "_变更_2026-10-27": "运行时锁文件新增 openpyxl / python-pptx / xlsxwriter / lxml 后，PyInstaller 静态扫描多出 14 个名字：bs4/BeautifulSoup/cssselect/html5lib*/defusedxml*/lxml_html_clean/openpyxl.tests 归 optional_python_packages（格式化/解析的可选依赖与测试包，缺了只影响对应格式），urllib.urlencode+urlopen 归 python2_legacy，cython* 归 build_time_only（只用于编译期生成扩展），annotationlib 归 newer_python_stdlib（3.13+ 标准库，3.12 上不存在）。"
+  "_变更_2026-10-27": "运行时锁文件新增 openpyxl / python-pptx / xlsxwriter / lxml 后，PyInstaller 静态扫描多出 14 个名字：bs4/BeautifulSoup/cssselect/html5lib*/defusedxml*/lxml_html_clean/openpyxl.tests 归 optional_python_packages（格式化/解析的可选依赖与测试包，缺了只影响对应格式），urllib.urlencode+urlopen 归 python2_legacy，cython* 归 build_time_only（只用于编译期生成扩展），annotationlib 归 newer_python_stdlib（3.13+ 标准库，3.12 上不存在）。",
+  "_变更_2026-10-27_pypdf": "exe 依赖集补 pypdf==6.21.3 后，PyInstaller 又扫出 8 个，全部落在 optional_python_packages：Crypto/Crypto.Cipher/Crypto.Util 是 pypdf 的可选加密后端（PyCryptodome，锁里用的是 cryptography）+ arabic_reshaper+bidi 是阿拉伯文整形的可选依赖 + fontTools/fontTools.ttLib 是字体处理的可选依赖，缺了只影响对应特性、不会 ImportError 崩主流程；PIL.Image 不是真的缺依赖（Pillow 本来就在锁里、hook 会带全 PIL），只是 pypdf 在函数内延迟导入 `from PIL import Image` 时 PyInstaller 静态分析给出的一条提示。"
 }
