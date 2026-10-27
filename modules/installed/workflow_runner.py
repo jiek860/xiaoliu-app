@@ -152,6 +152,7 @@ class WorkflowRunner(BaseModule):
                 indent = len(line) - len(line.lstrip())
                 key, value = text.split(":", 1)
                 key, value = key.strip(), value.strip().strip("'\"")
+                if key == "steps" and not value: continue  # 表头别覆盖列表
                 if current is not None and indent >= 4:
                     current[key] = value
                 elif indent <= 2:
@@ -160,8 +161,7 @@ class WorkflowRunner(BaseModule):
             out["steps"].append(current)
         return out
     def _normalize(self, data, name):
-        if not isinstance(data, dict):
-            return None
+        if not isinstance(data, dict): return None
         steps = data.get("steps")
         if not isinstance(steps, list) or not steps:
             self._last_error = "工作流 %s 没有 steps" % name

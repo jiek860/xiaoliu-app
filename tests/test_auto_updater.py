@@ -521,3 +521,41 @@ def test_quality_gate_success_reports_notes(up, monkeypatch):
     r = up.run_auto_update(confirm=True)
     assert r["ok"] is True, r
     assert r["质量闸"] == ["甲", "乙"], r
+
+
+# ══════════════════════════════════════════════════════════════
+# 质量闸真正执行命令的分支（成功/失败/超时/命令不存在）
+# 上面的用例都把 quality_gate 桩掉了，这里补上「真跑一条命令」的路径：
+# 找不到命令或超时都必须算失败 —— 宁可不更新，也不能放过去。
+# ══════════════════════════════════════════════════════════════
+import subprocess  # noqa: E402
+
+
+def test_run_gate_cmd_success(up):
+    ok, note = up._run_gate_cmd(
+        "演示", [sys.executable, "-c", "print('hi')"])
+    assert ok is True, note
+    assert "通过" in note
+
+
+def test_run_gate_cmd_reports_exit_code_and_tail(up):
+    ok, note = up._run_gate_cmd(
+        "演示", [sys.executable, "-c",
+                 "import sys; print('前一行'); sys.exit(3)"])
+    assert ok is False
+    assert "退出码 3" in note
+    assert "前一行" in note
+
+
+def test_run_gate_cmd_missing_command_is_failure(up):
+    ok, note = up._run_gate_cmd("演示", ["x6-no-such-command-anywhere"])
+    assert ok is False
+    assert "找不到命令" in note
+
+
+def test_run_gate_cmd_timeout_is_failure(up):
+    ok, note = up._run_gate_cmd(
+        "演示", [sys.executable, "-c", "import time; time.sleep(5)"],
+        timeout=0.2)
+    assert ok is False
+    assert "未完成" in note

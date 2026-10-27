@@ -44,10 +44,11 @@ CHECKS = [
     ("插件安全", ["tools/check_plugin_security.py"], False),
     ("插件签名", ["tools/verify_signature.py", "--all"], False),
     ("类型与风格", ["tools/check_types.py"], True),
-    ("全量测试", ["-m", "pytest", "tests", "-q"], True),
+    ("全量测试", None, True),
 ]
 
 TIMEOUT = 900
+PYTEST_CHUNKS = 3
 
 
 def _env():
@@ -75,6 +76,37 @@ def run_check(argv):
     lines = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
     tail = " | ".join(x.strip() for x in lines[-4:] if x.strip())[:220]
     return False, dt, tail or ("退出码 %d" % r.returncode)
+
+
+def _test_files():
+    root = os.path.join(BASE, "tests")
+    out = []
+    for dirpath, _dirs, files in os.walk(root):
+        for name in files:
+            if name.startswith("test_") and name.endswith(".py"):
+                out.append(os.path.relpath(os.path.join(dirpath, name), BASE))
+    return sorted(out)
+
+
+def run_pytest_chunked():
+    """分段跑全量测试。
+
+    为什么分段：一次跑 2100+ 用例时本机偶发 `MemoryError` / 进程级崩溃
+    （0xC0000409），不是用例失败却会让整条 CI 记成红。拆成几段后内存能
+    及时归还，失败也能定位到具体是哪一段。
+    """
+    files = _test_files()
+    if not files:
+        return False, 0.0, "tests/ 下没找到 test_*.py"
+    size = (len(files) + PYTEST_CHUNKS - 1) // PYTEST_CHUNKS
+    t0 = time.time()
+    for start in range(0, len(files), size):
+        part = files[start:start + size]
+        ok, _dt, why = run_check(["-m", "pytest"] + part + ["-q"])
+        if not ok:
+            return False, time.time() - t0, "第 %d 段：%s" % (
+                start // size + 1, why)
+    return True, time.time() - t0, ""
 
 
 def _write_record(rows, passed, total, dt):
@@ -121,7 +153,10 @@ def main(argv=None):
     rows = []
     t_all = time.time()
     for name, argv_, _skip in todo:
-        ok, dt, why = run_check(argv_)
+        if argv_ is None:                       # 全量测试：分段跑
+            ok, dt, why = run_pytest_chunked()
+        else:
+            ok, dt, why = run_check(argv_)
         rows.append((name, ok, dt, why))
         print("%s %-14s %6.1f 秒 %s"
               % ("✅" if ok else "❌", name, dt, "" if ok else why[:120]))

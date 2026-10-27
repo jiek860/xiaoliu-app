@@ -87,3 +87,55 @@ def test_hot_reload_core_and_auto_reload(tmp_path, monkeypatch):
     assert r["检测到变化"] == 2
     hr.reload_count = 1
     assert hr.run()["已重载次数"] >= 1
+
+def test_restart_program_spawns_successor_then_exits(tmp_path, monkeypatch):
+    """先拉起新进程、再做优雅退出（不能直接 os._exit 把旧进程硬杀）"""
+    hr, _tr, _sample, _core = _setup(tmp_path)
+    seen = {}
+
+    class FakeProc:
+        pass
+
+    def fake_popen(args, **kwargs):
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        return FakeProc()
+
+    monkeypatch.setattr("modules.installed.hot_reload.subprocess.Popen",
+                        fake_popen)
+    monkeypatch.setattr(hr, "_graceful_exit", lambda: seen.setdefault("exit", 1))
+    hr._restart_program()
+    assert seen["exit"] == 1
+    assert isinstance(hr._child, FakeProc)
+    assert seen["args"][1].endswith("app_pyqt.py")
+
+
+def test_graceful_exit_shuts_down_flushes_and_exits(tmp_path, monkeypatch):
+    hr, tr, _sample, _core = _setup(tmp_path)
+    called = {}
+    tr.shutdown = lambda: called.setdefault("shutdown", True)
+    monkeypatch.setattr("modules.installed.hot_reload.os._exit",
+                        lambda code: called.setdefault("exit", code))
+    hr._graceful_exit()
+    assert called["shutdown"] is True
+    assert called["exit"] == 0
+
+
+def test_stop_terminates_successor_process(tmp_path):
+    hr, _tr, _sample, _core = _setup(tmp_path)
+
+    class Child:
+        def __init__(self):
+            self.killed = False
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.killed = True
+
+    child = Child()
+    hr._child = child
+    assert hr.stop() == {"状态": "已停止"}
+    assert child.killed is True
+    assert hr._child is None
