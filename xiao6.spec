@@ -77,7 +77,11 @@ a.datas.append(('core/lazy_config.py', 'core/lazy_config.py', 'DATA'))
 # uiautomation/bin/UIAutomationClient_VC140_*.dll，PyInstaller 静态分析看不到。
 # 少了这两个 dll，exe 里 ui_windows/ui_click 一律报"没装 uiautomation"。
 from PyInstaller.utils.hooks import collect_data_files
-a.datas += collect_data_files('uiautomation', includes=['bin/*.dll'])
+# ⚠️ collect_data_files 返回的是 2 元组 (源文件, 目标目录)，而 a.datas 是
+# TOC（3 元组，最后一位是类型）。直接 += 会在 COLLECT 阶段报
+# "ValueError: not enough values to unpack (expected 3, got 2)"（2026-10-28 实测踩到）。
+a.datas += [(d[0], d[1], d[2] if len(d) > 2 else 'DATA')
+            for d in collect_data_files('uiautomation', includes=['bin/*.dll'])]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
