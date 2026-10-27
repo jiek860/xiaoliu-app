@@ -5,7 +5,7 @@ except ImportError:
     def _x6_swallowed(component, error, context=""):
         return None
 
-import os, shutil, secrets, hashlib, tempfile
+import os, shutil, secrets, hashlib, stat, tempfile, threading, time
 from datetime import datetime
 from core.logger import get_logger
 from core.path_safety import safe_name, safe_join
@@ -32,13 +32,26 @@ class Backup:
     #
     #    判断标准：**能重新下载/重新生成的东西不进备份**。
     #    用户真正怕丢的是记忆、聊天、配置、人格 —— 那些都不大。
+    #
+    #    ⚠️ 2026-10-27 又补了两个（swebench / swe_work）：实测 backups/ 堆到
+    #    979.5 MB / 12 份，其中 swe_work 里的 .git/objects/pack 占了大头。
+    #    它们是 SWE 评测的工作区，能重新跑/重新 clone，不该进备份。
     EXCLUDE_DIRS = {
         "datasets", "cache", "__pycache__", ".pytest_cache", ".ruff_cache",
         "recordings", "uploads", "browser_sessions",
         "backups", "plugin_backups", "pathfix_backup", "config_backup",
         "archive", "staging", "_deprecated", "logs",
         "browsers",          # Chromium 内核 705.6 MB，能重新下载
+        "swebench",          # SWE 评测产物（11.3 MB），能重跑
+        "swe_work",          # SWE 工作区（含 .git pack，几百 MB），能重新 clone
     }
+
+    # ⚠️ 备份必须**串行**（2026-10-27 加）：同一秒里出现过
+    #    backup_20261027_211951 和 backup_20261027_211951_2 两份 ——
+    #    撞名逻辑没覆盖数据，但两份备份同时跑会互相把对方写了一半的目录
+    #    当成"上一份"，增量基线就不可靠了。加锁后第二个进来时，
+    #    上一份已经完整落盘，节流判断也能看到它。
+    _BACKUP_LOCK = threading.Lock()
 
     def __init__(self, trunk=None):
         self.trunk = trunk
@@ -65,8 +78,37 @@ class Backup:
         except Exception:
             return None
 
-    def backup_now(self):
-        """做一份完整快照：变了的复制，没变的从上一份硬链接过来"""
+    def backup_now(self, force=True, min_gap_h=0):
+        """做一份完整快照：变了的复制，没变的从上一份硬链接过来
+
+        force        True = 不管上次多近都备（手动备份 / 测试）
+        min_gap_h    >0 且 force=False 时，距上次备份不足这么多小时就跳过
+
+        节流判断必须放在锁**内**：启动时 `_auto_backup` 线程和用户手动备份
+        可能同时进来，锁外判断的话两边都会看到"上一份很久以前"，
+        于是又出现同秒两份（见 _BACKUP_LOCK 注释）。
+        """
+        with self._BACKUP_LOCK:
+            if not force and min_gap_h > 0:
+                last = self._last_backup_path()
+                age_h = self._age_hours(last) if last else None
+                if age_h is not None and age_h < min_gap_h:
+                    return {"成功": False, "跳过": True,
+                            "原因": "距上次备份只有 %.1f 小时（阈值 %s 小时）"
+                                    % (age_h, min_gap_h),
+                            "上次": os.path.basename(last)}
+            return self._backup_snapshot()
+
+    @staticmethod
+    def _age_hours(path):
+        """路径距今多少小时；读不到返回 None"""
+        try:
+            return (time.time() - os.path.getmtime(path)) / 3600.0
+        except Exception:
+            return None
+
+    def _backup_snapshot(self):
+        """真正做快照 —— 调用方必须持有 _BACKUP_LOCK"""
         name = "backup_" + datetime.now().strftime("%Y%m%d_%H%M%S")
         # 同一秒内连做两次会撞名（原来会直接往同一目录里写，
         # 于是"上一份"就是自己、增量逻辑整个失效）。撞了就加序号。
@@ -149,19 +191,64 @@ class Backup:
         threading.Thread(target=_run, daemon=True).start()
         return {"已启动": True}
 
+    @staticmethod
+    def _clear_readonly(path):
+        """递归清掉只读位 —— Windows 上只读文件/目录 shutil.rmtree 删不掉"""
+        for root, _dirs, files in os.walk(path):
+            for name in files:
+                try:
+                    os.chmod(os.path.join(root, name), stat.S_IWRITE)
+                except OSError:
+                    pass
+        # 目录自底向上清（父目录最后，否则前面清过的又被锁回去）
+        for root, dirs, _files in os.walk(path, topdown=False):
+            for name in dirs:
+                try:
+                    os.chmod(os.path.join(root, name), stat.S_IWRITE)
+                except OSError:
+                    pass
+        try:
+            os.chmod(path, stat.S_IWRITE)
+        except OSError:
+            pass
+
     def _cleanup(self, keep=2):
-        """只保留最近keep个备份，删旧的"""
+        """只保留最近 keep 个备份，删旧的 —— 删不掉的要**真的报错**
+
+        ⚠️ 原来用 `shutil.rmtree(..., ignore_errors=True)`，而 git pack 是
+        只读的，Windows 上根本删不掉；ignore_errors 把失败吞了，日志却写
+        "自动清理旧备份10个，保留最近2个" —— 实际一个没删。实测 backups/
+        堆到 979.5 MB / 12 份，其中 162 个只读文件占 880.3 MB。
+        现在先清只读位再删，成功/失败分别计数并写日志。
+        """
         try:
             dirs = sorted(os.listdir(self.backup_dir))
             dirs = [d for d in dirs if d.startswith("backup_")]
             if len(dirs) <= keep:
-                return
+                return {"删除": 0, "失败": 0}
             old = dirs[:-keep]
+            deleted, failed = [], []
             for d in old:
-                shutil.rmtree(os.path.join(self.backup_dir, d), ignore_errors=True)
-            get_logger().info("自动清理旧备份%d个，保留最近%d个" % (len(old), keep))
+                p = os.path.join(self.backup_dir, d)
+                try:
+                    self._clear_readonly(p)
+                    shutil.rmtree(p)
+                    deleted.append(d)
+                except Exception:
+                    failed.append(d)
+            if failed:
+                get_logger().error(
+                    "自动清理旧备份：删掉 %d 个，%d 个没删掉（%s）—— 多半是只读"
+                    "或被占用，可手动删除 %s 下这些目录"
+                    % (len(deleted), len(failed), ", ".join(failed[:5]),
+                       self.backup_dir))
+            else:
+                get_logger().info("自动清理旧备份%d个，保留最近%d个"
+                                  % (len(deleted), keep))
+            return {"删除": len(deleted), "失败": len(failed)}
         except Exception as e:
             get_logger().error("清理备份失败: %s" % str(e))
+            return {"删除": 0, "失败": -1, "错误": str(e)[:80]}
 
     def auto_backup(self):
         """自动备份（定时调用）"""

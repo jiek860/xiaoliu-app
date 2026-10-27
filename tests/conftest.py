@@ -23,6 +23,11 @@ import pytest
 # Test sessions must never block on the first-run login modal. Individual
 # dialog tests still construct LoginDialog directly.
 os.environ.setdefault("X6_DISABLE_LOGIN_PROMPT", "1")
+# 测试里不要写真实备份：`Trunk.__init__` 会起 `_auto_backup` 线程，
+# 原来它不在 _BACKGROUND 里，于是每次造 Trunk 都往项目 backups/ 真写一份
+# （实测备份堆积到 979.5 MB，其中不少就是这么来的）。
+# 这里双保险：① 环境变量短路 ② 下面 _BACKGROUND 也屏蔽掉该线程。
+os.environ.setdefault("X6_NO_AUTO_BACKUP", "1")
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE not in sys.path:
@@ -48,6 +53,7 @@ _BACKGROUND = (
     "_warmup",               # 模型预热
     "_warmup_ollama",        # 会去请求 Ollama
     "_auto_unload_loop",     # 常驻卸载循环
+    "_auto_backup",          # 启动备份（写真实 backups/，实测堆到 979 MB）
 )
 
 

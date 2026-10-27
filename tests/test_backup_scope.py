@@ -41,6 +41,9 @@ BIG_AND_REGENERABLE = [
     ("uploads", "上传的临时文件"),
     ("browser_sessions", "浏览器会话"),
     ("staging", "打包/下载中间产物"),
+    # 2026-10-27 补：backups/ 实测 979.5 MB，大头是 swe_work 里的 .git pack
+    ("swebench", "SWE 评测产物，能重跑"),
+    ("swe_work", "SWE 工作区（含 .git pack），能重新 clone"),
 ]
 
 

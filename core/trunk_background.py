@@ -189,14 +189,28 @@ class TrunkBackgroundMixin:
         现在融合成一条：启动时触发真正的备份，产物统一进 backups/。
 
         另加节流：距上次备份不足 _AUTO_BACKUP_MIN_GAP_H 小时就跳过。
+
+        节流做两层（2026-10-27）：
+          ① 这里先快速看一眼最近一份（省掉建 Backup 的开销）
+          ② 真正的判断在 Backup.backup_now(force=False, min_gap_h=...) 的**锁内** ——
+             两个线程同时进来时，第二个能看到第一个刚落盘的备份，
+             不会再出现同一秒两份（backup_..._211951 / _211951_2）。
+        测试/CI 里设环境变量 X6_NO_AUTO_BACKUP=1 可直接关掉（它会写真实磁盘）。
         """
+        # 测试/CI 短路：conftest 默认设了，单测里造 Trunk 不会写真实备份
+        if str(os.environ.get("X6_NO_AUTO_BACKUP", "")).strip().lower() \
+                not in ("", "0", "false", "no"):
+            return
         try:
             from core.backup import Backup
             bk = Backup(self)
             last = bk._last_backup_path()
             if last and self._backup_is_recent(last):
                 return
-            r = bk.backup_now() or {}
+            r = bk.backup_now(force=False,
+                              min_gap_h=self._AUTO_BACKUP_MIN_GAP_H) or {}
+            if r.get("跳过"):
+                return
             if r.get("成功"):
                 self._log("启动备份完成: %s（%s）"
                           % (r.get("备份到"), "增量" if r.get("增量") else "全量"))
