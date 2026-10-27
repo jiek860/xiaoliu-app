@@ -120,7 +120,8 @@ class GitHubClient:
         req = urllib.request.Request(url, data=body, method=method,
                                      headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            # 安全：上面已强制 https:// 且只允许 api.github.com/HTTPS 主机
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:  # nosec B310
                 data = r.read().decode("utf-8", "replace")
                 return json.loads(data) if data.strip() else {}
         except urllib.error.HTTPError as e:

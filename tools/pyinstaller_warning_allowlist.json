@@ -71,12 +71,15 @@
       "urllib.splittype",
       "urllib.unquote",
       "urllib.url2pathname",
+      "urllib.urlencode",
+      "urllib.urlopen",
       "urllib.urlretrieve",
       "urllib2",
       "urlparse",
       "xmlrpclib"
     ],
     "optional_python_packages": [
+      "BeautifulSoup",
       "IPython",
       "IPython.core",
       "IPython.display",
@@ -88,19 +91,27 @@
       "bcrypt",
       "brotli",
       "brotlicffi",
+      "bs4",
       "chardet",
       "cryptography.x509.UnsupportedExtension",
+      "cssselect",
+      "defusedxml",
+      "defusedxml.ElementTree",
       "docx",
       "filelock",
       "h2",
       "h2.config",
       "h2.connection",
       "h2.events",
+      "html5lib",
+      "html5lib.treebuilders",
       "importlib_resources",
       "ipywidgets",
       "jedi",
       "keyring",
+      "lxml_html_clean",
       "openpyxl",
+      "openpyxl.tests",
       "pptx",
       "pypdf",
       "pytesseract",
@@ -121,8 +132,16 @@
       "usercustomize",
       "trove_classifiers"
     ],
+    "newer_python_stdlib": [
+      "annotationlib"
+    ],
+    "build_time_only": [
+      "cython",
+      "cython.cimports"
+    ],
     "asyncio_legacy_symbols": [
       "asyncio.DefaultEventLoopPolicy"
     ]
-  }
+  },
+  "_变更_2026-10-27": "运行时锁文件新增 openpyxl / python-pptx / xlsxwriter / lxml 后，PyInstaller 静态扫描多出 14 个名字：bs4/BeautifulSoup/cssselect/html5lib*/defusedxml*/lxml_html_clean/openpyxl.tests 归 optional_python_packages（格式化/解析的可选依赖与测试包，缺了只影响对应格式），urllib.urlencode+urlopen 归 python2_legacy，cython* 归 build_time_only（只用于编译期生成扩展），annotationlib 归 newer_python_stdlib（3.13+ 标准库，3.12 上不存在）。"
 }

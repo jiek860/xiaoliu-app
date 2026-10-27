@@ -77,7 +77,8 @@ def failure_fingerprint(*outputs):
     raw = normalize_output("\n".join(str(x or "") for x in outputs))
     if not raw:
         return ""
-    return hashlib.sha1(raw.encode("utf-8", "replace")).hexdigest()[:16]
+    return hashlib.sha1(raw.encode("utf-8", "replace"),
+                        usedforsecurity=False).hexdigest()[:16]
 
 
 def failure_text(tests=None, lint=None):

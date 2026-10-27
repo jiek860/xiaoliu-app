@@ -43,3 +43,35 @@ def test_tree_sitter_languages_is_optional():
     cats, unknown = classify(names)
     assert not unknown
     assert "tree_sitter_languages" in cats["optional_python_packages"]
+
+
+# 2026-10-27：运行时锁文件补 openpyxl / python-pptx / xlsxwriter / lxml 后，
+# `Windows Build` 的 `Check missing-module classification` 一次性列出这 14 个名字。
+# 逐条确认都不影响运行：格式化/解析类是可选项（缺了只影响对应格式的读写），
+# cython 只是编译期工具，annotationlib 是 3.13+ 才有的标准库，
+# urllib.urlencode/urlopen 是 Python2 写法。这里锁住分类，防止再次变红。
+BATCH25_MISSING_MODULES = [
+    "BeautifulSoup", "annotationlib", "bs4", "cssselect", "cython",
+    "cython.cimports", "defusedxml", "defusedxml.ElementTree", "html5lib",
+    "html5lib.treebuilders", "lxml_html_clean", "openpyxl.tests",
+    "urllib.urlencode", "urllib.urlopen",
+]
+
+
+def test_batch25_new_missing_modules_are_all_classified():
+    text = "\n".join("missing module named %s" % n
+                     for n in BATCH25_MISSING_MODULES)
+    names = extract_missing(text)
+    assert names == sorted(BATCH25_MISSING_MODULES)
+    cats, unknown = classify(names)
+    assert not unknown
+    assert "BeautifulSoup" in cats["optional_python_packages"]
+    assert "bs4" in cats["optional_python_packages"]
+    assert "html5lib" in cats["optional_python_packages"]
+    assert "lxml_html_clean" in cats["optional_python_packages"]
+    assert "openpyxl.tests" in cats["optional_python_packages"]
+    assert "urllib.urlencode" in cats["python2_legacy"]
+    assert "urllib.urlopen" in cats["python2_legacy"]
+    assert "cython" in cats["build_time_only"]
+    assert "cython.cimports" in cats["build_time_only"]
+    assert "annotationlib" in cats["newer_python_stdlib"]
