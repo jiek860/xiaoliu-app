@@ -6,12 +6,15 @@ title 小6智能助手
 if not exist "data" mkdir data
 if not exist "data\logs" mkdir data\logs
 
-rem ---- resolve python: py launcher first (Store stub returns 9009) ----
+rem ---- resolve python: 项目内 .venv 优先，其次 py 启动器（Store stub 返回 9009） ----
 rem NOTE: use "if not errorlevel 1", not "%errorlevel%==0" -- the latter
 rem is expanded at parse time inside blocks and gives a stale value.
 set "PYCMD="
-py -3 --version >nul 2>&1
-if not errorlevel 1 set "PYCMD=py -3"
+if exist ".venv\Scripts\python.exe" set "PYCMD=.venv\Scripts\python.exe"
+if not defined PYCMD (
+    py -3 --version >nul 2>&1
+    if not errorlevel 1 set "PYCMD=py -3"
+)
 if not defined PYCMD (
     python --version >nul 2>&1
     if not errorlevel 1 set "PYCMD=python"

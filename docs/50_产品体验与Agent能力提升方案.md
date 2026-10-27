@@ -1075,7 +1075,7 @@ class ComputerAdapter:
 - 1026 passed，2 skipped
 - 按钮预算 136/136
 - 静默失败检查 339/372
-- 打包源：E:\xiao6-package，4470 个文件，201.8 MB
+- 打包源：E:\xiao6-package，4673 个文件，203.8 MB
 
 不在范围：
 

@@ -67,7 +67,7 @@ echo  同步完成
 echo ========================================
 echo.
 echo  下一步：
-echo    1. 双击 C:\Users\tt\Desktop\小工具\加固打包\加固打包.exe
+echo    1. 双击 E:\打包工具\加固打包\加固打包.exe
 echo       选 E:\xiao6-package\run.py 编译成 exe
 echo    2. 双击 安装包生成器.exe
 echo       第 (5) 项文件夹选 E:\xiao6-package
