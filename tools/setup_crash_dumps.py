@@ -26,7 +26,9 @@ faulthandler 只能告诉你"崩在哪个 Python 函数调的"，看不到 DLL �
     py -3 tools\\setup_crash_dumps.py --status     看当前配了什么
     py -3 tools\\setup_crash_dumps.py --wer        配 WER（要管理员）
     py -3 tools\\setup_crash_dumps.py --procdump   下载 procdump
-    py -3 tools\\setup_crash_dumps.py --watch      用 procdump 盯着启动小6
+    py -3 tools\\setup_crash_dumps.py --watch      打印盯着启动的命令（不执行）
+    py -3 tools\\setup_crash_dumps.py --watch-run  后台常驻监视（不占窗口）
+    py -3 tools\\setup_crash_dumps.py --stop-watch 停掉常驻监视
     py -3 tools\\setup_crash_dumps.py --disable    撤掉 WER 配置
 
 ⚠️ 关于隐私：dump 文件里**包含进程内存**，可能有你的聊天内容和 API Key。
@@ -40,11 +42,16 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DUMP_DIR = os.path.join(BASE, "data", "dumps")
 TOOLS_DIR = os.path.join(BASE, "data", "tools")
 PROCDUMP = os.path.join(TOOLS_DIR, "procdump.exe")
+# 常驻监视的 pid / 日志（写进 data/logs 方便和 faulthandler.log 一起看）
+WATCH_DIR = os.path.join(BASE, "data", "logs")
+WATCH_PID = os.path.join(WATCH_DIR, "procdump_watch.pid")
+WATCH_LOG = os.path.join(WATCH_DIR, "procdump_watch.log")
 
 # WER 本地转储的注册表位置（HKLM，要管理员）
 WER_KEY = (r"HKLM\SOFTWARE\Microsoft\Windows\Windows Error "
@@ -193,16 +200,9 @@ def procdump_watch(target_exe=None, dump_dir=None, wait=False,
     p = procdump_status()
     if not p:
         return False, "还没下 procdump，先跑 --procdump", ""
-    dump_dir = dump_dir or DUMP_DIR
+    cmd, exe, dump_dir = _watch_argv(target_exe, dump_dir, wait,
+                                     first_chance)
     os.makedirs(dump_dir, exist_ok=True)
-    exe = target_exe or "小6智能体.exe"
-
-    cmd = [p, "-accepteula", "-ma"]          # -ma = 完整 dump
-    if first_chance:
-        # 配个过滤器，只留真正想看的（不加过滤会被正常异常刷爆）
-        cmd += ["-e", "1", "-f", "Access violation,Stack overflow"]
-    else:
-        cmd += ["-e"]                         # 只在未处理异常时抓
 
     # ⚠️ 两种模式的说明都必须含"内存"和具体风险（聊天/Key）。
     #    第一版只写了"含进程内存"，没说**具体是什么** —— 用户不会
@@ -211,17 +211,185 @@ def procdump_watch(target_exe=None, dump_dir=None, wait=False,
                 "记忆内容和 API Key**。\n"
                 "       发给别人（包括发给我）之前想清楚这一点。")
     if wait:
-        # -w 的语法是：procdump ... -w <进程名> [dump目录]
-        cmd += ["-n", "5", "-o", "-w", exe, dump_dir]
         note = ("先跑这个命令，它会在那儿等；**然后**再去开小6。\n"
                 "    这个窗口要一直开着。崩了会自动存 dump 到 %s\n%s"
                 % (dump_dir, _PRIVACY))
     else:
         # 盯一个已经在跑的进程
-        cmd += ["-n", "5", "-o", exe, dump_dir]
         note = ("小6 得**已经在跑**。崩了会存 dump 到 %s\n%s"
                 % (dump_dir, _PRIVACY))
     return True, " ".join(cmd), note
+
+
+def _watch_argv(target_exe=None, dump_dir=None, wait=False,
+                first_chance=False):
+    """拼 procdump 参数表（list）
+
+    ⚠️ 显示（--watch）和真正启动（--watch-run）必须用同一份参数，
+    否则会出现"打印的命令能跑、真启动的那条跑不了"。第一版
+    `--watch-run` 直接把 `procdump_watch` 返回的**字符串**当参数表传给
+    WMI，结果命令行变成一堆单字符，进程根本没起来。
+    """
+    dump_dir = dump_dir or DUMP_DIR
+    exe = target_exe or "小6智能体.exe"
+    argv = [procdump_status(), "-accepteula", "-ma"]   # -ma = 完整 dump
+    if first_chance:
+        # 配个过滤器，只留真正想看的（不加过滤会被正常异常刷爆）
+        argv += ["-e", "1", "-f", "Access violation,Stack overflow"]
+    else:
+        argv += ["-e"]                                 # 只在未处理异常时抓
+    if wait:
+        # -w 的语法是：procdump ... -w <进程名> [dump目录]
+        argv += ["-n", "5", "-o", "-w", exe, dump_dir]
+    else:
+        argv += ["-n", "5", "-o", exe, dump_dir]
+    return argv, exe, dump_dir
+
+
+# ══════════════════════════════════════════════════════════
+# 常驻监视（不占窗口）
+# ══════════════════════════════════════════════════════════
+# 为什么加这个：`--watch` 只打印命令，得自己开个窗口挂着 —— 实际没人会
+# 一直开着终端。faulthandler.log 里已经堆了 277 次 Windows fatal exception
+# （0x8001010e 116 次、access violation 15 次、stack overflow 1 次），
+# 但一次进程级 dump 都没有，原生帧永远定不了位。
+# `--watch-run` 用 DETACHED_PROCESS 起一个不随终端退出的 procdump，
+# stdout 落 data/logs/procdump_watch.log，pid 落 procdump_watch.pid。
+def procdump_watch_pid(pid_path=None):
+    """返回正在运行的监视进程 pid；没在跑返回 0"""
+    pid_path = pid_path or WATCH_PID
+    try:
+        pid = int(open(pid_path, encoding="utf-8").read().strip())
+    except Exception:
+        return 0
+    if pid <= 0:
+        return 0
+    try:
+        import psutil
+        if not psutil.pid_exists(pid):
+            return 0
+        name = (psutil.Process(pid).name() or "").lower()
+        return pid if "procdump" in name else 0
+    except Exception:
+        # 静默是故意的：psutil 缺失/权限不足时下面还有 Win32 兜底，
+        # 这里吞掉只是"换一条路查"，不是错误
+        try:
+            import ctypes
+            h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+            if h:
+                ctypes.windll.kernel32.CloseHandle(h)
+                return pid
+        except Exception:
+            # 静默是故意的：Win32 也查不了就返回"没在跑"，状态查询不该抛异常
+            pass
+    return 0
+
+
+def _start_via_wmi(cmd):
+    """用 WMI 创建进程：父级是 WmiPrvSE，**不随当前终端/父进程退出**
+
+    实测（2026-10-27）：Popen + DETACHED_PROCESS 起的 procdump 会跟着
+    启动它的终端一起被收掉（这里跑测试的沙箱按作业对象清理子进程）；
+    WMI 创建的进程不在同一个作业里，能一直活着。
+    返回 pid；WMI 不可用返回 0。
+    ⚠️ 走这条路 stdout 没有重定向，procdump 的控制台横幅会丢 ——
+       dump 文件照常写，只影响那几行提示文字。
+    """
+    inner = " ".join('"%s"' % c if " " in c else c for c in cmd)
+    script = ("$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
+              "-Arguments @{ CommandLine = '%s' }; Write-Output $r.ProcessId"
+              % inner.replace("'", "''"))
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive",
+                            "-Command", script],
+                           capture_output=True, text=True, timeout=25)
+        out = (r.stdout or "").strip().splitlines()
+        pid = int(out[-1]) if out else 0
+        return pid if pid > 0 else 0
+    except Exception:
+        return 0
+
+
+def procdump_watch_run(target_exe=None, dump_dir=None, wait=True,
+                       first_chance=False):
+    """在后台真的起一个 procdump 常驻监视
+
+    返回 (ok, msg)。已经在跑就不重复起（否则同一进程会存两份 dump）。
+    """
+    p = procdump_status()
+    if not p:
+        return False, "还没下 procdump，先跑 --procdump"
+    cmd, exe, dump_dir = _watch_argv(target_exe, dump_dir, wait,
+                                     first_chance)
+    os.makedirs(dump_dir, exist_ok=True)
+    running = procdump_watch_pid()
+    if running:
+        return True, ("已经在监视（pid %d），没有重复启动。\n"
+                      "    日志：%s" % (running, WATCH_LOG))
+    try:
+        os.makedirs(WATCH_DIR, exist_ok=True)
+    except Exception as e:
+        return False, "建不出日志目录 %s：%s" % (WATCH_DIR, str(e)[:60])
+
+    how = "WMI（关掉终端也活着）"
+    pid = _start_via_wmi(cmd)
+    if not pid:
+        how = "普通后台进程"
+        log = open(WATCH_LOG, "ab")
+        try:
+            # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW：
+            # 尽量脱离当前会话（部分环境会按作业对象清理子进程，
+            # 那种情况下只有 WMI 那条路能活）
+            proc = subprocess.Popen(
+                cmd, stdin=subprocess.DEVNULL, stdout=log,
+                stderr=subprocess.STDOUT, close_fds=True,
+                creationflags=0x00000008 | 0x00000200 | 0x08000000)
+            pid = proc.pid
+        except Exception as e:
+            log.close()
+            return False, "起不来（%s）：%s" % (type(e).__name__, str(e)[:80])
+        log.close()
+    try:
+        with open(WATCH_PID, "w", encoding="utf-8") as f:
+            f.write(str(pid))
+    except Exception:
+        # 静默是故意的：pid 文件只是方便 --status/--stop-watch 找进程；
+        # 写不了不影响监视本身（dump 照样会生成）
+        pass
+    try:
+        with open(WATCH_LOG, "a", encoding="utf-8") as f:
+            f.write("[%s] 启动监视 pid=%s 目标=%s（%s）\n"
+                    % (time.strftime("%Y-%m-%d %H:%M:%S"), pid, exe, how))
+    except Exception:
+        # 静默是故意的：同上，日志写不了不该让"已经起来的监视"报失败
+        pass
+    return True, ("已后台监视（pid %d，目标 %s，%s）。\n"
+                  "    日志：%s\n"
+                  "    dump：%s（最多 5 份，满了要重新启动监视）\n"
+                  "    停止：py -3 tools\\setup_crash_dumps.py --stop-watch"
+                  % (pid, exe, how, WATCH_LOG, dump_dir or DUMP_DIR))
+
+
+def procdump_watch_stop():
+    """停掉后台监视"""
+    pid = procdump_watch_pid()
+    if not pid:
+        try:
+            os.remove(WATCH_PID)
+        except OSError:
+            pass
+        return False, "没有在跑的监视进程"
+    try:
+        import psutil
+        psutil.Process(pid).terminate()
+    except Exception:
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"],
+                       capture_output=True)
+    try:
+        os.remove(WATCH_PID)
+    except OSError:
+        pass
+    return True, "已停止监视（pid %d）" % pid
 
 
 # ══════════════════════════════════════════════════════════
@@ -248,6 +416,13 @@ def show_status():
     else:
         print("  procdump:     ❌ 没有（%s）" % PROCDUMP)
 
+    wpid = procdump_watch_pid()
+    if wpid:
+        print("  常驻监视:     ✅ pid %s（日志 %s）" % (wpid, WATCH_LOG))
+    else:
+        print("  常驻监视:     ❌ 没在跑（py -3 tools\\setup_crash_dumps.py "
+              "--watch-run）")
+
     fd = os.path.join(BASE, "data", "logs", "faulthandler.log")
     print("  faulthandler: %s"
           % ("✅ %s（%.1f KB）" % (fd, os.path.getsize(fd) / 1024)
@@ -267,17 +442,28 @@ def main():
     ap.add_argument("--procdump", action="store_true", help="下载 procdump")
     ap.add_argument("--watch", action="store_true",
                     help="打印盯着启动的命令（不真执行）")
+    ap.add_argument("--watch-run", action="store_true",
+                    help="后台常驻监视（不占窗口，崩了自动存 dump）")
+    ap.add_argument("--stop-watch", action="store_true", help="停掉常驻监视")
+    ap.add_argument("--target", default="",
+                    help="监视哪个进程（默认小6智能体.exe；"
+                         "从源码跑用 python.exe）")
+    ap.add_argument("--first-chance", action="store_true",
+                    help="连首次异常也抓（会被正常异常刷爆，慎用）")
     ap.add_argument("--mini", action="store_true",
                     help="配 WER 时用迷你 dump（小，但往往看不清）")
     a = ap.parse_args()
 
-    if a.status or not any([a.wer, a.disable, a.procdump, a.watch]):
+    _ACTIONS = (a.wer, a.disable, a.procdump, a.watch, a.watch_run,
+                a.stop_watch)
+    if a.status or not any(_ACTIONS):
         show_status()
-        if not any([a.wer, a.disable, a.procdump, a.watch]):
+        if not any(_ACTIONS):
             print()
             print("  想配的话：")
             print("     py -3 tools\\setup_crash_dumps.py --wer        （要管理员）")
             print("     py -3 tools\\setup_crash_dumps.py --procdump   （不用管理员）")
+            print("     py -3 tools\\setup_crash_dumps.py --watch-run  （后台常驻）")
         return 0
 
     if a.wer:
@@ -295,12 +481,25 @@ def main():
         print("  %s %s" % ("✅" if ok else "❌", msg))
         if ok:
             print()
-            print("  用法：先开监视窗口，再启动小6")
-            print("      py -3 tools\\setup_crash_dumps.py --watch")
+            print("  用法：后台常驻监视（不用开窗口）")
+            print("      py -3 tools\\setup_crash_dumps.py --watch-run")
+        return 0 if ok else 1
+
+    if a.stop_watch:
+        ok, msg = procdump_watch_stop()
+        print("  %s %s" % ("✅" if ok else "❌", msg))
+        return 0 if ok else 1
+
+    if a.watch_run:
+        ok, msg = procdump_watch_run(target_exe=a.target or None,
+                                     first_chance=a.first_chance)
+        print("  %s %s" % ("✅" if ok else "❌", msg))
         return 0 if ok else 1
 
     if a.watch:
-        ok, msg, note = procdump_watch(wait=True)
+        ok, msg, note = procdump_watch(wait=True,
+                                       target_exe=a.target or None,
+                                       first_chance=a.first_chance)
         if not ok:
             print("  ❌ %s" % msg)
             return 1

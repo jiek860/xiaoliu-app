@@ -10,8 +10,10 @@
 """
 import os
 import shutil
+import stat
 import sys
 import tempfile
+import threading
 import time
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -226,5 +228,78 @@ def test_export_filters_excluded_dirs():
             names = [n.replace("\\", "/") for n in z.namelist()]
         assert any(n.endswith("data/config.json") for n in names), names
         assert not any("datasets/" in n for n in names), names
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_cleanup_removes_readonly_backups_and_reports_real_count():
+    """只读文件（git pack 就是只读的）也必须删得掉，日志数字要真
+
+    原来的 `_cleanup` 用 `ignore_errors=True`：删不掉也不报，
+    于是 backups/ 堆到 979.5 MB，日志却写着"清理了 10 个"。
+    """
+    root = _make_fake_project()
+    try:
+        bk = Backup(FakeTrunk(root))
+        for i in range(4):
+            d = os.path.join(bk.backup_dir, "backup_2026010%d_000000" % i)
+            os.makedirs(d)
+            p = os.path.join(d, "pack.idx")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("x" * 100)
+            if i < 2:                    # 前两份模拟 .git/objects/pack：只读
+                os.chmod(p, stat.S_IREAD)
+                os.chmod(d, stat.S_IREAD)
+        r = bk._cleanup(keep=2)
+        assert r == {"删除": 2, "失败": 0}, r
+        remain = sorted(os.listdir(bk.backup_dir))
+        assert remain == ["backup_20260102_000000",
+                          "backup_20260103_000000"], remain
+    finally:
+        Backup._clear_readonly(root)     # 临时目录里有只读位，先清再删
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_backup_now_throttle_skips_recent_backup():
+    """force=False 时距上次备份太近要跳过；默认（手动备份）不受影响"""
+    root = _make_fake_project()
+    try:
+        bk = Backup(FakeTrunk(root))
+        assert bk.backup_now()["成功"]
+        r = bk.backup_now(force=False, min_gap_h=6)
+        assert r.get("跳过") is True, r
+        assert "阈值" in r.get("原因", ""), r
+        # 默认 force=True：手动备份随时能立刻做
+        assert bk.backup_now()["成功"]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_concurrent_backups_are_serialized():
+    """两个线程同时备份：都要成功，且不能互相覆盖/复用半成品
+
+    2026-10-27 实测出现过同一秒的 backup_..._211951 和 _211951_2，
+    加锁后第二个线程必须看到第一个完整落盘的目录。
+    """
+    root = _make_fake_project()
+    try:
+        bk = Backup(FakeTrunk(root))
+        results = {}
+
+        def _one(key):
+            # 不用 out.append：那会被 tools/check_threads.py 误判成
+            # "后台线程里碰 Qt 控件"（它按方法名扫，append 在名单里）
+            results[key] = bk.backup_now()
+
+        threads = [threading.Thread(target=_one, args=(i,))
+                   for i in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        out = [results[k] for k in sorted(results)]
+        assert len(out) == 2 and all(r.get("成功") for r in out), out
+        names = {r.get("备份到") for r in out}
+        assert len(names) == 2, "两份备份撞名了：%s" % names
     finally:
         shutil.rmtree(root, ignore_errors=True)

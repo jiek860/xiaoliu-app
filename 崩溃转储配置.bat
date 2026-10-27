@@ -45,7 +45,8 @@ echo.
 echo   [1] 下载 procdump（不用管理员，推荐先试这个）
 echo   [2] 配 WER 本地转储（要管理员，配一次长期有效）
 echo   [3] 撤掉 WER 配置
-echo   [4] 打印"盯着启动小6"的命令
+echo   [4] 后台常驻监视（推荐：不用开窗口，崩了自动存 dump）
+echo   [5] 打印"盯着启动小6"的命令（要自己开窗口）
 echo   [0] 什么都不做
 echo.
 set /p choice="  输入数字后回车: "
@@ -64,6 +65,9 @@ if "%choice%"=="3" (
     %PYCMD% tools\setup_crash_dumps.py --disable
 )
 if "%choice%"=="4" (
+    %PYCMD% tools\setup_crash_dumps.py --watch-run
+)
+if "%choice%"=="5" (
     %PYCMD% tools\setup_crash_dumps.py --watch
 )
 
@@ -73,7 +77,7 @@ echo  下一步
 echo ========================================
 echo.
 echo  配好之后：
-echo    1. 跑第 [4] 项打印的命令（会开一个窗口在那儿等）
+echo    1. 跑第 [4] 项（后台常驻，不用管它）或第 [5] 项打印的命令
 echo    2. **然后**再启动小6
 echo    3. 崩了之后 dump 会出现在 data\dumps\
 echo    4. 用 WinDbg 打开 .dmp，命令：!analyze -v

@@ -21,7 +21,16 @@ class LLMLocalMixin:
         return self.config.get("local_model", "xiao6-qwen3.5-4b:latest")
 
     def _vl_model(self):
-        return self.config.get("local_model", "xiao6-qwen3.5-4b:latest")
+        """带图请求用的视觉模型
+
+        ⚠️ 2026-10-27 修：原来这里读的是 `local_model`，配置里的
+        `vl_model`（默认 qwen3-vl:8b）**从来没被用过** —— 用户把视觉模型
+        改成别的也永远不生效，带图请求实际发给了一个纯文本模型。
+        现在优先读 vl_model，没配（或配成空串）才退回 local_model。
+        """
+        vl = str(self.config.get("vl_model") or "").strip()
+        return vl or self.config.get("local_model",
+                                     "xiao6-qwen3.5-4b:latest")
 
     @staticmethod
     def _extract_user_text(message):
@@ -109,6 +118,7 @@ class LLMLocalMixin:
         """模式①：路由选模型 → 本地；路由模型挂了回退主力；本地全挂云端兜底"""
         main_model = self._main_model()
         picked = force_model or self._pick_model(message)
+        is_image = self._has_image(message)
         # 复杂/带图 → 云端直连（失败回本地主力，不再白等本地超时）
         if picked == "__cloud__":
             cr = self._try_cloud(message)
@@ -124,11 +134,20 @@ class LLMLocalMixin:
             self.config["local_model"] = picked
             r = self._try_local(message, inject_persona)
             # 路由到小模型/VL 却失败（如 VL 未安装）→ 换主力模型重试
+            #
+            # ⚠️ 带图请求**不能**回退到纯文本主力模型（2026-10-27）：
+            #    主力看不到图，只会照着附带的那点文字硬答，用户看到的是
+            #    "答非所问"，却看不出是回退错了。这种情况直接交给云端视觉。
             if (not r or str(r).startswith("本地模型错误")) and picked != main_model:
-                if self.trunk:
-                    self.trunk._log("路由模型 %s 不可用，回退主力 %s" % (picked, main_model))
-                self.config["local_model"] = main_model
-                r = self._try_local(message, inject_persona)
+                if is_image:
+                    if self.trunk:
+                        self.trunk._log("视觉模型 %s 不可用，改由云端处理"
+                                        % picked)
+                else:
+                    if self.trunk:
+                        self.trunk._log("路由模型 %s 不可用，回退主力 %s" % (picked, main_model))
+                    self.config["local_model"] = main_model
+                    r = self._try_local(message, inject_persona)
             # 本地仍失败 → 云端兜底
             if not r or str(r).startswith("本地模型错误"):
                 cr = self._try_cloud(message)

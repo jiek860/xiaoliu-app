@@ -198,3 +198,43 @@ def test_procdump_urls_are_official():
     for u in scd.PROCDUMP_URLS:
         assert "sysinternals" in u.lower(), \
             "procdump 下载地址不是官方：%s" % u
+
+
+# ══════════════════════════════════════════════════════════════
+# ④ 常驻监视（--watch-run）
+# ══════════════════════════════════════════════════════════════
+def test_watch_pid_missing_file_is_zero():
+    """没有 pid 文件时返回 0，不能抛（状态查询里会调用）"""
+    p = os.path.join(BASE, "data", "logs", "__no_such_watch.pid")
+    assert scd.procdump_watch_pid(p) == 0
+
+
+def test_watch_run_without_procdump_fails_cleanly(monkeypatch):
+    """没下 procdump 时给出能照做的提示，且不会起进程"""
+    monkeypatch.setattr(scd, "PROCDUMP",
+                        os.path.join(BASE, "data", "tools", "__missing__.exe"))
+    ok, msg = scd.procdump_watch_run(target_exe="python.exe")
+    assert ok is False
+    assert "--procdump" in msg, msg
+
+
+def test_watch_run_reuses_running_watch(monkeypatch):
+    """已经在监视时不能重复起（同一进程会存两份 dump）"""
+    monkeypatch.setattr(scd, "PROCDUMP", os.path.join(BASE, "x.exe"))
+    monkeypatch.setattr(scd, "procdump_status", lambda: scd.PROCDUMP)
+    monkeypatch.setattr(scd, "procdump_watch_pid", lambda *a, **k: 4242)
+    ok, msg = scd.procdump_watch_run(target_exe="python.exe")
+    assert ok is True and "已经在监视" in msg and "4242" in msg, msg
+
+
+def test_watch_stop_without_watch_is_reported(monkeypatch, tmp_path):
+    """没在监视时停一下要给出提示（不能误伤真实监视进程）"""
+    monkeypatch.setattr(scd, "WATCH_PID", str(tmp_path / "no.pid"))
+    ok, msg = scd.procdump_watch_stop()
+    assert ok is False and "没有在跑" in msg, msg
+
+
+def test_watch_log_location_is_under_data_logs():
+    """pid/日志要落在 data/logs —— 和 faulthandler.log 一起看"""
+    assert os.path.join(BASE, "data", "logs") in scd.WATCH_LOG
+    assert scd.WATCH_PID.endswith(".pid")

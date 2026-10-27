@@ -160,14 +160,19 @@ def test_auto_backup_runs_when_no_recent(tmp_path, monkeypatch):
         def _last_backup_path(self):
             return ""
 
-        def backup_now(self):
-            calls.append(1)
+        def backup_now(self, **kw):
+            calls.append(kw)
             return {"成功": True, "备份到": "backups/b1", "增量": True}
 
     monkeypatch.setattr("core.backup.Backup", FakeBackup)
+    # conftest 默认设了 X6_NO_AUTO_BACKUP=1（测试不写真实备份），
+    # 这几条要验备份流程本身，得先把它摘掉
+    monkeypatch.delenv("X6_NO_AUTO_BACKUP", raising=False)
     host = FakeHost(tmp_path)
     host._auto_backup()
-    assert calls == [1]
+    # 必须把节流参数交给 backup_now —— 判断要在它的锁内做
+    assert calls == [{"force": False,
+                      "min_gap_h": host._AUTO_BACKUP_MIN_GAP_H}]
     assert any("启动备份完成" in x for x in host.logs)
 
 
@@ -182,10 +187,44 @@ def test_auto_backup_skips_when_recent(tmp_path, monkeypatch):
         def _last_backup_path(self):
             return str(recent)
 
-        def backup_now(self):
+        def backup_now(self, **kw):
             raise AssertionError("不该再备份")
 
     monkeypatch.setattr("core.backup.Backup", FakeBackup)
+    monkeypatch.delenv("X6_NO_AUTO_BACKUP", raising=False)
+    host = FakeHost(tmp_path)
+    host._auto_backup()
+    assert host.logs == []
+
+
+def test_auto_backup_respects_env_switch(tmp_path, monkeypatch):
+    """X6_NO_AUTO_BACKUP=1 时连 Backup 都不该建（测试/CI 不写真实磁盘）"""
+    monkeypatch.setenv("X6_NO_AUTO_BACKUP", "1")
+
+    class FakeBackup:
+        def __init__(self, trunk):
+            raise AssertionError("不该建 Backup")
+
+    monkeypatch.setattr("core.backup.Backup", FakeBackup)
+    host = FakeHost(tmp_path)
+    host._auto_backup()
+    assert host.logs == []
+
+
+def test_auto_backup_handles_throttle_skip(tmp_path, monkeypatch):
+    """backup_now 自己判断"太近了"时不写"启动备份未完成"的错误日志"""
+    class FakeBackup:
+        def __init__(self, trunk):
+            pass
+
+        def _last_backup_path(self):
+            return ""
+
+        def backup_now(self, **kw):
+            return {"成功": False, "跳过": True, "原因": "太近了"}
+
+    monkeypatch.setattr("core.backup.Backup", FakeBackup)
+    monkeypatch.delenv("X6_NO_AUTO_BACKUP", raising=False)
     host = FakeHost(tmp_path)
     host._auto_backup()
     assert host.logs == []
