@@ -75,3 +75,23 @@ def test_batch25_new_missing_modules_are_all_classified():
     assert "cython" in cats["build_time_only"]
     assert "cython.cimports" in cats["build_time_only"]
     assert "annotationlib" in cats["newer_python_stdlib"]
+
+
+# 2026-10-27 追加：exe 依赖集补 pypdf==6.21.3 后，同一道门禁又列出 8 个名字。
+# 全部是 pypdf 的可选后端（pycryptodome 加密 / 阿拉伯文整形 / fontTools 字体），
+# 以及 Pillow 已在锁里、pypdf 延迟导入 `from PIL import Image` 产生的一条提示。
+PYPDF_MISSING_MODULES = [
+    "Crypto", "Crypto.Cipher", "Crypto.Util", "PIL.Image", "arabic_reshaper",
+    "bidi", "fontTools", "fontTools.ttLib",
+]
+
+
+def test_pypdf_missing_modules_are_all_classified():
+    text = "\n".join("missing module named %s" % n
+                     for n in PYPDF_MISSING_MODULES)
+    names = extract_missing(text)
+    assert names == sorted(PYPDF_MISSING_MODULES)
+    cats, unknown = classify(names)
+    assert not unknown
+    for name in PYPDF_MISSING_MODULES:
+        assert name in cats["optional_python_packages"]
