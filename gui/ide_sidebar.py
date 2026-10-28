@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
-"""工作台 IDE 侧栏：活动栏图标 + 搜索视图 + 源代码管理视图。
+"""工作台 IDE 侧栏：活动栏图标 + 搜索视图 + 侧栏容器。
 
 为什么单独一个文件
 ------------------
 `workbench_dialog.py` 已经负责主布局/状态栏/AI 协作，继续塞搜索和 Git
 会把主窗口推到 600 行上限。这里只放"侧栏视图"，不依赖工作台内部状态：
   * SearchPanel 发 openRequested(path, line)
-  * ScmPanel    发 openRequested(path)
+  * SidebarHost  三页侧栏容器（资源管理器 / 搜索 / 源代码管理）
   * activity_icon(kind) 画单色活动栏图标，替代 emoji
+  * ScmPanel 已拆到 gui/ide_scm.py（本文件在这里 re-export，旧导入路径不变）
 
 约束：本文件不创建 QPushButton/QAction，活动栏图标是 QListWidget 项。
 """
@@ -29,7 +30,8 @@ except ImportError:  # 独立导入时兜底
     def _x6_swallowed(*_a, **_k):
         return None
 
-from gui.ide_explorer import git_status_entries  # noqa: E402
+from gui.ide_explorer import git_status_entries  # noqa: F401,E402
+from gui.ide_scm import ScmPanel, _HINT_QSS, _header  # noqa: F401,E402
 
 
 _SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv",
@@ -41,25 +43,6 @@ _LANG = {".py": "Python", ".md": "Markdown", ".json": "JSON",
          ".css": "CSS", ".yml": "YAML", ".yaml": "YAML", ".toml": "TOML",
          ".ini": "INI", ".cfg": "INI", ".ps1": "PowerShell", ".sh": "Shell",
          ".sql": "SQL", ".txt": "Plain Text"}
-
-_HEADER_QSS = (
-    "QWidget#sideHeader{background:#f6f8fa;border-bottom:1px solid #d0d7de;}")
-_HEADER_TITLE_QSS = "font-weight:600;font-size:12px;color:#24292f;"
-_HINT_QSS = "color:#667085;font-size:11px;"
-
-
-def _header(title):
-    host = QWidget()
-    host.setObjectName("sideHeader")
-    host.setAttribute(Qt.WA_StyledBackground, True)
-    host.setStyleSheet(_HEADER_QSS)
-    lay = QHBoxLayout(host)
-    lay.setContentsMargins(8, 4, 6, 4)
-    lab = QLabel(title)
-    lab.setStyleSheet(_HEADER_TITLE_QSS)
-    lay.addWidget(lab)
-    lay.addStretch(1)
-    return host, lay
 
 
 _ICON_PX = 22
@@ -263,81 +246,13 @@ class SearchPanel(QWidget):
             self.openRequested.emit(str(data[0]), int(data[1]))
 
 
-class ScmPanel(QWidget):
-    """源代码管理：git 分支 + 工作区改动列表。"""
-
-    openRequested = pyqtSignal(str)
-
-    def __init__(self, root, parent=None):
-        super().__init__(parent)
-        self.root = os.path.abspath(root or os.getcwd())
-        self._build()
-        self.refresh()
-
-    def _build(self):
-        v = QVBoxLayout(self)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(0)
-        head, hl = _header("源代码管理")
-        refresh = QLabel('<a href="refresh" style="color:#1d4ed8;'
-                         'font-size:11px;text-decoration:none;">刷新</a>')
-        refresh.linkActivated.connect(self.refresh)
-        hl.addWidget(refresh)
-        v.addWidget(head)
-
-        self.branch = QLabel("分支：-")
-        self.branch.setStyleSheet(
-            "color:#475467;font-size:11px;padding:5px 8px;"
-            "border-bottom:1px solid #eaecf0;")
-        v.addWidget(self.branch)
-
-        self.changes = QListWidget()
-        self.changes.setStyleSheet(
-            "QListWidget{border:none;background:#ffffff;}"
-            "QListWidget::item{padding:4px 8px;border-bottom:1px solid #f2f4f7;}"
-            "QListWidget::item:selected{background:#eef4ff;color:#1d4ed8;}")
-        self.changes.itemDoubleClicked.connect(self._open_item)
-        v.addWidget(self.changes, 1)
-        self.hint = QLabel("双击改动打开文件")
-        self.hint.setStyleSheet(_HINT_QSS + "padding:3px 8px;")
-        v.addWidget(self.hint)
-
-    def _git(self, args):
-        try:
-            return subprocess.run(
-                ["git"] + list(args), cwd=self.root, capture_output=True,
-                text=True, encoding="utf-8", errors="replace", timeout=5)
-        except Exception as e:  # 静默是故意的 - 没有 git 就显示不可用
-            _x6_swallowed(__name__, e, "git command")
-            return None
-
-    def refresh(self, *_):
-        self.changes.clear()
-        cp = self._git(["rev-parse", "--abbrev-ref", "HEAD"])
-        branch = (cp.stdout or "").strip() if cp is not None else ""
-        self.branch.setText("分支：%s" % (branch or "未检测到 Git 仓库"))
-        entries = git_status_entries(self.root)
-        if entries is None:
-            self.hint.setText("当前目录不是 Git 仓库或未安装 git")
-            return
-        for status, rel in entries:
-            item = QListWidgetItem("%s  %s" % (status, rel))
-            item.setData(Qt.UserRole, os.path.join(self.root, rel))
-            item.setToolTip(rel)
-            self.changes.addItem(item)
-        self.hint.setText("共 %d 个改动" % len(entries) if entries else "工作区干净")
-
-    def _open_item(self, item):
-        path = item.data(Qt.UserRole)
-        if path and os.path.exists(str(path)):
-            self.openRequested.emit(str(path))
-
-
 class SidebarHost(QStackedWidget):
     """资源管理器 + 搜索 + Git 三个左侧视图的容器。"""
 
     openAtLineRequested = pyqtSignal(str, int)
     openPathRequested = pyqtSignal(str)
+    diffRequested = pyqtSignal(str, str)
+    commitDone = pyqtSignal(str)
 
     def __init__(self, root, parent=None):
         super().__init__(parent)
@@ -347,6 +262,8 @@ class SidebarHost(QStackedWidget):
         self.search_view.openRequested.connect(self.openAtLineRequested)
         self.scm_view = ScmPanel(root, self)
         self.scm_view.openRequested.connect(self.openPathRequested)
+        self.scm_view.diffRequested.connect(self.diffRequested)
+        self.scm_view.commitDone.connect(self.commitDone)
 
     def attach(self, explorer, splitter):
         """把原资源管理器页放到 index 0，再追加搜索/Git。

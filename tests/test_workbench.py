@@ -2,6 +2,8 @@
 """工作台测试：编辑器 + AI 面板同屏（无功能页签）。"""
 
 import os
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -199,11 +201,12 @@ def test_minimap_paints_and_click_jumps(app):
 
 
 def test_bottom_panel_has_output_problem_terminal(wb):
-    """底部面板是「输出 / 问题 / 终端」三个页签，不再是单块输出框。"""
+    """底部面板是「输出 / 问题 / 终端 / 差异」四个页签。"""
     b = wb._editor.bottom
-    assert b.bar.count() == 3
+    assert b.bar.count() == 4
     assert b.bar.tabText(0) == "输出"
     assert b.bar.tabText(2) == "终端"
+    assert b.bar.tabText(3).startswith("差异")
     w = wb._editor.tabs.currentWidget()
     w.setPlainText("def broken(:\n")
     w._check_syntax()
@@ -214,6 +217,32 @@ def test_bottom_panel_has_output_problem_terminal(wb):
     assert b.problems.count() == 0
     w._dirty = False
     wb._editor._update_tab_title(w)
+
+
+def test_bottom_diff_tab_shows_colored_lines(wb):
+    """差异页按 +/- 着色并自动切过去。"""
+    b = wb._editor.bottom
+    text = b.show_diff("gui/x.py",
+                       "--- a/gui/x.py\n+++ b/gui/x.py\n"
+                       "@@ -1 +1 @@\n-print(1)\n+print(2)\n")
+    assert b.bar.currentIndex() == b.diff_index
+    assert b.bar.tabText(b.diff_index).startswith("差异 x.py")
+    assert "+print(2)" in text
+    assert "-print(1)" in text
+    assert b.diff.isReadOnly()
+    body = b.diff.toPlainText()
+    assert "-print(1)" in body and "+print(2)" in body
+
+
+def test_sidebar_diff_and_commit_signals_reach_editor(wb):
+    """SidebarHost 的信号必须真的接到编辑器（差异页 + 输出页）。"""
+    wb.sidebar_stack.diffRequested.emit("gui/y.py", "+added\n-removed\n")
+    b = wb._editor.bottom
+    assert b.bar.currentIndex() == b.diff_index
+    assert "+added" in b.diff.toPlainText()
+    wb.sidebar_stack.commitDone.emit("abc1234")
+    assert "[git] 已提交 abc1234" in wb._editor.output.toPlainText()
+
 
 
 def test_terminal_cd_and_clear_are_local(wb):
@@ -274,6 +303,156 @@ def test_git_status_entries_uses_utf8_raw_paths(monkeypatch):
     assert "core.quotePath=false" in seen["cmd"], seen["cmd"]
     assert entries == [("M", "docs/中文文档.md"),
                        ("??", "gui/新文件.py")], entries
+
+
+# ---------------- P1：Git 暂存 / 提交 / 差异 ----------------
+def _git(*args, cwd):
+    return subprocess.run(
+        ["git", "-c", "core.quotePath=false"] + list(args),
+        cwd=str(cwd), capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=20)
+
+
+def _init_git_repo(tmp_path):
+    if shutil.which("git") is None:
+        pytest.skip("本机没有 git")
+    _git("init", "-q", cwd=tmp_path)
+    _git("config", "user.email", "t@example.com", cwd=tmp_path)
+    _git("config", "user.name", "tester", cwd=tmp_path)
+    (tmp_path / "a.py").write_text("print(1)\n", encoding="utf-8")
+    _git("add", "a.py", cwd=tmp_path)
+    _git("commit", "-q", "-m", "init", cwd=tmp_path)
+
+
+def test_scm_stage_diff_and_commit(app, tmp_path):
+    """真实仓库走一遍：看 diff → 暂存 → 提交。"""
+    from PyQt5.QtCore import Qt
+
+    from gui.ide_sidebar import ScmPanel
+    _init_git_repo(tmp_path)
+    panel = ScmPanel(str(tmp_path))
+    try:
+        (tmp_path / "a.py").write_text("print(2)\n", encoding="utf-8")
+        panel.refresh()
+        assert panel.changes.count() == 1
+        item = panel.changes.item(0)
+        assert item.data(Qt.UserRole + 1) == "a.py"
+        assert item.data(Qt.UserRole + 2).strip() == "M"
+        assert item.foreground().color().name() == "#9a6700"
+
+        panel.changes.setCurrentRow(0)
+        diffs = []
+        panel.diffRequested.connect(lambda rel, text: diffs.append((rel, text)))
+        panel.emit_diff()
+        assert diffs and diffs[0][0] == "a.py"
+        assert "+print(2)" in diffs[0][1]
+        assert "-print(1)" in diffs[0][1]
+
+        assert panel.commit("   ") is False          # 空提交信息
+        assert panel.commit("还没暂存") is False      # 暂存区为空
+        assert panel.stage("a.py") is True
+
+        panel.changes.setCurrentRow(0)               # refresh 后重新选中
+        panel.emit_diff()
+        assert "+print(2)" in diffs[-1][1]           # 已暂存 → --cached
+
+        done = []
+        panel.commitDone.connect(done.append)
+        assert panel.commit("改一行") is True
+        assert done and done[0]
+        assert _git("log", "-1", "--pretty=%s",
+                    cwd=tmp_path).stdout.strip() == "改一行"
+        assert panel.changes.count() == 0
+        assert "已提交" in panel.hint.text()
+    finally:
+        panel.deleteLater()
+
+
+def test_scm_untracked_placeholder_and_discard(app, tmp_path, monkeypatch):
+    """未跟踪文件先给占位diff，放弃改动要能删掉它。"""
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import QMessageBox
+
+    from gui.ide_sidebar import ScmPanel
+    _init_git_repo(tmp_path)
+    panel = ScmPanel(str(tmp_path))
+    try:
+        new = tmp_path / "new.py"
+        new.write_text("x = 1\n", encoding="utf-8")
+        panel.refresh()
+        rows = {panel.changes.item(i).data(Qt.UserRole + 1): i
+                for i in range(panel.changes.count())}
+        assert "new.py" in rows
+        panel.changes.setCurrentRow(rows["new.py"])
+        seen = []
+        panel.diffRequested.connect(lambda rel, text: seen.append(text))
+        panel.emit_diff()
+        assert "未跟踪" in seen[0]
+
+        monkeypatch.setattr(QMessageBox, "question",
+                            staticmethod(lambda *a, **k: QMessageBox.Yes))
+        assert panel.discard("new.py") is True
+        assert not new.exists()
+    finally:
+        panel.deleteLater()
+
+
+def test_scm_stage_all_unstage_and_discard_tracked(app, tmp_path, monkeypatch):
+    """全部暂存 / 取消暂存 / 放弃已跟踪文件的改动（含取消确认）。"""
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import QMessageBox
+
+    from gui.ide_sidebar import ScmPanel
+    _init_git_repo(tmp_path)
+    panel = ScmPanel(str(tmp_path))
+    try:
+        (tmp_path / "a.py").write_text("print(9)\n", encoding="utf-8")
+        (tmp_path / "b.py").write_text("b = 1\n", encoding="utf-8")
+        panel.refresh()
+        assert panel.changes.count() == 2
+        assert panel.stage_all() is True
+        rows = {panel.changes.item(i).data(Qt.UserRole + 1):
+                panel.changes.item(i).data(Qt.UserRole + 2).strip()
+                for i in range(panel.changes.count())}
+        assert rows["b.py"] == "A"
+        assert rows["a.py"] == "M"
+        assert panel.unstage("b.py") is True
+        rows = {panel.changes.item(i).data(Qt.UserRole + 1):
+                panel.changes.item(i).data(Qt.UserRole + 2).strip()
+                for i in range(panel.changes.count())}
+        assert rows["b.py"] == "??"
+
+        monkeypatch.setattr(QMessageBox, "question",
+                            staticmethod(lambda *a, **k: QMessageBox.No))
+        assert panel.discard("a.py") is False
+        assert (tmp_path / "a.py").read_text(encoding="utf-8") == "print(9)\n"
+
+        monkeypatch.setattr(QMessageBox, "question",
+                            staticmethod(lambda *a, **k: QMessageBox.Yes))
+        # 已暂存的改动要连暂存区一起退回 HEAD，不能只从索引恢复
+        assert panel.discard("a.py") is True
+        assert (tmp_path / "a.py").read_text(encoding="utf-8") == "print(1)\n"
+
+        # 新加入暂存区的文件：HEAD 里没有，放弃就等于取消暂存 + 删文件
+        assert panel.stage("b.py") is True
+        assert panel.discard("b.py") is True
+        assert not (tmp_path / "b.py").exists()
+    finally:
+        panel.deleteLater()
+
+
+def test_scm_non_git_dir_degrades(app, tmp_path):
+    """不是 Git 仓库时给提示，不能抛异常。"""
+    from gui.ide_sidebar import ScmPanel
+    panel = ScmPanel(str(tmp_path))
+    try:
+        assert "未检测到" in panel.branch.text()
+        assert panel.changes.count() == 0
+        assert panel.commit("x") is False
+        assert panel.stage_all() is False
+        assert panel.emit_diff() == ""
+    finally:
+        panel.deleteLater()
 
 
 def test_explorer_new_file(wb, monkeypatch, tmp_path):

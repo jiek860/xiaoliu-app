@@ -21,6 +21,7 @@ import os
 import sys
 
 from PyQt5.QtCore import QProcess, QPoint, Qt, pyqtSignal
+from PyQt5.QtGui import QColor, QTextCharFormat
 from PyQt5.QtWidgets import (QLineEdit, QListWidget, QListWidgetItem,
                              QPlainTextEdit, QSplitter, QStackedWidget,
                              QTabBar, QVBoxLayout, QWidget)
@@ -215,6 +216,14 @@ class BottomPanel(QWidget):
         self.problems.itemDoubleClicked.connect(self._open_problem)
         self.stack.addWidget(self.problems)
         self.stack.addWidget(self._build_terminal())
+        self.bar.addTab("差异")
+        self.diff = QPlainTextEdit()
+        self.diff.setReadOnly(True)
+        self.diff.setStyleSheet(
+            "background:#ffffff;color:#24292f;font-family:Consolas;"
+            "font-size:12px;border:none;")
+        self.stack.addWidget(self.diff)
+        self.diff_index = self.bar.count() - 1
         self.bar.currentChanged.connect(self.stack.setCurrentIndex)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -321,6 +330,29 @@ class BottomPanel(QWidget):
         line = item.data(Qt.UserRole)
         if line is not None:
             self.jumpRequested.emit(int(line))
+
+    # ---------------------------------------------------- 差异页
+    def show_diff(self, rel, text):
+        """把 git diff 文本按 +/- 着色后放进「差异」页并切过去。"""
+        try:
+            name = os.path.basename(str(rel or "")) or "diff"
+            self.diff.clear()
+            cursor = self.diff.textCursor()
+            for line in str(text or "").splitlines():
+                first = line[:1]
+                color = {"+": "#1a7f37", "-": "#cf222e",
+                         "@": "#6e7781"}.get(first, "#24292f")
+                if line.startswith(("+++", "---")):
+                    color = "#6e7781"
+                fmt = QTextCharFormat()
+                fmt.setForeground(QColor(color))
+                cursor.insertText(line + "\n", fmt)
+            self.bar.setTabText(self.diff_index, "差异 %s" % name[:24])
+            self.select(self.diff_index)
+            return text or ""
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "show git diff")
+            return ""
 
     # ---------------------------------------------------- 对外
     def select(self, index):

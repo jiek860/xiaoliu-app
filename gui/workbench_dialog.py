@@ -41,8 +41,9 @@ from gui.workbench_ai_dock import AgentDock  # noqa: F401
 # IDE 侧栏/命令中心单独放，避免主窗口超 600 行。
 from gui.ide_sidebar import (CommandCenterMixin, SidebarHost, activity_icon,
                              git_branch, goto_line, open_plugin_market)
-# 状态栏 / 快捷键 / AI 侧栏行为拆到 workbench_shell（本文件要求 ≤500 行）。
-from gui.workbench_shell import WorkbenchAIHostMixin, WorkbenchStatusMixin
+# 状态栏 / 快捷键 / AI 侧栏 / Git 回显拆到 workbench_shell（本文件要求 ≤500 行）。
+from gui.workbench_shell import (WorkbenchAIHostMixin, WorkbenchSCMMixin,
+                                 WorkbenchStatusMixin)
 
 try:
     from core.logger import swallow as _x6_swallowed
@@ -52,7 +53,7 @@ except ImportError:  # 独立导入时兜底
 
 
 class WorkbenchWindow(CommandCenterMixin, WorkbenchStatusMixin,
-                      WorkbenchAIHostMixin, QMainWindow):
+                      WorkbenchSCMMixin, WorkbenchAIHostMixin, QMainWindow):
     """统一工作台：编辑器 + AI 面板同屏，无功能页签。"""
 
     def __init__(self, trunk, parent=None):
@@ -274,6 +275,8 @@ class WorkbenchWindow(CommandCenterMixin, WorkbenchStatusMixin,
             host.attach(tree_panel, self._editor_splitter)
             host.openAtLineRequested.connect(self._open_at_line)
             host.openPathRequested.connect(self.open_path)
+            host.diffRequested.connect(self._show_scm_diff)
+            host.commitDone.connect(self._on_scm_commit_done)
             self.sidebar_stack = host
             self.search_view = host.search_view
             self.scm_view = host.scm_view

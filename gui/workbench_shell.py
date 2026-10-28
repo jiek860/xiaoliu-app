@@ -2,10 +2,11 @@
 """工作台外壳逻辑：状态栏、快捷键、AI 侧栏行为。
 
 `gui/workbench_dialog.py` 被 `tests/test_module_split_exports.py` 要求
-≤500 行，这里承接两块和布局无关、可单独验证的外壳逻辑：
+≤500 行，这里承接三块和布局无关、可单独验证的外壳逻辑：
 
   * WorkbenchStatusMixin：光标行列 / 语法错误数 / 当前文件与语言 / 快捷键
   * WorkbenchAIHostMixin：QDockWidget 的显隐、浮动、收回
+  * WorkbenchSCMMixin：源代码管理视图的差异预览与提交回显
 
 约定：不创建 QPushButton/QAction，也不改布局，按钮预算保持 60。
 """
@@ -144,3 +145,27 @@ class WorkbenchAIHostMixin:
             _x6_swallowed(__name__, e, "dock ai back")
         self._ai_popup = None
         self.ai_dock.expand_btn.setText("⛶ 弹出")
+
+
+class WorkbenchSCMMixin:
+    """源代码管理 → 底部「差异」页 + 提交结果回显。"""
+
+    def _show_scm_diff(self, rel, text):
+        """ScmPanel 发来的 diff 文本，直接送到底部差异页。"""
+        try:
+            ed = self._editor
+            if ed is None or not hasattr(ed, "bottom"):
+                return
+            ed.bottom.show_diff(rel, text)
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "show scm diff")
+
+    def _on_scm_commit_done(self, sha):
+        """提交成功后把 sha 记到输出页，便于回查。"""
+        try:
+            ed = self._editor
+            if ed is None or not hasattr(ed, "output"):
+                return
+            ed.output.appendPlainText("[git] 已提交 %s" % (sha or "OK"))
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "scm commit done")
