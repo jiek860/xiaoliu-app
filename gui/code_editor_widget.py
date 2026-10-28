@@ -73,8 +73,9 @@ class _MiniMap(QWidget):
         self.setStyleSheet("background:#f6f8fa;")
 
     def paintEvent(self, _e):
-        p = QPainter(self)
+        p = None
         try:
+            p = QPainter(self)
             p.fillRect(self.rect(), QColor("#f6f8fa"))
             doc = self._editor.document()
             n = doc.blockCount()
@@ -97,7 +98,8 @@ class _MiniMap(QWidget):
         except Exception as e:  # 静默是故意的 - 缩略图异常不能影响编辑
             _x6_swallowed(__name__, e, "minimap paint")
         finally:
-            p.end()
+            if p is not None:
+                p.end()
 
     def _paint_viewport(self, p, n):
         vp = self._editor.viewport()

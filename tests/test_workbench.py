@@ -167,6 +167,37 @@ def test_minimap_visible_by_default_and_toggle(wb):
     assert w.minimap_width() == w._minimap.WIDTH
 
 
+def test_minimap_paints_and_click_jumps(app):
+    """minimap 真正画一次并且点击能跳行（paint/goto 之前完全没覆盖）。"""
+    from PyQt5.QtCore import QPoint, Qt
+    from PyQt5.QtGui import QMouseEvent
+
+    from gui.code_editor_widget import CodeEditWidget
+
+    w = CodeEditWidget()
+    w.resize(400, 200)
+    w.show()
+    try:
+        w.setPlainText("".join("line %d\n" % i for i in range(200)))
+        app.processEvents()
+        w._minimap.resize(76, 200)
+        pix = w._minimap.grab()                 # 触发 paintEvent
+        assert not pix.isNull()
+        before = w.textCursor().blockNumber()
+        w._minimap.mousePressEvent(QMouseEvent(
+            QMouseEvent.MouseButtonPress, QPoint(5, 100),
+            Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
+        assert w.textCursor().blockNumber() > before
+        w._minimap.mouseMoveEvent(QMouseEvent(
+            QMouseEvent.MouseMove, QPoint(5, 10),
+            Qt.NoButton, Qt.LeftButton, Qt.NoModifier))
+        w._minimap.resize(76, 0)               # 高度为 0 的提前返回分支
+        w._minimap.grab()
+    finally:
+        w.close()
+        w.deleteLater()
+
+
 def test_bottom_panel_has_output_problem_terminal(wb):
     """底部面板是「输出 / 问题 / 终端」三个页签，不再是单块输出框。"""
     b = wb._editor.bottom
@@ -269,6 +300,48 @@ def test_explorer_new_folder(wb, monkeypatch, tmp_path):
                         staticmethod(lambda *a, **k: ("sub", True)))
     wb._editor._create_entry(str(tmp_path), make_dir=True)
     assert (tmp_path / "sub").is_dir()
+
+
+def test_explorer_rename_entry(wb, monkeypatch, tmp_path):
+    """右键「重命名」：改名后刷新 Git 标记。"""
+    from PyQt5.QtWidgets import QInputDialog
+    src = tmp_path / "old.txt"
+    src.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(QInputDialog, "getText",
+                        staticmethod(lambda *a, **k: ("new.txt", True)))
+    wb._editor._rename_entry(str(src))
+    assert not src.exists()
+    assert (tmp_path / "new.txt").exists()
+
+
+def test_explorer_delete_entry(wb, monkeypatch, tmp_path):
+    """右键「删除」：确认后真的删掉；取消则保留。"""
+    from PyQt5.QtWidgets import QMessageBox
+    victim = tmp_path / "bye.txt"
+    victim.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.No))
+    wb._editor._delete_entry(str(victim))
+    assert victim.exists()
+    monkeypatch.setattr(QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.Yes))
+    wb._editor._delete_entry(str(victim))
+    assert not victim.exists()
+
+
+def test_editor_jump_to_line(wb):
+    """问题页双击 / minimap 跳转共用的 _jump_to_line，越界不能崩。"""
+    ed = wb._editor
+    w = ed._current_edit()
+    old = w.toPlainText()
+    try:
+        w.setPlainText("a\nb\nc\n")
+        ed._jump_to_line(3)
+        assert w.textCursor().blockNumber() == 2
+        ed._jump_to_line(99)   # 越界保持原位
+        assert w.textCursor().blockNumber() == 2
+    finally:
+        w.setPlainText(old)
 
 
 # ---------------- 收起 / 展开 ----------------

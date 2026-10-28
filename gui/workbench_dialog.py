@@ -40,8 +40,9 @@ from PyQt5.QtWidgets import (QDockWidget, QFrame, QHBoxLayout, QLabel,
 from gui.workbench_ai_dock import AgentDock  # noqa: F401
 # IDE 侧栏/命令中心单独放，避免主窗口超 600 行。
 from gui.ide_sidebar import (CommandCenterMixin, SidebarHost, activity_icon,
-                             git_branch, goto_line, language_for_path,
-                             open_plugin_market)
+                             git_branch, goto_line, open_plugin_market)
+# 状态栏 / 快捷键 / AI 侧栏行为拆到 workbench_shell（本文件要求 ≤500 行）。
+from gui.workbench_shell import WorkbenchAIHostMixin, WorkbenchStatusMixin
 
 try:
     from core.logger import swallow as _x6_swallowed
@@ -50,7 +51,8 @@ except ImportError:  # 独立导入时兜底
         return None
 
 
-class WorkbenchWindow(CommandCenterMixin, QMainWindow):
+class WorkbenchWindow(CommandCenterMixin, WorkbenchStatusMixin,
+                      WorkbenchAIHostMixin, QMainWindow):
     """统一工作台：编辑器 + AI 面板同屏，无功能页签。"""
 
     def __init__(self, trunk, parent=None):
@@ -288,78 +290,6 @@ class WorkbenchWindow(CommandCenterMixin, QMainWindow):
         if self.open_path(path):
             goto_line(self._editor.tabs.currentWidget(), line)
 
-    def _wire_editor_status(self):
-        """把编辑器的状态消息 / 当前文件同步到工作台底部。"""
-        if self._editor is None:
-            return
-        try:
-            self._editor.statusMessage.connect(self._on_editor_status)
-            self._editor.cursorMoved.connect(self._on_cursor_moved)
-            self._editor.syntaxErrorChanged.connect(self._on_syntax_errors)
-            self._editor.tabs.currentChanged.connect(self._on_tab_changed)
-            self._on_tab_changed(self._editor.tabs.currentIndex())
-            self._editor._update_cursor()
-        except Exception as e:  # 静默是故意的
-            _x6_swallowed(__name__, e, "wire editor status")
-
-    def _on_cursor_moved(self, line, col):
-        if line and col:
-            self.pos_label.setText("行 %d, 列 %d" % (line, col))
-        else:
-            self.pos_label.setText("行 -, 列 -")
-
-    def _on_syntax_errors(self, count):
-        n = int(count or 0)
-        self.error_label.setText("⚠ %d" % n)
-        self.error_label.setStyleSheet(
-            "color:#cf222e;font-size:11px;padding:0 8px;"
-            "border-left:1px solid #d0d7de;" if n else
-            "color:#667085;font-size:11px;padding:0 8px;"
-            "border-left:1px solid #d0d7de;")
-
-    def _on_editor_status(self, message):
-        self.status_label.setText(str(message or "就绪"))
-
-    def _on_tab_changed(self, index):
-        try:
-            w = self._editor.tabs.widget(index)
-            path = getattr(w, "filepath", "") if w is not None else ""
-            if path:
-                try:
-                    rel = os.path.relpath(path, self.root)
-                except Exception:
-                    rel = path
-                text = rel.replace("\\", "/")
-            else:
-                text = "未保存"
-            self.path_label.setText(text + " · UTF-8 · LF")
-            self.lang_label.setText(language_for_path(path))
-            self._on_syntax_errors(getattr(w, "_syntax_errors", 0))
-        except Exception as e:  # 静默是故意的
-            _x6_swallowed(__name__, e, "workbench tab status")
-
-    def _install_shortcuts(self):
-        """用快捷键替代按钮，减少界面控件数量。
-
-        Ctrl+J        收起 / 展开 AI 面板
-        Ctrl+Shift+P  聚焦命令中心
-        Ctrl+Shift+F  搜索工作区
-        Ctrl+\\        编辑器分屏
-        Ctrl+Shift+M  minimap 开关
-        F11           全屏切换
-        """
-        try:
-            from PyQt5.QtGui import QKeySequence
-            from PyQt5.QtWidgets import QShortcut
-            QShortcut(QKeySequence("Ctrl+J"), self, self.toggle_ai)
-            QShortcut(QKeySequence("Ctrl+Shift+P"), self, self._focus_command)
-            QShortcut(QKeySequence("Ctrl+Shift+F"), self, self._show_search)
-            QShortcut(QKeySequence("Ctrl+Shift+M"), self, self._toggle_minimap)
-            QShortcut(QKeySequence("Ctrl+\\"), self, self._toggle_split)
-            QShortcut(QKeySequence("F11"), self, self.toggle_fullscreen)
-        except Exception as e:  # 静默是故意的 - 快捷键装不上不影响使用
-            _x6_swallowed(__name__, e, "best-effort fallback")
-
     def _show_explorer(self):
         self.activity_list.setCurrentRow(0)
         self._last_view_row = 0
@@ -521,51 +451,7 @@ class WorkbenchWindow(CommandCenterMixin, QMainWindow):
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
 
-    # ---------------------------------------------------------- AI 面板
-    def _on_ai_visibility(self, visible):
-        """QDockWidget 被用户关闭/打开时同步状态位。"""
-        self._ai_shown = bool(visible)
-        if not visible:
-            try:
-                self.activity_list.setCurrentRow(self._last_view_row)
-            except Exception as e:  # 静默是故意的
-                _x6_swallowed(__name__, e, "reset activity row")
-
-    def toggle_ai(self):
-        """收起 / 展开右侧 AI 面板（QDockWidget 的可见性）。
-
-        ⚠️ 不能用 isVisible() 判断当前状态：窗口还没 show() 时它恒为 False，
-           会导致第一次点击"收起"变成"展开"。这里用显式状态位。
-        """
-        shown = not getattr(self, "_ai_shown", True)
-        self._ai_shown = shown
-        self.ai_host.setVisible(shown)
-        if shown and self.ai_host.isFloating():
-            self.ai_host.show()
-            self.ai_host.raise_()
-
-    def toggle_ai_popup(self):
-        """浮动 / 收回 AI 面板：QDockWidget 原生的浮动窗口，可拖到第二块屏幕。"""
-        if self._ai_popup is not None:
-            return self._close_ai_popup()
-        try:
-            self.ai_host.setVisible(True)
-            self.ai_host.setFloating(True)
-            self.ai_host.resize(560, 460)
-            self._ai_popup = self.ai_host
-            self.ai_dock.expand_btn.setText("⛶ 收回")
-        except Exception as e:  # 静默是故意的 - 浮动失败就保持内嵌
-            _x6_swallowed(__name__, e, "float ai dock")
-
-    def _close_ai_popup(self):
-        """把浮动面板收回右侧栏。"""
-        try:
-            self.ai_host.setFloating(False)
-        except Exception as e:  # 静默是故意的
-            _x6_swallowed(__name__, e, "dock ai back")
-        self._ai_popup = None
-        self.ai_dock.expand_btn.setText("⛶ 弹出")
-
+    # AI 面板的显隐/浮动逻辑已拆到 gui/workbench_shell.py:WorkbenchAIHostMixin
     def toggle_fullscreen(self):
         if self.isFullScreen():
             self.showNormal()
