@@ -17,7 +17,6 @@ except ImportError:
 
 import os
 import sys
-import ast
 import tempfile
 import difflib
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit, QTextEdit, QPushButton, QLabel, QFileDialog, QMessageBox, QTreeView, QFileSystemModel, QSplitter, QCompleter, QStatusBar, QDialog, QMenu
@@ -278,15 +277,16 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
 
     # ----- 问题 / 分屏 / minimap -----
     def _refresh_problems(self, w=None):
-        """把当前文件的语法错误同步到「问题」页（双击跳行）。"""
+        """把当前文件的问题同步到「问题」页（双击跳行）。
+
+        数据源是控件自己的 `problems()`：保存/打开后由 ruff 填，
+        编辑中退回 ast 语法错误，两边的「行 列 规则码 描述」格式一致。
+        """
         w = w if w is not None else self._current_edit()
         items = []
         try:
-            if isinstance(w, CodeEditWidget) and getattr(w, "_syntax_errors", 0):
-                try:
-                    ast.parse(w.toPlainText())
-                except SyntaxError as ex:
-                    items.append((int(ex.lineno or 1), str(ex.msg or "语法错误")))
+            if isinstance(w, CodeEditWidget):
+                items = w.problems()
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "refresh problems")
         bottom = getattr(self, "bottom", None)

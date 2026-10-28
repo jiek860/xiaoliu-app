@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import ast
+import json
+import os
 import re
+import shutil
+import sys
 
-from PyQt5.QtCore import Qt, QPoint, QRect, QSize, QTimer, pyqtSignal
+from PyQt5.QtCore import Qt, QPoint, QRect, QSize, QTimer, QProcess, pyqtSignal
 from PyQt5.QtGui import (QFont, QTextCharFormat, QColor, QSyntaxHighlighter,
                          QTextDocument, QTextCursor, QPainter)
 from PyQt5.QtWidgets import (QPlainTextEdit, QWidget, QCompleter, QTextEdit)
@@ -15,6 +19,49 @@ try:
 except ImportError:
     def _x6_swallowed(component, error, context=""):
         return None
+
+
+_RUFF_TIMEOUT_MS = 5000
+
+
+def ruff_command(path):
+    """ruff 检查命令；没装 ruff 时退回 `python -m ruff`（失败会走 ast 兜底）。"""
+    exe = shutil.which("ruff")
+    base = [exe] if exe else [sys.executable, "-m", "ruff"]
+    return base + ["check", "--output-format=json", "--quiet", "--", str(path)]
+
+
+def parse_ruff_json(text):
+    """ruff JSON → [(line, col, code, msg)]；不是合法 JSON 返回 None（走兜底）。"""
+    try:
+        data = json.loads(text or "")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, list):
+        return None
+    rows = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        loc = item.get("location") or {}
+        try:
+            rows.append((int(loc.get("row") or 1),
+                         int(loc.get("column") or 1),
+                         str(item.get("code") or ""),
+                         str(item.get("message") or "")))
+        except (TypeError, ValueError):
+            continue
+    return rows
+
+
+def ast_problems(code):
+    """兜底：没跑成 ruff 时只报语法错误（与实时下划线同源）。"""
+    try:
+        ast.parse(code or "")
+    except SyntaxError as ex:
+        return [(int(ex.lineno or 1), int(ex.offset or 1), "SyntaxError",
+                 str(ex.msg or "语法错误"))]
+    return []
 
 
 class _PyHighlighter(QSyntaxHighlighter):
@@ -130,7 +177,8 @@ class _MiniMap(QWidget):
 
 class CodeEditWidget(QPlainTextEdit):
     askAssistantRequested = pyqtSignal(str)  # 把选中/全部代码发回聊天框
-    syntaxErrorChanged = pyqtSignal(int)     # 当前文件语法错误数（0/1）
+    syntaxErrorChanged = pyqtSignal(int)     # 当前文件问题数（ruff 或 ast）
+    problemsChanged = pyqtSignal(list)       # [(行, 列, 规则码, 描述)]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -139,6 +187,8 @@ class CodeEditWidget(QPlainTextEdit):
         self.setFont(f)
         self.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.tab_width = 4
+        self._problems = []          # 当前问题列表（ruff 或 ast）
+        self._ruff_proc = None
         # 行号
         self._ln_area = _LineNumberArea(self)
         self.blockCountChanged.connect(self._update_ln_area_width)
@@ -170,7 +220,13 @@ class CodeEditWidget(QPlainTextEdit):
     @property
     def filepath(self): return self._filepath
     @filepath.setter
-    def filepath(self, v): self._filepath = v
+    def filepath(self, v):
+        self._filepath = v
+        self.check_problems()   # 打开/保存后跑一次静态检查
+
+    def problems(self):
+        """当前问题列表 [(行, 列, 规则码, 描述)]。"""
+        return list(self._problems)
 
     def is_dirty(self):
         # 文档状态才是唯一真相：setPlainText 会先发 modified=True 再复位，
@@ -353,35 +409,105 @@ class CodeEditWidget(QPlainTextEdit):
 
     # ----- 实时语法检查 -----
     def _check_syntax(self):
-        """实时语法检查；非 Python 文件不拿 ast 误判。"""
+        """实时语法检查；非 Python 文件不拿 ast 误判。
+
+        编辑中只做 ast（零成本）；ruff 结果只描述**已保存**的文件内容，
+        所以一旦有未保存改动就退回 ast，避免"问题页 12 条、状态栏 0 条"。
+        """
         extra = []
-        count = 0
-        if self._filepath and not str(self._filepath).lower().endswith(".py"):
+        if self._filepath and not str(self._filepath).lower().endswith(
+                (".py", ".pyw")):
             self.setExtraSelections([])
-            self._emit_syntax_errors(0)
+            self._set_problems([])
             return
-        code = self.toPlainText()
-        try:
-            ast.parse(code)
-        except SyntaxError as ex:
-            count = 1
+        problems = ast_problems(self.toPlainText())
+        if problems:
             fmt = QTextCharFormat()
             fmt.setUnderlineColor(QColor("#e51400"))
             fmt.setUnderlineStyle(QTextCharFormat.WaveUnderline)
-            block = self.document().findBlockByNumber(max(0, (ex.lineno or 1) - 1))
+            block = self.document().findBlockByNumber(
+                max(0, problems[0][0] - 1))
             if block.isValid():
                 sel = QTextEdit.ExtraSelection()
                 sel.cursor = QTextCursor(block)
                 sel.format = fmt
                 extra.append(sel)
         self.setExtraSelections(extra)
-        self._emit_syntax_errors(count)
+        if self.is_dirty():
+            self._problems = []
+        self._set_problems(self._problems or problems)
 
-    def _emit_syntax_errors(self, count):
-        count = int(count or 0)
-        if count != self._syntax_errors:
-            self._syntax_errors = count
-            self.syntaxErrorChanged.emit(count)
+    # ----- 静态检查（ruff 优先，ast 兜底） -----
+    def check_problems(self):
+        """打开/保存后跑一次 ruff（QProcess 后台，不卡主线程）。"""
+        path = self._filepath
+        if not path or not str(path).lower().endswith((".py", ".pyw")):
+            self._set_problems([])
+            return []
+        if self._ruff_proc is not None:
+            try:
+                self._ruff_proc.kill()
+            except Exception as e:  # 静默是故意的
+                _x6_swallowed(__name__, e, "kill old ruff")
+            self._ruff_proc = None
+        proc = QProcess(self)
+        self._ruff_proc = proc
+        proc.setProcessChannelMode(QProcess.SeparateChannels)
+        proc.finished.connect(lambda _c, _s, p=proc: self._on_ruff_done(p))
+        proc.errorOccurred.connect(lambda _e, p=proc: self._on_ruff_error(p))
+        cmd = ruff_command(path)
+        proc.start(cmd[0], cmd[1:])
+        QTimer.singleShot(_RUFF_TIMEOUT_MS, lambda p=proc: self._on_ruff_timeout(p))
+        return []
+
+    def _on_ruff_done(self, proc):
+        if proc is not self._ruff_proc:
+            return
+        out = bytes(proc.readAllStandardOutput()).decode("utf-8", "replace")
+        err = bytes(proc.readAllStandardError()).decode("utf-8", "replace")
+        self._ruff_proc = None
+        rows = parse_ruff_json(out)
+        if rows is None:
+            # 没装 ruff / 参数不被识别：退回 ast，不把 stderr 当成问题列表
+            _x6_swallowed(__name__, err, "ruff unavailable")
+            rows = self._ast_from_path()
+        self._set_problems(rows)
+
+    def _on_ruff_error(self, proc):
+        if proc is not self._ruff_proc:
+            return
+        self._ruff_proc = None
+        self._set_problems(self._ast_from_path())
+
+    def _on_ruff_timeout(self, proc):
+        if proc is not self._ruff_proc:
+            return
+        try:
+            proc.kill()
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "kill slow ruff")
+        self._ruff_proc = None
+        self._set_problems(self._ast_from_path())
+
+    def _ast_from_path(self):
+        try:
+            with open(self._filepath, encoding="utf-8", errors="replace") as f:
+                return ast_problems(f.read())
+        except (OSError, TypeError):
+            return ast_problems(self.toPlainText())
+
+    def _set_problems(self, items):
+        rows = []
+        for row in items or []:
+            try:
+                rows.append((int(row[0]), int(row[1]), str(row[2]), str(row[3])))
+            except (IndexError, TypeError, ValueError):
+                continue
+        self._problems = rows
+        self._syntax_errors = len(rows)
+        self.syntaxErrorChanged.emit(len(rows))
+        self.problemsChanged.emit(list(rows))
+        return rows
 
     # ----- 右键菜单 -----
     def contextMenuEvent(self, e):

@@ -1331,11 +1331,27 @@ EditorTabs(header=None)         QTabBar + 面包屑 + QStackedWidget
     .set_secondary(w) / .clear_secondary() / .has_secondary()
 
 BottomPanel(output, root=".")
-    .set_problems([(line, msg)])   问题页，双击发 jumpRequested(int)
+    .set_problems([(line, msg)])   兼容 (行,描述) 与 (行,列,规则码,描述)
+                                   问题页双击发 jumpRequested(int)
     .run_terminal(text=None)       支持 cd / pwd / cls，其余走 QProcess
     .show_diff(rel, text)          差异页按 +/- 着色并切过去（索引 3）
     .diff / .diff_index            差异页控件与页签索引
     .select(index)                 0=输出 1=问题 2=终端 3=差异
+```
+
+### gui/code_editor_widget.py
+
+```python
+ruff_command(path)             [ruff|python -m ruff] check --output-format=json
+parse_ruff_json(text)          JSON → [(行, 列, 规则码, 描述)]；非 JSON 返回 None
+ast_problems(code)             兜底：只报第一条 SyntaxError（同为 4 元组）
+
+CodeEditWidget()
+    .filepath = p              setter 即"打开/保存"，会触发一次静态检查
+    .check_problems()          ruff 走 QProcess 后台（5s 超时，失败退回 ast）
+    .problems()                [(行, 列, 规则码, 描述)]
+    problemsChanged(list)      问题列表变化（编辑中退回 ast，保存后是 ruff）
+    syntaxErrorChanged(int)    问题条数，供状态栏
 ```
 
 ### gui/ide_sidebar.py / gui/ide_explorer.py
