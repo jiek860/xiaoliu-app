@@ -1333,7 +1333,9 @@ EditorTabs(header=None)         QTabBar + 面包屑 + QStackedWidget
 BottomPanel(output, root=".")
     .set_problems([(line, msg)])   问题页，双击发 jumpRequested(int)
     .run_terminal(text=None)       支持 cd / pwd / cls，其余走 QProcess
-    .select(index)                 0=输出 1=问题 2=终端
+    .show_diff(rel, text)          差异页按 +/- 着色并切过去（索引 3）
+    .diff / .diff_index            差异页控件与页签索引
+    .select(index)                 0=输出 1=问题 2=终端 3=差异
 ```
 
 ### gui/ide_sidebar.py / gui/ide_explorer.py
@@ -1341,8 +1343,17 @@ BottomPanel(output, root=".")
 ```python
 activity_icon(kind)            explorer/search/scm/run/extensions/ai 单色图标
 SearchPanel(root)              .run_search()；openRequested(path, line)
-ScmPanel(root)                 .refresh()；openRequested(path)
+ScmPanel(root)                 .refresh() / .stage(rel) / .stage_all()
+                               .unstage(rel) / .discard(rel) / .commit(msg)
+                               .emit_diff(rel=None)
+    discard(rel)               放弃改动：?? 删文件；A 先 rm --cached 再删；
+                               其余 checkout HEAD -- rel（连暂存区一起退回 HEAD）
+    diffRequested(rel, text)   右键「查看差异」→ 已暂存优先 --cached，否则工作区
+    commitDone(sha)            提交成功后发短 sha
+    openRequested(path)        双击改动
+    hint                       一行操作结果提示（refresh 会先重置它）
 SidebarHost(root, parent)      .attach(explorer, splitter) 三页侧栏
+                               .diffRequested / .commitDone 直接转发 ScmPanel
 CommandCenterMixin             ._run_command() / ._focus_command()
 GitFileModel()                 .refresh_git(root, mapping=None) 文件名着色
 ExplorerMenuMixin              .refresh_git_marks() / 右键新建·重命名·删除·定位
