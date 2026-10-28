@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import traceback
+import weakref
 from datetime import datetime
 
 try:
@@ -17,7 +18,88 @@ except ImportError:
         return None
 
 
+# ---- 活着的躯干登记表（2026-10-28）----------------------------------------
+# 为什么要登记：`Trunk.__init__` 无条件起 3 个 `while True` 后台线程
+# （`_bg_loop` / `_idle_worker` / `_auto_unload_loop`）。线程持有 self 的绑定方法，
+# 于是**躯干本身永远不会被回收**，而 `shutdown()` 只写了一行"停线程"、
+# 实际一个都没停（没有停止标志，循环里也没有出口）。
+#
+# 实测后果：每造一个 Trunk 留下 3 个常驻线程。全量测试累积到 129 个线程后开始报
+# `can't start new thread` / `WinError 1455 页面文件太小`，2026-10-13 还崩过一次
+# access violation（当时把锅算在 40 个线程上，其实是同一件事）。
+# 登记 + `stop_background()` 让"造了有人收"成为可能：shutdown 和测试收尾都调它。
+_LIVE_TRUNKS = weakref.WeakSet()
+_LIVE_LOCK = threading.Lock()
+
+
+def register_live(obj):
+    """登记一个刚起来、还带着后台线程的躯干"""
+    with _LIVE_LOCK:
+        _LIVE_TRUNKS.add(obj)
+
+
+def unregister_live(obj):
+    """注销（后台线程已经停了，不再需要收尾）"""
+    with _LIVE_LOCK:
+        _LIVE_TRUNKS.discard(obj)
+
+
+def live_trunks():
+    """当前还登记着的躯干（测试收尾用；返回的是快照，可安全边遍历边停）"""
+    with _LIVE_LOCK:
+        return list(_LIVE_TRUNKS)
+
+
 class TrunkBackgroundMixin:
+    # ------------------------------------------------------------------ 停止
+    def _stopped(self):
+        """本躯干是否已被要求停下（没有 _stop_event 的老对象/测试桩恒为 False）"""
+        ev = getattr(self, "_stop_event", None)
+        return bool(ev is not None and ev.is_set())
+
+    def _wait(self, seconds):
+        """可被 stop_background() 打断的 sleep；返回 True 表示已经该停了"""
+        ev = getattr(self, "_stop_event", None)
+        if ev is None:
+            time.sleep(seconds)
+            return False
+        return ev.wait(seconds)
+
+    def stop_background(self):
+        """让本躯干起的后台线程真正退出（shutdown / 测试收尾都走这里）。
+
+        为什么需要单列一个方法：这些线程都是 `while True`，以前唯一的出口是
+        "队列里收到 None 哨兵"或进程退出 —— 而 `shutdown()` 只写了句"停线程"，
+        既没 set 标志也没塞哨兵，**一个都没停**。同一个进程里再造躯干（启动失败
+        重试、测试造了成百上千个）时线程就一路累积。
+
+        幂等：重复调用只是再 set 一次事件、再塞两个哨兵。
+        """
+        ev = getattr(self, "_stop_event", None)
+        if ev is not None:
+            ev.set()
+        # 还在倒计时的预热定时器要 cancel：它到点会去 load llm 并拉起看门狗
+        timer = getattr(self, "_llm_timer", None)
+        if timer is not None:
+            try:
+                timer.cancel()
+            # 静默是故意的：定时器已经跑完/被取消过都不影响退出
+            except Exception as e:
+                _x6_swallowed(__name__, e, "cancel warmup timer")
+            self._llm_timer = None
+        # 光设标志不够：两个 worker 可能正卡在 get() 上，塞 None 让它们立刻醒
+        for qname in ("_bg_queue", "_idle_queue"):
+            q = getattr(self, qname, None)
+            try:
+                if q is not None:
+                    q.put_nowait(None)
+            # 静默是故意的：队列满/已关闭都不影响"要求停止"这件事本身
+            except Exception as e:
+                _x6_swallowed(__name__, e, "stop background queue")
+        unregister_live(self)
+        # 已登记但还没 start 的后台线程（_start_background/_warmup）会在 wait 时看到标志
+        return {"已停止": True}
+
     def _start_llm_workers_later(self, delay=1.0):
         """延迟启动 LLM 看门狗和模型预热。
 
@@ -47,6 +129,9 @@ class TrunkBackgroundMixin:
             timer.daemon = True
             timer.name = "llm-warmup-timer"
             timer.start()
+            # 留引用：退出时能 cancel 掉还没到点的预热（否则关窗后 1 秒
+            # 它又会把 LLM 看门狗拉起来，见 stop_background）
+            self._llm_timer = timer
         except Exception as e:
             _x6_swallowed(__name__, e, "best-effort fallback")
 
@@ -82,7 +167,8 @@ class TrunkBackgroundMixin:
     def _warmup(self):
         """预热：后台加载 Ollama 模型 + 向量库，不阻塞启动"""
         try:
-            time.sleep(2)
+            if self._wait(2):        # 2 秒内被要求退出就别再去请求网络了
+                return
             try:
                 import requests
                 url = self.config.get("ollama_url", "http://localhost:11434")
@@ -101,132 +187,21 @@ class TrunkBackgroundMixin:
             pass
 
     def _start_background(self):
-        """P2-4: 延迟3秒启动后台服务，不阻塞UI"""
-        time.sleep(3)
-        try:
-            from core.lazy_health import compile_lazy_sources
-            _lh = compile_lazy_sources(self.base)
-            if not _lh.get("ok"):
-                self._log("懒加载语法自检失败: %s" % str(
-                    _lh.get("errors", [])[:3])[:300])
-            else:
-                self._log("懒加载语法自检通过: %d 个模块" % _lh.get("checked", 0))
-        except Exception as e:
-            self._log("懒加载语法自检异常: " + str(e)[:120])
-        # 定时任务（内部会启动连续学习线程）
-        try:
-            self.call("scheduler", "start")
-            self._log("定时任务已启动")
-        except Exception as e:
-            self._log("定时任务启动失败: %s" % str(e)[:60])
-        # 热更新检测（每5分钟自动扫 .py 变化）
-        try:
-            hr = self._load_lazy("hot_reload")
-            if hr and hasattr(hr, "auto_reload"):
-                hr.auto_reload()
-                self._log("热更新已启动")
-        except Exception as e:
-            self._log("热更新启动失败: %s" % str(e)[:60])
-        # 模块服务器（本机插件仓库，127.0.0.1:8899）
-        # 配置成远程地址时只连远程、不拉起本地服务（见 部署步骤.md 第五节）
-        try:
-            cfg_url = str(self.config.get("module_server", "") or "")
-            if (not cfg_url) or ("127.0.0.1" in cfg_url) or ("localhost" in cfg_url):
-                from core.module_server import ModuleServer
-                if getattr(self, "_module_server", None) is None:
-                    self._module_server = ModuleServer(self)
-                    self._log(str(self._module_server.start())[:70])
-            else:
-                self._log("模块服务器: 配置为远程地址 %s，不拉起本地服务" % cfg_url[:40])
-        except Exception as e:
-            self._log("模块服务器启动失败: %s" % str(e)[:60])
-        # MCP 服务端 + 客户端
-        # 服务端是内嵌的本地工具服务：把 chat / search / run_code / backup
-        # 包成 HTTP 接口（127.0.0.1:3742），供客户端那条「本地工具」配置连。
-        # 原来这里只调了 ms.run()（返回工具清单，什么也不启动），
-        # start_http() 全项目没有调用点，所以那个服务从来没起来过。
-        try:
-            ms = self._load_lazy("mcp_server")
-            if ms and hasattr(ms, "start_http"):
-                self._log("本地工具服务: %s" % str(ms.start_http())[:80])
-        except Exception as e:
-            self._log("本地工具服务启动失败: %s" % str(e)[:60])
-        try:
-            mc = self._load_lazy("mcp_client")
-            if mc:
-                r = mc.run()
-                self._log("MCP客户端: %d个工具" % r.get("可用工具数", r.get("工具数", 0)))
-        except Exception as e:
-            self._log("MCP客户端: %s" % str(e)[:40])
-        # Ollama 后台预热
-        threading.Thread(target=self._warmup_ollama, daemon=True).start()
-        # 定期内存清理：memory_optimizer 登记了很久没人调用
-        # （它只做 gc.collect() + 收窄内部历史缓存，不动任何数据，放后台安全）
-        try:
-            self.call("memory_optimizer", "__no__")
-            mo = self.modules.get("memory_optimizer")
-            if mo is not None and hasattr(mo, "start_periodic"):
-                r = mo.start_periodic(1800)
-                self._log("内存优化: %s" % str(r.get("状态", "已启动")))
-        except Exception as e:
-            self._log("内存优化启动失败: %s" % str(e)[:60])
+        """P2-4: 延迟3秒启动后台服务，不阻塞UI（实现在 core/trunk_startup.py）"""
+        from core.trunk_startup import start_background
+        return start_background(self)
 
     _AUTO_BACKUP_MIN_GAP_H = 6
 
     def _auto_backup(self):
-        """启动时自动备份一次 —— 走真正的备份系统（core/backup.py）
-
-        和历史的关系
-        ------------
-        原来这里是自己拷几个关键文件到 data/backup_MMDD_HHMM、留最近 2 份。
-        但项目里本来就有 core/backup.py：增量、排除 datasets/cache/logs、
-        写 backups/、还支持加密导出和恢复。两套并存的问题不只是重复：
-          · 产物分散在两个地方（data/backup_* 和 backups/backup_*），
-            要恢复时不知道该看哪个
-          · 自检的"📦 备份"数的是旧的 data/backup_*，真正的 backups/ 反而没数
-          · 旧那套的排除规则是手写的文件清单，容易和实际存储漂移
-            （历史上就漏备过 memory.json / graph.json / chats.db）
-        现在融合成一条：启动时触发真正的备份，产物统一进 backups/。
-
-        另加节流：距上次备份不足 _AUTO_BACKUP_MIN_GAP_H 小时就跳过。
-
-        节流做两层（2026-10-27）：
-          ① 这里先快速看一眼最近一份（省掉建 Backup 的开销）
-          ② 真正的判断在 Backup.backup_now(force=False, min_gap_h=...) 的**锁内** ——
-             两个线程同时进来时，第二个能看到第一个刚落盘的备份，
-             不会再出现同一秒两份（backup_..._211951 / _211951_2）。
-        测试/CI 里设环境变量 X6_NO_AUTO_BACKUP=1 可直接关掉（它会写真实磁盘）。
-        """
-        # 测试/CI 短路：conftest 默认设了，单测里造 Trunk 不会写真实备份
-        if str(os.environ.get("X6_NO_AUTO_BACKUP", "")).strip().lower() \
-                not in ("", "0", "false", "no"):
-            return
-        try:
-            from core.backup import Backup
-            bk = Backup(self)
-            last = bk._last_backup_path()
-            if last and self._backup_is_recent(last):
-                return
-            r = bk.backup_now(force=False,
-                              min_gap_h=self._AUTO_BACKUP_MIN_GAP_H) or {}
-            if r.get("跳过"):
-                return
-            if r.get("成功"):
-                self._log("启动备份完成: %s（%s）"
-                          % (r.get("备份到"), "增量" if r.get("增量") else "全量"))
-            else:
-                self._log("启动备份未完成: %s" % str(r.get("错误"))[:60])
-        except Exception as e:
-            self._log("启动备份失败: %s" % str(e)[:60])
+        """启动时自动备份一次（实现在 core/trunk_maintenance.py：带节流，走真备份系统）"""
+        from core.trunk_maintenance import auto_backup
+        return auto_backup(self)
 
     def _backup_is_recent(self, path):
         """最近的备份是否还在节流窗口内"""
-        import time as _t
-        try:
-            age_h = (_t.time() - os.path.getmtime(path)) / 3600.0
-            return age_h < self._AUTO_BACKUP_MIN_GAP_H
-        except Exception:
-            return False
+        from core.trunk_maintenance import backup_is_recent
+        return backup_is_recent(self, path)
 
     def _warmup_ollama(self):
         from core.self_check import warmup_ollama
@@ -249,55 +224,25 @@ class TrunkBackgroundMixin:
         return deep_check(self)
 
     def _auto_unload_loop(self):
-        import time as _t, gc
-        # 常驻白名单：核心 + 后台服务（定时任务/热更新/学习闭环等带独立线程的模块不可卸载，
-        # 否则 stop() 会停掉服务线程。
-        core = {"llm", "vector_store", "auth", "backup", "knowledge_graph",
-                "rules_engine",
-                "scheduler", "hot_reload", "error_lib",
-                "learning_loop", "memory_loop"}
-        while True:
-            _t.sleep(30)
-            try:
-                now = _t.time()
-                to_unload = []
-                for name in list(self.modules.keys()):
-                    if name in core:
-                        continue
-                    last = self._last_use.get(name, 0)
-                    if last and now - last > 300:  # P0-1: 5分钟才卸载，避免反复懒加载拖慢
-                        to_unload.append(name)
-                for name in to_unload:
-                    try:
-                        mod = self.modules.get(name)
-                        for m in ["stop", "close", "shutdown", "cleanup"]:
-                            fn = getattr(mod, m, None)
-                            if fn:
-                                try:
-                                    fn()
-                                except Exception as e:
-                                    self._log("异常: " + str(e)[:80])
-                        del self.modules[name]
-                        if name in self._lazy:
-                            mod_path = "core." + self._lazy[name][0]
-                            if mod_path in sys.modules:
-                                try:
-                                    del sys.modules[mod_path]
-                                except Exception as e:
-                                    self._log("异常: " + str(e)[:80])
-                        gc.collect()
-                        self._log("真卸载模块: %s" % name)
-                    except Exception as e:
-                        self._log("卸载%s失败: %s" % (name, str(e)[:50]))
-            except Exception as e:
-                self._log("自动卸载线程出错: %s" % str(e)[:50])
+        """每 30 秒卸掉 5 分钟没用过的模块（实现在 core/trunk_maintenance.py）"""
+        from core.trunk_maintenance import auto_unload_loop
+        return auto_unload_loop(self)
 
     def _bg_loop(self):
         """P0-4: 后台任务单线程工作循环"""
-        while True:
+        import queue as _q
+        while not self._stopped():
             run_id = ""
+            # 用带超时的 get：这样 stop_background() 一 set 标志，最多半秒就退出
+            # （以前是无限阻塞 get，只有塞 None 才能醒，关窗/测试收尾时全都留着）
             try:
-                task = self._bg_queue.get()
+                task = self._bg_queue.get(timeout=0.5)
+            except _q.Empty:
+                continue
+            except Exception as e:  # 静默是故意的 - 队列被关掉就只能退出
+                self._log("后台任务队列异常: %s" % str(e)[:80])
+                break
+            try:
                 if task is None:
                     break
                 user_input, answer = task
@@ -343,15 +288,21 @@ class TrunkBackgroundMixin:
 
     def _idle_worker(self):
         """空闲任务线程：等不忙了再做反思 / 记忆闭环"""
-        while True:
+        import queue as _q
+        while not self._stopped():
             try:
-                task = self._idle_queue.get()
+                # 同样用带超时的 get：否则线程永远卡在 get 上，stop 也收不掉
+                try:
+                    task = self._idle_queue.get(timeout=0.5)
+                except _q.Empty:
+                    continue
                 if task is None:
                     break
                 # 最多等 10 分钟；等不到就放弃这一轮，避免无限积压
                 deadline = time.time() + 600
                 while self._chat_busy() and time.time() < deadline:
-                    time.sleep(5)
+                    if self._wait(5):     # 被要求退出就别再等空闲了
+                        return
                 if self._chat_busy():
                     # 一直没等到空闲：这轮反思/记忆沉淀就没了，得让用户知道
                     self._warn_user("你聊得太连续，后台整理这轮跳过了")
@@ -360,7 +311,8 @@ class TrunkBackgroundMixin:
                     task()
                 except Exception as e:
                     self._warn_user("后台整理出错（详情见日志）", e)
-                time.sleep(1)          # 任务之间喘口气，别一口气把模型打满
+                if self._wait(1):         # 任务之间喘口气，别一口气把模型打满
+                    return
             except Exception as e:
                 self._log("空闲任务线程异常: %s" % str(e)[:80])
 
@@ -469,6 +421,13 @@ class TrunkBackgroundMixin:
         """优雅退出：保存配置、flush数据、停线程"""
         try:
             self._log("正在退出...")
+            # 0. 先让后台线程进入退出状态 —— 否则下面保存数据时，
+            #    `_bg_loop` / `_idle_worker` 还可能同时在写记忆/向量（互相打架），
+            #    而且这几个 `while True` 线程以前根本停不下来（见 stop_background）。
+            try:
+                self.stop_background()
+            except Exception as e:  # 静默是故意的 - 停不掉也要继续保存数据
+                _x6_swallowed(__name__, e, "stop background")
             # 1. 保存配置
             try:
                 self.save_config()
@@ -508,6 +467,15 @@ class TrunkBackgroundMixin:
                     self._log("本地工具服务已停")
             except Exception as e:
                 self._log("停本地工具服务失败: %s" % str(e)[:60])
+
+            # 5. 收 LLM 看门狗线程（`llm-watchdog` 原来是 while True 无出口）
+            try:
+                llm = self.modules.get("llm")
+                if llm is not None and hasattr(llm, "stop"):
+                    llm.stop()
+                    self._log("LLM 看门狗已停")
+            except Exception as e:
+                self._log("停 LLM 看门狗失败: %s" % str(e)[:60])
 
             self._log("退出完成")
         except Exception as e:

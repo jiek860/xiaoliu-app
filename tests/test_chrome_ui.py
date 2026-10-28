@@ -54,6 +54,32 @@ def test_main_tabs_reuse_and_close_panel():
         sys.modules.pop("test_fake_panel_mod", None)
 
 
+def test_refresh_status_meta_tolerates_deleted_widgets():
+    """状态栏定时器回调不能去碰已经销毁的窗口/标签。
+
+    2026-10-28 实测：这个 60 秒定时器的 lambda 在 pytest-qt 的 `_process_events`
+    里踩到了上一个用例留下的已释放 QLabel，直接 access violation 把整个 pytest
+    进程带走（faulthandler 记的是 `gui/chrome.py line ??? in <lambda>`）。
+    """
+    from PyQt5 import sip
+    from PyQt5.QtWidgets import QStatusBar
+    from gui.chrome import _alive, attach_status_meta, refresh_status_meta
+
+    w = Win()
+    attach_status_meta(w, QStatusBar(w))
+    timer = w._status_meta_timer
+    assert timer.isActive()
+    refresh_status_meta(w, force=True)          # 正常路径照旧可用
+
+    sip.delete(w.status_model_label)            # 模拟窗口销毁后残留的标签
+    assert _alive(w.status_model_label) is False
+    refresh_status_meta(w, force=True)          # 不能崩、不能抛
+    timer.timeout.emit()                        # 定时器到点也只跳过这标签
+
+    sip.delete(w)                               # 整个窗口都没了
+    assert _alive(w) is False
+
+
 def test_settings_left_category_is_synced(monkeypatch):
     from gui import settings_dialog as sd
     from gui import ui_mode

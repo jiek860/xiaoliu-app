@@ -47,6 +47,21 @@ try:
 except Exception:
     pass
 
+
+@pytest.fixture(autouse=True)
+def _keep_faulthandler_alive():
+    """用例可能 reset 掉 crash_guard（关掉日志文件），之后崩溃就没栈了。
+
+    2026-10-28：`test_crash_guard*.py` 里的 reset_for_test() 会把
+    `_FILE_OBJ` 置空，faulthandler 指向的文件对象被回收 —— 再崩时
+    `faulthandler.log` 里只剩"启动"一行，白跑。这里在每条用例后兜底：
+    发现 faulthandler 没启用就退化成写 stderr，至少把栈留在 pytest 输出里。
+    """
+    import faulthandler
+    yield
+    if not faulthandler.is_enabled():
+        faulthandler.enable()
+
 # 需要屏蔽掉的后台入口（Trunk.__init__ 里是用 Thread 起它们的）
 _BACKGROUND = (
     "_start_background",     # 定时任务 / 热更新 / 模块服务器 / MCP / 预热
@@ -69,6 +84,65 @@ def make_trunk():
     finally:
         for p in patchers:
             p.stop()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _stop_leaked_trunks():
+    """每个测试模块跑完，把这期间造出来的 Trunk 后台线程收掉。
+
+    为什么必须有（2026-10-28 实测）
+    ------------------------------
+    `make_trunk()` 只屏蔽了 `_BACKGROUND` 里那几个入口，而 `Trunk.__init__`
+    **无条件**起 `_bg_loop` / `_idle_worker` / `_auto_unload_loop` 三个常驻线程，
+    线程持有 self 的绑定方法 → 躯干也不会被回收。全量 2231 个用例跑下来
+    线程数累积到 129 个，最后几条用例直接失败在系统资源上：
+
+        RuntimeError: can't start new thread
+        OSError: [WinError 1455] 页面文件太小，无法完成操作
+        MemoryError
+
+    历史同源：2026-10-13 那次 `0xC0000005` 崩溃，二分定位出来的也是"线程累积"。
+
+    作用域选 **module** 而不是 function：
+      · function 级会把同一模块里**后面还要用**的躯干线程也停掉
+        （比如 `test_gui_smoke` 的 module 级向导 + 它的 trunk）；
+      · module 级每个文件收一次，峰值就只剩"单个文件造了几个躯干"，
+        跨文件不再累积 —— 这正是要解决的问题。
+    """
+    yield
+    # ① 躯干自己的常驻线程 + 它带的 LLM 看门狗（llm-watchdog 也是无出口的 while True）
+    try:
+        from core.trunk_background import live_trunks
+    except Exception:
+        live_trunks = None
+    for trunk in (live_trunks() if live_trunks else []):
+        try:
+            trunk.stop_background()
+        except Exception:
+            pass
+        try:
+            llm = (getattr(trunk, "modules", None) or {}).get("llm")
+            if llm is not None and hasattr(llm, "stop"):
+                llm.stop()
+        except Exception:
+            pass
+    # ② 单独造的 LLMClient（把 modules["llm"] 换成 FakeLLM 后，真实例就没人管了）
+    try:
+        from core.llm_client import live_clients
+        for client in live_clients():
+            try:
+                client.stop()
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # ③ MCP stdio 连接：一条连接 3 个线程（stdout/stderr/monitor），
+    #    以前只有 atexit 收，模块里测完的连接就一直挂着（实测残留 12 个）。
+    try:
+        from core.mcp_stdio import stop_all as _stop_mcp
+        _stop_mcp()
+    except Exception:
+        pass
 
 
 @pytest.fixture

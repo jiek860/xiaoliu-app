@@ -29,10 +29,16 @@ procdump）。两样配合才能真正定位。
 -------------------------
 procdump 这条路在本机走不通：进程会被回收（pid 2408 / 2492 先后消失），
 注册计划任务被系统拒绝，277 次异常一份 .dmp 都没抓到。所以改成**程序自己
-写 dump**：`enable()` 会调用 `install_native_dump()`，用
-`SetUnhandledExceptionFilter` + `dbghelp!MiniDumpWriteDump` 在未处理异常
-（含 access violation）时把 `data/dumps/crash_<时间>_<pid>.dmp` 写下来。
-不想要可以设 `X6_NO_NATIVE_DUMP=1`。
+留原生现场**。
+
+⚠️ 2026-10-28 实测后又改了一次方案：`SetUnhandledExceptionFilter` 的 Python
+回调会**覆盖 faulthandler 的过滤器**，而且回调需要 GIL —— 后台线程崩溃时
+dump 写不出来、Python 栈也没了（等于白装）。所以现在默认是：
+    · 打包版（sys.frozen）：注册 **WER LocalDumps**（HKCU 注册表，系统层写
+      dump，不依赖 GIL、不动 faulthandler），dump 落在 `data/dumps/`；
+    · 源码版：默认**什么都不装**，faulthandler 保持原样；要 ctypes 回调
+      现场就显式设 `X6_DUMP_MODE=handler`（只适合单线程调试）；
+    · 全关：`X6_NO_NATIVE_DUMP=1`。
 
 用法
 ----
@@ -55,15 +61,24 @@ _FILE_OBJ = None          # ⚠️ 必须留住引用，否则被 GC 后 faultha
 # ---- 内置原生 dump（2026-10-27 批次 26）---------------------------------
 # 以前只有 faulthandler（Python 层栈）+ 外部 procdump（常驻进程）。
 # 但 procdump 在这台机器上活不长（pid 会被回收、计划任务注册被拒），
-# 277 次异常一份 .dmp 都没抓到。所以改成**程序自己**在未处理异常时写
-# minidump：SetUnhandledExceptionFilter + dbghelp!MiniDumpWriteDump。
-# 这样崩溃现场不再依赖任何外部进程。
+# 277 次异常一份 .dmp 都没抓到。所以改成**程序自己**留现场。
+#
+# ⚠️ 2026-10-28 实测修正（重要）：
+#   `SetUnhandledExceptionFilter` 的 Python 回调**会覆盖 faulthandler 的过滤器**，
+#   而且回调需要 GIL —— 崩溃发生在后台线程时拿不到 GIL，dump 写不出来、
+#   faulthandler 的 Python 栈也没了（pytest 全量跑挂时日志里只有一行"启动"）。
+#   所以默认改成用 **Windows 自带的 WER LocalDumps**（注册表，系统层写 dump，
+#   不依赖 GIL、不覆盖 faulthandler）；ctypes handler 只在 X6_DUMP_MODE=handler
+#   时显式启用（单线程调试用）。
 _DUMP_INSTALLED = False
+_DUMP_MODE = ""           # "" / "LocalDumps" / "handler"
 _DUMP_DIR = ""
 _DUMP_ERROR = ""
 _LAST_ERROR = ""          # 最近一次写 dump 失败的原因（诊断用，不对外抛）
 _FILTER_HANDLE = None     # ⚠️ 同上，必须留住引用
 _MINIDUMP_TYPE = 0x00000002   # MiniDumpWithFullMemory（和 WER DumpType=2 一致）
+_LOCAL_DUMPS_KEY = ("Software\\Microsoft\\Windows\\Windows Error Reporting"
+                    "\\LocalDumps\\")
 
 WER_HINT = """
 要看 C 层（numpy/Qt/torch）的原生栈，faulthandler 不够，需要系统级 dump：
@@ -121,12 +136,18 @@ def enable(log_path=None, all_threads=True):
         faulthandler.enable(_FILE_OBJ, all_threads=all_threads)
         _ENABLED = True
         _LOG_PATH = log_path
-        # 顺带装内置原生 dump（失败也不影响启动，见 install_native_dump）；
+        # 顺带装原生 dump（失败也不影响启动，见 install_* 的返回值）；
         # dump 目录放在日志目录的兄弟位置：data/logs/xx.log -> data/dumps
         _log_dir = os.path.dirname(log_path)
         _dump_dir = (os.path.join(os.path.dirname(_log_dir), "dumps")
                      if _log_dir else _default_dump_dir())
-        install_native_dump(_dump_dir)
+        # 默认**不动** SetUnhandledExceptionFilter —— 它会覆盖 faulthandler 的过滤器
+        # 且回调需要 GIL（后台线程崩溃时 dump 写不出、栈也没了，见文件头）。
+        # 打包版交给 Windows 自带的 LocalDumps；源码版只有显式要求时才装回调。
+        if getattr(sys, "frozen", False):
+            install_local_dumps(dump_dir=_dump_dir)
+        elif os.environ.get("X6_DUMP_MODE", "").strip().lower() == "handler":
+            install_native_dump(_dump_dir)
         return log_path
     # 静默是故意的：崩溃捕获**自己**出问题不该拦住程序启动 ——
     # 它是保护措施，不是功能。失败就退化成"和以前一样没有现场"，
@@ -188,15 +209,20 @@ def _load_apis():
     kernel32.GetCurrentProcess.argtypes = []
     kernel32.GetCurrentProcessId.restype = wintypes.DWORD
     kernel32.GetCurrentProcessId.argtypes = []
+    # ⚠️ 回调原型必须带 **1 个参数**（EXCEPTION_POINTERS*）并设进 argtypes：
+    # 2026-10-28 实测，写成 `WINFUNCTYPE(LONG)`（0 参数）时系统回调进来会抛
+    # "missing 1 required positional argument: '_exception_pointer'"，dump 写不出来；
+    # 不设 argtypes 在 64 位下还会把回调指针按 int 截断。
+    filter_type = ctypes.WINFUNCTYPE(wintypes.LONG, ctypes.c_void_p)
     kernel32.SetUnhandledExceptionFilter.restype = ctypes.c_void_p
-    kernel32.SetUnhandledExceptionFilter.argtypes = [ctypes.c_void_p]
+    kernel32.SetUnhandledExceptionFilter.argtypes = [filter_type]
     dbghelp.MiniDumpWriteDump.restype = wintypes.BOOL
     dbghelp.MiniDumpWriteDump.argtypes = [
         wintypes.HANDLE, wintypes.DWORD, ctypes.c_void_p, ctypes.c_int,
         ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
     return {
         "dump_type": _MINIDUMP_TYPE,
-        "filter_type": ctypes.WINFUNCTYPE(wintypes.LONG),
+        "filter_type": filter_type,
         "to_handle": msvcrt.get_osfhandle,
         "GetCurrentProcess": kernel32.GetCurrentProcess,
         "GetCurrentProcessId": kernel32.GetCurrentProcessId,
@@ -267,10 +293,10 @@ def install_native_dump(dump_dir=None, apis=None):
     可关：环境变量 X6_NO_NATIVE_DUMP=1（排查"它自己把程序搞挂"时用）。
     """
     global _DUMP_INSTALLED, _DUMP_DIR, _DUMP_ERROR, _FILTER_HANDLE, _LAST_ERROR
+    global _DUMP_MODE
     if _DUMP_INSTALLED:
         return {"已安装": True, "目录": _DUMP_DIR, "原因": ""}
-    if os.environ.get("X6_NO_NATIVE_DUMP", "").strip().lower() not in (
-            "", "0", "false", "no"):
+    if _dump_disabled():
         return {"已安装": False, "目录": "", "原因": "X6_NO_NATIVE_DUMP 已开启"}
     try:
         api = apis or _load_apis()
@@ -279,12 +305,17 @@ def install_native_dump(dump_dir=None, apis=None):
 
         def _handler(_exception_pointer):
             # 1 = EXCEPTION_EXECUTE_HANDLER：写完 dump 就让进程照常终止
-            write_minidump(_DUMP_DIR, api, "未处理异常（原生 dump）")
+            try:
+                write_minidump(_DUMP_DIR, api, "未处理异常（原生 dump）")
+            # 静默是故意的：handler 里再抛异常会盖掉原始崩溃现场
+            except Exception:
+                pass
             return 1
 
         _FILTER_HANDLE = api["filter_type"](_handler)
         api["SetFilter"](_FILTER_HANDLE)
         _DUMP_INSTALLED = True
+        _DUMP_MODE = "handler"
         _DUMP_ERROR = ""
         _LAST_ERROR = ""
         return {"已安装": True, "目录": _DUMP_DIR, "原因": ""}
@@ -293,6 +324,50 @@ def install_native_dump(dump_dir=None, apis=None):
         _DUMP_ERROR = str(exc)[:160]
         _LAST_ERROR = _DUMP_ERROR
         return {"已安装": False, "目录": "", "原因": _DUMP_ERROR}
+
+
+def _dump_disabled():
+    """X6_NO_NATIVE_DUMP=1 时全部 dump 手段都关掉（排查"是不是它把程序搞挂"用）"""
+    return os.environ.get("X6_NO_NATIVE_DUMP", "").strip().lower() not in (
+        "", "0", "false", "no")
+
+
+def install_local_dumps(app_name=None, dump_dir=None, count=5, _winreg=None):
+    """注册 Windows 自带的 WER LocalDumps（HKCU，不需要管理员）。
+
+    为什么默认用它而不是 SetUnhandledExceptionFilter：
+      · 系统层机制，崩溃时由 Windows 写 dump，**不依赖 GIL**（后台线程崩溃也能落盘）；
+      · 不会覆盖 faulthandler 的过滤器 —— Python 栈照样有；
+      · 只需写注册表，进程内不用常驻任何东西。
+
+    返回 {"已注册": bool, "目录": str, "原因": str}；失败不抛。
+    """
+    global _DUMP_MODE, _DUMP_DIR, _DUMP_ERROR
+    if _dump_disabled():
+        return {"已注册": False, "目录": "", "原因": "X6_NO_NATIVE_DUMP 已开启"}
+    try:
+        import winreg as _reg
+    except ImportError:
+        return {"已注册": False, "目录": "", "原因": "只有 Windows 支持 LocalDumps"}
+    reg = _winreg or _reg
+    exe = app_name or os.path.basename(sys.executable)
+    target = dump_dir or _DUMP_DIR or _default_dump_dir()
+    try:
+        os.makedirs(target, exist_ok=True)
+        key = _LOCAL_DUMPS_KEY + exe
+        with reg.CreateKey(reg.HKEY_CURRENT_USER, key) as k:
+            reg.SetValueEx(k, "DumpFolder", 0, reg.REG_EXPAND_SZ, target)
+            reg.SetValueEx(k, "DumpType", 0, reg.REG_DWORD, 2)   # 2 = 完整内存
+            reg.SetValueEx(k, "DumpCount", 0, reg.REG_DWORD, int(count))
+    # 静默是故意的：注册表写不进去（被策略锁/权限）就退化成只有 faulthandler
+    except Exception as exc:
+        _DUMP_ERROR = str(exc)[:160]
+        _LAST_ERROR = _DUMP_ERROR
+        return {"已注册": False, "目录": "", "原因": _DUMP_ERROR}
+    _DUMP_MODE = "LocalDumps"
+    _DUMP_DIR = target
+    _DUMP_ERROR = ""
+    return {"已注册": True, "目录": target, "原因": ""}
 
 
 def last_dump(dump_dir=None):
@@ -322,7 +397,8 @@ def status():
         "已开启": _ENABLED,
         "日志": _LOG_PATH,
         "线程数": _thread_count(),
-        "内置dump": _DUMP_INSTALLED,
+        "内置dump": bool(_DUMP_INSTALLED or _DUMP_MODE),
+        "dump方式": _DUMP_MODE or "无",
         "dump目录": _DUMP_DIR or _default_dump_dir(),
         "最近dump": dump,
         "说明": ("崩溃时会自动把所有线程的栈写进日志" if _ENABLED
@@ -351,10 +427,12 @@ def reset_for_test():
     """只给测试用：把模块状态清回未开启"""
     global _ENABLED, _LOG_PATH, _FILE_OBJ
     global _DUMP_INSTALLED, _DUMP_DIR, _DUMP_ERROR, _FILTER_HANDLE, _LAST_ERROR
+    global _DUMP_MODE
     _ENABLED = False
     _LOG_PATH = ""
     _FILE_OBJ = None
     _DUMP_INSTALLED = False
+    _DUMP_MODE = ""
     _DUMP_DIR = ""
     _DUMP_ERROR = ""
     _LAST_ERROR = ""

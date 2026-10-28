@@ -11,9 +11,23 @@ except ImportError:
     def _x6_swallowed(component, error, context=""):
         return None
 
-import json, os, requests, time, re, threading
+import json, os, requests, time, re, threading, weakref
 
 from core.secret_store import decrypt_config, encrypt_config
+
+# 活着的 LLMClient（2026-10-28）：
+# 看门狗线程持有 self 的绑定方法 → 客户端不会被回收，测试里"造了又换掉"的实例
+# （比如把 modules["llm"] 换成 FakeLLM）就一直挂着 `llm-watchdog`。
+# 登记起来，让测试收尾能把它们统统 stop() 掉（截断累积，见 tests/conftest.py）。
+_LIVE_CLIENTS = weakref.WeakSet()
+_LIVE_LOCK = threading.Lock()
+
+
+def live_clients():
+    """当前还活着的 LLMClient 快照（测试收尾用）"""
+    with _LIVE_LOCK:
+        return list(_LIVE_CLIENTS)
+
 
 def _is_cloud_mode(mode):
     m = str(mode).lower()
@@ -49,6 +63,11 @@ class LLMClient(
         self._fail_count = 0  # 连续失败计数，3次自动切云端
         self._model_cooldown = {}
         self._model_fail_counts = {}
+        # 看门狗线程的退出标志（2026-10-28）：
+        # `_watchdog` 原来是 `while True: sleep(15)`，没有任何出口 ——
+        # 关窗/换躯干后线程留在原地，测试里每造一个 LLMClient 就多一个
+        # `llm-watchdog`（实测全量跑到 5 个，累积效应见 trunk_background 的登记表说明）。
+        self._stop_event = threading.Event()
         from core.response_cache import ResponseCache
         self._response_cache = ResponseCache(ttl=300, max_items=128)
         # P2-2: 用requests.Session复用连接，提升性能
@@ -61,16 +80,39 @@ class LLMClient(
         if not kwargs_defer:
             self.start_background_workers()
             threading.Thread(target=self._warmup, daemon=True).start()
+        # 登记：线程持有 self，不登记的话"造了又换掉"的实例会一直挂着看门狗
+        with _LIVE_LOCK:
+            _LIVE_CLIENTS.add(self)
 
     def start_background_workers(self):
         """启动看门狗线程（幂等）。defer_warmup=True 时由上层在启动完成后调用。"""
         if getattr(self, "_timer_running", False):
+            return False
+        # stop() 之后不许再起：躯干关窗时先 stop，而 `llm-warmup-timer` 可能
+        # 还在 1 秒倒计时里，到点会调到这里。以前没有这道闸，于是"停了又活"，
+        # 测试收尾后仍能看到孤零零的 llm-watchdog（实测残留 1~2 个）。
+        if getattr(self, "_stop_event", None) is not None and self._stop_event.is_set():
             return False
         self._timer = threading.Thread(target=self._watchdog, daemon=True,
                                        name="llm-watchdog")
         self._timer.start()
         self._timer_running = True
         return True
+
+    def stop(self):
+        """停看门狗线程并断开连接池（trunk.shutdown / 测试收尾调用）"""
+        try:
+            self._stop_event.set()
+        except Exception as e:  # 静默是故意的 - 没起过线程也不影响退出
+            _x6_swallowed(__name__, e, "stop llm watchdog")
+        self._timer_running = False
+        try:
+            self._session.close()
+        except Exception as e:  # 静默是故意的 - 连接池关不掉不影响退出
+            _x6_swallowed(__name__, e, "close llm session")
+        with _LIVE_LOCK:
+            _LIVE_CLIENTS.discard(self)
+        return {"已停止": True}
 
     HARD_KW = re.compile(
         r"认真|仔细|一步步|逐步|详细分析|深度分析|严谨|推理|推导|证明|算法|数学|"

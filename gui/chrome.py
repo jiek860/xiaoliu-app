@@ -70,6 +70,27 @@ def singleton_window(win, key, factory, focus=None):
     _front(w, focus)
     return w
 
+def _alive(obj):
+    """PyQt 包装对象背后的 C++ 对象还在不在。
+
+    为什么需要（2026-10-28 实测崩溃）
+    -------------------------------
+    QTimer 的回调闭包会一直持有 `win`，而窗口/标签被 `deleteLater()` 之后
+    Python 引用可能还活着。这时直接 `setText()` 就是**踩已释放的内存**：
+    PyQt 多数情况抛 RuntimeError，但也可能直接 access violation，整进程没了
+    （实测日志里是 `gui/chrome.py line ??? in <lambda>`，从 pytest-qt 的
+    `_process_events` 进来）。动手之前先问一句"C++ 对象还在吗"。
+    """
+    if obj is None:
+        return False
+    try:
+        from PyQt5 import sip
+        return not sip.isdeleted(obj)
+    except Exception as e:  # 静默是故意的 - 没有 sip 就按"还在"处理
+        _x6_swallowed(__name__, e, "sip isdeleted")
+        return True
+
+
 def attach_status_meta(win, statusbar):
     """状态栏补充：模型名 + 当日 token 用量。
 
@@ -89,7 +110,20 @@ def attach_status_meta(win, statusbar):
 
     refresh_status_meta(win)
     timer = QTimer(win)
-    timer.timeout.connect(lambda: refresh_status_meta(win))
+    timer.setObjectName("statusMetaTimer")
+    # 回调先验"窗口还活着"，不直接吃闭包里的 win：
+    # 窗口销毁后定时器事件仍可能在别的测试/事件循环里被派发（见 _alive 的说明）。
+    def _tick(_timer=timer, _win=win):
+        if not _alive(_win):
+            _timer.stop()
+            return
+        try:
+            refresh_status_meta(_win)
+        except RuntimeError:
+            # 边界情况：刚检查完窗口就被关掉了
+            _timer.stop()
+
+    timer.timeout.connect(_tick)
     timer.start(60000)
     win._status_meta_timer = timer
 
@@ -106,8 +140,10 @@ def _today_tokens(base):
 
 def refresh_status_meta(win, force=False):
     """刷新模型名和 token 两个状态位；默认 30 秒内不重复统计。"""
+    if not _alive(win):
+        return
     model_label = getattr(win, "status_model_label", None)
-    if model_label is not None:
+    if _alive(model_label):
         try:
             mode = win.trunk.config.get("model_mode", "本地路由")
         except Exception:  # 静默是故意的
@@ -115,7 +151,7 @@ def refresh_status_meta(win, force=False):
         model_label.setText("模型：%s" % mode)
 
     token_label = getattr(win, "status_token_label", None)
-    if token_label is None:
+    if not _alive(token_label):
         return
     now = time.time()
     if not force and now - float(getattr(win, "_status_token_at", 0) or 0) < 30:

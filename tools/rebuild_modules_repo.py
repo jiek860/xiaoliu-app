@@ -29,7 +29,6 @@ import ast
 import json
 import os
 import re
-import shutil
 import sys
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -39,6 +38,45 @@ REPO = os.path.join(BASE, "modules_repo")
 sys.path.insert(0, BASE)
 from core.lazy_config import LAZY_MAP  # noqa: E402
 from core.plugin_api import PLUGIN_API_VERSION  # noqa: E402
+
+
+def _read_lf(path):
+    """读文本并把行尾归一成 LF（文件不存在返回 None）"""
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8", errors="replace") as f:
+        return f.read().replace("\r\n", "\n")
+
+
+def _changed(repo_path, inst_path):
+    """内容是否真的变了（行尾不计）"""
+    return _read_lf(repo_path) != _read_lf(inst_path)
+
+
+def _copy_text_keep_eol(src, dst):
+    """写目标文件，**保留它原来的行尾风格**（新文件用 LF）。
+
+    为什么不用 shutil.copy2：本机 `core.autocrlf=true`，主仓库 checkout 会把
+    `modules/installed/*.py` 写成 CRLF，而 `modules_repo` 是旁挂的独立 git 仓库
+    （未跟踪、保持 LF）。直接按字节复制，48 个模块都会在插件仓库里变成"纯换行 diff"，
+    真正的改动反而被淹没。
+    也不能一律写 LF：仓库历史里有几个文件当初是按 CRLF 提交的，统一换行同样会制造噪音。
+    所以只归一内容，行尾跟着目标文件走。
+    """
+    text = _read_lf(src) or ""
+    if not _changed(dst, src):
+        return                       # 内容没变就别重写，避免制造纯换行 diff
+    eol = "\n"
+    if os.path.exists(dst):
+        try:
+            with open(dst, "rb") as f:
+                if b"\r\n" in f.read():
+                    eol = "\r\n"
+        # 静默是故意的：读不出来就按 LF 写，不影响内容正确性
+        except OSError:
+            eol = "\n"
+    with open(dst, "w", encoding="utf-8", newline="") as f:
+        f.write(text.replace("\n", eol))
 
 
 def doc_of(path):
@@ -337,9 +375,8 @@ def main():
         print("   ", f)
 
     will_add = [m["file"] for m in manifest
-                if not os.path.exists(os.path.join(REPO, m["file"]))
-                or open(os.path.join(REPO, m["file"]), "rb").read()
-                != open(os.path.join(INST, m["file"]), "rb").read()]
+                if _changed(os.path.join(REPO, m["file"]),
+                            os.path.join(INST, m["file"]))]
     print()
     print("将写入/更新的文件（%d 个）：" % len(will_add))
     for f in will_add:
@@ -354,7 +391,8 @@ def main():
     print()
     print("正在执行 ...")
     for m in manifest:
-        shutil.copy2(os.path.join(INST, m["file"]), os.path.join(REPO, m["file"]))
+        _copy_text_keep_eol(os.path.join(INST, m["file"]),
+                            os.path.join(REPO, m["file"]))
     for f in will_delete:
         os.remove(os.path.join(REPO, f))
     json.dump(manifest, open(opath, "w", encoding="utf-8"),

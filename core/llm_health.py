@@ -35,8 +35,15 @@ class LLMHealthMixin:
 
     def _watchdog(self):
         """监控空闲时间，自动卸载模型省内存"""
-        while True:
-            time.sleep(15)
+        # ⚠️ 必须有出口：以前是 `while True: sleep(15)`，关窗/换躯干后线程留在原地。
+        # 用 _stop_event.wait 而不是 sleep —— stop() 一 set 就能立刻退出，不必等 15 秒。
+        ev = getattr(self, "_stop_event", None)
+        while not (ev is not None and ev.is_set()):
+            if ev is not None:
+                if ev.wait(15):
+                    break
+            else:
+                time.sleep(15)
             try:
                 if self._unloaded: continue  # 已卸载就不重复
                 if time.time() - self._last_call > self._idle_timeout:
