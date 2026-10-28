@@ -62,6 +62,9 @@ def _header(title):
     return host, lay
 
 
+_ICON_PX = 22
+
+
 def activity_icon(kind):
     """单色活动栏图标；选中态用蓝色，避免 emoji 各家字体不一致。"""
     icon = QIcon()
@@ -71,7 +74,8 @@ def activity_icon(kind):
 
 
 def _activity_pixmap(kind, color):
-    pm = QPixmap(22, 22)
+    # 按 22px 画、活动栏也按 22px 显示，1:1 不缩放，线条才不会被插值糊掉
+    pm = QPixmap(_ICON_PX, _ICON_PX)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
@@ -95,17 +99,21 @@ def _activity_pixmap(kind, color):
         p.drawLine(7, 5, 15, 9)
         p.drawLine(7, 17, 15, 11)
     elif kind == "run":
-        p.setBrush(QColor(color))
+        # 只描边、不填充：与其余 5 个线稿图标保持同样的视觉重量
         p.drawPolygon(QPolygonF([QPointF(6, 4), QPointF(18, 11),
                                  QPointF(6, 18)]))
     elif kind == "extensions":
         for x, y in ((3, 3), (12, 3), (3, 12), (12, 12)):
             p.drawRoundedRect(x, y, 7, 7, 1, 1)
     elif kind == "ai":
-        p.drawLine(11, 2, 11, 20)
-        p.drawLine(2, 11, 20, 11)
-        p.drawLine(5, 5, 17, 17)
-        p.drawLine(17, 5, 5, 17)
+        # 四角星（闪光）线稿：原来是竖/横/两条对角线，看起来像「米」，
+        # 会被误认成关闭或星号。
+        c = _ICON_PX / 2.0
+        p.drawPolygon(QPolygonF([
+            QPointF(c, 2), QPointF(c + 2.4, c - 2.4),
+            QPointF(20, c), QPointF(c + 2.4, c + 2.4),
+            QPointF(c, 20), QPointF(c - 2.4, c + 2.4),
+            QPointF(2, c), QPointF(c - 2.4, c - 2.4)]))
     p.end()
     return pm
 
@@ -132,14 +140,22 @@ class SearchPanel(QWidget):
         v.addWidget(head)
 
         self.query = QLineEdit()
-        self.query.setPlaceholderText("搜索工作区内容，Enter 执行")
+        # 占位文字要能在侧栏被拖到最窄（200px）时完整显示，
+        # 所以只留短句，Enter 提示放在 tooltip 和底部 hint 里。
+        self.query.setPlaceholderText("搜索工作区内容")
+        self.query.setToolTip("输入关键词后按 Enter 搜索")
         self.query.setClearButtonEnabled(True)
-        self.query.setFixedHeight(26)
+        self.query.setFixedHeight(28)
+        # 外边距必须交给布局：写进 QLineEdit 的 stylesheet margin 后，
+        # 26px 固定高减去 margin/padding/border 只剩 8px，12px 文字上下被裁掉。
         self.query.setStyleSheet(
-            "QLineEdit{margin:6px 8px;padding:2px 6px;border:1px solid #d0d7de;"
+            "QLineEdit{padding:0 6px;border:1px solid #d0d7de;"
             "border-radius:5px;background:#ffffff;font-size:12px;}")
         self.query.returnPressed.connect(self.run_search)
-        v.addWidget(self.query)
+        row = QHBoxLayout()
+        row.setContentsMargins(8, 6, 8, 0)
+        row.addWidget(self.query)
+        v.addLayout(row)
 
         self.results = QListWidget()
         self.results.setStyleSheet(

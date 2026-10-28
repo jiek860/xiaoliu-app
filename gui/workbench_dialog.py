@@ -202,7 +202,9 @@ class WorkbenchWindow(CommandCenterMixin, WorkbenchStatusMixin,
         bar.setWrapping(False)
         bar.setMovement(QListView.Static)
         bar.setResizeMode(QListView.Adjust)
-        bar.setIconSize(QSize(20, 20))
+        # 图标按 22px 原尺寸绘制，这里也按 22px 显示：1:1 不缩放，
+        # 线条与其它活动栏图标一致，不会因插值显得发虚。
+        bar.setIconSize(QSize(22, 22))
         bar.setSpacing(0)
         bar.setStyleSheet(
             "QListWidget#activityBar{background:#f6f8fa;border:none;"
@@ -217,7 +219,7 @@ class WorkbenchWindow(CommandCenterMixin, WorkbenchStatusMixin,
                           ("scm", "源代码管理"),
                           ("run", "运行当前文件"),
                           ("extensions", "扩展 / 插件市场"),
-                          ("ai", "AI 助手")):
+                          ("ai", "AI 助手：点一下聚焦 AI 输入框（Ctrl+J 收起/展开）")):
             item = QListWidgetItem()
             item.setIcon(activity_icon(kind))
             item.setToolTip(tip)
