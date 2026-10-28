@@ -399,3 +399,106 @@ def test_shutdown_stops_llm_watchdog(tmp_path):
     host = FakeHost(tmp_path, modules={"llm": llm})
     host.shutdown()
     assert llm.stopped
+
+
+def test_stop_background_survives_broken_timer_and_closed_queues(tmp_path):
+    """收尾本身不能因为"已经停过/队列已关"再抛异常"""
+    class BrokenTimer:
+        def cancel(self):
+            raise RuntimeError("timer already fired")
+
+    class ClosedQueue:
+        def put_nowait(self, item):
+            raise RuntimeError("queue closed")
+
+    host = LoopHost(tmp_path)
+    host._stop_event = threading.Event()
+    host._llm_timer = BrokenTimer()
+    host._bg_queue = ClosedQueue()
+    host._idle_queue = ClosedQueue()
+    assert host.stop_background()["已停止"] is True
+    assert host._stop_event.is_set()
+    assert host._llm_timer is None
+
+
+def test_bg_loop_exits_when_queue_get_fails(tmp_path):
+    class BrokenQueue:
+        def get(self, timeout=None):
+            raise RuntimeError("queue closed")
+
+    host = LoopHost(tmp_path)
+    host._bg_queue = BrokenQueue()
+    host._bg_loop()      # 不该卡死：异常 -> 记日志 -> break
+    assert any("后台任务队列异常" in x for x in host.logs)
+
+
+def test_idle_worker_returns_when_stop_requested_while_busy(tmp_path):
+    host = FakeHost(tmp_path)
+    host._chat_busy = lambda: True
+    host._wait = lambda seconds: True       # 等待空闲时收到退出要求
+    host._idle_queue.put(lambda: None)
+    host._idle_worker()                     # 直接返回，不执行任务
+
+
+def test_idle_worker_returns_after_task_when_stop_requested(tmp_path):
+    host = FakeHost(tmp_path)
+    done = []
+    host._idle_queue.put(lambda: done.append(1))
+    host._wait = lambda seconds: seconds == 1   # 任务之间喘口气时要求退出
+    host._idle_worker()
+    assert done == [1]
+
+
+def test_shutdown_survives_background_and_llm_stop_errors(tmp_path):
+    class BrokenLLM:
+        def stop(self):
+            raise RuntimeError("watchdog already gone")
+
+    host = FakeHost(tmp_path, modules={"llm": BrokenLLM()})
+
+    def broken_stop():
+        raise RuntimeError("already stopped")
+
+    host.stop_background = broken_stop
+    host.shutdown()
+    assert host.saved.get("config") and host.saved.get("memory")
+    assert any("停 LLM 看门狗失败" in x for x in host.logs)
+
+
+def test_auto_backup_logs_failure_result(tmp_path, monkeypatch):
+    class FakeBackup:
+        def __init__(self, trunk):
+            pass
+
+        def _last_backup_path(self):
+            return ""
+
+        def backup_now(self, **kw):
+            return {"成功": False, "错误": "磁盘满"}
+
+    monkeypatch.setattr("core.backup.Backup", FakeBackup)
+    monkeypatch.delenv("X6_NO_AUTO_BACKUP", raising=False)
+    host = FakeHost(tmp_path)
+    host._auto_backup()
+    assert any("启动备份未完成" in x for x in host.logs)
+
+
+def test_auto_backup_logs_exception(tmp_path, monkeypatch):
+    class BrokenBackup:
+        def __init__(self, trunk):
+            raise OSError("备份目录不可写")
+
+    monkeypatch.setattr("core.backup.Backup", BrokenBackup)
+    monkeypatch.delenv("X6_NO_AUTO_BACKUP", raising=False)
+    host = FakeHost(tmp_path)
+    host._auto_backup()
+    assert any("启动备份失败" in x for x in host.logs)
+
+
+def test_auto_unload_loop_scans_once_then_stops(tmp_path):
+    host = FakeHost(tmp_path, modules={"llm": object(), "old": object()})
+    host._last_use = {"old": 0}
+    waits = [False, True]       # 第一轮扫描，第二轮看到退出要求
+    host._wait = lambda seconds: waits.pop(0)
+    host._auto_unload_loop()
+    assert host.logs == []

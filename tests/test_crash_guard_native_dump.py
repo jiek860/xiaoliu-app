@@ -229,3 +229,36 @@ def test_real_filter_prototype_takes_exception_pointer():
         pytest.skip("只有 Windows 有 SetUnhandledExceptionFilter")
     api = cg._load_apis()
     assert len(api["filter_type"]._argtypes_) == 1
+
+
+def test_handler_swallows_writedump_failure(tmp_path, monkeypatch):
+    """写 dump 自己失败时，handler 必须吞掉异常并返回 1 —— 否则二次异常
+    会盖掉真正的崩溃现场，进程还退不干净。"""
+    def boom(*a, **k):
+        raise RuntimeError("MiniDumpWriteDump failed")
+
+    monkeypatch.setattr(cg, "write_minidump", boom)
+    api = FakeApi()
+    handlers = []
+    api.SetFilter = lambda handle: handlers.append(handle)
+    assert cg.install_native_dump(str(tmp_path), apis=api)["已安装"] is True
+    assert handlers[0](None) == 1
+
+
+def test_install_local_dumps_without_winreg(tmp_path, monkeypatch):
+    """非 Windows（或 winreg 不可用）只报告原因，不抛异常"""
+    monkeypatch.setitem(sys.modules, "winreg", None)
+    res = cg.install_local_dumps(dump_dir=str(tmp_path))
+    assert res["已注册"] is False
+    assert "Windows" in res["原因"]
+
+
+class BrokenReg(FakeReg):
+    def CreateKey(self, root, key):
+        raise OSError("access denied")
+
+
+def test_install_local_dumps_reports_registry_error(tmp_path):
+    res = cg.install_local_dumps(dump_dir=str(tmp_path), _winreg=BrokenReg())
+    assert res["已注册"] is False
+    assert "access denied" in res["原因"]

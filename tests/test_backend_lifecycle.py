@@ -143,3 +143,43 @@ def test_llm_watchdog_thread_can_be_stopped():
     assert not t.is_alive(), "stop() 之后看门狗线程还在跑"
     # 幂等：再停一次不该抛
     llm.stop()
+
+
+def test_llm_workers_refuse_to_restart_after_stop():
+    """stop() 之后，预热定时器到点也不能把看门狗重新拉起来"""
+    from core.llm_client import LLMClient
+    llm = LLMClient(defer_warmup=True)
+    llm.stop()
+    assert llm.start_background_workers() is False
+
+
+def test_llm_stop_survives_broken_event_and_session():
+    """收尾要幂等：事件/连接池已经坏掉也不该让退出流程抛异常"""
+    from core.llm_client import LLMClient
+
+    class BrokenEvent:
+        def set(self):
+            raise RuntimeError("event already finalized")
+
+    class BrokenSession:
+        def close(self):
+            raise RuntimeError("session already closed")
+
+    llm = object.__new__(LLMClient)
+    llm._stop_event = BrokenEvent()
+    llm._session = BrokenSession()
+    llm._timer_running = True
+    assert llm.stop() == {"已停止": True}
+
+
+def test_llm_watchdog_sleeps_without_stop_event(monkeypatch):
+    """老对象/测试桩没有 _stop_event 时要退回 sleep，且仍可被 monkeypatch 打断"""
+    from core.llm_client import LLMClient
+
+    def boom(seconds):
+        raise RuntimeError("stop watchdog")
+
+    monkeypatch.setattr("core.llm_health.time.sleep", boom)
+    llm = object.__new__(LLMClient)
+    with pytest.raises(RuntimeError):
+        LLMClient._watchdog(llm)
