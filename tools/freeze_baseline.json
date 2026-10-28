@@ -49,9 +49,9 @@
     "web_console",
     "workbench"
   ],
-  "core_files": 208,
+  "core_files": 210,
   "gui_files": 93,
-  "test_files": 165,
+  "test_files": 171,
   "button_total": 60,
   "button_widgets": 60,
   "coverage_thresholds": {
@@ -84,5 +84,5 @@
   "active": true,
   "created": "2026-10-26",
   "freeze_until": "2026-11-23",
-  "rebased": "2026-10-26"
+  "rebased": "2026-10-28"
 }

@@ -122,16 +122,110 @@ def test_status_reports_dump_fields(tmp_path):
     cg.install_native_dump(str(tmp_path), apis=FakeApi())
     st = cg.status()
     assert st["内置dump"] is True
+    assert st["dump方式"] == "handler"
     assert st["dump目录"] == str(tmp_path)
     assert st["最近dump"] == ""
 
 
-def test_dump_dir_follows_log_dir(tmp_path, monkeypatch):
-    """enable() 里 dump 目录 = 日志目录的兄弟位置（data/logs -> data/dumps）"""
+class FakeReg:
+    """假 winreg：只记录写进注册表的键和值"""
+
+    HKEY_CURRENT_USER = 1
+    REG_EXPAND_SZ = 2
+    REG_DWORD = 4
+
+    def __init__(self):
+        self.key = ""
+        self.values = {}
+
+    def CreateKey(self, root, key):
+        self.key = key
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def SetValueEx(self, k, name, reserved, typ, value):
+        self.values[name] = value
+        return 0
+
+
+def test_install_local_dumps_writes_registry_values(tmp_path):
+    """LocalDumps 是系统层机制：键路径/目录/类型/份数都要对"""
+    reg = FakeReg()
+    res = cg.install_local_dumps(app_name="小6智能体.exe", dump_dir=str(tmp_path),
+                                 count=3, _winreg=reg)
+    assert res["已注册"] is True
+    assert res["目录"] == str(tmp_path)
+    assert reg.key.endswith("LocalDumps\\小6智能体.exe")
+    assert reg.values["DumpFolder"] == str(tmp_path)
+    assert reg.values["DumpType"] == 2        # 2 = 完整内存
+    assert reg.values["DumpCount"] == 3
+    assert cg.status()["dump方式"] == "LocalDumps"
+
+
+def test_install_local_dumps_respects_env_switch(tmp_path, monkeypatch):
+    monkeypatch.setenv("X6_NO_NATIVE_DUMP", "1")
+    reg = FakeReg()
+    res = cg.install_local_dumps(dump_dir=str(tmp_path), _winreg=reg)
+    assert res["已注册"] is False
+    assert reg.values == {}
+
+
+def test_enable_registers_local_dumps_only_when_frozen(tmp_path, monkeypatch):
+    """打包版才注册 LocalDumps；源码版不碰注册表（python.exe 是全机共用的）"""
     cg.reset_for_test()
-    monkeypatch.setattr(cg, "_load_apis", lambda: FakeApi())
+    seen = {}
+
+    def fake(**kw):
+        seen.update(kw)
+        return {"已注册": True, "目录": kw.get("dump_dir", ""), "原因": ""}
+
+    monkeypatch.setattr(cg, "install_local_dumps", fake)
     log = tmp_path / "data" / "logs" / "faulthandler.log"
-    path = cg.enable(str(log))
-    assert path == str(log)
-    assert cg.status()["dump目录"] == str(tmp_path / "data" / "dumps")
+    assert cg.enable(str(log)) == str(log)
+    assert "dump_dir" not in seen, "源码版不该注册 LocalDumps"
     cg.reset_for_test()
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    assert cg.enable(str(log)) == str(log)
+    assert seen["dump_dir"] == str(tmp_path / "data" / "dumps")
+    cg.reset_for_test()
+
+
+def test_enable_handler_mode_still_available(tmp_path, monkeypatch):
+    """X6_DUMP_MODE=handler 时才装 ctypes 回调（单线程调试用）"""
+    cg.reset_for_test()
+    monkeypatch.setenv("X6_DUMP_MODE", "handler")
+    monkeypatch.setattr(cg, "install_native_dump", lambda d=None: {"已安装": True})
+    log = tmp_path / "data" / "logs" / "faulthandler.log"
+    assert cg.enable(str(log)) == str(log)
+    assert cg.status()["日志"] == str(log)
+    cg.reset_for_test()
+
+
+def test_registered_filter_writes_dump_when_called(tmp_path):
+    """模拟系统回调：handler 被调用时要真的写 dump，并返回 1（EXCEPTION_EXECUTE_HANDLER）
+
+    2026-10-28 实测发现：`WINFUNCTYPE` 少写了参数，系统回调进来直接抛
+    "missing 1 required positional argument: '_exception_pointer'"，
+    真实崩溃时一份 dump 都写不出来。这条用例盯住"回调能被调用"这件事。
+    """
+    api = FakeApi()
+    handlers = []
+    api.SetFilter = lambda handle: handlers.append(handle)
+    assert cg.install_native_dump(str(tmp_path), apis=api)["已安装"] is True
+    assert handlers, "SetUnhandledExceptionFilter 没被调用"
+    assert handlers[0](None) == 1          # 系统会传 EXCEPTION_POINTERS*
+    assert len(list(tmp_path.glob("crash_*.dmp"))) == 1
+
+
+def test_real_filter_prototype_takes_exception_pointer():
+    """真实 API 的回调原型必须带 1 个参数，否则崩溃时 dump 写不出来"""
+    if sys.platform != "win32":
+        pytest.skip("只有 Windows 有 SetUnhandledExceptionFilter")
+    api = cg._load_apis()
+    assert len(api["filter_type"]._argtypes_) == 1

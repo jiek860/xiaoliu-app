@@ -77,6 +77,16 @@ def _cleanup_all():
 atexit.register(_cleanup_all)
 
 
+def stop_all():
+    """收掉所有活着的 stdio 连接（公开入口）。
+
+    和 atexit 里的 `_cleanup_all` 是同一件事，但能被显式调用 ——
+    测试收尾要它：每个连接带 3 个线程（stdout 读 / stderr 排空 / 资源监控），
+    只靠 atexit 的话，全量测试跑完前线程会一直累积（实测 12 个残留）。
+    """
+    return _cleanup_all()
+
+
 def live_count():
     with _LIVE_LOCK:
         return len(_LIVE)

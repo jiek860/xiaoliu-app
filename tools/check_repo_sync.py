@@ -17,7 +17,7 @@ modules_repo 是**独立 git 仓库**，而且**真的会推到 gitee**
 
 检查项
 ------
-    ① 主仓库的 modules/installed 与 modules_repo 内容逐字节一致
+    ① 主仓库的 modules/installed 与 modules_repo 内容一致（行尾不计：见 read_text）
     ② 清单条目数 = installed 里的模块数（排除 __init__.py）
     ③ 每条都有非空 sha256 与 signature
     ④ 逐条验签通过（RSA）
@@ -37,6 +37,19 @@ MANIFEST = os.path.join(REPO, "manifest.json")
 def files_of(d):
     return sorted(f for f in os.listdir(d)
                   if f.endswith(".py") and f != "__init__.py")
+
+
+def read_text(path):
+    """读文件并把行尾归一成 LF 再比较。
+
+    为什么要归一：本机 `core.autocrlf=true`，主仓库 checkout 时会把
+    `modules/installed/*.py` 写成 CRLF；而 `modules_repo` 是旁挂的独立
+    git 仓库（未跟踪），文件保持 LF。逐字节比较就会把 40 个模块全判成
+    "内容不一致"（2026-10-28 本地 CI 假红灯就是这么来的）。
+    这里要防的是**内容漂移**，行尾差异不算。
+    """
+    with open(path, "rb") as f:
+        return f.read().replace(b"\r\n", b"\n")
 
 
 def main():
@@ -68,7 +81,7 @@ def main():
         if not os.path.exists(b):
             different.append("%s 只存在于 installed" % f)
             continue
-        if open(a, "rb").read() == open(b, "rb").read():
+        if read_text(a) == read_text(b):
             same += 1
         else:
             diff += 1

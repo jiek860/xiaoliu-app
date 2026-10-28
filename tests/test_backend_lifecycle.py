@@ -122,3 +122,24 @@ def test_close_event_calls_trunk_shutdown(app):
     finally:
         if original is not None:
             w.trunk.shutdown = original
+
+
+def test_llm_watchdog_thread_can_be_stopped():
+    """`llm-watchdog` 原来是 while True 无出口，stop() 必须真能把它收掉。
+
+    实测（2026-10-28）：全量测试跑到后段残留 5 个 llm-watchdog，
+    加上每个 Trunk 的 3 个常驻线程 → 129 个线程，最后几条用例挂在
+    "can't start new thread" / "页面文件太小" 上。
+    """
+    from core.llm_client import LLMClient
+    llm = LLMClient(defer_warmup=True)
+    assert llm.start_background_workers() is True
+    t = llm._timer
+    try:
+        assert t.is_alive()
+    finally:
+        llm.stop()
+    t.join(timeout=3)
+    assert not t.is_alive(), "stop() 之后看门狗线程还在跑"
+    # 幂等：再停一次不该抛
+    llm.stop()

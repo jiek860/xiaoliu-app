@@ -117,22 +117,36 @@ class Trunk(
         }
 
         self._register_core()
+        # 退出标志：`_bg_loop` / `_idle_worker` / `_auto_unload_loop` / `_start_background`
+        # 都是 while True 常驻线程，必须有可打断的出口 —— 否则同一个进程里每造一次
+        # 躯干就多留 3 个线程（实测全量测试累积到 129 个后开始报"页面文件太小"）。
+        self._stop_event = threading.Event()
         # P0-4: 后台任务单线程队列，防止连续发消息起多个线程抢资源
         import queue as _q
         self._bg_queue = _q.Queue()
-        self._bg_worker = threading.Thread(target=self._bg_loop, daemon=True)
+        self._bg_worker = threading.Thread(target=self._bg_loop, daemon=True,
+                                           name="trunk-bg")
         self._bg_worker.start()
         # 空闲任务队列：反思/记忆闭环要调模型，不能在用户连续聊天时插队。
         # 不能放在 _bg_loop 里 sleep —— 那是单线程队列，会把记忆入库一起堵住。
         self._idle_queue = _q.Queue()
-        threading.Thread(target=self._idle_worker, daemon=True).start()
-        threading.Thread(target=self._auto_unload_loop, daemon=True).start()
+        threading.Thread(target=self._idle_worker, daemon=True,
+                         name="trunk-idle").start()
+        threading.Thread(target=self._auto_unload_loop, daemon=True,
+                         name="trunk-auto-unload").start()
         # 后台服务丢线程，不阻塞 UI 启动
-        threading.Thread(target=self._start_background, daemon=True).start()
+        threading.Thread(target=self._start_background, daemon=True,
+                         name="trunk-start-bg").start()
         # 启动时自动备份一次（走 core/backup.py，带节流，见 _auto_backup）
-        threading.Thread(target=self._auto_backup, daemon=True).start()
+        threading.Thread(target=self._auto_backup, daemon=True,
+                         name="trunk-auto-backup").start()
         # 性能优化：Ollama 预热 + 向量库预加载
-        threading.Thread(target=self._warmup, daemon=True).start()
+        threading.Thread(target=self._warmup, daemon=True,
+                         name="trunk-warmup").start()
+        # 登记到"活着的躯干"表：shutdown() 和测试收尾据此停线程
+        # （放最后一行：线程都起来了才谈得上"有人要收"）
+        from core.trunk_background import register_live
+        register_live(self)
         # 被延迟的 LLM 看门狗/预热在这里补启动（LLMClient 构造时没启）
         self._start_llm_workers_later()
         # 回复管道（原来是 __init__ 里的一大段，现在统一收在 background mixin）

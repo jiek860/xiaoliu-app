@@ -10,19 +10,23 @@ import time
 
 import pytest
 
-from core.trunk_background import TrunkBackgroundMixin
+from core.trunk_background import TrunkBackgroundMixin, live_trunks, register_live
 
 
 class FakeLLM:
     def __init__(self):
         self.started = False
         self.warmed = False
+        self.stopped = False
 
     def start_background_workers(self):
         self.started = True
 
     def _warmup(self):
         self.warmed = True
+
+    def stop(self):
+        self.stopped = True
 
 
 class FakeHost(TrunkBackgroundMixin):
@@ -340,3 +344,58 @@ def test_shutdown_saves_and_stops_services(tmp_path):
     assert host.saved.get("config") and host.saved.get("memory")
     assert vs.saved and ms.stopped
     assert any("退出完成" in x for x in host.logs)
+
+
+# ------------------------------------------------ 后台线程能不能真停下来
+# 2026-10-28：这三个 while True 线程原来**没有出口**，`shutdown()` 只写了
+# "停线程"四个字。全量测试累积到 129 个线程后开始报"页面大小不足"。
+
+
+def test_stop_background_sets_event_and_unregisters(tmp_path):
+    host = LoopHost(tmp_path)
+    host._stop_event = threading.Event()
+    register_live(host)
+    host.stop_background()
+    assert host._stop_event.is_set()
+    assert host not in live_trunks()
+
+
+def test_stop_background_releases_blocked_workers(tmp_path):
+    """两个 worker 卡在 Queue.get() 上时，stop 必须让它们退出（别干等哨兵）"""
+    host = LoopHost(tmp_path)
+    host._stop_event = threading.Event()
+    threads = [
+        threading.Thread(target=host._bg_loop, daemon=True),
+        threading.Thread(target=host._idle_worker, daemon=True),
+    ]
+    for t in threads:
+        t.start()
+    time.sleep(0.2)              # 确认它们真的进入了阻塞等待
+    host.stop_background()
+    for t in threads:
+        t.join(timeout=3)
+    assert not any(t.is_alive() for t in threads), "worker 线程没停下来"
+
+
+def test_workers_do_not_start_after_stop(tmp_path):
+    host = LoopHost(tmp_path)
+    host._stop_event = threading.Event()
+    host.stop_background()
+    host._bg_queue.put(("hi", "yo"))
+    host._bg_loop()              # 立刻返回，不再消费
+    assert host.saved.get("bg") is None
+
+
+def test_shutdown_also_stops_background_threads(tmp_path):
+    host = FakeHost(tmp_path)
+    host._stop_event = threading.Event()
+    host.shutdown()
+    assert host._stop_event.is_set()
+
+
+def test_shutdown_stops_llm_watchdog(tmp_path):
+    """`llm-watchdog` 也是无出口的 while True，shutdown 必须连带停掉"""
+    llm = FakeLLM()
+    host = FakeHost(tmp_path, modules={"llm": llm})
+    host.shutdown()
+    assert llm.stopped
