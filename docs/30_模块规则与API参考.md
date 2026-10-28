@@ -1304,15 +1304,48 @@ forget_session() -> dict
 WorkbenchWindow(trunk, parent=None)
     .editor_open_files() -> list[str]     当前打开的文件
     .open_path(path) -> bool
+    .reload_editor_path(path)             已开着就刷新，新文件直接打开并聚焦
     .set_goal(text)
-    .toggle_ai()               Ctrl+J
-    .toggle_ai_popup()         弹出/收回 AI 面板
+    .toggle_ai()               Ctrl+J；同步 QDockWidget 可见性
+    .toggle_ai_popup()         AI 面板浮动/收回（QDockWidget.setFloating）
     .toggle_fullscreen()       F11
+    .ai_host                   QDockWidget，右侧 Secondary Side Bar
+    ._editor                   CodeEditorDialog（含 tabs / bottom / fs_model）
 
 AgentDock(workbench)
     .current_goal() -> str
     .can_start() -> bool
     .start() / toggle_pause() / cancel()
+    .start_sc                  Ctrl+Enter 快捷键（QShortcut，不占按钮预算）
+
+resolve_explicit(goal) -> "code" | None
+    工作台默认代码 Agent；/chat、/pc、/computer 前缀返回 None 交给路由
+```
+
+### gui/ide_editor_shell.py
+
+```python
+EditorTabs(header=None)         QTabBar + 面包屑 + QStackedWidget
+    .addTab(w, title) / .removeTab(i)
+    .widget(i) / .count() / .currentWidget() / .currentIndex()
+    .set_secondary(w) / .clear_secondary() / .has_secondary()
+
+BottomPanel(output, root=".")
+    .set_problems([(line, msg)])   问题页，双击发 jumpRequested(int)
+    .run_terminal(text=None)       支持 cd / pwd / cls，其余走 QProcess
+    .select(index)                 0=输出 1=问题 2=终端
+```
+
+### gui/ide_sidebar.py / gui/ide_explorer.py
+
+```python
+activity_icon(kind)            explorer/search/scm/run/extensions/ai 单色图标
+SearchPanel(root)              .run_search()；openRequested(path, line)
+ScmPanel(root)                 .refresh()；openRequested(path)
+SidebarHost(root, parent)      .attach(explorer, splitter) 三页侧栏
+CommandCenterMixin             ._run_command() / ._focus_command()
+GitFileModel()                 .refresh_git(root, mapping=None) 文件名着色
+ExplorerMenuMixin              .refresh_git_marks() / 右键新建·重命名·删除·定位
 ```
 
 ### gui/mcp_trust_view.py

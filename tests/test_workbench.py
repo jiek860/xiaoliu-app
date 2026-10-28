@@ -53,18 +53,29 @@ def test_no_feature_tabs(wb):
 
 
 def test_ai_panel_on_right_of_editor(wb):
-    """VS Code 风格：活动栏 | 编辑器 | 右侧 AI 栏。"""
-    assert wb.splitter.count() == 3
+    """VS Code 风格：活动栏 | 编辑器 + 右侧 Secondary Side Bar（QDockWidget）。"""
+    assert wb.splitter.count() == 2
     assert wb.splitter.widget(0) is wb.activity_list
-    assert wb.splitter.widget(2) is wb.ai_dock
+    assert wb.ai_host.widget() is wb.ai_dock
+    from PyQt5.QtCore import Qt
+    assert wb.dockWidgetArea(wb.ai_host) == Qt.RightDockWidgetArea
 
 
 def test_activity_bar_and_status_bar(wb):
-    """活动栏只放真实入口，底部状态栏展示当前文件。"""
-    assert wb.activity_list.count() == 3
+    """活动栏是单色图标视图入口，底部状态栏展示分支/行列/语言。"""
+    assert wb.activity_list.count() == 6
+    assert wb.sidebar_stack is not None
+    assert wb.sidebar_stack.count() == 3
+    for i in range(wb.activity_list.count()):
+        assert wb.activity_list.item(i).text() == ""
+        assert not wb.activity_list.item(i).icon().isNull()
+    assert wb.command is not None
     assert wb.status_label is not None
     assert wb.path_label is not None
     assert "UTF-8" in wb.path_label.text()
+    assert wb.branch_label.text().startswith("⎇")
+    assert wb.lang_label.text() == "Plain Text"
+    assert wb.error_label.text().startswith("⚠")
     assert wb.pos_label.text() == "行 1, 列 1"
     assert wb._editor.breadcrumb is not None
     assert wb._editor.breadcrumb.text().startswith("📄 ")
@@ -74,9 +85,190 @@ def test_activity_bar_and_status_bar(wb):
     w.setPlainText("a\nbc")
     w.moveCursor(QTextCursor.End)
     assert wb.pos_label.text() == "行 2, 列 3", wb.pos_label.text()
+
+
+def test_sidebar_not_collapsed(wb):
+    """回归：QStackedWidget 最小宽度是 0，曾被 QSplitter 压成 0 宽。"""
+    wb.resize(1440, 900)
+    wb.show()
+    QApplication.processEvents()
+    assert wb.sidebar_stack.isVisible()
+    assert wb.sidebar_stack.width() >= 200, wb.sidebar_stack.width()
+    assert wb._editor.tree.isVisible()
+
+
+def test_activity_views_and_command_center(wb):
+    """搜索/Git 是左侧视图，命令中心能切到搜索。"""
+    wb._on_activity_clicked(wb.activity_list.item(1))
+    assert wb.sidebar_stack.currentIndex() == 1
+    wb._on_activity_clicked(wb.activity_list.item(2))
+    assert wb.sidebar_stack.currentIndex() == 2
+    assert wb.scm_view.branch.text().startswith("分支：")
+    wb.command.setText("搜索工作区")
+    wb._run_command()
+    assert wb.sidebar_stack.currentIndex() == 1
+
+
+def test_syntax_error_status(wb):
+    """语法错误数同步到状态栏；修好后归零。"""
+    w = wb._editor.tabs.currentWidget()
+    w.setPlainText("def broken(:\n")
+    w._check_syntax()
+    assert wb.error_label.text() == "⚠ 1", wb.error_label.text()
     w.setPlainText("")
+    w._check_syntax()
+    assert wb.error_label.text() == "⚠ 0"
     w._dirty = False
     wb._editor._update_tab_title(w)
+
+
+# ---------------- P1：编辑器骨架 ----------------
+def test_breadcrumb_is_between_tab_bar_and_editor(wb):
+    """VS Code 顺序：标签栏 → 面包屑 → 编辑区。"""
+    from PyQt5.QtCore import QPoint
+    ed = wb._editor
+    wb.resize(1440, 900)
+    wb.show()
+    QApplication.processEvents()
+    tabs = ed.tabs
+    y_bar = tabs.bar.mapTo(tabs, QPoint(0, 0)).y()
+    y_crumb = ed.breadcrumb.mapTo(tabs, QPoint(0, 0)).y()
+    y_edit = tabs.stack.mapTo(tabs, QPoint(0, 0)).y()
+    assert y_bar < y_crumb < y_edit, (y_bar, y_crumb, y_edit)
+
+
+def test_split_shares_document_and_closes(wb):
+    """分屏是同一份文档的第二个视图，不是复制一份文本。"""
+    ed = wb._editor
+    w = ed.tabs.currentWidget()
+    w.setPlainText("x = 1\n")
+    ed.toggle_split()
+    sec = ed.tabs.secondary()
+    assert sec is not None
+    assert sec.document() is w.document()
+    w.setPlainText("y = 2\n")
+    assert sec.toPlainText() == "y = 2\n"
+    ed.toggle_split()
+    assert ed.tabs.secondary() is None
+    w.setPlainText("")
+    w._dirty = False
+    ed._update_tab_title(w)
+
+
+def test_minimap_visible_by_default_and_toggle(wb):
+    ed = wb._editor
+    w = ed.tabs.currentWidget()
+    assert w.is_minimap_visible() is True
+    assert w.minimap_width() == w._minimap.WIDTH
+    ed.toggle_minimap()
+    assert w.is_minimap_visible() is False
+    assert w.minimap_width() == 0
+    ed.toggle_minimap()
+    assert w.minimap_width() == w._minimap.WIDTH
+
+
+def test_bottom_panel_has_output_problem_terminal(wb):
+    """底部面板是「输出 / 问题 / 终端」三个页签，不再是单块输出框。"""
+    b = wb._editor.bottom
+    assert b.bar.count() == 3
+    assert b.bar.tabText(0) == "输出"
+    assert b.bar.tabText(2) == "终端"
+    w = wb._editor.tabs.currentWidget()
+    w.setPlainText("def broken(:\n")
+    w._check_syntax()
+    assert b.problems.count() == 1
+    assert "第 1 行" in b.problems.item(0).text()
+    w.setPlainText("")
+    w._check_syntax()
+    assert b.problems.count() == 0
+    w._dirty = False
+    wb._editor._update_tab_title(w)
+
+
+def test_terminal_cd_and_clear_are_local(wb):
+    b = wb._editor.bottom
+    root = b.cwd
+    b._change_dir("gui")
+    assert b.cwd.endswith("gui")
+    b._change_dir(root)
+    b._echo("hello")
+    b.run_terminal("cls")
+    assert b.term.toPlainText() == ""
+
+
+# ---------------- P2：资源管理器 ----------------
+def test_git_status_colors_in_explorer(wb):
+    """文件树用文件名颜色标出 Git 改动（不换图标）。"""
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtGui import QBrush
+    model = wb._editor.fs_model
+    path = os.path.join(BASE, "run.py")
+    model.refresh_git(BASE, {path: "M"})
+    idx = model.index(path)
+    assert idx.isValid()
+    brush = model.data(idx, Qt.ForegroundRole)
+    assert isinstance(brush, QBrush)
+    assert brush.color().name() == model.STATUS_COLORS["M"]
+    model.refresh_git(BASE, {})
+    assert model.git_status_for(path) == ""
+
+
+def test_git_status_entries_reads_repo():
+    from gui.ide_sidebar import git_status_entries
+    entries = git_status_entries(BASE)
+    if entries is None:
+        pytest.skip("本机没有 git")
+    assert all(len(rel) > 0 for _s, rel in entries)
+    # 中文路径必须保持原样：git 默认会把它们输出成 "docs/\344\270\255..."，
+    # 那样既对不上文件树路径（不着色），SCM 列表也会是乱码。
+    assert not any("\\3" in rel for _s, rel in entries), entries
+
+
+def test_git_status_entries_uses_utf8_raw_paths(monkeypatch):
+    """显式带 core.quotePath=false，中文路径原样返回。"""
+    from gui import ide_explorer
+
+    class _Done:
+        returncode = 0
+        stdout = " M docs/中文文档.md\n?? gui/新文件.py\n"
+
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = list(cmd)
+        return _Done()
+
+    monkeypatch.setattr(ide_explorer.subprocess, "run", fake_run)
+    entries = ide_explorer.git_status_entries(".")
+    assert "core.quotePath=false" in seen["cmd"], seen["cmd"]
+    assert entries == [("M", "docs/中文文档.md"),
+                       ("??", "gui/新文件.py")], entries
+
+
+def test_explorer_new_file(wb, monkeypatch, tmp_path):
+    """右键「新建文件」走 QInputDialog；不新增 QAction。"""
+    from PyQt5.QtWidgets import QInputDialog
+    monkeypatch.setattr(QInputDialog, "getText",
+                        staticmethod(lambda *a, **k: ("note.md", True)))
+    ed = wb._editor
+    before = ed.tabs.count()
+    ed._create_entry(str(tmp_path), make_dir=False)
+    assert (tmp_path / "note.md").exists()
+    assert ed.tabs.count() == before + 1
+    # 关闭测试打开的标签，避免影响后续用例
+    for i in range(ed.tabs.count()):
+        w = ed.tabs.widget(i)
+        if getattr(w, "filepath", "") == str(tmp_path / "note.md"):
+            ed._close_tab(i)
+            break
+
+
+def test_explorer_new_folder(wb, monkeypatch, tmp_path):
+    from PyQt5.QtWidgets import QInputDialog
+    monkeypatch.setattr(QInputDialog, "getText",
+                        staticmethod(lambda *a, **k: ("sub", True)))
+    wb._editor._create_entry(str(tmp_path), make_dir=True)
+    assert (tmp_path / "sub").is_dir()
 
 
 # ---------------- 收起 / 展开 ----------------
@@ -105,12 +297,17 @@ def test_no_redundant_buttons_in_workbench(wb):
 def test_popup_and_dock_back(wb):
     wb.toggle_ai_popup()
     assert wb._ai_popup is not None
+    assert wb.ai_host.isFloating()
     assert "收回" in wb.ai_dock.expand_btn.text()
     wb.toggle_ai_popup()
     assert wb._ai_popup is None
+    assert not wb.ai_host.isFloating()
     assert "弹出" in wb.ai_dock.expand_btn.text()
-    assert wb.splitter.count() == 3
-    assert wb.splitter.widget(2) is wb.ai_dock
+    # 右侧 AI 是 QDockWidget（标准 Secondary Side Bar），不在 splitter 里
+    assert wb.splitter.count() == 2
+    assert wb.ai_host.widget() is wb.ai_dock
+    from PyQt5.QtCore import Qt
+    assert wb.dockWidgetArea(wb.ai_host) == Qt.RightDockWidgetArea
 
 
 def test_popup_repeated_toggle(wb):
@@ -126,6 +323,72 @@ def test_open_and_list_files(wb):
     wb.open_path(os.path.join(BASE, "run.py"))
     files = wb.editor_open_files()
     assert any(f.endswith("run.py") for f in files), files
+
+
+# ---------------- 自然语言写代码 ----------------
+def test_natural_language_defaults_to_code_agent():
+    """工作台里“帮我写个…/加个…”不能被路由成聊天。"""
+    from gui.workbench_ai_dock import resolve_explicit
+    assert resolve_explicit("帮我写一个贪吃蛇小游戏") == "code"
+    assert resolve_explicit("给 main 加参数解析") == "code"
+    assert resolve_explicit("做一个登录页面") == "code"
+    # 显式前缀才切走
+    assert resolve_explicit("/chat 你好") is None
+    assert resolve_explicit("/pc 打开浏览器") is None
+    assert resolve_explicit("/computer 点击开始菜单") is None
+
+
+def test_applied_file_opens_in_editor_and_is_editable(wb, tmp_path):
+    """Agent 落盘后：新文件要在编辑器里完整打开，并且能手动改。"""
+    p = tmp_path / "ai_snake.py"
+    p.write_text("print('snake')\n", encoding="utf-8")
+    wb.ai_dock._on_event("applied", {"applied": [str(p)],
+                                     "backup_manifest": ""})
+    QApplication.processEvents()
+    w = wb._editor.tabs.currentWidget()
+    assert getattr(w, "filepath", "") == str(p), getattr(w, "filepath", "")
+    assert w.toPlainText() == "print('snake')\n"
+    assert w.isReadOnly() is False
+
+    # 同一个文件再次落盘：已开的 tab 要刷新成最新完整内容
+    p.write_text("print('snake v2')\n", encoding="utf-8")
+    wb.ai_dock._on_event("applied", {"applied": [str(p)],
+                                     "backup_manifest": ""})
+    assert w.toPlainText() == "print('snake v2')\n"
+
+    for i in range(wb._editor.tabs.count()):
+        if wb._editor.tabs.widget(i) is w:
+            wb._editor._close_tab(i)
+            break
+
+
+def test_chat_answer_is_shown_in_timeline(wb):
+    """走 /chat 时模型回答要写进时间线，不能只显示“对话完成”。"""
+    wb.ai_dock.timeline.clear()
+    wb.ai_dock._on_event("done", {"step": "对话完成",
+                                  "result": "这是模型的回答"})
+    assert "这是模型的回答" in wb.ai_dock.timeline.toPlainText()
+
+
+def test_run_job_passes_code_mode(wb, monkeypatch):
+    """工作台启动任务时必须把 explicit 传给编排器，而不是靠关键词猜。"""
+    import core.agent_orchestrator as orch_mod
+    captured = {}
+
+    class _FakeOrch:
+        def __init__(self, *a, **k):
+            pass
+
+        def run(self, goal, **kw):
+            captured.update(kw)
+            captured["goal"] = goal
+            return {"ok": True, "rounds_used": 1,
+                    "stop_reason": "tests_green"}
+
+    monkeypatch.setattr(orch_mod, "AgentOrchestrator", _FakeOrch)
+    wb.ai_dock._run_job("帮我写一个贪吃蛇小游戏", open_files=[])
+    assert captured.get("goal") == "帮我写一个贪吃蛇小游戏"
+    assert captured.get("explicit") == "code"
 
 
 def test_set_goal(wb):

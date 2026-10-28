@@ -31,6 +31,9 @@ class CodeEditorRunnerMixin:
             target = tmp.name
         self.output.clear()
         self.output.appendPlainText(">>> 运行: " + target)
+        bottom = getattr(self, "bottom", None)
+        if bottom is not None:
+            bottom.select(0)          # 运行结果落在「输出」页
         if hasattr(self, "_proc") and self._proc is not None:
             try: self._proc.kill()
             except Exception as e:

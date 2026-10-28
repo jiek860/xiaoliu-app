@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 import re
 
-from PyQt5.QtCore import Qt, QRect, QSize, QTimer, pyqtSignal
+from PyQt5.QtCore import Qt, QPoint, QRect, QSize, QTimer, pyqtSignal
 from PyQt5.QtGui import (QFont, QTextCharFormat, QColor, QSyntaxHighlighter,
                          QTextDocument, QTextCursor, QPainter)
 from PyQt5.QtWidgets import (QPlainTextEdit, QWidget, QCompleter, QTextEdit)
@@ -55,8 +55,80 @@ class _LineNumberArea(QWidget):
     def paintEvent(self, e):
         self._editor.paint_line_numbers(e)
 
+
+class _MiniMap(QWidget):
+    """编辑器右侧的文档缩略图：按行密度画色块，点击跳转。
+
+    取舍：不做语法着色、不画字符（大文件会卡），只用块长度映射宽度；
+    一屏缩略图最多画 `height` 行，超出按步长抽样。
+    """
+
+    WIDTH = 76
+
+    def __init__(self, editor):
+        super().__init__(editor)
+        self._editor = editor
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip("minimap：点击跳转")
+        self.setStyleSheet("background:#f6f8fa;")
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        try:
+            p.fillRect(self.rect(), QColor("#f6f8fa"))
+            doc = self._editor.document()
+            n = doc.blockCount()
+            if n <= 0 or self.height() <= 0:
+                return
+            scale = self.height() / float(n)
+            step = max(1, int(1 / scale) if scale < 1 else 1)
+            p.setPen(Qt.NoPen)
+            for i in range(0, n, step):
+                block = doc.findBlockByNumber(i)
+                if not block.isValid():
+                    break
+                length = len(block.text())
+                if not length:
+                    continue
+                p.fillRect(3, int(i * scale), min(
+                    self.width() - 8, max(2, length // 2)),
+                    max(1, int(step * scale)), QColor("#c9ced6"))
+            self._paint_viewport(p, n)
+        except Exception as e:  # 静默是故意的 - 缩略图异常不能影响编辑
+            _x6_swallowed(__name__, e, "minimap paint")
+        finally:
+            p.end()
+
+    def _paint_viewport(self, p, n):
+        vp = self._editor.viewport()
+        if vp.height() <= 0 or self.height() <= 0:
+            return
+        top = self._editor.cursorForPosition(QPoint(0, 0)).blockNumber()
+        bottom = self._editor.cursorForPosition(
+            QPoint(0, vp.height() - 1)).blockNumber()
+        y = int(top * self.height() / float(n))
+        h = max(6, int((bottom - top + 1) * self.height() / float(n)))
+        p.fillRect(0, y, self.width(), h, QColor(29, 78, 216, 34))
+
+    def _goto(self, y):
+        doc = self._editor.document()
+        n = max(1, doc.blockCount())
+        line = max(0, min(n - 1, int(y * n / float(max(1, self.height())))))
+        block = doc.findBlockByNumber(line)
+        if block.isValid():
+            self._editor.setTextCursor(QTextCursor(block))
+            self._editor.centerCursor()
+
+    def mousePressEvent(self, e):
+        self._goto(e.pos().y())
+
+    def mouseMoveEvent(self, e):
+        if e.buttons() & Qt.LeftButton:
+            self._goto(e.pos().y())
+
 class CodeEditWidget(QPlainTextEdit):
     askAssistantRequested = pyqtSignal(str)  # 把选中/全部代码发回聊天框
+    syntaxErrorChanged = pyqtSignal(int)     # 当前文件语法错误数（0/1）
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -69,6 +141,11 @@ class CodeEditWidget(QPlainTextEdit):
         self._ln_area = _LineNumberArea(self)
         self.blockCountChanged.connect(self._update_ln_area_width)
         self.updateRequest.connect(self._update_ln_area)
+        # minimap：右侧缩略图，默认开，可被工作台命令关闭
+        self._minimap = _MiniMap(self)
+        self._minimap_visible = True
+        self.textChanged.connect(self._minimap.update)
+        self.blockCountChanged.connect(lambda _n: self._minimap.update())
         self._update_ln_area_width(0)
         # 高亮
         self._hl = _PyHighlighter(self.document())
@@ -83,7 +160,9 @@ class CodeEditWidget(QPlainTextEdit):
         # 文件路径
         self._filepath = None
         self._dirty = False
-        self.document().modificationChanged.connect(lambda _: setattr(self, '_dirty', True))
+        self._syntax_errors = 0
+        self.document().modificationChanged.connect(
+            lambda m: setattr(self, '_dirty', bool(m)))
 
     # ----- 属性 -----
     @property
@@ -91,7 +170,10 @@ class CodeEditWidget(QPlainTextEdit):
     @filepath.setter
     def filepath(self, v): self._filepath = v
 
-    def is_dirty(self): return self._dirty
+    def is_dirty(self):
+        # 文档状态才是唯一真相：setPlainText 会先发 modified=True 再复位，
+        # 只信 _dirty 会误判"刚打开的文件未保存"。
+        return bool(self._dirty or self.document().isModified())
 
     # ----- 行号 -----
     def line_number_area_width(self):
@@ -99,8 +181,32 @@ class CodeEditWidget(QPlainTextEdit):
         digits = len(str(n))
         return 20 + self.fontMetrics().horizontalAdvance('9') * digits
 
+    def minimap_width(self):
+        return _MiniMap.WIDTH if self._minimap_visible else 0
+
+    def set_minimap_visible(self, on):
+        self._minimap_visible = bool(on)
+        self._minimap.setVisible(self._minimap_visible)
+        self._update_ln_area_width(0)
+        self._minimap.update()
+
+    def is_minimap_visible(self):
+        return self._minimap_visible
+
+    def attach_document(self, doc):
+        """分屏用：两个视图共享同一个 QTextDocument，改哪边都同步。"""
+        try:
+            self._hl.setDocument(None)
+        except Exception as e:  # 静默是故意的 - 旧文档已失效时忽略
+            _x6_swallowed(__name__, e, "detach highlighter")
+        self._hl = None
+        self.setDocument(doc)
+        self._update_ln_area_width(0)
+        self._minimap.update()
+
     def _update_ln_area_width(self, _):
-        self.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
+        self.setViewportMargins(self.line_number_area_width(), 0,
+                                self.minimap_width(), 0)
 
     def _update_ln_area(self, rect, dy):
         if dy:
@@ -109,12 +215,16 @@ class CodeEditWidget(QPlainTextEdit):
             self._ln_area.update(0, rect.y(), self._ln_area.width(), rect.height())
         if rect.contains(self.viewport().rect()):
             self._update_ln_area_width(0)
+        self._minimap.update()
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
         cr = self.contentsRect()
         self._ln_area.setGeometry(QRect(cr.left(), cr.top(),
                                        self.line_number_area_width(), cr.height()))
+        w = self.minimap_width()
+        self._minimap.setGeometry(QRect(cr.right() - w + 1, cr.top(),
+                                        w, cr.height()))
 
     def paint_line_numbers(self, e):
         """画行号。
@@ -241,12 +351,18 @@ class CodeEditWidget(QPlainTextEdit):
 
     # ----- 实时语法检查 -----
     def _check_syntax(self):
-        # 清旧错误标记
+        """实时语法检查；非 Python 文件不拿 ast 误判。"""
         extra = []
+        count = 0
+        if self._filepath and not str(self._filepath).lower().endswith(".py"):
+            self.setExtraSelections([])
+            self._emit_syntax_errors(0)
+            return
         code = self.toPlainText()
         try:
             ast.parse(code)
         except SyntaxError as ex:
+            count = 1
             fmt = QTextCharFormat()
             fmt.setUnderlineColor(QColor("#e51400"))
             fmt.setUnderlineStyle(QTextCharFormat.WaveUnderline)
@@ -257,6 +373,13 @@ class CodeEditWidget(QPlainTextEdit):
                 sel.format = fmt
                 extra.append(sel)
         self.setExtraSelections(extra)
+        self._emit_syntax_errors(count)
+
+    def _emit_syntax_errors(self, count):
+        count = int(count or 0)
+        if count != self._syntax_errors:
+            self._syntax_errors = count
+            self.syntaxErrorChanged.emit(count)
 
     # ----- 右键菜单 -----
     def contextMenuEvent(self, e):
