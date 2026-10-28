@@ -1346,13 +1346,28 @@ ruff_command(path)             [ruff|python -m ruff] check --output-format=json
 parse_ruff_json(text)          JSON → [(行, 列, 规则码, 描述)]；非 JSON 返回 None
 ast_problems(code)             兜底：只报第一条 SyntaxError（同为 4 元组）
 
+python_symbols(code)           ast 提取 def/class/import as/赋值目标；解析失败退回正则
+js_symbols(code)               function/class/const/let/var 的名字
+completion_words(code, path)   关键字 + 内置名 + 本文件符号（.js/.ts 自动换表）
+
 CodeEditWidget()
     .filepath = p              setter 即"打开/保存"，会触发一次静态检查
     .check_problems()          ruff 走 QProcess 后台（5s 超时，失败退回 ast）
     .problems()                [(行, 列, 规则码, 描述)]
+    ._try_complete(force)      本地补全弹窗；Ctrl+Space / Ctrl+) 是 force=True
     problemsChanged(list)      问题列表变化（编辑中退回 ast，保存后是 ruff）
     syntaxErrorChanged(int)    问题条数，供状态栏
 ```
+
+### gui/editor_parts.py
+
+```python
+_PyHighlighter(doc)   Python 关键字/字符串/注释/数字高亮
+_LineNumberArea(editor)   行号区（paint_line_numbers 由主控件画）
+_MiniMap(editor)     右侧缩略图：行密度色块 + 当前位置框，点击/拖动跳转
+```
+
+`gui/code_editor_widget.py` 直接 re-export 这三个名字，旧导入路径不变。
 
 ### gui/ide_sidebar.py / gui/ide_explorer.py
 

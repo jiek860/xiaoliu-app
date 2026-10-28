@@ -1182,3 +1182,107 @@ def test_dialog_problems_follow_widget_problems(wb):
     assert ed.bottom.problems.count() == 0
     w._dirty = False
     ed._update_tab_title(w)
+
+
+# ---------------- P2：本地补全（本文件符号 + 关键字，不做 LSP） ----------------
+def test_python_symbols_from_ast():
+    from gui.code_editor_widget import python_symbols
+
+    code = ("import os\nimport numpy as np\nfrom typing import List as L\n"
+            "CONST = 1\nclass Widget:\n    def paint(self):\n"
+            "        local = 2\n")
+    syms = python_symbols(code)
+    assert {"os", "np", "L", "CONST", "Widget", "paint", "local"} <= syms
+    # 写到一半的语法错误：ast 整体失败，退回正则至少还能补 def/class
+    assert "paint" in python_symbols("class A:\n    def paint(self,},\n")
+
+
+def test_js_symbols_and_completion_words():
+    from gui.code_editor_widget import completion_words, js_symbols
+
+    code = "function draw() {}\nconst canvas = 1;\nclass Scene {}\n"
+    assert {"draw", "canvas", "Scene"} <= js_symbols(code)
+    js = completion_words(code, "app.js")
+    assert {"function", "draw", "canvas"} <= set(js)
+    assert "def" not in js
+    py = completion_words("def main():\n    pass\n", "a.py")
+    assert {"main", "print", "def"} <= set(py)
+
+
+def test_completion_popup_uses_local_symbols(app):
+    from gui.code_editor_widget import CodeEditWidget
+
+    w = CodeEditWidget()
+    try:
+        w.setPlainText("def paint_event(self):\n    pass\n\npri")
+        tc = w.textCursor()
+        tc.movePosition(tc.End)
+        w.setTextCursor(tc)
+        w._try_complete()
+        assert w._completer.completionPrefix() == "pri"
+        assert "print" in w._completer.model().stringList()
+        assert w._completer.completionCount() >= 1
+        # 只有 1 个字符时不弹（避免每敲一个键就刷候选）
+        w._completer.setCompletionPrefix("zzz")
+        w.setPlainText("p")
+        tc = w.textCursor(); tc.movePosition(tc.End); w.setTextCursor(tc)
+        w._try_complete()
+        assert w._completer.completionPrefix() == "zzz"
+    finally:
+        w.close()
+        w.deleteLater()
+
+
+def test_completion_skipped_in_comment_and_string(app):
+    from gui.code_editor_widget import CodeEditWidget
+
+    w = CodeEditWidget()
+    try:
+        w.setPlainText("x = 1  # pri")
+        tc = w.textCursor(); tc.movePosition(tc.End); w.setTextCursor(tc)
+        assert w._in_comment_or_string() is True
+        w._completer.setCompletionPrefix("zzz")
+        w._try_complete()
+        assert w._completer.completionPrefix() == "zzz"
+
+        w.setPlainText('s = "pri')
+        tc = w.textCursor(); tc.movePosition(tc.End); w.setTextCursor(tc)
+        assert w._in_comment_or_string() is True
+
+        w.setPlainText('s = "abc" + pri')
+        tc = w.textCursor(); tc.movePosition(tc.End); w.setTextCursor(tc)
+        assert w._in_comment_or_string() is False
+    finally:
+        w.close()
+        w.deleteLater()
+
+
+def test_completion_inserts_word_and_only_for_code_files(app, tmp_path):
+    from PyQt5.QtCore import QEvent, Qt
+    from PyQt5.QtGui import QKeyEvent
+
+    from gui.code_editor_widget import CodeEditWidget
+
+    w = CodeEditWidget()
+    try:
+        w.setPlainText("pri")
+        tc = w.textCursor(); tc.movePosition(tc.End); w.setTextCursor(tc)
+        w._try_complete()
+        w._insert_completion("print")
+        assert w.toPlainText() == "print"
+
+        # Ctrl+Space 手动触发（1 个字符也弹）
+        w.setPlainText("pri")
+        tc = w.textCursor(); tc.movePosition(tc.End); w.setTextCursor(tc)
+        w._completer.setCompletionPrefix("")
+        ev = QKeyEvent(QEvent.KeyPress, Qt.Key_Space, Qt.ControlModifier, " ")
+        w.keyPressEvent(ev)
+        assert w._completer.completionPrefix() == "pri"
+
+        # Markdown 不启用补全
+        w.setPlainText("pri")
+        w.filepath = str(tmp_path / "note.md")
+        assert w._completion_enabled() is False
+    finally:
+        w.close()
+        w.deleteLater()
