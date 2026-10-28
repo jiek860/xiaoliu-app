@@ -1333,10 +1333,19 @@ EditorTabs(header=None)         QTabBar + 面包屑 + QStackedWidget
 BottomPanel(output, root=".")
     .set_problems([(line, msg)])   兼容 (行,描述) 与 (行,列,规则码,描述)
                                    问题页双击发 jumpRequested(int)
-    .run_terminal(text=None)       支持 cd / pwd / cls，其余走 QProcess
+    .run_terminal(text=None)       cd / pwd / cls 本地处理，其余写进常驻 shell
+    ._ensure_shell()               懒启动 cmd.exe /q /k（Unix /bin/sh -i），失败返回 None
+    ._write_shell(cmd)             stdin 写入；按 Windows OEM 代码页编码（936=GBK）
+    ._shell_alive()                shell 进程是否还活着（退出后回车自动重启）
+    ._append_raw(text)             流式追加；只在贴底时跟随滚动，不会粘上一行
+    .shutdown()                    关闭工作台时调用：杀掉 shell，不留孤儿进程
     .show_diff(rel, text)          差异页按 +/- 着色并切过去（索引 3）
     .diff / .diff_index            差异页控件与页签索引
     .select(index)                 0=输出 1=问题 2=终端 3=差异
+
+_clean_ansi(text)                 去掉 ANSI 转义序列
+_decode_shell_bytes(data, carry)  先 UTF-8、失败退 OEM/GBK；尾部半个汉字留在 carry
+_shell_encoding()                 GetOEMCP() → "cp936"；不能用 locale（UTF-8 模式恒 utf-8）
 ```
 
 ### gui/code_editor_widget.py

@@ -469,4 +469,11 @@ class WorkbenchWindow(CommandCenterMixin, WorkbenchStatusMixin,
                 self._close_ai_popup()
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
+        try:
+            # 终端是常驻 shell，关窗必须杀掉，否则留孤儿进程
+            ed = getattr(self, "_editor", None)
+            if ed is not None and getattr(ed, "bottom", None) is not None:
+                ed.bottom.shutdown()
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "shutdown terminal shell")
         super().closeEvent(event)
