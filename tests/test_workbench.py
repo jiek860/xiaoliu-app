@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -1085,3 +1086,99 @@ def test_workbench_buttons_have_enough_height(app):
         except Exception:  # 静默是故意的
             pass
         QCoreApplication.processEvents()
+
+
+# ---------------- P2：静态检查（桌面上真的跑一次 ruff / ast 兜底） ----------------
+def _pump_until(app, cond, timeout=10.0):
+    """等后台 QProcess 回调：一边 pump 事件循环，一边轮询条件。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        app.processEvents()
+        if cond():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_ruff_json_parser_and_command(monkeypatch):
+    """ruff JSON → (行, 列, 规则码, 描述)；没装 ruff 时退回 python -m ruff。"""
+    from gui import code_editor_widget as cew
+
+    sample = ('[{"code":"F401","message":"`os` imported but unused",'
+              '"location":{"row":3,"column":8}}]')
+    assert cew.parse_ruff_json(sample) == [(3, 8, "F401", "`os` imported but unused")]
+    assert cew.parse_ruff_json("不是 JSON") is None
+    assert cew.parse_ruff_json('{"not": "a list"}') is None
+
+    monkeypatch.setattr(cew.shutil, "which", lambda _n: None)
+    cmd = cew.ruff_command("x.py")
+    assert cmd[:3] == [cew.sys.executable, "-m", "ruff"], cmd
+    assert cmd[-2:] == ["--", "x.py"], cmd
+
+    monkeypatch.setattr(cew.shutil, "which", lambda _n: "C:/bin/ruff.exe")
+    assert cew.ruff_command("x.py")[0] == "C:/bin/ruff.exe"
+
+
+def test_ast_problems_is_the_fallback():
+    from gui.code_editor_widget import ast_problems
+
+    rows = ast_problems("def broken(:\n")
+    assert rows and rows[0][0] == 1 and rows[0][2] == "SyntaxError"
+    assert rows[0][1] >= 1
+    assert ast_problems("x = 1\n") == []
+
+
+def test_static_check_fills_problem_list(app, tmp_path):
+    """打开/保存即检查：问题列表带 行/列/规则码，状态栏计数与之一致。"""
+    from gui.code_editor_widget import CodeEditWidget
+
+    path = tmp_path / "bad.py"
+    path.write_text("import os\ndef broken(:\n", encoding="utf-8")
+    w = CodeEditWidget()
+    seen = []
+    w.problemsChanged.connect(seen.append)
+    try:
+        w.filepath = str(path)          # setter 触发检查
+        assert _pump_until(app, lambda: seen and seen[-1]), "静态检查没有回调"
+        rows = seen[-1]
+        assert rows, "含语法错误的文件应当至少报一条"
+        assert rows[0][0] == 2, rows          # 语法错误在第 2 行
+        assert rows[0][1] >= 1 and rows[0][2], rows
+        assert w.problems() == rows
+        assert w._syntax_errors == len(rows)
+    finally:
+        w.close()
+        w.deleteLater()
+
+
+def test_problem_page_shows_line_column_and_rule(wb):
+    """问题页条目必须是「第 L 行:C  规则码  描述」，双击仍然只跳行。"""
+    b = wb._editor.bottom
+    b.set_problems([(2, 5, "F401", "`os` imported but unused")])
+    text = b.problems.item(0).text()
+    assert text.startswith("第 2 行:5"), text
+    assert "F401" in text and "imported but unused" in text
+    assert b.bar.tabText(1) == "问题 1"
+    got = []
+    b.jumpRequested.connect(got.append)
+    b.problems.itemDoubleClicked.emit(b.problems.item(0))
+    assert got == [2]
+    b.set_problems([(7, "旧格式：只有行号和描述")])
+    assert b.problems.item(0).text() == "第 7 行  旧格式：只有行号和描述"
+    b.set_problems([])
+    assert b.bar.tabText(1) == "问题"
+
+
+def test_dialog_problems_follow_widget_problems(wb):
+    """编辑器的事件只负责刷新，问题列表以控件自己的 problems() 为准。"""
+    ed = wb._editor
+    w = ed.tabs.currentWidget()
+    w._set_problems([(4, 9, "E501", "行太长")])
+    ed._refresh_problems(w)
+    assert ed.bottom.problems.count() == 1
+    assert "E501" in ed.bottom.problems.item(0).text()
+    w._set_problems([])
+    ed._refresh_problems(w)
+    assert ed.bottom.problems.count() == 0
+    w._dirty = False
+    ed._update_tab_title(w)

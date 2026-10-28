@@ -318,11 +318,28 @@ class BottomPanel(QWidget):
 
     # ---------------------------------------------------- 问题页
     def set_problems(self, items):
+        """问题页：兼容 (行, 描述) 与 (行, 列, 规则码, 描述) 两种写法。"""
         items = list(items or [])
         self.problems.clear()
-        for line, msg in items:
-            item = QListWidgetItem("第 %d 行  %s" % (int(line), str(msg)[:120]))
-            item.setData(Qt.UserRole, int(line))
+        for entry in items:
+            entry = tuple(entry or ())
+            if not entry:
+                continue
+            try:
+                line = int(entry[0] or 1)
+            except (TypeError, ValueError):
+                continue
+            if len(entry) >= 4:
+                col = int(entry[1] or 1)
+                code = str(entry[2] or "")
+                msg = str(entry[3] or "")
+                text = "第 %d 行:%d  %s  %s" % (line, col, code, msg[:120])
+            else:
+                col, code, msg = 1, "", str(entry[1] if len(entry) > 1 else "")
+                text = "第 %d 行  %s" % (line, msg[:120])
+            item = QListWidgetItem(text)
+            item.setData(Qt.UserRole, line)
+            item.setToolTip("第 %d 行:%d  %s\n%s" % (line, col, code, msg))
             self.problems.addItem(item)
         self.bar.setTabText(1, "问题 %d" % len(items) if items else "问题")
 
