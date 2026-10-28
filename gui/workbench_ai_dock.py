@@ -44,11 +44,13 @@ class AgentDock(QWidget):
         v.setSpacing(4)
 
         head = QHBoxLayout()
-        head.addWidget(QLabel("🤖 AI"))
-        self.hint = QLabel("描述目标；会读取你当前打开的文件")
-        self.hint.setStyleSheet("color:#667085;font-size:11px;")
-        head.addWidget(self.hint, 1)
-        head.addWidget(QLabel("轮次上限"))
+        _ai_title = QLabel("🤖 AI")
+        _ai_title.setStyleSheet("font-weight:600;color:#101828;")
+        head.addWidget(_ai_title)
+        head.addStretch(1)
+        _round_lab = QLabel("轮次")
+        _round_lab.setStyleSheet("color:#667085;font-size:11px;")
+        head.addWidget(_round_lab)
         self.rounds_spin = QSpinBox()
         self.rounds_spin.setRange(1, 15)
         try:
@@ -56,21 +58,59 @@ class AgentDock(QWidget):
             self.rounds_spin.setValue(resolve_max_rounds(None, self.wb.trunk))
         except Exception:
             self.rounds_spin.setValue(12)
+        self.rounds_spin.setFixedSize(54, 24)
         self.rounds_spin.setToolTip("代码任务最多回修多少轮（默认 12）")
         head.addWidget(self.rounds_spin)
         self.expand_btn = QPushButton("⛶ 弹出")
-        self.expand_btn.setFixedHeight(28)
+        self.expand_btn.setFixedHeight(24)
+        self.expand_btn.setCursor(Qt.PointingHandCursor)
+        self.expand_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#475467;"
+            "border:1px solid #d0d5dd;border-radius:5px;"
+            "padding:2px 7px;font-size:11px;}"
+            "QPushButton:hover{background:#f2f4f7;color:#175cd3;"
+            "border-color:#84adff;}")
         self.expand_btn.setToolTip("把 AI 面板弹出为独立窗口（可放到第二块屏幕）")
         self.expand_btn.clicked.connect(self.wb.toggle_ai_popup)
         head.addWidget(self.expand_btn)
         v.addLayout(head)
+        self.hint = QLabel("描述目标；会读取你当前打开的文件")
+        self.hint.setStyleSheet("color:#667085;font-size:11px;")
+        v.addWidget(self.hint)
+
+        _queue_title = QLabel("任务队列（双击未完成任务可续跑）")
+        _queue_title.setStyleSheet(
+            "color:#475467;font-size:11px;font-weight:600;padding-top:2px;")
+        v.addWidget(_queue_title)
+        self.queue_list = QListWidget()
+        self.queue_list.setMaximumHeight(64)
+        self.queue_list.setToolTip("排队的代码任务；双击中断/失败任务从断点继续")
+        self.queue_list.setStyleSheet(
+            "QListWidget{border:1px solid #eaecf0;border-radius:6px;"
+            "background:#ffffff;} QListWidget::item{padding:4px 6px;}")
+        self.queue_list.itemDoubleClicked.connect(self._resume_item)
+        v.addWidget(self.queue_list)
+
+        # 右侧 AI 栏按对话面板的阅读顺序：历史在上，输入在底部。
+        self.timeline = QPlainTextEdit()
+        self.timeline.setReadOnly(True)
+        self.timeline.setPlaceholderText("执行步骤会显示在这里")
+        self.timeline.setStyleSheet(
+            "background:#1e1e1e;color:#d4d4d4;font-family:Consolas;"
+            "font-size:12px;border:1px solid #30363d;border-radius:6px;"
+            "padding:4px;")
+        v.addWidget(self.timeline, 1)
 
         self.goal = QPlainTextEdit()
         self.goal.setPlaceholderText("例如：给 main() 加上命令行参数解析，并跑测试")
         self.goal.setMaximumHeight(60)
+        self.goal.setStyleSheet(
+            "QPlainTextEdit{background:#ffffff;border:1px solid #d0d5dd;"
+            "border-radius:6px;padding:4px;}")
         v.addWidget(self.goal)
 
         # 按钮横向排列：主操作靠左，"暂停/取消"紧挨着，避免竖排占高度。
+        # 样式按 IDE 对话面板惯例：开始=主色，"暂停/取消"弱化，危险动作只染文字。
         btns = QHBoxLayout()
         btns.setSpacing(6)
         self.start_btn = QPushButton("▶ 开始")
@@ -81,25 +121,33 @@ class AgentDock(QWidget):
         self.cancel_btn = QPushButton("🛑 取消")
         self.cancel_btn.clicked.connect(self.cancel)
         self.cancel_btn.setEnabled(False)
-        for b in (self.start_btn, self.pause_btn, self.cancel_btn):
-            b.setFixedHeight(28)
+        _primary = (
+            "QPushButton{background:#1976d2;color:#ffffff;border:1px solid "
+            "#1565c0;border-radius:5px;padding:3px 12px;font-size:12px;"
+            "font-weight:600;text-align:center;}"
+            "QPushButton:hover{background:#1565c0;}"
+            "QPushButton:disabled{background:#d0d5dd;border-color:#d0d5dd;"
+            "color:#667085;}")
+        _secondary = (
+            "QPushButton{background:#ffffff;color:#344054;border:1px solid "
+            "#d0d5dd;border-radius:5px;padding:3px 12px;font-size:12px;text-align:center;}"
+            "QPushButton:hover{background:#f2f4f7;border-color:#84adff;}"
+            "QPushButton:disabled{color:#98a2b3;border-color:#eaecf0;}")
+        _danger = (
+            "QPushButton{background:#ffffff;color:#b42318;border:1px solid "
+            "#fda29b;border-radius:5px;padding:3px 12px;font-size:12px;text-align:center;}"
+            "QPushButton:hover{background:#fef3f2;border-color:#f04438;}"
+            "QPushButton:disabled{color:#f97066;border-color:#fee4e2;}")
+        for b, css in ((self.start_btn, _primary),
+                       (self.pause_btn, _secondary),
+                       (self.cancel_btn, _danger)):
+            b.setFixedHeight(30)
+            b.setMinimumWidth(78)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setStyleSheet(css)
             btns.addWidget(b)
         btns.addStretch(1)
         v.addLayout(btns)
-
-        v.addWidget(QLabel("任务队列（双击未完成任务可续跑）"))
-        self.queue_list = QListWidget()
-        self.queue_list.setMaximumHeight(64)
-        self.queue_list.setToolTip("排队的代码任务；双击中断/失败任务从断点继续")
-        self.queue_list.itemDoubleClicked.connect(self._resume_item)
-        v.addWidget(self.queue_list)
-
-        self.timeline = QPlainTextEdit()
-        self.timeline.setReadOnly(True)
-        self.timeline.setPlaceholderText("执行步骤会显示在这里")
-        self.timeline.setStyleSheet(
-            "background:#1e1e1e;color:#d4d4d4;font-family:Consolas;font-size:12px;")
-        v.addWidget(self.timeline, 1)
 
         foot = QHBoxLayout()
         self.open_with_agent = QCheckBox("把当前打开的文件交给 AI")

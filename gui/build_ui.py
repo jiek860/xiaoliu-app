@@ -22,7 +22,6 @@ from PyQt5.QtWidgets import (
 
 from core.feature_registry import SIMPLE, ADVANCED, is_visible, primary_features
 from gui.chrome import attach_status_meta, build_main_tabs
-from gui.feedback_states import make_action_links
 from gui.ui_mode import normalize_mode
 
 
@@ -175,16 +174,30 @@ def _build_sidebar(win):
     av.addWidget(QLabel(
         "<span style='color:#888;font-size:11px;'>高级功能</span>"))
 
-    # 两个常驻入口做成链接：侧栏本来就窄，按钮会跟会话列表抢高度。
-    # attr 仍挂在同一个 label 上，外部按老名字拿得到控件（可见性开关照旧）。
-    _adv_link = make_action_links([
-        ("🧭 任务中心", win.open_task_center),
-        ("⌘ 命令面板", win.command_palette),
-    ], separator="   ")
-    _adv_link.setToolTip("任务中心 / 命令面板（Ctrl+K 搜索全部功能）")
-    win.task_center_btn = _adv_link
-    win.command_palette_btn = _adv_link
-    av.addWidget(_adv_link)
+    # 常驻入口做成两个等宽按钮，跟会话列表区分开：
+    # 链接在侧栏里像正文，按钮才像"导航动作"，点起来也更容易命中。
+    _adv_row = QHBoxLayout()
+    _adv_row.setContentsMargins(0, 0, 0, 0)
+    _adv_row.setSpacing(6)
+    win.task_center_btn = _small_button(
+        "🧭 任务中心", "查看计划、执行步骤和任务结果")
+    win.command_palette_btn = _small_button(
+        "⌘ 命令面板", "搜索全部功能（Ctrl+K）")
+    for _b in (win.task_center_btn, win.command_palette_btn):
+        _b.setMinimumHeight(30)
+        _b.setStyleSheet(
+            "QPushButton{background:#ffffff;color:#344054;border:1px solid "
+            "#d0d5dd;border-radius:6px;padding:5px 8px;font-size:12px;"
+            "text-align:center;}"
+            "QPushButton:hover{background:#eef4ff;color:#175cd3;"
+            "border-color:#84adff;}"
+            "QPushButton:pressed{background:#dbe8ff;}")
+        _adv_row.addWidget(_b, 1)
+    # clicked 会带一个 checked 布尔值；open_task_center 的第一个参数是
+    # task_id，直接连会把 False 当任务 id，这里显式丢掉。
+    win.task_center_btn.clicked.connect(lambda: win.open_task_center())
+    win.command_palette_btn.clicked.connect(lambda: win.command_palette())
+    av.addLayout(_adv_row)
     _hint = QLabel(
         "<span style='color:#98a2b3;font-size:11px;'>"
         "安全中心 / 插件 / MCP / 记忆 / 日志 已收进右上角「更多」</span>")
