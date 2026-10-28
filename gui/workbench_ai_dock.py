@@ -9,11 +9,29 @@ from __future__ import annotations
 import os
 
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (QCheckBox, QHBoxLayout, QLabel, QListWidget,
                              QListWidgetItem, QMessageBox, QPlainTextEdit,
-                             QPushButton, QSpinBox, QVBoxLayout, QWidget)
+                             QPushButton, QShortcut, QSpinBox, QVBoxLayout,
+                             QWidget)
 
 from core.code_plan import plan_text
+
+
+def resolve_explicit(goal):
+    """工作台里的自然语言默认交给代码 Agent。
+
+    工作台本身就是写代码的地方，不能让关键词路由把“帮我写个贪吃蛇”
+    判成聊天、把“做个登录页面”判成电脑操作。想切执行域时用前缀：
+        /code …     强制代码 Agent（默认，可省略）
+        /chat …     普通对话
+        /pc …       电脑操作
+    """
+    low = str(goal or "").strip().lower()
+    if low.startswith(("/chat ", "/pc ", "/computer ")):
+        return None
+    return "code"
+
 
 try:
     from core.logger import swallow as _x6_swallowed
@@ -74,17 +92,19 @@ class AgentDock(QWidget):
         self.expand_btn.clicked.connect(self.wb.toggle_ai_popup)
         head.addWidget(self.expand_btn)
         v.addLayout(head)
-        self.hint = QLabel("描述目标；会读取你当前打开的文件")
+        self.hint = QLabel("用自然语言说要写的代码，默认直接改文件；"
+                           "Ctrl+Enter 开始")
         self.hint.setStyleSheet("color:#667085;font-size:11px;")
+        self.hint.setToolTip("默认交给代码 Agent；/chat 聊天，/pc 电脑操作")
         v.addWidget(self.hint)
 
-        _queue_title = QLabel("任务队列（双击未完成任务可续跑）")
+        _queue_title = QLabel("会话历史（最近 20 条，双击载入/续跑）")
         _queue_title.setStyleSheet(
             "color:#475467;font-size:11px;font-weight:600;padding-top:2px;")
         v.addWidget(_queue_title)
         self.queue_list = QListWidget()
-        self.queue_list.setMaximumHeight(64)
-        self.queue_list.setToolTip("排队的代码任务；双击中断/失败任务从断点继续")
+        self.queue_list.setMaximumHeight(100)
+        self.queue_list.setToolTip("历史任务；双击中断/失败任务从断点继续")
         self.queue_list.setStyleSheet(
             "QListWidget{border:1px solid #eaecf0;border-radius:6px;"
             "background:#ffffff;} QListWidget::item{padding:4px 6px;}")
@@ -102,7 +122,10 @@ class AgentDock(QWidget):
         v.addWidget(self.timeline, 1)
 
         self.goal = QPlainTextEdit()
-        self.goal.setPlaceholderText("例如：给 main() 加上命令行参数解析，并跑测试")
+        self.goal.setPlaceholderText(
+            "例如：写一个贪吃蛇小游戏 snake.py，带得分和重新开始")
+        self.goal.setToolTip("写完按 Ctrl+Enter 开始；生成后会在编辑器里"
+                            "打开完整文件，可直接改")
         self.goal.setMaximumHeight(60)
         self.goal.setStyleSheet(
             "QPlainTextEdit{background:#ffffff;border:1px solid #d0d5dd;"
@@ -114,7 +137,11 @@ class AgentDock(QWidget):
         btns = QHBoxLayout()
         btns.setSpacing(6)
         self.start_btn = QPushButton("▶ 开始")
+        self.start_btn.setToolTip("开始执行（Ctrl+Enter）")
         self.start_btn.clicked.connect(self.start)
+        # 输入完直接 Ctrl+Enter，不用再找按钮。
+        self.start_sc = QShortcut(QKeySequence("Ctrl+Return"), self.goal)
+        self.start_sc.activated.connect(self.start)
         self.pause_btn = QPushButton("⏸ 暂停")
         self.pause_btn.clicked.connect(self.toggle_pause)
         self.pause_btn.setEnabled(False)
@@ -232,6 +259,8 @@ class AgentDock(QWidget):
             self.timeline.appendPlainText(
                 "  参考文件: " + ", ".join(os.path.basename(f) for f in open_files))
         self.timeline.appendPlainText("  轮次上限: %d" % rounds)
+        self.timeline.appendPlainText(
+            "  执行域: 代码 Agent（/chat 聊天，/pc 电脑操作）")
         self.start_btn.setEnabled(False)
         self.pause_btn.setEnabled(True)
         self.cancel_btn.setEnabled(True)
@@ -244,7 +273,8 @@ class AgentDock(QWidget):
         try:
             self._running = True
             result = self.orchestrator.run(
-                goal, resume_state=resume_state or {}, checkpoint_cb=checkpoint)
+                goal, explicit=resolve_explicit(goal),
+                resume_state=resume_state or {}, checkpoint_cb=checkpoint)
             if self.queue and self.current_job_id:
                 self.queue.mark_done(self.current_job_id, result)
                 self._refresh_queue()
@@ -331,12 +361,21 @@ class AgentDock(QWidget):
         if event == "patch" and isinstance(data.get("patch"), dict):
             self._show_inline_diff(data["patch"])
         elif event == "applied":
+            # 先标记 diff 页已应用，再打开真正落盘后的文件：
+            # 顺序反过来会被 mark_diff_applied 切回预览页，用户就看不到
+            # 刚写出来的完整代码，更没法直接手改。
+            self.wb.mark_diff_applied(data.get("backup_manifest") or "")
             for rel in data.get("applied") or []:
                 try:
                     self.wb.reload_editor_path(rel)
                 except Exception as e:  # 静默是故意的 - 刷新失败不影响主流程
                     _x6_swallowed(__name__, e, "reload editor tab")
-            self.wb.mark_diff_applied(data.get("backup_manifest") or "")
+        elif event == "done":
+            # 普通对话分支只返回 answer，以前这里只显示"对话完成"，
+            # 模型说了什么用户根本看不到。
+            answer = str(data.get("result") or "").strip()
+            if answer:
+                self.timeline.appendPlainText("📄 回答：\n" + answer[:4000])
         QApplication.processEvents()      # 让界面边跑边刷
 
     def _show_inline_diff(self, patch):

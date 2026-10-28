@@ -30,13 +30,19 @@ from __future__ import annotations
 import os
 
 from PyQt5.QtCore import QSize, Qt
-from PyQt5.QtWidgets import (QFrame, QHBoxLayout, QLabel, QListWidget,
-                             QListWidgetItem, QMainWindow, QSplitter,
+from PyQt5.QtWidgets import (QDockWidget, QFrame, QHBoxLayout, QLabel,
+                             QLineEdit, QListWidget, QListWidgetItem,
+                             QListView, QMainWindow, QSplitter,
                              QStatusBar, QVBoxLayout, QWidget)
 
 # AI 面板在 gui/workbench_ai_dock.py（本文件曾接近 600 行上限）。
 # 继续从这里导出 AgentDock，保持旧导入路径可用。
 from gui.workbench_ai_dock import AgentDock  # noqa: F401
+# IDE 侧栏/命令中心单独放，避免主窗口超 600 行。
+from gui.ide_sidebar import (CommandCenterMixin, SidebarHost, activity_icon,
+                             git_branch, goto_line, open_plugin_market)
+# 状态栏 / 快捷键 / AI 侧栏行为拆到 workbench_shell（本文件要求 ≤500 行）。
+from gui.workbench_shell import WorkbenchAIHostMixin, WorkbenchStatusMixin
 
 try:
     from core.logger import swallow as _x6_swallowed
@@ -45,7 +51,8 @@ except ImportError:  # 独立导入时兜底
         return None
 
 
-class WorkbenchWindow(QMainWindow):
+class WorkbenchWindow(CommandCenterMixin, WorkbenchStatusMixin,
+                      WorkbenchAIHostMixin, QMainWindow):
     """统一工作台：编辑器 + AI 面板同屏，无功能页签。"""
 
     def __init__(self, trunk, parent=None):
@@ -54,9 +61,13 @@ class WorkbenchWindow(QMainWindow):
         self.root = os.path.abspath(
             getattr(trunk, "base", ".") or os.getcwd())
         self._ai_popup = None
-        self._ai_placeholder = None
         self._ai_shown = True          # AI 面板默认展开
+        self._last_view_row = 0        # 活动栏当前左侧视图
         self._editor = None
+        self._editor_splitter = None
+        self.sidebar_stack = None
+        self.search_view = None
+        self.scm_view = None
         self.setWindowTitle("🧰 小6 工作台")
         self.resize(1440, 900)
         self._build()
@@ -88,24 +99,53 @@ class WorkbenchWindow(QMainWindow):
         self.root_label.setStyleSheet("color:#475467;font-size:12px;")
         self.root_label.setToolTip(self.root)
         bar.addWidget(self.root_label)
+        bar.addSpacing(12)
+        self.command = QLineEdit()
+        self.command.setObjectName("commandCenter")
+        self.command.setPlaceholderText("搜索命令或文件…")
+        self.command.setClearButtonEnabled(True)
+        self.command.setFixedHeight(24)
+        self.command.setMinimumWidth(240)
+        self.command.setMaximumWidth(420)
+        self.command.setStyleSheet(
+            "QLineEdit#commandCenter{background:#ffffff;color:#24292f;"
+            "border:1px solid #d0d7de;border-radius:5px;padding:1px 7px;"
+            "font-size:12px;}"
+            "QLineEdit#commandCenter:focus{border-color:#84adff;}")
+        self.command.returnPressed.connect(self._run_command)
+        bar.addWidget(self.command, 1)
         bar.addStretch(1)
-        hint = QLabel("Ctrl+J AI · F11 全屏 · 拖动分隔条调整比例")
+        hint = QLabel("Ctrl+Shift+P 命令 · Ctrl+J AI · F11 全屏")
         hint.setStyleSheet("color:#98a2b3;font-size:11px;")
         bar.addWidget(hint)
-        # 收起/展开不占按钮：AI 面板是 splitter 的一部分，直接拖动分隔条即可；
-        # 也支持 Ctrl+J 快捷键（见 _install_shortcuts）。
+        # 收起/展开不占按钮：AI 是右侧 QDockWidget，可用关闭按钮或 Ctrl+J；
+        # 快捷键见 _install_shortcuts。
         self.collapse_btn = None
         v.addWidget(bar_host)
 
-        # 主体：活动栏 | 编辑器（内含资源管理器/编辑器/输出） | AI 右侧栏
+        # 主体：活动栏 | 编辑器（内含资源管理器/编辑器/输出）
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.addWidget(self._make_activity_bar())
         self.splitter.addWidget(self._make_editor_slot())
-        self.ai_dock = AgentDock(self)
-        self.splitter.addWidget(self.ai_dock)
+        self._install_sidebar_views()
         self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([46, 900, 340])
+        self.splitter.setSizes([46, 1200])
         v.addWidget(self.splitter, 1)
+
+        # 右侧 AI：用 QDockWidget 做成 VS Code 风格的 Secondary Side Bar，
+        # 可拖动、可浮动、可关闭；不再是自己拼的 QSplitter 第三栏。
+        self.ai_dock = AgentDock(self)
+        self.ai_host = QDockWidget("AI 助手", self)
+        self.ai_host.setObjectName("aiSecondarySideBar")
+        self.ai_host.setAllowedAreas(Qt.LeftDockWidgetArea |
+                                     Qt.RightDockWidgetArea)
+        self.ai_host.setFeatures(QDockWidget.DockWidgetMovable |
+                                 QDockWidget.DockWidgetFloatable |
+                                 QDockWidget.DockWidgetClosable)
+        self.ai_host.setWidget(self.ai_dock)
+        self.ai_host.setMinimumWidth(280)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.ai_host)
+        self.ai_host.visibilityChanged.connect(self._on_ai_visibility)
 
         # 底部状态栏：左边是编辑器消息，右边是当前文件 + 编码信息。
         self.status = QStatusBar()
@@ -120,17 +160,33 @@ class WorkbenchWindow(QMainWindow):
         self.pos_label.setStyleSheet(
             "color:#475467;font-size:11px;padding:0 8px;"
             "border-left:1px solid #d0d7de;")
+        self.branch_label = QLabel("⎇ -")
+        self.branch_label.setStyleSheet(
+            "color:#475467;font-size:11px;padding:0 8px;")
+        self.error_label = QLabel("⚠ 0")
+        self.error_label.setStyleSheet(
+            "color:#667085;font-size:11px;padding:0 8px;"
+            "border-left:1px solid #d0d7de;")
+        self.lang_label = QLabel("Plain Text")
+        self.lang_label.setStyleSheet(
+            "color:#667085;font-size:11px;padding:0 8px;"
+            "border-left:1px solid #d0d7de;")
         self.path_label = QLabel("未保存 · UTF-8 · LF")
         self.path_label.setStyleSheet(
             "color:#667085;font-size:11px;padding:0 8px;"
             "border-left:1px solid #d0d7de;")
         self.status.addWidget(self.status_label, 1)
+        self.status.addPermanentWidget(self.branch_label)
         self.status.addPermanentWidget(self.pos_label)
+        self.status.addPermanentWidget(self.error_label)
+        self.status.addPermanentWidget(self.lang_label)
         self.status.addPermanentWidget(self.path_label)
         v.addWidget(self.status)
         self.setCentralWidget(central)
+        self.branch_label.setText("⎇ %s" % git_branch(self.root))
         self._wire_editor_status()
         self._install_shortcuts()
+        self._setup_command_completer()
 
     def _make_activity_bar(self):
         """最左侧 46px 活动栏：图标式导航，不占按钮预算。"""
@@ -141,18 +197,29 @@ class WorkbenchWindow(QMainWindow):
         bar.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         bar.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         bar.setFocusPolicy(Qt.NoFocus)
+        bar.setViewMode(QListView.IconMode)
+        bar.setFlow(QListView.TopToBottom)
+        bar.setWrapping(False)
+        bar.setMovement(QListView.Static)
+        bar.setResizeMode(QListView.Adjust)
+        bar.setIconSize(QSize(20, 20))
+        bar.setSpacing(0)
         bar.setStyleSheet(
             "QListWidget#activityBar{background:#f6f8fa;border:none;"
             "border-right:1px solid #d0d7de;outline:0;}"
-            "QListWidget#activityBar::item{color:#57606a;font-size:20px;"
+            "QListWidget#activityBar::item{color:#57606a;"
             "border-left:2px solid transparent;}"
             "QListWidget#activityBar::item:hover{background:#eaeef2;}"
             "QListWidget#activityBar::item:selected{background:#ffffff;"
-            "color:#1d4ed8;border-left:2px solid #1d4ed8;}")
-        for icon, tip in (("📁", "资源管理器"),
-                          ("🤖", "AI 助手"),
-                          ("▣", "输出 / 终端")):
-            item = QListWidgetItem(icon)
+            "border-left:2px solid #1d4ed8;}")
+        for kind, tip in (("explorer", "资源管理器"),
+                          ("search", "搜索"),
+                          ("scm", "源代码管理"),
+                          ("run", "运行当前文件"),
+                          ("extensions", "扩展 / 插件市场"),
+                          ("ai", "AI 助手")):
+            item = QListWidgetItem()
+            item.setIcon(activity_icon(kind))
             item.setToolTip(tip)
             item.setTextAlignment(Qt.AlignCenter)
             item.setSizeHint(QSize(44, 44))
@@ -163,71 +230,113 @@ class WorkbenchWindow(QMainWindow):
         return bar
 
     def _on_activity_clicked(self, item):
-        """活动栏只做真实动作，不做装饰性图标。"""
+        """活动栏只做真实动作；搜索/Git 切换左侧视图，运行/扩展是动作。"""
         try:
             row = self.activity_list.row(item)
-            if row == 0:
-                self._editor.tree.setFocus()
-            elif row == 1:
+            if row in (0, 1, 2):
+                self._last_view_row = row
+                self._show_view(row)
+            elif row == 3:
+                self.activity_list.setCurrentRow(self._last_view_row)
+                self._editor.run_current()
+            elif row == 4:
+                self.activity_list.setCurrentRow(self._last_view_row)
+                self._open_extensions()
+            elif row == 5:
+                self.activity_list.setCurrentRow(self._last_view_row)
                 if not self._ai_shown:
                     self.toggle_ai()
                 self.ai_dock.goal.setFocus()
-            elif row == 2:
-                self._editor.output.setFocus()
         except Exception as e:  # 静默是故意的 - 面板定位失败不影响主流程
             _x6_swallowed(__name__, e, "activity bar click")
 
-    def _wire_editor_status(self):
-        """把编辑器的状态消息 / 当前文件同步到工作台底部。"""
-        if self._editor is None:
+    def _show_view(self, row):
+        """切到左侧视图；行号对应活动栏 0/1/2。"""
+        if self.sidebar_stack is not None:
+            self.sidebar_stack.setCurrentIndex(row)
+        if row == 0 and self._editor is not None:
+            self._editor.tree.setFocus()
+        elif row == 1 and self.search_view is not None:
+            self.search_view.focus_query()
+        elif row == 2 and self.scm_view is not None:
+            self.scm_view.refresh()
+            self.scm_view.changes.setFocus()
+
+    def _install_sidebar_views(self):
+        """把原资源管理器包进 QStackedWidget，追加搜索/Git 两个视图。"""
+        if self._editor_splitter is None:
             return
         try:
-            self._editor.statusMessage.connect(self._on_editor_status)
-            self._editor.cursorMoved.connect(self._on_cursor_moved)
-            self._editor.tabs.currentChanged.connect(self._on_tab_changed)
-            self._on_tab_changed(self._editor.tabs.currentIndex())
-            self._editor._update_cursor()
-        except Exception as e:  # 静默是故意的
-            _x6_swallowed(__name__, e, "wire editor status")
+            tree_panel = self._editor_splitter.widget(0)
+            host = SidebarHost(self.root, self)
+            host.attach(tree_panel, self._editor_splitter)
+            host.openAtLineRequested.connect(self._open_at_line)
+            host.openPathRequested.connect(self.open_path)
+            self.sidebar_stack = host
+            self.search_view = host.search_view
+            self.scm_view = host.scm_view
+            # QStackedWidget 的最小宽度是 0，QSplitter 会先把侧栏压扁；
+            # 给它一个下限，再固定"侧栏不伸缩、编辑器伸缩"。
+            host.setMinimumWidth(200)
+            self._editor_splitter.setStretchFactor(0, 0)
+            self._editor_splitter.setStretchFactor(1, 1)
+            self._editor_splitter.setSizes([260, 840])
+        except Exception as e:  # 静默是故意的 - 侧栏失败不能拖垮编辑器
+            _x6_swallowed(__name__, e, "install sidebar views")
+            self.sidebar_stack = None
 
-    def _on_cursor_moved(self, line, col):
-        if line and col:
-            self.pos_label.setText("行 %d, 列 %d" % (line, col))
-        else:
-            self.pos_label.setText("行 -, 列 -")
+    def _open_at_line(self, path, line):
+        """搜索结果跳转：打开文件并把光标放到指定行。"""
+        if self.open_path(path):
+            goto_line(self._editor.tabs.currentWidget(), line)
 
-    def _on_editor_status(self, message):
-        self.status_label.setText(str(message or "就绪"))
+    def _show_explorer(self):
+        self.activity_list.setCurrentRow(0)
+        self._last_view_row = 0
+        self._show_view(0)
 
-    def _on_tab_changed(self, index):
-        try:
-            w = self._editor.tabs.widget(index)
-            path = getattr(w, "filepath", "") if w is not None else ""
-            if path:
-                try:
-                    rel = os.path.relpath(path, self.root)
-                except Exception:
-                    rel = path
-                text = rel.replace("\\", "/")
-            else:
-                text = "未保存"
-            self.path_label.setText(text + " · UTF-8 · LF")
-        except Exception as e:  # 静默是故意的
-            _x6_swallowed(__name__, e, "workbench tab status")
+    def _show_search(self):
+        self.activity_list.setCurrentRow(1)
+        self._last_view_row = 1
+        self._show_view(1)
 
-    def _install_shortcuts(self):
-        """用快捷键替代按钮，减少界面控件数量。
+    def _show_scm(self):
+        self.activity_list.setCurrentRow(2)
+        self._last_view_row = 2
+        self._show_view(2)
 
-        Ctrl+J  收起 / 展开 AI 面板
-        F11     全屏切换
-        """
-        try:
-            from PyQt5.QtGui import QKeySequence
-            from PyQt5.QtWidgets import QShortcut
-            QShortcut(QKeySequence("Ctrl+J"), self, self.toggle_ai)
-            QShortcut(QKeySequence("F11"), self, self.toggle_fullscreen)
-        except Exception as e:  # 静默是故意的 - 快捷键装不上不影响使用
-            _x6_swallowed(__name__, e, "best-effort fallback")
+    def _show_ai(self):
+        if not self._ai_shown:
+            self.toggle_ai()
+        self.ai_dock.goal.setFocus()
+
+    def _show_output(self):
+        ed = self._editor
+        if ed is None or not hasattr(ed, "bottom"):
+            return
+        ed.bottom.select(0)
+        ed.output.setFocus()
+
+    def _show_terminal(self):
+        ed = self._editor
+        if ed is None or not hasattr(ed, "bottom"):
+            return
+        ed.bottom.select(2)
+        ed.bottom.term_input.setFocus()
+
+    def _toggle_split(self):
+        if self._editor is not None:
+            self._editor.toggle_split()
+
+    def _toggle_minimap(self):
+        if self._editor is not None:
+            self._editor.toggle_minimap()
+
+    def _open_extensions(self):
+        """扩展入口：打开现有插件市场，不新做一套扩展系统。"""
+        err = open_plugin_market(self, self.trunk)
+        if err:
+            self.status_label.setText("插件市场打开失败：%s" % err[:100])
 
     def _make_editor_slot(self):
         """中间：嵌入 CodeEditorDialog 的编辑区。
@@ -244,6 +353,7 @@ class WorkbenchWindow(QMainWindow):
             # 把它拆成"普通 QWidget"，这样能嵌进布局而不是独立窗口
             widget = self._editor.centralWidget()
             if widget is not None:
+                self._editor_splitter = widget if isinstance(widget, QSplitter) else None
                 lay.addWidget(widget)
                 self._editor.setCentralWidget(QWidget())   # 解绑，避免重复父级
             else:
@@ -298,13 +408,40 @@ class WorkbenchWindow(QMainWindow):
             _x6_swallowed(__name__, e, "mark diff applied")
 
     def reload_editor_path(self, path):
-        """Agent 落盘后刷新对应的打开 tab。"""
+        """Agent 落盘后刷新 tab；新文件则直接在编辑器里打开。
+
+        需求：AI 用自然语言写出来的完整代码必须出现在工作台里、
+        能马上手动改，而不是只留在内联 diff 预览里。
+        """
         root = getattr(self, "root", None) or "."
-        if path and not os.path.isabs(str(path)):
+        if not path:
+            return
+        if not os.path.isabs(str(path)):
             path = os.path.join(root, str(path))
+        path = os.path.normpath(str(path))
+        if not os.path.isfile(path):
+            return
         try:
-            if self._editor is not None and hasattr(self._editor, "reload_path"):
-                self._editor.reload_path(path)
+            editor = self._editor
+            if editor is None:
+                return
+            tabs = getattr(editor, "tabs", None)
+            opened = False
+            if tabs is not None:
+                for i in range(tabs.count()):
+                    w = tabs.widget(i)
+                    fp = os.path.normpath(
+                        str(getattr(w, "filepath", "") or ""))
+                    if fp == path:
+                        opened = True
+                        break
+            if opened and hasattr(editor, "reload_path"):
+                editor.reload_path(path)
+            elif not opened and hasattr(editor, "open_path"):
+                editor.open_path(path)
+            cur = tabs.currentWidget() if tabs is not None else None
+            if cur is not None:
+                cur.setFocus()
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "reload editor path")
 
@@ -314,68 +451,7 @@ class WorkbenchWindow(QMainWindow):
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
 
-    # ---------------------------------------------------------- AI 面板
-    def toggle_ai(self):
-        """收起 / 展开 AI 面板。
-
-        ⚠️ 不能用 isVisible() 判断当前状态：窗口还没 show() 时它恒为 False，
-           会导致第一次点击"收起"变成"展开"。这里用显式状态位。
-        """
-        if self._ai_popup is not None:
-            # 面板已经弹到独立窗口：Ctrl+J 只把它提到前台
-            self._ai_popup.show()
-            self._ai_popup.raise_()
-            return
-        shown = getattr(self, "_ai_shown", True)
-        shown = not shown
-        self._ai_shown = shown
-        self.ai_dock.setVisible(shown)
-        if not shown:
-            try:
-                self.activity_list.setCurrentRow(0)
-            except Exception as e:  # 静默是故意的
-                _x6_swallowed(__name__, e, "reset activity row")
-
-    def toggle_ai_popup(self):
-        """把 AI 面板弹出为独立窗口（可拖到第二块屏幕），再点收回。
-
-        实现要点：QSplitter 的 widget 不能直接 takeChildren，
-        必须用 replaceWidget 换成占位控件，否则 splitter 布局会崩。
-        """
-        if self._ai_popup is not None:
-            self._close_ai_popup()
-            return
-        try:
-            placeholder = QWidget()
-            self.splitter.replaceWidget(2, placeholder)
-            self._ai_placeholder = placeholder
-            win = QMainWindow(self)
-            win.setWindowTitle("🤖 AI 面板 · 小6")
-            win.resize(560, 460)
-            win.setCentralWidget(self.ai_dock)
-            win.show()
-            self._ai_popup = win
-            self.ai_dock.expand_btn.setText("⛶ 收回")
-        except Exception as e:  # 静默是故意的 - 弹出失败就保持内嵌
-            _x6_swallowed(__name__, e, "best-effort fallback")
-
-    def _close_ai_popup(self):
-        """把 AI 面板收回工作台。"""
-        try:
-            win = self._ai_popup
-            self._ai_popup = None
-            if win is not None:
-                win.setCentralWidget(QWidget())      # 先解绑，否则控件被带走
-                win.close()
-            placeholder = getattr(self, "_ai_placeholder", None)
-            if placeholder is not None:
-                self.splitter.replaceWidget(2, self.ai_dock)
-                placeholder.deleteLater()
-                self._ai_placeholder = None
-            self.ai_dock.expand_btn.setText("⛶ 弹出")
-        except Exception as e:  # 静默是故意的
-            _x6_swallowed(__name__, e, "best-effort fallback")
-
+    # AI 面板的显隐/浮动逻辑已拆到 gui/workbench_shell.py:WorkbenchAIHostMixin
     def toggle_fullscreen(self):
         if self.isFullScreen():
             self.showNormal()

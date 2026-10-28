@@ -20,7 +20,7 @@ import sys
 import ast
 import tempfile
 import difflib
-from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit, QTextEdit, QPushButton, QLabel, QFileDialog, QMessageBox, QTabWidget, QTreeView, QFileSystemModel, QSplitter, QCompleter, QStatusBar, QDialog, QMenu
+from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit, QTextEdit, QPushButton, QLabel, QFileDialog, QMessageBox, QTreeView, QFileSystemModel, QSplitter, QCompleter, QStatusBar, QDialog, QMenu
 from PyQt5.QtCore import Qt, QProcess, pyqtSignal, QRect, QSize, QTimer
 from PyQt5.QtGui import QFont, QTextCharFormat, QColor, QSyntaxHighlighter, QTextDocument, QTextCursor, QPainter
 
@@ -42,12 +42,16 @@ from gui.code_editor_widget import (
 )
 from gui.code_editor_ai import CodeEditorAIMixin
 from gui.code_editor_runner import CodeEditorRunnerMixin
+from gui.ide_editor_shell import BottomPanel, EditorTabs
+from gui.ide_explorer import ExplorerMenuMixin, GitFileModel
 
 
-class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin, QMainWindow):
+class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
+                       ExplorerMenuMixin, QMainWindow):
     askAssistantRequested = pyqtSignal(str)  # 发回小6聊天框
     statusMessage = pyqtSignal(str)          # 工作台底部状态栏复用
     cursorMoved = pyqtSignal(int, int)       # 当前行/列（1-based）
+    syntaxErrorChanged = pyqtSignal(int)     # 当前标签语法错误数
 
     def __init__(self, trunk, parent=None):
         super().__init__(parent)
@@ -104,7 +108,7 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin, QMainWindow):
         # 中心 splitter：左资源管理器 | 右（breadcrumb + tabs + 输出）
         splitter = QSplitter(Qt.Horizontal)
         # 左：文件树
-        self.fs_model = QFileSystemModel()
+        self.fs_model = GitFileModel()
         root = getattr(self.trunk, 'base', None) or os.getcwd()
         self.root = root
         self.fs_model.setRootPath(root)
@@ -112,6 +116,9 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin, QMainWindow):
         self.tree.setModel(self.fs_model)
         self.tree.setRootIndex(self.fs_model.index(root))
         self.tree.setColumnWidth(0, 220)
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._tree_menu)
+        self.refresh_git_marks()
         for i in (1, 2, 3):
             self.tree.hideColumn(i)
         # IDE 的树不显示 "Name" 表头，省一行高度
@@ -181,43 +188,33 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin, QMainWindow):
             "✕ 关闭", self.close_current_tab, "关闭当前标签页", kind="close"))
         rv.addWidget(tb_host)
 
-        # 面包屑：当前文件相对工作区的路径
+        # 面包屑：VS Code 顺序是「标签栏 → 面包屑 → 编辑区」，
+        # 所以面包屑交给 EditorTabs 插在标签栏和内容区之间。
         self.breadcrumb = QLabel("📄 未保存")
         self.breadcrumb.setStyleSheet(
             "color:#57606a;font-size:11px;padding:3px 8px;"
             "background:#ffffff;border-bottom:1px solid #eaecf0;")
-        rv.addWidget(self.breadcrumb)
-
-        self.tabs = QTabWidget()
-        self.tabs.setDocumentMode(True)
-        self.tabs.setStyleSheet(
-            "QTabWidget::pane{border:none;}"
-            "QTabBar::tab{background:#f6f8fa;color:#57606a;padding:4px 12px;"
-            "border:1px solid #d0d7de;border-bottom:none;"
-            "border-top-left-radius:5px;border-top-right-radius:5px;"
-            "margin-right:2px;}"
-            "QTabBar::tab:selected{background:#ffffff;color:#1f2328;}")
+        self.tabs = EditorTabs(header=self.breadcrumb)
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self._close_tab)
         self.tabs.currentChanged.connect(self._update_breadcrumb)
         self.tabs.currentChanged.connect(self._update_cursor)
+        self.tabs.currentChanged.connect(self._sync_split_document)
         # 右键菜单承载 PR 等低频操作（QAction 不占按钮预算）。
         self.tabs.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tabs.customContextMenuRequested.connect(self._tabs_menu)
         rv.addWidget(self.tabs, stretch=3)
 
-        self.output_header = QLabel("▣ 输出")
-        self.output_header.setStyleSheet(
-            "background:#f6f8fa;color:#24292f;font-size:11px;"
-            "font-weight:600;padding:3px 8px;border-top:1px solid #d0d7de;")
-        rv.addWidget(self.output_header)
+        # 底部面板：输出 / 问题 / 终端
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
-        self.output.setMaximumHeight(180)
         self.output.setStyleSheet(
             "background:#1e1e1e;color:#d4d4d4;font-family:Consolas;"
             "font-size:12px;border:none;")
-        rv.addWidget(self.output, stretch=1)
+        self.bottom = BottomPanel(self.output, root=self.root)
+        self.bottom.jumpRequested.connect(self._jump_to_line)
+        self.bottom.setMaximumHeight(240)
+        rv.addWidget(self.bottom, stretch=1)
         splitter.addWidget(right)
         splitter.setSizes([260, 840])
         self.setCentralWidget(splitter)
@@ -236,10 +233,19 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin, QMainWindow):
                 cur = w.textCursor()
                 self.cursorMoved.emit(cur.blockNumber() + 1,
                                       cur.columnNumber() + 1)
+                self.syntaxErrorChanged.emit(
+                    int(getattr(w, "_syntax_errors", 0) or 0))
             else:
                 self.cursorMoved.emit(0, 0)
+                self.syntaxErrorChanged.emit(0)
+            self._refresh_problems(w if isinstance(w, CodeEditWidget) else None)
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "update cursor position")
+
+    def _emit_syntax(self, w, count):
+        if self.tabs.currentWidget() is w:
+            self.syntaxErrorChanged.emit(int(count or 0))
+            self._refresh_problems(w)
 
     def _emit_cursor(self, w):
         """只有当前标签的光标变化才更新工作台，后台标签不抢状态栏。"""
@@ -270,6 +276,75 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin, QMainWindow):
         except Exception as e:  # 静默是故意的 - 面包屑不能影响编辑
             _x6_swallowed(__name__, e, "update breadcrumb")
 
+    # ----- 问题 / 分屏 / minimap -----
+    def _refresh_problems(self, w=None):
+        """把当前文件的语法错误同步到「问题」页（双击跳行）。"""
+        w = w if w is not None else self._current_edit()
+        items = []
+        try:
+            if isinstance(w, CodeEditWidget) and getattr(w, "_syntax_errors", 0):
+                try:
+                    ast.parse(w.toPlainText())
+                except SyntaxError as ex:
+                    items.append((int(ex.lineno or 1), str(ex.msg or "语法错误")))
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "refresh problems")
+        bottom = getattr(self, "bottom", None)
+        if bottom is not None:
+            bottom.set_problems(items)
+
+    def _jump_to_line(self, line):
+        w = self._current_edit()
+        if w is None:
+            return
+        block = w.document().findBlockByNumber(max(0, int(line) - 1))
+        if block.isValid():
+            w.setTextCursor(QTextCursor(block))
+            w.centerCursor()
+            w.setFocus()
+
+    def toggle_split(self):
+        """分屏：右侧视图和当前文件共享同一个 QTextDocument。"""
+        if self.tabs.has_secondary():
+            return self.close_split()
+        w = self._current_edit()
+        if w is None:
+            return
+        sec = self._new_edit()
+        sec.filepath = w.filepath
+        sec.attach_document(w.document())
+        self.tabs.set_secondary(sec)
+        self._status("已分屏：Ctrl+\\ 关闭", 3000)
+
+    def close_split(self):
+        sec = self.tabs.clear_secondary()
+        if sec is not None:
+            sec.deleteLater()
+        self._status("已关闭分屏", 3000)
+
+    def _sync_split_document(self, *_):
+        """切换标签时，右侧分屏跟着换成同一个文档。"""
+        if not self.tabs.has_secondary():
+            return
+        w = self._current_edit()
+        sec = self.tabs.secondary()
+        if w is None or not isinstance(sec, CodeEditWidget):
+            return
+        sec.filepath = w.filepath
+        sec.attach_document(w.document())
+
+    def toggle_minimap(self):
+        """minimap 是编辑器级开关，一次切换所有已打开标签。"""
+        w = self._current_edit()
+        if w is None:
+            return
+        on = not w.is_minimap_visible()
+        for i in range(self.tabs.count()):
+            tw = self.tabs.widget(i)
+            if isinstance(tw, CodeEditWidget):
+                tw.set_minimap_visible(on)
+        self._status("minimap：%s" % ("开" if on else "关"), 2000)
+
     def _status(self, message, timeout=0):
         """同时写编辑器状态栏和工作台底部状态栏（signal 供工作台复用）。"""
         try:
@@ -284,8 +359,10 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin, QMainWindow):
     def _change_root(self):
         d = QFileDialog.getExistingDirectory(self, "选择项目根目录")
         if d:
+            self.root = d
             self.fs_model.setRootPath(d)
             self.tree.setRootIndex(self.fs_model.index(d))
+            self.refresh_git_marks()
 
     def _on_tree_dbl(self, idx):
         path = self.fs_model.filePath(idx)
@@ -296,6 +373,7 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin, QMainWindow):
         w = CodeEditWidget()
         w.askAssistantRequested.connect(self.askAssistantRequested.emit)
         w.cursorPositionChanged.connect(lambda w=w: self._emit_cursor(w))
+        w.syntaxErrorChanged.connect(lambda n, w=w: self._emit_syntax(w, n))
         return w
 
     def new_tab(self):
@@ -349,7 +427,9 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin, QMainWindow):
             txt = open(path, encoding="utf-8").read()
         except Exception as e:
             QMessageBox.warning(self, "打开失败", str(e)); return
-        w = self._new_edit(); w.setPlainText(txt); w.filepath = path
+        w = self._new_edit(); w.filepath = path; w.setPlainText(txt)
+        w._dirty = False
+        w.document().setModified(False)   # 刚打开不算改动，关闭时别弹保存
         i = self.tabs.addTab(w, os.path.basename(path))
         self.tabs.setCurrentIndex(i)
 
@@ -479,12 +559,14 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin, QMainWindow):
             open(path, "w", encoding="utf-8").write(w.toPlainText())
             w.filepath = path
             w._dirty = False
+            w.document().setModified(False)
             self._update_breadcrumb()
             try:
                 if hasattr(self.trunk, "get_workspace_index"):
                     self.trunk.get_workspace_index().update_file(path)
             except Exception as e:  # 静默是故意的
                 _x6_swallowed(__name__, e, "best-effort fallback")
+            self.refresh_git_marks()
             self._status("已保存: " + path, 3000)
         except Exception as e:
             QMessageBox.warning(self, "保存失败", str(e))
@@ -497,6 +579,7 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin, QMainWindow):
             try:
                 open(path, "w", encoding="utf-8").write(w.toPlainText())
                 w.filepath = path; w._dirty = False
+                w.document().setModified(False)
                 self._update_breadcrumb()
                 self._status("已另存: " + path, 3000)
             except Exception as e:
