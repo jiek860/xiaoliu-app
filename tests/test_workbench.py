@@ -52,10 +52,31 @@ def test_no_feature_tabs(wb):
         assert not any("旅程" in n or "Agent" in n for n in names), names
 
 
-def test_ai_panel_below_editor(wb):
-    """方案 A：AI 面板在编辑器下方。"""
-    assert wb.vertical.count() == 2
-    assert wb.vertical.widget(1) is wb.ai_dock
+def test_ai_panel_on_right_of_editor(wb):
+    """VS Code 风格：活动栏 | 编辑器 | 右侧 AI 栏。"""
+    assert wb.splitter.count() == 3
+    assert wb.splitter.widget(0) is wb.activity_list
+    assert wb.splitter.widget(2) is wb.ai_dock
+
+
+def test_activity_bar_and_status_bar(wb):
+    """活动栏只放真实入口，底部状态栏展示当前文件。"""
+    assert wb.activity_list.count() == 3
+    assert wb.status_label is not None
+    assert wb.path_label is not None
+    assert "UTF-8" in wb.path_label.text()
+    assert wb.pos_label.text() == "行 1, 列 1"
+    assert wb._editor.breadcrumb is not None
+    assert wb._editor.breadcrumb.text().startswith("📄 ")
+
+    from PyQt5.QtGui import QTextCursor
+    w = wb._editor.tabs.currentWidget()
+    w.setPlainText("a\nbc")
+    w.moveCursor(QTextCursor.End)
+    assert wb.pos_label.text() == "行 2, 列 3", wb.pos_label.text()
+    w.setPlainText("")
+    w._dirty = False
+    wb._editor._update_tab_title(w)
 
 
 # ---------------- 收起 / 展开 ----------------
@@ -88,7 +109,8 @@ def test_popup_and_dock_back(wb):
     wb.toggle_ai_popup()
     assert wb._ai_popup is None
     assert "弹出" in wb.ai_dock.expand_btn.text()
-    assert wb.vertical.count() == 2
+    assert wb.splitter.count() == 3
+    assert wb.splitter.widget(2) is wb.ai_dock
 
 
 def test_popup_repeated_toggle(wb):
@@ -196,11 +218,15 @@ def test_ai_panel_round_limit_and_queue_visible(wb):
 
 
 def test_editor_toolbar_is_grouped(wb):
-    """工具条按文件/运行/AI 分组，关闭按钮靠右，不再是一条长龙。"""
+    """文件操作在资源管理器顶部；编辑器工具条只留运行 / AI / 关闭。"""
     from PyQt5.QtWidgets import QPushButton
-    labels = [b.text() for b in wb.findChildren(QPushButton)]
-    for want in ("📄 新建", "💾 保存", "▶ 运行", "🔧 AI 修复", "✕ 关闭"):
+    buttons = wb.findChildren(QPushButton)
+    labels = [b.text() for b in buttons]
+    for want in ("▶ 运行", "🔧 AI 修复", "✕ 关闭"):
         assert any(want in x for x in labels), labels
+    tips = [b.toolTip() for b in buttons]
+    for want in ("新建标签页", "打开文件", "保存当前文件", "另存为"):
+        assert any(want in x for x in tips), tips
 
 
 # ---------------- 覆盖率补充：AgentDock 执行路径 ----------------
@@ -395,6 +421,12 @@ def test_toolbar_button_is_workbench(app):
         texts = [b.text() for b in w.findChildren(QPushButton)]
         for old in ("代码编辑器", "Agent 旅程", "AI 代码 Agent"):
             assert not any(old in x for x in texts), "残留旧按钮: %s" % old
+        # 侧栏常驻入口必须是真按钮，而不是蓝色链接
+        for attr, want in (("task_center_btn", "任务中心"),
+                           ("command_palette_btn", "命令面板")):
+            b = getattr(w, attr)
+            assert isinstance(b, QPushButton), "%s 应为 QPushButton" % attr
+            assert want in b.text(), (attr, b.text())
     finally:
         try:
             w.close()
