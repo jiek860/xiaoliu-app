@@ -15,14 +15,16 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
+import time
 
 from PyQt5.QtCore import QPointF, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
 from PyQt5.QtWidgets import (QCompleter, QHBoxLayout, QLabel, QLineEdit,
-                             QListWidget, QListWidgetItem, QStackedWidget,
-                             QVBoxLayout, QWidget)
+                             QListWidget, QListWidgetItem, QMessageBox,
+                             QStackedWidget, QVBoxLayout, QWidget)
 
 try:
     from core.logger import swallow as _x6_swallowed
@@ -109,6 +111,8 @@ class SearchPanel(QWidget):
     def __init__(self, root, parent=None):
         super().__init__(parent)
         self.root = os.path.abspath(root or os.getcwd())
+        self.case_sensitive = False   # Aa 开关
+        self.use_regex = False        # .* 开关
         self._build()
 
     def _build(self):
@@ -140,6 +144,42 @@ class SearchPanel(QWidget):
         row.addWidget(self.query)
         v.addLayout(row)
 
+        # 选项行：Aa / .* / 替换。用 QLabel 链接而不是 QCheckBox —— 按钮预算已满
+        opts = QHBoxLayout()
+        opts.setContentsMargins(8, 6, 8, 0)
+        opts.setSpacing(12)
+        self.case_link = self._toggle_label("Aa", self._toggle_case,
+                                            "区分大小写（默认不区分）")
+        self.regex_link = self._toggle_label(".*", self._toggle_regex,
+                                             "正则表达式（默认字面量）")
+        self.replace_link = self._toggle_label("替换", self._toggle_replace,
+                                               "展开替换输入行")
+        for w in (self.case_link, self.regex_link, self.replace_link):
+            opts.addWidget(w)
+        opts.addStretch(1)
+        v.addLayout(opts)
+
+        self.replace_box = QWidget(self)
+        rl = QHBoxLayout(self.replace_box)
+        rl.setContentsMargins(8, 6, 8, 4)
+        rl.setSpacing(6)
+        self.replace_input = QLineEdit()
+        self.replace_input.setPlaceholderText("替换为…")
+        self.replace_input.setToolTip("Enter 直接全部替换（会二次确认并备份）")
+        self.replace_input.setFixedHeight(28)
+        self.replace_input.setStyleSheet(
+            "QLineEdit{padding:0 6px;border:1px solid #d0d7de;"
+            "border-radius:5px;background:#ffffff;font-size:12px;}")
+        self.replace_input.returnPressed.connect(self.replace_all)
+        self.replace_all_link = QLabel(self._link_html("全部替换", False))
+        self.replace_all_link.setToolTip("替换前会备份到 data/.x6_replace_backup/")
+        self.replace_all_link.linkActivated.connect(
+            lambda _href=None: self.replace_all())
+        rl.addWidget(self.replace_input, 1)
+        rl.addWidget(self.replace_all_link)
+        self.replace_box.setVisible(False)
+        v.addWidget(self.replace_box)
+
         self.results = QListWidget()
         self.results.setStyleSheet(
             "QListWidget{border:none;background:#ffffff;}"
@@ -150,6 +190,46 @@ class SearchPanel(QWidget):
         self.hint = QLabel("输入关键词后按 Enter")
         self.hint.setStyleSheet(_HINT_QSS + "padding:3px 8px;")
         v.addWidget(self.hint)
+        self._paint_toggles()
+
+    # ----- 选项开关（Aa / .* / 替换） -----
+    def _link_html(self, text, on):
+        return ('<a href="#" style="color:%s;font-size:11px;'
+                'text-decoration:none;font-weight:%s;">%s</a>'
+                % ("#1d4ed8" if on else "#57606a",
+                   "bold" if on else "normal", text))
+
+    def _toggle_label(self, text, slot, tip=""):
+        link = QLabel(self._link_html(text, False))
+        link.setToolTip(tip)
+        link.linkActivated.connect(lambda _href=None: slot())
+        return link
+
+    def _paint_toggles(self):
+        self.case_link.setText(self._link_html("Aa", self.case_sensitive))
+        self.regex_link.setText(self._link_html(".*", self.use_regex))
+        # 用 isHidden() 而不是 isVisible()：面板还没显示时 isVisible() 恒为 False
+        self.replace_link.setText(
+            self._link_html("替换", not self.replace_box.isHidden()))
+
+    def _toggle_case(self):
+        self.case_sensitive = not self.case_sensitive
+        self._paint_toggles()
+        if self.query.text().strip():
+            self.run_search()
+
+    def _toggle_regex(self):
+        self.use_regex = not self.use_regex
+        self._paint_toggles()
+        if self.query.text().strip():
+            self.run_search()
+
+    def _toggle_replace(self):
+        show = self.replace_box.isHidden()
+        self.replace_box.setVisible(show)
+        self._paint_toggles()
+        if show:
+            self.replace_input.setFocus()
 
     def focus_query(self):
         self.query.setFocus()
@@ -166,6 +246,8 @@ class SearchPanel(QWidget):
             return
         self.results.clear()
         hits = self._search(q)
+        if hits is None:
+            return      # 正则写错：_search_walk 已经写好了提示，别覆盖成"没有结果"
         for path, line, text in hits:
             rel = os.path.relpath(path, self.root).replace("\\", "/")
             item = QListWidgetItem("%s:%d  %s" % (
@@ -183,14 +265,31 @@ class SearchPanel(QWidget):
                 return hits
         return self._search_walk(q)
 
+    def _matcher(self, q):
+        """按开关编译匹配器：正则/字面量 + 大小写。两条搜索路径共用。"""
+        flags = 0 if self.case_sensitive else re.IGNORECASE
+        return re.compile(q if self.use_regex else re.escape(q), flags)
+
+    def _rg_args(self, q):
+        """rg 参数按开关拼：-i（默认不区分大小写）/ --fixed-strings（默认字面量）。
+
+        模式一律用 `-e` 传，避免用户输入以 `-` 开头时被 rg 当成选项。
+        """
+        args = ["--line-number", "--no-heading", "--color", "never",
+                "--max-filesize", "1M", "--max-count", "40",
+                "--glob", "!.git/**", "--glob", "!node_modules/**",
+                "--glob", "!.venv/**", "--glob", "!modules_repo/**"]
+        if not self.case_sensitive:
+            args.append("-i")
+        if not self.use_regex:
+            args.append("--fixed-strings")
+        args += ["-e", q, "."]
+        return args
+
     def _search_rg(self, rg, q):
         try:
             cp = subprocess.run(
-                [rg, "--line-number", "--no-heading", "--color", "never",
-                 "--max-filesize", "1M", "--max-count", "40",
-                 "--glob", "!.git/**", "--glob", "!node_modules/**",
-                 "--glob", "!.venv/**", "--glob", "!modules_repo/**",
-                 q, "."],
+                [rg] + self._rg_args(q),
                 cwd=self.root, capture_output=True, text=True,
                 encoding="utf-8", errors="replace", timeout=8)
             if cp.returncode not in (0, 1):
@@ -213,32 +312,106 @@ class SearchPanel(QWidget):
             _x6_swallowed(__name__, e, "ripgrep search")
             return None
 
+    def _text_files(self):
+        """工作区内可参与搜索/替换的文本文件（跳过 .git、非文本扩展名、>1MB）。"""
+        for dirpath, dirnames, filenames in os.walk(self.root):
+            dirnames[:] = [d for d in dirnames
+                           if d not in _SKIP_DIRS and not d.startswith(".")]
+            for fn in filenames:
+                if os.path.splitext(fn)[1].lower() not in _TEXT_EXT:
+                    continue
+                path = os.path.join(dirpath, fn)
+                try:
+                    if os.path.getsize(path) > 1024 * 1024:
+                        continue
+                except OSError:
+                    continue
+                yield path
+
     def _search_walk(self, q):
-        hits = []
-        needle = q.casefold()
         try:
-            for dirpath, dirnames, filenames in os.walk(self.root):
-                dirnames[:] = [d for d in dirnames
-                               if d not in _SKIP_DIRS and not d.startswith(".")]
-                for fn in filenames:
-                    if os.path.splitext(fn)[1].lower() not in _TEXT_EXT:
-                        continue
-                    path = os.path.join(dirpath, fn)
-                    try:
-                        if os.path.getsize(path) > 1024 * 1024:
-                            continue
-                        with open(path, "r", encoding="utf-8",
-                                  errors="replace") as f:
-                            for no, line in enumerate(f, 1):
-                                if needle in line.casefold():
-                                    hits.append((path, no, line.rstrip()))
-                                    if len(hits) >= 100:
-                                        return hits
-                    except OSError:
-                        continue
+            rx = self._matcher(q)
+        except re.error as e:
+            self.hint.setText("正则写错了：%s" % e)
+            return None
+        hits = []
+        try:
+            for path in self._text_files():
+                try:
+                    with open(path, "r", encoding="utf-8",
+                              errors="replace") as f:
+                        for no, line in enumerate(f, 1):
+                            if rx.search(line):
+                                hits.append((path, no, line.rstrip()))
+                                if len(hits) >= 100:
+                                    return hits
+                except OSError:
+                    continue
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "python workspace search")
         return hits
+
+    def replace_all(self):
+        """全部替换：先备份、再原子写。替换文本按字面量处理（不解析 \\1）。
+
+        返回替换的处数；0 表示没做（没搜索词 / 正则错 / 用户取消）。
+        """
+        q = self.query.text().strip()
+        repl = self.replace_input.text()
+        if not q:
+            self.hint.setText("先输入要搜索的内容")
+            return 0
+        try:
+            rx = self._matcher(q)
+        except re.error as e:
+            self.hint.setText("正则写错了：%s" % e)
+            return 0
+        targets = []
+        total = 0
+        for path in self._text_files():
+            try:
+                with open(path, "r", encoding="utf-8", newline="") as f:
+                    text = f.read()
+            except (OSError, UnicodeDecodeError):
+                continue
+            if "\0" in text:
+                continue
+            found = len(rx.findall(text))
+            if found:
+                targets.append((path, text, found))
+                total += found
+        if not targets:
+            self.hint.setText("没有可替换的内容")
+            return 0
+        if QMessageBox.question(
+                self, "全部替换",
+                "将在 %d 个文件里替换 %d 处，并先备份到 "
+                "data/.x6_replace_backup/。\n确定继续？"
+                % (len(targets), total)) != QMessageBox.Yes:
+            self.hint.setText("已取消替换")
+            return 0
+        backup_dir = os.path.join(self.root, "data", ".x6_replace_backup",
+                                  time.strftime("%Y%m%d-%H%M%S"))
+        done = files = 0
+        for path, text, _found in targets:
+            rel = os.path.relpath(path, self.root).replace("\\", "/")
+            try:
+                os.makedirs(backup_dir, exist_ok=True)
+                shutil.copy2(path, os.path.join(
+                    backup_dir, rel.replace("/", "__")))
+                new_text = rx.sub(lambda _m: repl, text)
+                tmp = path + ".x6tmp"
+                with open(tmp, "w", encoding="utf-8", newline="") as f:
+                    f.write(new_text)
+                os.replace(tmp, path)
+                files += 1
+                done += len(rx.findall(text))
+            except OSError as e:  # 静默是故意的 - 单个文件失败不影响其它
+                _x6_swallowed(__name__, e, "replace %s" % path)
+        self.run_search()
+        self.hint.setText("替换 %d 处 / %d 个文件，备份：%s"
+                          % (done, files, backup_dir))
+        return done
 
     def _open_item(self, item):
         data = item.data(Qt.UserRole)

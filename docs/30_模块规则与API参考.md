@@ -1374,6 +1374,10 @@ _MiniMap(editor)     右侧缩略图：行密度色块 + 当前位置框，点�
 ```python
 activity_icon(kind)            explorer/search/scm/run/extensions/ai 单色图标
 SearchPanel(root)              .run_search()；openRequested(path, line)
+                               .case_sensitive / .use_regex（Aa / .* 开关）
+                               .replace_all() 全部替换（备份+原子写，返回处数）
+                               ._matcher(q) / ._rg_args(q) 两条搜索路径共用
+                               ._text_files()  跳过 .git / 非文本 / >1MB
 ScmPanel(root)                 .refresh() / .stage(rel) / .stage_all()
                                .unstage(rel) / .discard(rel) / .commit(msg)
                                .emit_diff(rel=None)
