@@ -344,6 +344,84 @@ def test_editor_jump_to_line(wb):
         w.setPlainText(old)
 
 
+def test_search_input_fits_its_text(wb, app):
+    """搜索框不能用 stylesheet margin 吃高度。
+
+    老写法 `margin:6px 8px` + 固定 26px：26-12(margin)-4(padding)-2(border)
+    只剩 8px 给 12px 文字，截图里就是上下被裁一半。
+    """
+    q = wb.search_view.query
+    fm = q.fontMetrics()
+    assert "margin" not in q.styleSheet(), q.styleSheet()
+    assert q.height() >= fm.height() + 10, (q.height(), fm.height())
+    wb._show_search()
+    wb._editor_splitter.setSizes([200, 900])   # 侧栏拖到最窄
+    app.processEvents()
+    assert q.width() >= fm.horizontalAdvance(q.placeholderText()) + 24, (
+        q.width(), fm.horizontalAdvance(q.placeholderText()))
+    wb._editor_splitter.setSizes([260, 840])
+    app.processEvents()
+
+
+def test_activity_ai_entry_is_the_star_icon(wb):
+    """活动栏第 6 个「米」字图标 = AI 助手：点一下聚焦 AI 输入框。"""
+    bar = wb.activity_list
+    assert bar.count() == 6
+    item = bar.item(5)
+    assert "AI" in item.toolTip()
+    wb._ai_shown = True
+    wb._on_activity_clicked(item)
+    assert wb._ai_shown is True
+
+
+def test_activity_icons_are_single_color(wb):
+    """6 个活动栏图标都必须单色：实心笔画像素只能是灰(普通)或蓝(选中)。"""
+    from PyQt5.QtCore import QSize
+    from PyQt5.QtGui import QIcon, QImage
+
+    from gui.ide_sidebar import _ICON_PX, activity_icon
+
+    assert wb.activity_list.iconSize() == QSize(_ICON_PX, _ICON_PX), (
+        "图标尺寸要和绘制尺寸 1:1，否则会被缩放插值")
+    for kind in ("explorer", "search", "scm", "run", "extensions", "ai"):
+        icon = activity_icon(kind)
+        assert icon.availableSizes() == [QSize(_ICON_PX, _ICON_PX)], kind
+        for state, expect in ((QIcon.Normal, (0x57, 0x60, 0x6a)),
+                              (QIcon.Selected, (0x1d, 0x4e, 0xd8))):
+            img = icon.pixmap(QSize(_ICON_PX, _ICON_PX), state,
+                              QIcon.Off).toImage().convertToFormat(
+                                  QImage.Format_ARGB32)
+            solid = 0
+            for y in range(img.height()):
+                for x in range(img.width()):
+                    c = img.pixelColor(x, y)
+                    if c.alpha() < 200:   # 只查实心笔画，半透明是抗锯齿
+                        continue
+                    solid += 1
+                    # 允许 ±2 的预乘/反预乘取整误差
+                    assert abs(c.red() - expect[0]) <= 2, (
+                        kind, state, (c.red(), c.green(), c.blue()))
+                    assert abs(c.green() - expect[1]) <= 2, (
+                        kind, state, (c.red(), c.green(), c.blue()))
+                    assert abs(c.blue() - expect[2]) <= 2, (
+                        kind, state, (c.red(), c.green(), c.blue()))
+            assert solid > 0, kind
+
+
+def test_activity_run_icon_is_outline():
+    """「运行」要和其它图标一样是线稿：三角形内部必须透明。"""
+    from PyQt5.QtCore import QSize
+    from PyQt5.QtGui import QIcon, QImage
+
+    from gui.ide_sidebar import activity_icon
+
+    img = activity_icon("run").pixmap(QSize(22, 22), QIcon.Normal,
+                                      QIcon.Off).toImage().convertToFormat(
+                                          QImage.Format_ARGB32)
+    assert img.pixelColor(10, 11).alpha() == 0     # 三角内部
+    assert img.pixelColor(12, 7).alpha() > 200     # 上边描边
+
+
 # ---------------- 收起 / 展开 ----------------
 def test_toggle_ai(wb):
     """Ctrl+J 收起/展开 AI 面板（不再占用界面按钮）。"""
