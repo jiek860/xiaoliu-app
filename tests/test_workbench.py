@@ -299,9 +299,21 @@ def test_terminal_keeps_one_shell_and_shares_cwd(wb, app, tmp_path):
     b._change_dir(BASE)
 
 
+def _oem_can_type_chinese():
+    """cmd 的管道编码 = Windows OEM 代码页；非中文系统（如 CI 的 437）发不了中文。"""
+    try:
+        from gui.ide_editor_shell import _shell_encoding
+        "中文".encode(_shell_encoding())
+        return True
+    except Exception:
+        return False
+
+
 @pytest.mark.skipif(not sys.platform.startswith("win"), reason="需要 cmd.exe")
 def test_terminal_chinese_is_not_mojibake(wb, app):
     """中文命令的中文回显不能乱码（OEM 代码页 + 自定义提示符哨兵）。"""
+    if not _oem_can_type_chinese():
+        pytest.skip("系统 OEM 代码页不支持中文")
     b = wb._editor.bottom
     b.run_terminal("echo 中文不乱码")
     assert _pump_until(app, lambda: "中文不乱码" in _term_lines(b)), \
@@ -333,6 +345,51 @@ def test_terminal_shutdown_leaves_no_shell(wb, app):
     b.shutdown()
     assert b._shell is None
     assert not b._shell_alive()
+
+
+def test_shell_encoding_falls_back_when_api_missing(monkeypatch):
+    """拿不到 GetOEMCP（非 Windows / 调用异常）时退回系统 locale，不能抛。"""
+    import ctypes
+    from gui.ide_editor_shell import _shell_encoding
+
+    class _NoKernel32(object):
+        @property
+        def kernel32(self):
+            raise OSError("no kernel32")
+
+    monkeypatch.setattr(ctypes, "windll", _NoKernel32(), raising=False)
+    assert _shell_encoding()
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert _shell_encoding()
+
+
+def test_decode_shell_bytes_replaces_undecodable_bytes():
+    """UTF-8 与 GBK 都解不出来的字节要替换掉，不能抛异常。"""
+    from gui.ide_editor_shell import _decode_shell_bytes
+    text, carry = _decode_shell_bytes(b"\xff\xfe\xfd\x80")
+    assert isinstance(text, str) and carry == b""
+
+
+def test_terminal_exit_and_empty_enter(wb, app):
+    """exit 立刻回收 shell；空回车在 shell 退出后自动重启。"""
+    if not sys.platform.startswith("win"):
+        pytest.skip("需要 cmd.exe")
+    b = wb._editor.bottom
+    assert b._ensure_shell() is not None
+    b.run_terminal("exit")
+    assert _pump_until(app, lambda: b._shell is None, 5)
+    b.run_terminal("")              # 空回车 = 重启
+    assert b._shell_alive()
+    b.shutdown()
+
+
+def test_terminal_start_failure_is_reported(wb, monkeypatch):
+    """shell 起不来时返回 None 并把原因写进终端页，不抛异常。"""
+    b = wb._editor.bottom
+    b.shutdown()
+    monkeypatch.setattr(sys, "platform", "linux")   # Windows 上没有 /bin/sh
+    assert b._ensure_shell() is None
+    assert "终端启动失败" in b.term.toPlainText()
 
 
 # ---------------- P2：资源管理器 ----------------

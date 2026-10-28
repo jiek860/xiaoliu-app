@@ -60,7 +60,7 @@ def _decode_shell_bytes(data, carry=b""):
                 return buf[:e.start].decode("utf-8"), buf[e.start:]
             except UnicodeDecodeError:
                 pass
-    for enc in (_shell_encoding(), "gbk", "gb18030"):
+    for enc in ("gbk", "gb18030", _shell_encoding()):
         try:
             return buf.decode(enc), b""
         except (UnicodeDecodeError, LookupError):
