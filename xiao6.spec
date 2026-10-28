@@ -26,6 +26,15 @@ a = Analysis(
         'cryptography',
         'requests',
         'numpy',
+        # 电脑控制 / 窗口操作（2026-10-27 起 exe 也保留这些功能，见 docs/20 批次 26）：
+        # pywin32 的动态导入 PyInstaller 扫不到，必须显式列出来
+        'win32gui',
+        'win32api',
+        'win32con',
+        'win32process',
+        'win32timezone',
+        'win32com',
+        'win32com.client',
     ],
     hookspath=[],
     hooksconfig={},
@@ -33,7 +42,10 @@ a = Analysis(
     excludes=[
         'tkinter',
         'matplotlib',
-        'PIL',
+        # ⚠️ 2026-10-27 移出：PIL 曾被排除给包瘦身，但截图（computer_system_tools）、
+        # 图像对比（computer_verifier）、目标框标注、图片 OCR 都在用它 —— 排掉之后
+        # 打包版的"电脑控制"整条链路是废的，且图像对比会把异常吞成"没变化"。
+        # 这条由 tools/check_runtime_imports.py 兜底，防止再被误删。
         'scipy',
         'pandas',
         # Keep only the Qt families the desktop UI actually imports.
@@ -60,6 +72,19 @@ a.datas += Tree('modules_repo', prefix='modules_repo',
 # GUI/core Python modules are already embedded in the PYZ. Only the one
 # source file that plugin uninstall edits at runtime is shipped as data.
 a.datas.append(('core/lazy_config.py', 'core/lazy_config.py', 'DATA'))
+
+# uiautomation（电脑控制的"控件级操作"）用 ctypes 在运行时才去加载
+# uiautomation/bin/UIAutomationClient_VC140_*.dll，PyInstaller 静态分析看不到。
+# 少了这两个 dll，exe 里 ui_windows/ui_click 一律报"没装 uiautomation"。
+from PyInstaller.utils.hooks import collect_data_files
+import os as _os
+# ⚠️ collect_data_files 返回的是 2 元组 (源文件, 目标目录)，而 a.datas 的 TOC
+# 是 3 元组 (目标路径, 源文件, 类型)，**顺序相反且目标要带文件名**。
+# 顺序搞反时 PyInstaller 不报错，只在日志里写
+# "Ignoring non-existent resource uiautomation\bin"，dll 静默丢失
+# （2026-10-28 实测踩到：COLLECT 报 2 元组解包失败 → 改成 3 元组但顺序错了）。
+a.datas += [(_os.path.join(d[1], _os.path.basename(d[0])), d[0], 'DATA')
+            for d in collect_data_files('uiautomation', includes=['bin/*.dll'])]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

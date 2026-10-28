@@ -1,0 +1,58 @@
+{
+  "_说明": "tools/check_runtime_imports.py 的对账表：代码里 import 的第三方模块，要么在 requirements-runtime.lock（exe 依赖集）里，要么在这里登记成 external_optional 并写清'缺了会怎样'。新增依赖时先加锁，再加映射；确实装不进 exe 的（要外部程序、体积过大、只有源码版用）才登记到这里。",
+  "_变更_2026-10-27": "批次 26 建立：起因是 openpyxl / python-pptx / pypdf / python-docx 同一类坑一天踩了 4 次 —— CI 全绿、源码版好用，exe 缺件。",
+  "skip_dirs": [
+    "modules/retired",
+    "core/_deprecated",
+    "modules_repo",
+    "tools",
+    "scripts",
+    "tests"
+  ],
+  "local_packages": [
+    "core",
+    "gui",
+    "modules",
+    "modules_repo",
+    "tools",
+    "scripts"
+  ],
+  "module_to_dist": {
+    "PIL": "pillow",
+    "PyPDF2": "pypdf2",
+    "bs4": "beautifulsoup4",
+    "cv2": "opencv-python",
+    "docx": "python-docx",
+    "docx2txt": "docx2txt",
+    "edge_tts": "edge-tts",
+    "faster_whisper": "faster-whisper",
+    "pptx": "python-pptx",
+    "pygame": "pygame",
+    "pytesseract": "pytesseract",
+    "win32": "pywin32",
+    "win32api": "pywin32",
+    "win32com": "pywin32",
+    "win32con": "pywin32",
+    "win32gui": "pywin32",
+    "win32process": "pywin32",
+    "win32timezone": "pywin32",
+    "whisper": "openai-whisper",
+    "yaml": "pyyaml"
+  },
+  "external_optional": {
+    "PyPDF2": "老版 PDF 兜底分支：pypdf 已在锁里，这条只在没装 pypdf 的开发环境里用到",
+    "chromadb": "向量库可选加速（P0-11）：没装就退回 SQLite 向量表，功能不受影响；它还会拖进 onnxruntime 等一整套重依赖，不进 exe",
+    "cv2": "本地图片理解（opencv），源码版由 optional_libs 提供；exe 不含，图片理解自动降级",
+    "edge_tts": "在线语音合成，可选功能；缺了只是没有这种音色",
+    "faster_whisper": "本地语音识别，源码版由 optional_libs 提供；exe 不含，语音输入自动降级",
+    "pip": "安装缺失依赖的对话框（gui/dep_dialog）：exe 里没有 pip，会提示“pip 不可用”，让用户手动装",
+    "playwright": "浏览器自动化：还要额外的 Chromium 内核（约 700 MB，未随程序分发），exe 里只给出安装命令",
+    "pyaudio": "麦克风采集，需要本机 PortAudio；源码版按需安装，exe 不含",
+    "pygame": "本地音频播放（提示音），可选；缺了用系统提示音",
+    "pytesseract": "图片 OCR：除了这个库还要用户机器上装 Tesseract 程序，天生装不进 exe，界面上会提示'缺少 OCR 依赖'",
+    "torch": "本地模型加速（GPU），只在 modules/retired 里用，源码版由 optional_libs 提供",
+    "tree_sitter_languages": "代码符号解析的可选加速：没装就走正则兜底（core/symbol_parser.py）",
+    "whisper": "语音识别模型，源码版由 optional_libs 提供；exe 不含",
+    "yaml": "插件/工作流用 YAML 配置：源码版由 optional_libs 的 PyYAML 提供，exe 里走 JSON 兜底"
+  }
+}

@@ -38,6 +38,7 @@ CHECKS = [
     ("线程生命周期", ["tools/check_threads.py"], False),
     ("静默异常", ["tools/check_silent.py"], False),
     ("依赖形状", ["tools/check_shapes.py"], False),
+    ("运行时依赖", ["tools/check_runtime_imports.py"], False),
     ("文件长度", ["tools/check_file_sizes.py"], False),
     ("插件仓库一致", ["tools/check_repo_sync.py"], False),
     ("插件质量", ["tools/check_plugin_quality.py"], False),

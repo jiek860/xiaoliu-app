@@ -83,6 +83,7 @@ jobs:
       - name: Guard checks
         run: |
           python tools/check_shapes.py
+          python tools/check_runtime_imports.py
           python tools/check_version.py
           python tools/check_buttons.py
           python tools/check_feature_freeze.py
