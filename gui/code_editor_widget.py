@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import ast
+import builtins
 import json
+import keyword
 import os
 import re
 import shutil
 import sys
 
-from PyQt5.QtCore import Qt, QPoint, QRect, QSize, QTimer, QProcess, pyqtSignal
-from PyQt5.QtGui import (QFont, QTextCharFormat, QColor, QSyntaxHighlighter,
-                         QTextDocument, QTextCursor, QPainter)
-from PyQt5.QtWidgets import (QPlainTextEdit, QWidget, QCompleter, QTextEdit)
+from PyQt5.QtCore import Qt, QRect, QTimer, QProcess, pyqtSignal
+from PyQt5.QtGui import QFont, QTextCharFormat, QColor, QTextCursor, QPainter
+from PyQt5.QtWidgets import QPlainTextEdit, QCompleter, QTextEdit
 
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -20,8 +21,14 @@ except ImportError:
     def _x6_swallowed(component, error, context=""):
         return None
 
+# 高亮 / 行号 / minimap 搬到了 gui/editor_parts.py；
+# 这里 re-export 保持旧导入路径（from gui.code_editor_widget import _PyHighlighter）
+from gui.editor_parts import (  # noqa: F401,E402
+    _LineNumberArea, _MiniMap, _PyHighlighter)
+
 
 _RUFF_TIMEOUT_MS = 5000
+_COMPLETE_DELAY_MS = 300
 
 
 def ruff_command(path):
@@ -64,116 +71,64 @@ def ast_problems(code):
     return []
 
 
-class _PyHighlighter(QSyntaxHighlighter):
-    KEYWORDS = ('False|None|True|and|as|assert|async|await|break|class|continue|'
-                'def|del|elif|else|except|finally|for|from|global|if|import|in|is|'
-                'lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield|self')
-
-    def __init__(self, doc: QTextDocument):
-        super().__init__(doc)
-        kw = QTextCharFormat(); kw.setForeground(QColor("#c586c0")); kw.setFontWeight(QFont.Bold)
-        str_ = QTextCharFormat(); str_.setForeground(QColor("#ce9178"))
-        com = QTextCharFormat(); com.setForeground(QColor("#6a9955"))
-        num = QTextCharFormat(); num.setForeground(QColor("#b5cea8"))
-        deco = QTextCharFormat(); deco.setForeground(QColor("#dcdcaa"))
-        self._rules = [
-            (r'\b(class|def)\b', kw),
-            (r'@\w+', deco),
-            (r'\b(%s)\b' % self.KEYWORDS, kw),
-            (r'"[^"\\]*(\\.[^"\\]*)*"', str_),
-            (r"'[^'\\]*(\\.[^'\\]*)*'", str_),
-            (r'#[^\n]*', com),
-            (r'\b\d+\.?\d*\b', num),
-        ]
-
-    def highlightBlock(self, text):
-        for pat, fmt in self._rules:
-            for m in re.finditer(pat, text):
-                self.setFormat(m.start(), m.end() - m.start(), fmt)
-
-class _LineNumberArea(QWidget):
-    def __init__(self, editor):
-        super().__init__(editor)
-        self._editor = editor
-
-    def sizeHint(self):
-        return QSize(self._editor.line_number_area_width(), 0)
-
-    def paintEvent(self, e):
-        self._editor.paint_line_numbers(e)
+# ---------------------------------------------------------------- 补全候选
+_JS_EXT = (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")
+_PY_WORDS = tuple(keyword.kwlist) + tuple(
+    n for n in dir(builtins) if not n.startswith("_"))
+_JS_WORDS = (
+    "function", "const", "let", "var", "class", "return", "if", "else",
+    "for", "while", "import", "export", "from", "async", "await", "new",
+    "this", "true", "false", "null", "undefined", "typeof", "instanceof",
+    "interface", "type", "enum", "implements", "extends", "throw", "try",
+    "catch", "finally", "switch", "case", "break", "continue", "default",
+    "console", "document", "window", "Promise", "Array", "Object")
+_JS_DEF_RE = re.compile(
+    r"\b(?:function|class)\s+([A-Za-z_$][\w$]*)"
+    r"|\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)")
 
 
-class _MiniMap(QWidget):
-    """编辑器右侧的文档缩略图：按行密度画色块，点击跳转。
+def python_symbols(code):
+    """ast 提取本文件符号：def/class/import as/赋值目标。
 
-    取舍：不做语法着色、不画字符（大文件会卡），只用块长度映射宽度；
-    一屏缩略图最多画 `height` 行，超出按步长抽样。
+    写到一半有语法错误时 ast 会整体失败，退回正则只看 def/class，
+    避免"补全直接没有候选"。
     """
+    try:
+        tree = ast.parse(code or "")
+    except SyntaxError:
+        return set(re.findall(r"^\s*(?:def|class)\s+([A-Za-z_]\w*)",
+                              code or "", re.M))
+    out = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.ClassDef)):
+            out.add(node.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                out.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                out.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            out.add(node.id)
+    return out
 
-    WIDTH = 76
 
-    def __init__(self, editor):
-        super().__init__(editor)
-        self._editor = editor
-        self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip("minimap：点击跳转")
-        self.setStyleSheet("background:#f6f8fa;")
+def js_symbols(code):
+    """JS/TS 的轻量符号表：function/class/const/let/var 的名字。"""
+    out = set()
+    for m in _JS_DEF_RE.finditer(code or ""):
+        out.add(m.group(1) or m.group(2))
+    return out
 
-    def paintEvent(self, _e):
-        p = None
-        try:
-            p = QPainter(self)
-            p.fillRect(self.rect(), QColor("#f6f8fa"))
-            doc = self._editor.document()
-            n = doc.blockCount()
-            if n <= 0 or self.height() <= 0:
-                return
-            scale = self.height() / float(n)
-            step = max(1, int(1 / scale) if scale < 1 else 1)
-            p.setPen(Qt.NoPen)
-            for i in range(0, n, step):
-                block = doc.findBlockByNumber(i)
-                if not block.isValid():
-                    break
-                length = len(block.text())
-                if not length:
-                    continue
-                p.fillRect(3, int(i * scale), min(
-                    self.width() - 8, max(2, length // 2)),
-                    max(1, int(step * scale)), QColor("#c9ced6"))
-            self._paint_viewport(p, n)
-        except Exception as e:  # 静默是故意的 - 缩略图异常不能影响编辑
-            _x6_swallowed(__name__, e, "minimap paint")
-        finally:
-            if p is not None:
-                p.end()
 
-    def _paint_viewport(self, p, n):
-        vp = self._editor.viewport()
-        if vp.height() <= 0 or self.height() <= 0:
-            return
-        top = self._editor.cursorForPosition(QPoint(0, 0)).blockNumber()
-        bottom = self._editor.cursorForPosition(
-            QPoint(0, vp.height() - 1)).blockNumber()
-        y = int(top * self.height() / float(n))
-        h = max(6, int((bottom - top + 1) * self.height() / float(n)))
-        p.fillRect(0, y, self.width(), h, QColor(29, 78, 216, 34))
+def completion_words(code, path=""):
+    """补全候选：语言关键字 + 内置名 + 本文件符号（不做 LSP、不跨文件）。"""
+    ext = os.path.splitext(str(path or "").lower())[1]
+    if ext in _JS_EXT:
+        return sorted(set(_JS_WORDS) | js_symbols(code))
+    return sorted(set(_PY_WORDS) | python_symbols(code))
 
-    def _goto(self, y):
-        doc = self._editor.document()
-        n = max(1, doc.blockCount())
-        line = max(0, min(n - 1, int(y * n / float(max(1, self.height())))))
-        block = doc.findBlockByNumber(line)
-        if block.isValid():
-            self._editor.setTextCursor(QTextCursor(block))
-            self._editor.centerCursor()
-
-    def mousePressEvent(self, e):
-        self._goto(e.pos().y())
-
-    def mouseMoveEvent(self, e):
-        if e.buttons() & Qt.LeftButton:
-            self._goto(e.pos().y())
 
 class CodeEditWidget(QPlainTextEdit):
     askAssistantRequested = pyqtSignal(str)  # 把选中/全部代码发回聊天框
@@ -204,6 +159,11 @@ class CodeEditWidget(QPlainTextEdit):
         # 补全
         self._completer = None
         self._setup_completer()
+        # 键入 2 个字符后 300ms 再算候选：每次按键都 ast.walk 大文件会卡
+        self._complete_timer = QTimer(self)
+        self._complete_timer.setSingleShot(True)
+        self._complete_timer.setInterval(_COMPLETE_DELAY_MS)
+        self._complete_timer.timeout.connect(self._try_complete)
         # 实时语法错误
         self._err_timer = QTimer(self); self._err_timer.setSingleShot(True)
         self._err_timer.setInterval(400)
@@ -330,6 +290,7 @@ class CodeEditWidget(QPlainTextEdit):
         self._completer = QCompleter([], self)
         self._completer.setWidget(self)
         self._completer.setCompletionMode(QCompleter.PopupCompletion)
+        self._completer.setCaseSensitivity(Qt.CaseInsensitive)
         self._completer.activated.connect(self._insert_completion)
 
     def _insert_completion(self, s):
@@ -341,31 +302,54 @@ class CodeEditWidget(QPlainTextEdit):
         tc.insertText(s)
         self.setTextCursor(tc)
 
-    def _try_complete(self):
-        try:
-            import jedi
-        except Exception as e:
-            _x6_swallowed(__name__, e)
-            return
-        code = self.toPlainText()
+    def _completion_enabled(self):
+        """只对 .py/.js/.ts 启用；未保存的新标签按 Python 处理。"""
+        if not self._filepath:
+            return True
+        ext = os.path.splitext(str(self._filepath).lower())[1]
+        return ext in ((".py", ".pyw") + _JS_EXT)
+
+    def _in_comment_or_string(self):
+        """粗略判断光标是否在注释/字符串里：注释符在光标前 / 引号奇偶。"""
         cur = self.textCursor()
-        line = cur.blockNumber() + 1
         col = cur.columnNumber()
+        line = cur.block().text()
+        before = line[:col]
+        for marker in ("#", "//"):
+            pos = line.find(marker)
+            if 0 <= pos < col:
+                return True
+        for quote in ('"""', "'''", '"', "'"):
+            if before.count(quote) % 2:
+                return True
+        return False
+
+    def _try_complete(self, force=False):
+        """本地补全：语言关键字 + 内置名 + 本文件符号（不做 LSP）。"""
         try:
-            script = jedi.Script(code)
-            comps = script.complete(line, col)
-            words = [c.name for c in comps][:20]
-            if not words:
-                self._completer.popup().hide(); return
-            self._completer.model().setStringList(words)
+            if not self._completion_enabled() or self._in_comment_or_string():
+                self._hide_completion()
+                return
             prefix = self._word_under_cursor()
+            if len(prefix) < 2 and not force:
+                self._hide_completion()
+                return
+            words = completion_words(self.toPlainText(), self._filepath)
+            self._completer.model().setStringList(words)
             self._completer.setCompletionPrefix(prefix)
+            if not self._completer.completionCount():
+                self._hide_completion()
+                return
             rect = self.cursorRect()
             rect.setWidth(self._completer.popup().sizeHintForColumn(0) + 20)
             self._completer.complete(rect)
-        except Exception as e:
-            _x6_swallowed(__name__, e)
-            pass
+        except Exception as e:  # 静默是故意的 - 补全失败不能影响输入
+            _x6_swallowed(__name__, e, "completion popup")
+
+    def _hide_completion(self):
+        popup = self._completer.popup() if self._completer is not None else None
+        if popup is not None:
+            popup.hide()
 
     def _word_under_cursor(self):
         tc = self.textCursor()
@@ -375,6 +359,8 @@ class CodeEditWidget(QPlainTextEdit):
     # ----- 键盘 -----
     def keyPressEvent(self, e):
         # Ctrl+滚轮缩放在 wheelEvent 处理
+        if e.key() == Qt.Key_Space and e.modifiers() & Qt.ControlModifier:
+            self._try_complete(force=True); return
         if e.key() == Qt.Key_Tab:
             # Tab → 4 空格
             self.textCursor().insertText(" " * self.tab_width)
@@ -384,20 +370,19 @@ class CodeEditWidget(QPlainTextEdit):
             tc = self.textCursor()
             tc.select(QTextCursor.BlockUnderCursor)
             line = tc.selectedText()
-            import re
             m = re.match(r'^(\s*)', line)
             indent = m.group(1) if m else ""
             super().keyPressEvent(e)
             self.textCursor().insertText(indent)
             return
         if e.key() == Qt.Key_ParenRight and e.modifiers() & Qt.ControlModifier:
-            self._try_complete(); return
+            self._try_complete(force=True); return
         if e.key() == Qt.Key_Escape and self._completer.popup().isVisible():
             self._completer.popup().hide(); return
         super().keyPressEvent(e)
-        # 点号后自动补全
-        if e.text() == ".":
-            QTimer.singleShot(0, self._try_complete)
+        # 键入字母/下划线/点号后 300ms 再算候选
+        if e.text() and (e.text().isalnum() or e.text() in "_.$"):
+            self._complete_timer.start()
 
     def wheelEvent(self, e):
         if e.modifiers() & Qt.ControlModifier:
