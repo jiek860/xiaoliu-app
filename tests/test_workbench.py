@@ -1286,3 +1286,121 @@ def test_completion_inserts_word_and_only_for_code_files(app, tmp_path):
     finally:
         w.close()
         w.deleteLater()
+
+
+# ---------------- P1：搜索增强（Aa / 正则 / 全部替换） ----------------
+def _search_panel(tmp_path, monkeypatch):
+    from gui.ide_sidebar import SearchPanel
+
+    # 强制走 Python 兜底，行为与 rg 是否安装无关，测试才稳定
+    monkeypatch.setattr("gui.ide_sidebar.shutil.which", lambda _n: None)
+    return SearchPanel(str(tmp_path))
+
+
+def test_search_case_and_regex_toggles(app, tmp_path, monkeypatch):
+    (tmp_path / "a.py").write_text("Foo = 1\nfoo = 2\npy_value = 3\n",
+                                   encoding="utf-8")
+    (tmp_path / "b.py").write_text("FOO = 4\n", encoding="utf-8")
+    p = _search_panel(tmp_path, monkeypatch)
+    try:
+        p.query.setText("foo")
+        p.run_search()
+        assert p.results.count() == 3          # 默认不区分大小写
+        p.case_sensitive = True
+        p.run_search()
+        assert p.results.count() == 1          # 只剩小写 foo
+        p.case_sensitive = False
+        p.use_regex = True
+        p.query.setText(r"\bpy_\w+")
+        p.run_search()
+        assert p.results.count() == 1
+        assert "py_value" in p.results.item(0).text()
+        # 正则写错不崩，给出可读提示
+        p.query.setText("(")
+        p.run_search()
+        assert p.results.count() == 0
+        assert "正则写错了" in p.hint.text()
+    finally:
+        p.close()
+        p.deleteLater()
+
+
+def test_search_rg_args_follow_toggles(app, tmp_path, monkeypatch):
+    p = _search_panel(tmp_path, monkeypatch)
+    try:
+        args = p._rg_args("foo")
+        assert "-i" in args and "--fixed-strings" in args
+        assert args[-3:] == ["-e", "foo", "."]
+        p.case_sensitive = True
+        p.use_regex = True
+        args = p._rg_args("-bar")
+        assert "-i" not in args and "--fixed-strings" not in args
+        # 以 - 开头的模式必须用 -e 传，不能被 rg 当选项
+        assert args[-3:] == ["-e", "-bar", "."]
+    finally:
+        p.close()
+        p.deleteLater()
+
+
+def test_search_toggle_labels_and_replace_row(app, tmp_path, monkeypatch):
+    p = _search_panel(tmp_path, monkeypatch)
+    try:
+        assert "57606a" in p.case_link.text()
+        p._toggle_case()
+        assert p.case_sensitive is True
+        assert "1d4ed8" in p.case_link.text()
+        assert p.replace_box.isVisibleTo(p) is False
+        p._toggle_replace()
+        assert p.replace_box.isVisibleTo(p) is True
+        assert "1d4ed8" in p.replace_link.text()
+    finally:
+        p.close()
+        p.deleteLater()
+
+
+def test_search_replace_all_backs_up_and_counts(app, tmp_path, monkeypatch):
+    from PyQt5.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.Yes))
+    (tmp_path / "x.py").write_text("foo\nfoo\n", encoding="utf-8")
+    (tmp_path / "y.py").write_text("foo\n", encoding="utf-8")
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "config.py").write_text("foo\n", encoding="utf-8")
+    (tmp_path / "blob.bin").write_bytes(b"\0foo")
+    p = _search_panel(tmp_path, monkeypatch)
+    try:
+        p.query.setText("foo")
+        p.replace_input.setText("bar")
+        assert p.replace_all() == 3
+        assert (tmp_path / "x.py").read_text(encoding="utf-8") == "bar\nbar\n"
+        assert (tmp_path / "y.py").read_text(encoding="utf-8") == "bar\n"
+        backups = list((tmp_path / "data" / ".x6_replace_backup").glob("*/*"))
+        assert len(backups) == 2
+        bench = sorted(b.read_text(encoding="utf-8") for b in backups)
+        assert bench == ["foo\n", "foo\nfoo\n"]
+        assert (tmp_path / ".git" / "config.py").read_text(
+            encoding="utf-8") == "foo\n"
+        assert (tmp_path / "blob.bin").read_bytes() == b"\0foo"
+        assert "替换 3 处 / 2 个文件" in p.hint.text()
+    finally:
+        p.close()
+        p.deleteLater()
+
+
+def test_search_replace_cancel_changes_nothing(app, tmp_path, monkeypatch):
+    from PyQt5.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.No))
+    (tmp_path / "x.py").write_text("foo\n", encoding="utf-8")
+    p = _search_panel(tmp_path, monkeypatch)
+    try:
+        p.query.setText("foo")
+        p.replace_input.setText("bar")
+        assert p.replace_all() == 0
+        assert (tmp_path / "x.py").read_text(encoding="utf-8") == "foo\n"
+        assert not (tmp_path / "data").exists()
+    finally:
+        p.close()
+        p.deleteLater()
