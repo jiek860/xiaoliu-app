@@ -1373,8 +1373,12 @@ def test_workbench_buttons_have_enough_height(app):
 
 
 # ---------------- P2：静态检查（桌面上真的跑一次 ruff / ast 兜底） ----------------
-def _pump_until(app, cond, timeout=10.0):
-    """等后台 QProcess 回调：一边 pump 事件循环，一边轮询条件。"""
+def _pump_until(app, cond, timeout=20.0):
+    """等后台 QProcess 回调：一边 pump 事件循环，一边轮询条件。
+
+    CI 上第一次拉起 cmd.exe 可能被 Defender 扫一遍，实测出现过 >10 秒才吐第一段
+    输出的情况（本机通常 1 秒内），所以默认给 20 秒，避免慢机器误报。
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
         app.processEvents()

@@ -25,7 +25,11 @@
   `TerminalMixin`：外层文件从 608 行回到 295 行（600 行硬上限），行为不变；
 - `xiao6.spec` 在构建环境装了 `winpty` 时收集 `winpty.dll` / `conpty.dll` /
   `OpenConsole.exe`，没装则跳过且不报错；`tools/runtime_import_policy.json`
-  把 `winpty` 登记为可选依赖。
+  把 `winpty` 登记为可选依赖；
+- 管道输出兼容 `QByteArray` 等字节容器（直接 `str()` 会得到带引号的 repr，
+  中文还会丢），shell 启动瞬间到达的输出不再被丢弃；
+- 慢机器/首次冷启动用例的超时从 10 秒放宽到 20 秒（CI 实测 cmd.exe 首屏
+  被 Defender 扫到 >10 秒），本机仍在 1 秒内返回。
 
 **验收**
 - `test_workbench.py` 98 passed（新增 PTY 假后端 5 条用例）；

@@ -378,6 +378,10 @@ class TerminalMixin(object):
         p.readyReadStandardOutput.connect(self._on_shell_output)
         p.finished.connect(self._on_shell_done)
         self._shell_carry = b""
+        # 先挂上再启动：启动瞬间的输出（Windows 上偶尔在 waitForStarted 返回前
+        # 就到了）也要收；启动失败会在下面清回去。
+        self._shell = p
+        self._shell_kind = "pty" if use_pty else "pipe"
         if use_pty:
             p.start("cmd.exe", [])
         elif sys.platform.startswith("win"):
@@ -389,10 +393,10 @@ class TerminalMixin(object):
         if not p.waitForStarted(3000):
             err = p.errorString()
             p.deleteLater()
+            self._shell = None
+            self._shell_kind = None
             self._echo("终端启动失败：%s" % err)
             return None
-        self._shell = p
-        self._shell_kind = "pty" if use_pty else "pipe"
         if sys.platform.startswith("win"):
             # 把提示符换成哨兵，输出里好剥掉；先缓冲，见到哨兵再开始显示
             self._shell_primed = False
@@ -456,12 +460,18 @@ class TerminalMixin(object):
             return
         if not raw:
             return
-        if isinstance(raw, (bytes, bytearray)):
-            text, self._shell_carry = _decode_shell_bytes(
-                bytes(raw), self._shell_carry)
-        else:
+        if isinstance(raw, str):
             # PTY 后端读出来已经是 str（pywinpty 内部按 UTF-8 解好了）
-            text = str(raw)
+            text = raw
+        else:
+            # 管道后端返回 bytes；QByteArray 等其它字节容器用 bytes() 统一
+            # （直接 str() 会得到 "b'...'" 这种带引号的 repr，中文还会丢）
+            try:
+                data = bytes(raw)
+            except (TypeError, ValueError):
+                data = str(raw).encode("utf-8", "replace")
+            text, self._shell_carry = _decode_shell_bytes(
+                data, self._shell_carry)
         text = _clean_ansi(text).replace("\r\n", "\n").replace("\r", "\n")
         if not self._shell_primed:
             # 旧提示符 + 哨兵之前的输出都丢掉，从哨兵之后开始算真正的输出
