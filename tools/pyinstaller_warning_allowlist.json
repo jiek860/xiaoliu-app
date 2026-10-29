@@ -133,6 +133,7 @@
       "tree_sitter_languages",
       "typing_extensions",
       "urllib3_secure_extra",
+      "winpty",
       "yaml"
     ],
     "pyinstaller_internal": [

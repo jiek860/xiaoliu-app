@@ -1,5 +1,39 @@
 # 版本变更记录
 
+## v25.2.35 - 2026-10-29
+
+**终端可选真 PTY（ConPTY）：装了 pywinpty 就有 Tab 补全 / 颜色 / 交互式程序**
+（冻结期不新增 Feature / 按钮：Feature 46、按钮 60 保持不变）
+
+**终端真 PTY（可选依赖）**
+- 装了 `pywinpty`（`requirements-optional.txt`）时终端自动走 ConPTY：
+  `python` REPL、`more`、`ping` 等交互式程序可用，Tab 补全和颜色生效，
+  中文输入不再受 Windows OEM 代码页限制（英文系统 437 也能输入中文）；
+- 没装则自动回退到批次 37 的「常驻 cmd.exe + 管道」实现，行为与之前一致；
+- 两种后端对上层是同一套调用（`_shell_kind` 只用于区分回显策略）；
+  关闭工作台仍会回收 shell / PTY，不留孤儿进程。
+
+**终端呈现修正**
+- ConPTY 输出是"屏幕画面"，含 CSI（光标/颜色）与 OSC（改窗口标题）序列，
+  显示前统一清洗；控制台自己会回显输入，PTY 模式不再重复打印 `$ cmd`；
+- 提示符用环境变量 `PROMPT=@x6@` 设置（省掉一次按键回显），首屏输出要等
+  哨兵出现才开始显示；ConPTY 首屏比管道慢，兜底等待放宽到 3 秒。
+
+**内部**
+- 终端逻辑（ANSI 清洗 / 编码 / shell 生命周期 / PTY 适配）从
+  `gui/ide_editor_shell.py` 拆到 `gui/ide_terminal.py`，`BottomPanel` 改为继承
+  `TerminalMixin`：外层文件从 608 行回到 295 行（600 行硬上限），行为不变；
+- `xiao6.spec` 在构建环境装了 `winpty` 时收集 `winpty.dll` / `conpty.dll` /
+  `OpenConsole.exe`，没装则跳过且不报错；`tools/runtime_import_policy.json`
+  把 `winpty` 登记为可选依赖。
+
+**验收**
+- `test_workbench.py` 98 passed（新增 PTY 假后端 5 条用例）；
+- 定向回归 `test_workbench + test_gui_smoke + 守卫用例` 204 passed / 2 skipped；
+- `check_buttons` 60/60、`check_file_sizes`、`check_feature_freeze`（gui 100，
+  拆分文件已按冻结规则重锁）、`check_silent` 0、`check_threads`、
+  `check_runtime_imports`、`ruff` 全绿。
+
 ## v25.2.34 - 2026-10-29
 
 **工作台 IDE 化收尾：Git 暂存/提交、搜索替换、静态检查、补全、终端持久会话**
