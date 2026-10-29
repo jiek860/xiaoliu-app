@@ -189,7 +189,8 @@ class CodeAgent(
                                "applied": applied.get("applied") or [],
                                "progress": 0.5})
         self._emit("tests_start", {"step": "正在运行测试与 lint", "progress": 0.62})
-        tests = self.run_tests()
+        tests = self.run_tests(changed_files=[
+            x.get("path") for x in patch.get("files", []) if x.get("path")])
         lint = self.run_lint()
         return {"ok": bool(tests.get("ok") and lint.get("ok")),
                 "applied": applied, "tests": tests, "lint": lint,
@@ -405,7 +406,7 @@ class CodeAgent(
                                          progress=0.6)
                 self._emit("tests_start", {"step": "运行测试与 lint",
                                            "progress": 0.62})
-                tests = self.run_tests()
+                tests = self.run_tests(changed_files=applied_files)
                 lint = self.run_lint()
                 self._emit("tests", {"step": "测试完成",
                                      "ok": tests.get("ok"),
@@ -490,12 +491,12 @@ class CodeAgent(
             return {"ok": False, "run_id": run_id, "error": env["message"],
                     "envelope": env, "backups": backups}
 
-    @staticmethod
-    def _failure_digest(tests, lint):
+    def _failure_digest(self, tests, lint):
         """把测试/lint 失败压缩成给模型看的摘要：先列失败用例，再给尾部输出。
 
         原来是把各命令的完整输出直接拼起来（每条最多 16000 字符），
         进提示词时只截最后 6000 字符 —— 失败用例名经常正好被截掉。
+        批次 46.4：开关打开时再补一段"失败位置 → 函数"，方便定点回修。
         """
         parts = []
         for item in (tests or {}).get("results") or []:
@@ -524,7 +525,18 @@ class CodeAgent(
             if out:
                 parts.append("lint: %s\n%s" % (item.get("command", ""),
                                                out[-2000:]))
-        return "\n\n".join(parts)[-12000:]
+        digest = "\n\n".join(parts)
+        try:
+            from core.patch_protocol import verify_mode
+            if verify_mode(getattr(self, "trunk", None)) != "off" and digest:
+                from core.code.verify import locate_digest, locate_failures
+                located = locate_failures(digest, root=self.root)
+                if located:
+                    digest += "\n\n失败定位（file:line → 函数）：\n" + \
+                        locate_digest(located)
+        except Exception as e:  # 静默是故意的 - 定位失败不影响回修提示
+            _x6_swallowed(__name__, e, "failure location")
+        return digest[-12000:]
 
     def rollback_all(self, backups):
         restored: list[str] = []

@@ -52,6 +52,8 @@ class AgentDock(QWidget):
         self.wb = workbench
         self.orchestrator = None
         self.queue = None
+        self.service = None
+        self.worker = None
         self.current_job_id = ""
         self._running = False
         self._build()
@@ -206,6 +208,10 @@ class AgentDock(QWidget):
         if self.open_with_agent.isChecked():
             open_files = self.wb.editor_open_files()
         self.current_job_id = ""
+        if self._background_enabled():
+            # 批次 46.1：后台线程执行，UI 不再 processEvents 硬撑。
+            self._start_background(goal, open_files)
+            return
         try:
             from core.code_task_queue import get_code_queue
             self.queue = get_code_queue(root)
@@ -217,6 +223,112 @@ class AgentDock(QWidget):
         except Exception as e:  # 静默是故意的 - 队列不可用也要能跑任务
             _x6_swallowed(__name__, e, "enqueue code job")
         self._run_job(goal, open_files=open_files)
+
+    def _background_enabled(self):
+        try:
+            from core.patch_protocol import background_enabled
+            return bool(background_enabled(self.wb.trunk))
+        except Exception as e:  # 静默是故意的 - 读不到开关就按前台执行
+            _x6_swallowed(__name__, e, "background switch")
+            return False
+
+    def _start_background(self, goal, open_files):
+        """把任务交给 AgentService，再由 AgentServiceWorker 后台消费。"""
+        try:
+            from core.agent_service import get_agent_service
+            from gui.workers import AgentServiceWorker
+        except Exception as e:
+            self.timeline.appendPlainText("[错误] 后台服务不可用: %s"
+                                          % str(e)[:200])
+            return
+        root = getattr(self.wb, "root", None) or getattr(
+            self.wb.trunk, "base", ".")
+        try:
+            self.service = get_agent_service(self.wb.trunk, root=root)
+            submitted = self.service.submit(
+                goal, open_files=open_files,
+                max_rounds=self.rounds_spin.value(),
+                explicit=resolve_explicit(goal))
+        except Exception as e:  # 静默是故意的 - 出错显示给用户而不是崩
+            self.timeline.appendPlainText("[错误] 无法提交后台任务: %s"
+                                          % str(e)[:200])
+            return
+        if not submitted.get("ok"):
+            self.timeline.appendPlainText(
+                "[错误] %s" % submitted.get("error", "提交失败"))
+            return
+        self.queue = self.service.queue
+        self.current_job_id = submitted["job_id"]
+        self.timeline.clear()
+        self.timeline.appendPlainText("▶ 目标: " + goal)
+        if open_files:
+            self.timeline.appendPlainText(
+                "  参考文件: " + ", ".join(os.path.basename(f)
+                                          for f in open_files))
+        self.timeline.appendPlainText(
+            "  轮次上限: %d" % self.rounds_spin.value())
+        self.timeline.appendPlainText(
+            "  执行域: 代码 Agent（后台任务，可切回窗口继续用）")
+        self._running = True
+        self.start_btn.setEnabled(False)
+        self.pause_btn.setEnabled(True)
+        self.cancel_btn.setEnabled(True)
+        self._refresh_queue()
+        self._launch_worker()
+
+    def _launch_worker(self):
+        from gui.workers import AgentServiceWorker
+        self.worker = AgentServiceWorker(self.service, trunk=self.wb.trunk)
+        self.worker.event.connect(self._on_service_event)
+        self.worker.done.connect(self._on_service_done)
+        self.worker.start()
+
+    def _resume_background(self, job):
+        """后台模式下续跑：把断点任务重新置为 queued 再起线程。"""
+        try:
+            from core.agent_service import get_agent_service
+        except Exception as e:
+            self.timeline.appendPlainText("[错误] 后台服务不可用: %s"
+                                          % str(e)[:200])
+            return
+        root = getattr(self.wb, "root", None) or getattr(
+            self.wb.trunk, "base", ".")
+        self.service = get_agent_service(self.wb.trunk, root=root)
+        self.queue = self.service.queue
+        result = self.service.resume(job.get("job_id"))
+        if not result.get("ok"):
+            self.timeline.appendPlainText("[错误] %s"
+                                          % result.get("error", "无法续跑"))
+            return
+        self.current_job_id = job.get("job_id")
+        state = self.queue.checkpoint_of(job)
+        self.timeline.clear()
+        self.timeline.appendPlainText(
+            "↯ 继续任务（从第 %s 轮）" % (state.get("round") or 1))
+        self.timeline.appendPlainText("▶ 目标: " + str(job.get("goal") or ""))
+        self.timeline.appendPlainText("  执行域: 代码 Agent（后台任务）")
+        self._running = True
+        self.start_btn.setEnabled(False)
+        self.pause_btn.setEnabled(True)
+        self.pause_btn.setText("⏸ 暂停")
+        self.cancel_btn.setEnabled(True)
+        self._refresh_queue()
+        self._launch_worker()
+
+    def _on_service_event(self, event, data=None):
+        """后台线程的事件在 GUI 线程处理；审批走"事件-应答"而不是弹窗线程。"""
+        data = data if isinstance(data, dict) else {}
+        if str(event) == "approval" and data.get("request_id"):
+            ok = self._approve(data.get("kind"), data.get("payload"))
+            if self.service is not None:
+                self.service.answer(data.get("request_id"), ok)
+            return
+        self._handle_event(event, data)
+
+    def _on_service_done(self, result):
+        self.worker = None
+        self._refresh_queue()
+        self._on_done(result)
 
     def _run_job(self, goal, open_files=None, resume_state=None):
         if self._running:
@@ -323,6 +435,9 @@ class AgentDock(QWidget):
             self.current_job_id = job.get("job_id")
             self.timeline.appendPlainText(
                 "↯ 继续任务（从第 %s 轮）" % (state.get("round") or 1))
+            if self._background_enabled():
+                self._resume_background(job)
+                return
             self._run_job(job.get("goal") or "", open_files=job.get("open_files"),
                           resume_state=state)
         else:
@@ -350,7 +465,12 @@ class AgentDock(QWidget):
         self.cancel_btn.setEnabled(False)
 
     def _on_event(self, event, data=None):
+        """同步执行路径的事件：处理完顺手刷一下界面。"""
+        self._handle_event(event, data)
         from PyQt5.QtWidgets import QApplication
+        QApplication.processEvents()      # 让界面边跑边刷
+
+    def _handle_event(self, event, data=None):
         text = str(event or "")
         if isinstance(data, dict):
             text = str(data.get("step") or text)
@@ -376,7 +496,6 @@ class AgentDock(QWidget):
             answer = str(data.get("result") or "").strip()
             if answer:
                 self.timeline.appendPlainText("📄 回答：\n" + answer[:4000])
-        QApplication.processEvents()      # 让界面边跑边刷
 
     def _show_inline_diff(self, patch):
         """在编辑器里展示内联 diff；应用后用 backup manifest 撤销。"""
@@ -411,6 +530,19 @@ class AgentDock(QWidget):
             return False
 
     def toggle_pause(self):
+        if self.worker is not None and self.worker.isRunning() and self.service:
+            try:
+                if self.pause_btn.text().startswith("⏸"):
+                    self.service.pause()
+                    self.pause_btn.setText("▶ 继续")
+                    self.timeline.appendPlainText("⏸ 已暂停")
+                else:
+                    self.service.resume_paused()
+                    self.pause_btn.setText("⏸ 暂停")
+                    self.timeline.appendPlainText("▶ 已继续")
+            except Exception as e:  # 静默是故意的
+                self.timeline.appendPlainText("[错误] %s" % str(e)[:200])
+            return
         if self.orchestrator is None:
             return
         try:
@@ -426,6 +558,13 @@ class AgentDock(QWidget):
             self.timeline.appendPlainText("[错误] %s" % str(e)[:200])
 
     def cancel(self):
+        if self.worker is not None and self.worker.isRunning():
+            try:
+                self.service.cancel()
+                self.timeline.appendPlainText("🛑 已请求取消，等 Agent 到检查点")
+            except Exception as e:  # 静默是故意的
+                self.timeline.appendPlainText("[错误] %s" % str(e)[:200])
+            return
         if self.orchestrator is None:
             return
         try:

@@ -245,3 +245,70 @@ class BgWorker(QThread):
             _reg_finish(rid, "failed", str(e)[:200])
             self.done.emit(f"错误: {str(e)[:120]}")
 
+
+_SERVICE_WORKERS = set()
+
+
+class AgentServiceWorker(QThread):
+    """在后台线程消费 AgentService 队列（批次 46.1）。
+
+    规则：run() 里只调用 core 服务、只 emit 信号，绝不碰任何 Widget；
+    服务事件（进度/补丁/审批）原样转发，GUI 用 queued connection 收。
+    """
+
+    event = pyqtSignal(str, object)
+    done = pyqtSignal(dict)
+
+    def __init__(self, service, trunk=None, title="代码任务"):
+        super().__init__()
+        self.service = service
+        self.trunk = trunk
+        self.title = title
+        self._stopped = False
+        # 面板先关、线程还在跑时，Python 侧必须有人持有引用，
+        # 否则 QThread 会被 GC 掉并触发 "Destroyed while running"。
+        _SERVICE_WORKERS.add(self)
+        self.finished.connect(self._forget)
+
+    def _forget(self):
+        _SERVICE_WORKERS.discard(self)
+
+    def _relay(self, event, data):
+        if self._stopped:
+            return
+        try:
+            self.event.emit(str(event), data if isinstance(data, dict) else {})
+        except Exception as e:  # 静默是故意的 - 窗口关闭后信号无人接收
+            _x6_swallowed(__name__, e, "agent service event")
+
+    def run(self):
+        rid = _reg_start("code_agent", str(self.title)[:50],
+                         _log_path(self.trunk))
+        self.service.add_listener(self._relay)
+        try:
+            result = self.service.run_next()
+        except Exception as e:  # 静默是故意的 - 线程边界兜底，错误通过信号返回
+            _x6_swallowed(__name__, e, "agent service worker")
+            result = {"ok": False, "error": str(e)[:300]}
+        finally:
+            self.service.remove_listener(self._relay)
+        if isinstance(result, dict) and result.get("ok"):
+            _reg_finish(rid, "completed")
+        elif isinstance(result, dict) and result.get("cancelled"):
+            _reg_finish(rid, "cancelled")
+        else:
+            _reg_finish(rid, "failed",
+                        str((result or {}).get("error") or "")[:200])
+        try:
+            self.done.emit(result if isinstance(result, dict) else {})
+        except Exception as e:  # 静默是故意的 - 窗口关闭后信号无人接收
+            _x6_swallowed(__name__, e, "agent service done")
+
+    def stop(self):
+        """请求取消；不阻塞 UI（Agent 在检查点退出）。"""
+        self._stopped = True
+        try:
+            self.service.cancel()
+        except Exception as e:  # 静默是故意的 - 线程可能已经结束
+            _x6_swallowed(__name__, e, "stop agent service")
+

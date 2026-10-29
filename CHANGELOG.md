@@ -1,5 +1,64 @@
 # 版本变更记录
 
+## v25.2.41 - 2026-10-29
+
+**代码 Agent v2：后台任务 + 局部补丁 + 影响面验证（批次 46）**
+（开关默认全关：`code_agent.background=false`、`code_agent.auto_apply=false`、
+`code.patch_v2=shadow`、`code.verify_select=off`，默认行为与 v25.2.40 一致）
+
+**后台任务服务（46.1）**
+- `core/agent_service.py`：单写者锁（同一项目同时只跑一个任务）、
+  队列消费（`data/code_jobs/queue.json`）、暂停/取消/续跑、事件扇出。
+- `gui/workers.py` 增加 `AgentServiceWorker`：后台线程只调用 core 服务、
+  只 emit 信号，不碰控件；面板关闭后由注册表持有线程，避免 QThread 被 GC。
+- 工作台 `code_agent.background=true` 时改走后台线程，窗口不再 `processEvents`
+  硬撑；关闭面板任务继续跑，重开可看事件。
+- 审批改为"事件 + 应答"：后台线程 emit `approval` 与 request_id，
+  GUI 线程弹窗后 `answer(request_id, ok)`；超时/取消按拒绝处理（fail-closed）。
+
+**L2 自动档（46.2）**
+- 风险分级复用 `core/patch_protocol.classify_patch`：新建/新增测试=低，
+  单函数小改=中，删改/重命名/配置依赖/跨 3 文件/大改=高，受保护路径=禁止。
+- `code_agent.auto_apply=true` 时 L2 自动应用 low/medium，high 仍问人；
+  L3 在计划确认后连 high 也自动应用；每次自动应用 emit `auto_apply`，
+  UI 顶部提示走撤销入口（备份清单由 Agent 产出）。
+
+**PatchV2（46.3）**
+- `core/patch_protocol.py`：在 `validate_patch` 之上补 v2 规则——
+  已存在文件禁止 `write`（整文件覆盖）、单次最多 5 文件/200 行、
+  `line` 锚点软校验（偏移 >3 行只警告）、落盘前 Python/JSON 语法预演。
+- `core/code_roles.py` 提示词改为"update + hunks 局部修改，create 新建"，
+  不再引导模型 `write` 整文件。
+- `core/code_explorer.py` 的 `_parse_patch` 接入审查：shadow 记录事件、
+  on 才拒绝并触发回修，off 完全走旧逻辑。
+
+**影响面验证（46.4）**
+- `core/code/verify.py`：`select_tests`（按改动文件反查 import 相关测试）、
+  `selected_commands`（拼 pytest 目标，找不到 pytest 退回全量）、
+  `locate_failures`（`File "...", line N` / `path.py:N` → 函数名）、
+  `retry_flakes`（失败用例重跑一次，仍挂才算真失败）。
+- `code_agent.run_tests(changed_files=...)` 与失败摘要接入上述能力，
+  `code.verify_select=on` 才启用。
+
+**内联编辑（46.5）**
+- `gui/code_editor_ai.py`：AI 修复按"选区 > 光标所在函数 > 整文件"取目标，
+  只替换目标范围；整文件回退时用 `minimal_hunks` 压成行级 hunk，
+  不再直接 `setPlainText` 覆盖全文。
+- 所有修改仍先过 diff 预览；写后记审计（`data/code_edits.jsonl`，
+  文件、模式、前后哈希）。
+
+**冻结期名额**
+- 新增 `core/agent_service.py`、`core/patch_protocol.py`、
+  `core/code/verify.py`，core 226 → 229，同提交执行
+  `check_feature_freeze.py --rebase --force`；测试 193 → 198；
+  Feature / gui / 按钮预算不变（46 / 101 / 60）。
+
+**测试**
+- 新增 `test_agent_service`（13）、`test_auto_apply`（10）、
+  `test_patch_protocol`（17）、`test_verify_select`（11）、
+  `test_inline_edit`（8），共 **57 passed**；
+  Agent/工作台回归 161 passed。
+
 ## v25.2.40 - 2026-10-29
 
 **代码索引与上下文 v2（批次 45）**

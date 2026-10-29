@@ -212,8 +212,13 @@ class CodeCommandRunnerMixin:
                             "output": r["output"][:12000]})
         return {"ok": all(x["ok"] for x in results), "results": results}
 
-    def run_tests(self, commands=None):
+    def run_tests(self, commands=None, changed_files=None):
         cmds = list(commands or self.test_commands or self.detect_test_commands())
+        if changed_files:
+            # 批次 46.4：影响面选测（默认 off，关掉就是全量）。
+            picked = self._verify_commands(changed_files)
+            if picked:
+                cmds = picked
         if not cmds:
             return {"ok": True, "results": [], "skipped": True,
                     "reason": "未发现测试命令；请配置或添加 pytest/npm/cargo/go 测试"}
@@ -230,6 +235,15 @@ class CodeCommandRunnerMixin:
                 "timed_out": r.get("timed_out", False),
             })
         return {"ok": all(x["ok"] for x in results), "results": results}
+
+    def _verify_commands(self, changed_files):
+        """按改动文件选 pytest 目标；任何失败都返回空 = 退回全量。"""
+        try:
+            from core.code.verify import selected_commands
+            return selected_commands(self, changed_files) or []
+        except Exception as e:  # 静默是故意的 - 选测失败不能挡住测试
+            _x6_swallowed(__name__, e, "verify selected commands")
+            return []
 
     @staticmethod
     def parse_test_failures(output):
