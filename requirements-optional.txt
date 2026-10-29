@@ -20,7 +20,7 @@ pyperclip>=1.8.2
 pywin32>=306; sys_platform == "win32"
 
 # ===== 语音合成 TTS（让小6说话）=====
-edge-tts>=6.1.0
+edge-tts>=7.3.1
 
 # ===== 语音识别 STT =====
 # faster-whisper 是首选后端（voice.py 优先探测它），基于 ctranslate2，不需要 torch。
