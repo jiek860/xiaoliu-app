@@ -53,12 +53,14 @@ class ReplyPipeline:
         t._set_status("正在理解你的问题...")
         t._reply_n = getattr(t, "_reply_n", 0) + 1
         self._record("接收消息", "ok", user_input[:60])
+        state_summary = self._track_state(user_input)
 
         # 电脑控制快速通道
         fast = self._try_computer_control(user_input)
         if fast is not None:
             self._record("电脑控制", "ok", "快速通道命中")
-            self._shadow(user_input, True, _t_start, None, fast, fast="computer")
+            self._shadow(user_input, True, _t_start, None, fast,
+                         fast="computer", state=state_summary)
             return fast
 
         is_simple = self.ctx.is_simple(user_input)
@@ -92,7 +94,7 @@ class ReplyPipeline:
         if cancel_token is not None and cancel_token.is_cancelled():
             self._record("用户取消", "cancelled")
             self._shadow(user_input, is_simple, _t_start, _t_ctx, answer,
-                         cancelled=True)
+                         cancelled=True, state=state_summary)
             self._finish_chat(t)
             return answer or ""
 
@@ -100,11 +102,41 @@ class ReplyPipeline:
         answer = self.pp.merge_group(user_input, answer, prefetch=role_fut)
         answer = self.pp.verify_code(user_input, answer)
         self.pp.kick_off_background(user_input, answer)
-        self._shadow(user_input, is_simple, _t_start, _t_ctx, answer)
+        self._shadow(user_input, is_simple, _t_start, _t_ctx, answer,
+                     state=state_summary)
         self._record("收尾", "ok")
 
         self._finish_chat(t)
         return answer
+
+    def _state_mode(self):
+        """对话状态开关：off / shadow / on（批次 42.1，默认 shadow）。"""
+        try:
+            value = str(self.trunk.rule("聊天.状态层", "shadow") or "shadow")
+        except Exception as e:
+            _x6_swallowed(__name__, e, "state_mode")
+            value = "shadow"
+        value = value.strip().lower()
+        return value if value in ("off", "shadow", "on") else "shadow"
+
+    def _track_state(self, user_input):
+        """更新并落盘对话状态，返回摘要；任何失败都返回 {}。
+
+        shadow 模式下只记录、不参与提示词拼装，用户可见行为与旧版一致；
+        ``on`` 的消费方是 42.2 回应规划器，本批尚未接入。
+        """
+        try:
+            if self._state_mode() == "off":
+                return {}
+            from core.chat.state import DialogueState
+            base = getattr(self.trunk, "base", ".") or "."
+            state = DialogueState.load(base)
+            summary = state.update(user_input)
+            state.save()
+            return summary
+        except Exception as e:
+            _x6_swallowed(__name__, e, "track_state")
+            return {}
 
     def _shadow(self, user_input, is_simple, t_start, t_ctx, answer, **extra):
         """影子状态：只记录，失败静默（批次 41.4）。"""
