@@ -7,6 +7,7 @@ except ImportError:
         return None
 
 import time
+import zlib
 from core.pipeline.context_builder import ContextBuilder
 from core.pipeline.prompt_assembler import PromptAssembler
 from core.pipeline.llm_dispatcher import LLMDispatcher
@@ -64,7 +65,10 @@ class ReplyPipeline:
             return fast
 
         is_simple = self.ctx.is_simple(user_input)
+        gray = self._gray_on(state_summary)
         planner_mode = self._planner_mode()
+        if gray and planner_mode == "shadow":
+            planner_mode = "rule"
         plan = self._plan(user_input, state_summary, planner_mode)
         _t_ctx = time.time()
         context = self.ctx.build(user_input, is_simple)
@@ -73,7 +77,8 @@ class ReplyPipeline:
         t._set_status("正在思考...")
         plan_for_prompt = plan if planner_mode in ("rule", "model") else None
         messages = self.pa.assemble(user_input, context, is_simple,
-                                    plan=plan_for_prompt)
+                                    plan=plan_for_prompt, state=state_summary,
+                                    gray=gray)
         self._record("拼提示词", "ok")
 
         # 先把群聊角色回复发出去，让它和主回复的生成**并行**。
@@ -98,17 +103,19 @@ class ReplyPipeline:
         if cancel_token is not None and cancel_token.is_cancelled():
             self._record("用户取消", "cancelled")
             self._shadow(user_input, is_simple, _t_start, _t_ctx, answer,
-                         cancelled=True, state=state_summary, plan=plan)
+                         cancelled=True, state=state_summary, plan=plan,
+                         gray=gray)
             self._finish_chat(t)
             return answer or ""
 
         t.mem_add(user_input, answer)
-        answer, critic = self._critique(user_input, answer, plan)
+        answer, critic = self._critique(user_input, answer, plan, gray=gray)
         answer = self.pp.merge_group(user_input, answer, prefetch=role_fut)
         answer = self.pp.verify_code(user_input, answer)
         self.pp.kick_off_background(user_input, answer)
         self._shadow(user_input, is_simple, _t_start, _t_ctx, answer,
-                     state=state_summary, plan=plan, critic=critic)
+                     state=state_summary, plan=plan, critic=critic,
+                     persona=getattr(self.pa, "last_persona", {}), gray=gray)
         self._record("收尾", "ok")
 
         self._finish_chat(t)
@@ -143,6 +150,21 @@ class ReplyPipeline:
             _x6_swallowed(__name__, e, "track_state")
             return {}
 
+    def _gray_on(self, state_summary):
+        """灰度：按会话 id 稳定分流，0=全关，100=全开（批次 42.5）。"""
+        try:
+            pct = int(self.trunk.rule("聊天.灰度比例", 0) or 0)
+        except (TypeError, ValueError):
+            pct = 0
+        if pct <= 0:
+            return False
+        if pct >= 100:
+            return True
+        session = str((state_summary or {}).get("session") or "")
+        if not session:
+            return False
+        return (zlib.crc32(session.encode("utf-8")) % 100) < pct
+
     def _planner_mode(self):
         """规划器开关：off / shadow / rule / model（批次 42.2，默认 shadow）。"""
         try:
@@ -160,12 +182,27 @@ class ReplyPipeline:
         try:
             from core.chat.planner import ResponsePlanner
             planner = ResponsePlanner(self.trunk)
-            return planner.plan(state_summary, user_input,
+            plan = planner.plan(state_summary, user_input,
                                 mode="model" if mode == "model" else "rule",
                                 recent=self._recent_user_texts())
+            if isinstance(plan, dict) and plan:
+                plan.setdefault("emoji_budget", self._emoji_budget())
+            return plan
         except Exception as e:
             _x6_swallowed(__name__, e, "plan")
             return {}
+
+    def _emoji_budget(self):
+        """人格卡风格决定的 emoji 预算；关闭或异常时用 2。"""
+        try:
+            if self.trunk.rule("聊天.人格卡", "shadow") == "off":
+                return 2
+            from core.chat.persona_card import PersonaCard
+            card = PersonaCard.load(getattr(self.trunk, "base", ".") or ".")
+            return card.emoji_budget(self.trunk.rule("聊天.人格风格", ""))
+        except Exception as e:
+            _x6_swallowed(__name__, e, "emoji_budget")
+            return 2
 
     def _recent_user_texts(self):
         try:
@@ -186,9 +223,11 @@ class ReplyPipeline:
         value = value.strip().lower()
         return value if value in ("off", "shadow", "on") else "shadow"
 
-    def _critique(self, user_input, answer, plan):
-        """返回 (最终文本, 校验摘要)；shadow 只记录，on 才替换。"""
+    def _critique(self, user_input, answer, plan, gray=False):
+        """返回 (最终文本, 校验摘要)；shadow 只记录，on/灰度 才替换。"""
         mode = self._critic_mode()
+        if gray and mode == "shadow":
+            mode = "on"
         if mode == "off":
             return answer, {}
         try:

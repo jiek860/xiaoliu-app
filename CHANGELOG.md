@@ -1,5 +1,67 @@
 # 版本变更记录
 
+## v25.2.37 - 2026-10-29
+
+**聊天拟人 v1：状态层 + 规划器 + 校验器 + 分层人格卡 + few-shot 灰度（批次 42）**
+（默认影子 / 灰度 0：用户可见行为与 v25.2.36 一致；冻结期不新增 Feature / 按钮）
+
+**对话状态层（42.1，默认 shadow）**
+- 新增 `core/chat/state.py`：逐轮记录意图、期望、长度偏好、情绪（EMA）、
+  话题（双轮切换防抖）、关系、未回答数、承诺到期；
+- 原子写 `data/chat_state.json`（`.tmp` + `os.replace`），损坏文件回默认，
+  异常按 `diagnostics.swallowed` 静默，不影响回复；
+- 开关「聊天.状态层」= `off | shadow | on`，默认 `shadow`。
+
+**回应规划器（42.2，默认 shadow）**
+- 新增 `core/chat/planner.py`：按状态与用户输入规划 8 种 act
+  （ack/answer/answer_with_action/comfort/clarify/refuse/tease/remind），
+  输出长度、语气、必须包含/避免内容、是否反问；
+- 危险请求在入口直接规则拒绝，不交给模型规划；
+- `rule/model` 生效时把「本轮回复要求」作为一条 system 消息插在最终用户消息前；
+- 开关「聊天.规划器」= `off | shadow | rule | model`。
+
+**生成后校验器（42.3，默认 shadow）**
+- 新增 `core/chat/critic.py`：检查空回复/超长/复述用户话/重复句/禁语/列点/
+  emoji 超预算/反问过多/疑似答非所问；
+- 规则修复优先（截断、去复述、去重句、拆列点、减 emoji），
+  「聊天.校验重写」打开时才允许一次模型重写，超长/空结果即拒绝；
+- 开关「聊天.校验器」= `off | shadow | on`。
+
+**分层人格卡（42.4，默认 shadow）**
+- 新增 `core/chat/data/persona_tiers.json`（随包种子，用户可在
+  `data/persona_tiers.json` 放同名文件覆盖）与 `core/chat/persona_card.py`：
+  L1 核心 / L2 关系 / L3 情境 / L4 风格四层，总预算 520 字，按句读截断；
+- 四种风格（松弛/毒舌/温和/专业）各自 emoji 预算；用户自定义 `ai_persona`
+  仍最高优先级；
+- 人格卡禁语表与校验器内置表合并，按词长降序替换；
+- 开关「聊天.人格卡」= `off | shadow | on`，风格由「聊天.人格风格」覆盖。
+
+**检索式 few-shot + 灰度（42.5）**
+- 新增 `core/chat/data/chat_fewshot.json`（12 条随包种子，`data/` 可覆盖）
+  与 `core/chat/fewshot.py`：
+  按 act（权重 2）+ topic（权重 1）检索最多 2 条，冷启动回退内置样例；
+- 「聊天.灰度比例」0–100，按会话 id 的 `zlib.crc32 % 100` 稳定分流；
+  命中时规划器 `shadow→rule`、校验器/人格卡 `shadow→on`，并注入 few-shot；
+  比例归 0 即完全回旧版；
+- 影子日志新增 `plan / critic / persona / gray` 字段，供评测对照。
+
+**真实聊天评测**
+- `tools/run_eval.py --with-model --chat-limit N` 走完整回复链路生成聊天样例，
+  输出平均字数与 8-gram 重复率（`chat_summary`），Markdown 报告同步展示；
+- 评测时关闭联网与工具调用，结果可复现。
+
+**内部**
+- 冻结名额按 41.0 方案 A 同提交 rebase：`core 210 → 215`、
+  测试 `174 → 179`（Feature 46 / gui 100 / 按钮 60 不变）；
+- 批次 42 定向测试 **111 passed**；回复链路回归 **38 passed**；
+  `run_eval --domain all --dry-run` **140 道通过**。
+
+**验收**
+- 默认全部影子 / 灰度 0：提示词与回复文本与 v25.2.36 一致；
+- 全量测试 **2441 passed · 3 skipped**（289 秒）；
+- `scripts\ci_local.py --quick` **13/13 通过 · 69.9 秒**；
+- `check_version`、`check_file_sizes`、`check_silent`、`check_feature_freeze` 全绿。
+
 ## v25.2.36 - 2026-10-29
 
 **评测底座 + 回归基线 + 聊天影子状态（批次 41；用户可见行为零变化）**

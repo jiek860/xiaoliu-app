@@ -28,6 +28,9 @@ RSA私钥*
 # 整个 data/ 都是本机运行产生的，不入库。
 # 配置模板另放在根目录的 config.default.json（已脱敏），那个要入库。
 data/
+# 例外：随代码发布的只读种子（人格卡 / few-shot），不是用户数据
+!core/chat/data/
+!core/chat/data/*.json
 *.db
 *.sqlite
 *.sqlite3

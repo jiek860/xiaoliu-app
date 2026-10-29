@@ -49,9 +49,9 @@
     "web_console",
     "workbench"
   ],
-  "core_files": 213,
+  "core_files": 215,
   "gui_files": 100,
-  "test_files": 177,
+  "test_files": 179,
   "button_total": 60,
   "button_widgets": 60,
   "coverage_thresholds": {

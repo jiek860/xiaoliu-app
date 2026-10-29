@@ -221,6 +221,7 @@ class DialogueState:
         return {"intent": turn.get("intent", "chat"),
                 "expects": turn.get("expects", "short_action"),
                 "brevity": turn.get("user_brevity", "short"),
+                "session": self.data.get("session_id", ""),
                 "topic": self.data["topic"].get("current", ""),
                 "relation": self.data["user"].get("relation_stage", "stranger"),
                 "valence": affect.get("user_valence", 0.0),

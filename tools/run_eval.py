@@ -22,6 +22,7 @@ import time
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
+sys.path.insert(0, os.path.join(BASE, "tools"))
 
 DOMAINS = ("safe", "chat", "nl", "code")
 _DOMAIN_FILES = {
@@ -143,12 +144,43 @@ def _run_code_fixture(case):
         shutil.rmtree(root, ignore_errors=True)
 
 
+_CHAT_TRUNK = None
+
+
+def _chat_trunk():
+    """真实聊天评测复用同一个 Trunk，避免每条用例重复加载。"""
+    global _CHAT_TRUNK
+    if _CHAT_TRUNK is None:
+        from core.trunk import Trunk
+        trunk = Trunk()
+        cfg = getattr(trunk, "config", None)
+        if isinstance(cfg, dict):
+            cfg["联网"] = False        # 评测不联网：结果可复现，也不花钱
+            cfg["工具调用"] = False    # 只测回复文本质量，不真的执行工具
+        _CHAT_TRUNK = trunk
+    return _CHAT_TRUNK
+
+
+def _run_chat(case):
+    """--with-model 下的真实生成：走完整回复链路后按 expect 打分。"""
+    from eval_metrics import eval_chat
+
+    answer = _chat_trunk().reply(case.get("input") or "", force_chat=True)
+    result = eval_chat(answer, case.get("expect") or {})
+    metrics = result.get("metrics") or {}
+    detail = "chars=%s sentences=%s %s" % (
+        metrics.get("chars"), metrics.get("sentences"),
+        "；".join(result.get("issues") or [])[:100])
+    return {"ok": bool(result.get("ok")), "detail": detail,
+            "metrics": metrics, "text": str(answer or "")}
+
+
 def _run_case(case, strict, with_model):
     kind = case.get("kind")
     if kind == "chat_case":
         if not with_model:
             raise Skipped("需要 --with-model")
-        raise Skipped("聊天生成评测在批次 42.5 接入")
+        return _run_chat(case)
     if kind == "nl_intent":
         return _run_nl(case, strict)
     if kind == "code_fixture":
@@ -340,6 +372,12 @@ def _markdown(out, version):
                 name, d["total"], d["passed"], d["failed"], d["skipped"],
                 d["rate"] * 100, d["desired_match"], d["desired_total"]))
         lines.append("")
+    chat = out.get("chat_summary") or {}
+    if chat:
+        lines += ["聊天真实生成：%d 条，平均 %.1f 字，8-gram 重复率 %.3f"
+                  "（目标：比基线下降 ≥30%%）" % (
+                      chat.get("count", 0), chat.get("avg_chars", 0),
+                      chat.get("repeat_rate", 0)), ""]
     lines += ["| # | 域 | 用例 | 结果 | 耗时(s) | 详情 |",
               "| --- | --- | --- | --- | --- | --- |"]
     for i, r in enumerate(out["results"], 1):
@@ -350,7 +388,8 @@ def _markdown(out, version):
     lines += ["", "说明：这是**确定性回归基线**，不调用模型；"
               "聊天/代码生成类用例默认跳过，"
               "用于每次改 Agent/补丁/权限逻辑后对比，不追求分数增长，"
-              "只要求保持全绿。", ""]
+              "只要求保持全绿。"
+              "（`--with-model` 时聊天域会走真实生成，单独给出字数与重复率。）", ""]
     return "\n".join(lines)
 
 
@@ -362,6 +401,8 @@ def main():
     ap.add_argument("--strict", action="store_true",
                     help="nl 用例按 desired 断言（默认只记录匹配率）")
     ap.add_argument("--with-model", action="store_true")
+    ap.add_argument("--chat-limit", type=int, default=0,
+                    help="只跑前 N 条聊天生成用例（0=全部）")
     ap.add_argument("--out", default=os.path.join(BASE, "data", "eval_result.json"))
     ap.add_argument("--report", default="", help="报告路径（等同 --out）")
     ap.add_argument("--markdown", default="", help="同时写一份 markdown 基线")
@@ -373,6 +414,15 @@ def main():
         print("[X] 未知域：%s（可选 %s 或 all）" % (domain, "/".join(DOMAINS)))
         return 2
     cases = _load_cases(domains)
+    if args.chat_limit and args.chat_limit > 0:
+        seen, kept = 0, []
+        for case in cases:
+            if case.get("domain") == "chat":
+                if seen >= args.chat_limit:
+                    continue
+                seen += 1
+            kept.append(case)
+        cases = kept
     if not cases:
         print("[X] 没有找到用例：%s" % "、".join(domains))
         return 2
@@ -411,6 +461,18 @@ def main():
     executed = [r for r in results if not r.get("skipped")]
     passed = sum(1 for r in executed if r.get("ok"))
     stats = _summarize(results)
+    chat_rows = [r for r in results
+                 if r.get("domain") == "chat" and not r.get("skipped")
+                 and r.get("text")]
+    chat_summary = {}
+    if chat_rows:
+        from eval_metrics import char_count, ngram_repeat_rate
+        texts = [str(r["text"]) for r in chat_rows]
+        chat_summary = {
+            "count": len(texts),
+            "avg_chars": round(sum(char_count(t) for t in texts) / len(texts), 1),
+            "repeat_rate": ngram_repeat_rate(texts),
+        }
     out = {
         "total": len(results),
         "passed": passed,
@@ -418,6 +480,7 @@ def main():
         "skipped": len(results) - len(executed),
         "rate": round(passed / max(1, len(executed)), 3),
         "domains": stats,
+        "chat_summary": chat_summary,
         "strict": bool(args.strict),
         "results": results,
     }

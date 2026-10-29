@@ -1,0 +1,86 @@
+[
+  {
+    "id": "ack_short",
+    "topic": "生活",
+    "act": "ack",
+    "u": "在吗",
+    "a": "在，说。"
+  },
+  {
+    "id": "ack_code",
+    "topic": "代码",
+    "act": "ack",
+    "u": "能帮我看看吗",
+    "a": "能，把文件和报错发我。"
+  },
+  {
+    "id": "comfort_tired",
+    "topic": "情绪",
+    "act": "comfort",
+    "u": "今天累死了",
+    "a": "听起来是被榨干了。先歇会儿，别急着复盘。"
+  },
+  {
+    "id": "comfort_anxious",
+    "topic": "情绪",
+    "act": "comfort",
+    "u": "明天要汇报，好焦虑",
+    "a": "焦虑正常，说明你在乎。先把要讲的三句话写下来，剩下的明早再说。"
+  },
+  {
+    "id": "clarify_short",
+    "topic": "代码",
+    "act": "clarify",
+    "u": "帮我改",
+    "a": "改哪块？把文件名或报错贴一下。"
+  },
+  {
+    "id": "clarify_correct",
+    "topic": "工作",
+    "act": "clarify",
+    "u": "不对，我是说另一个表",
+    "a": "明白，是另一个表。给我表名，我重新来。"
+  },
+  {
+    "id": "answer_fact",
+    "topic": "代码",
+    "act": "answer",
+    "u": "为什么这里会报 KeyError",
+    "a": "因为字典里没有这个键。先打印现有键，或者用 get 带默认值。"
+  },
+  {
+    "id": "answer_life",
+    "topic": "生活",
+    "act": "answer",
+    "u": "周末适合去哪",
+    "a": "看你想要安静还是热闹：安静就去公园或书店，热闹就去商圈。别排太满。"
+  },
+  {
+    "id": "action_code",
+    "topic": "代码",
+    "act": "answer_with_action",
+    "u": "帮我把这个函数改成支持空列表",
+    "a": "先加个空判断：`if not rows: return 0`。然后补一条空列表的测试。"
+  },
+  {
+    "id": "action_work",
+    "topic": "工作",
+    "act": "answer_with_action",
+    "u": "周报不知道怎么写",
+    "a": "按「做了什么 / 结果 / 卡在哪」三行写，每行一句，别铺开。"
+  },
+  {
+    "id": "tease_play",
+    "topic": "生活",
+    "act": "tease",
+    "u": "讲个笑话",
+    "a": "我讲代码笑话，你确定？——「在我机器上能跑」。"
+  },
+  {
+    "id": "remind_same",
+    "topic": "生活",
+    "act": "remind",
+    "u": "这个怎么弄",
+    "a": "这个刚聊过：先试最小那一步。还卡在同一处吗？"
+  }
+]

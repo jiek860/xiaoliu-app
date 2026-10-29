@@ -193,6 +193,7 @@ def test_pipeline_state_shadow_writes_and_returns_summary(tmp_path):
     summary = pipe._track_state("帮我修一下这个报错")
     assert summary["intent"] == "request_help"
     assert summary["turns"] == 1
+    assert summary["session"]
     assert os.path.exists(os.path.join(str(tmp_path), "data", "chat_state.json"))
 
 

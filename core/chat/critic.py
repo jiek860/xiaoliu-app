@@ -132,7 +132,7 @@ class ResponseCritic:
         has_code = "```" in original
         text = original
 
-        for word, repl in _BANNED:
+        for word, repl in self._banned_pairs():
             if word in text:
                 issues.append("banned")
                 text = text.replace(word, repl)
@@ -188,6 +188,20 @@ class ResponseCritic:
         ok = not [i for i in issues if i in ("empty", "too_long", "off_topic")]
         return {"ok": ok, "issues": sorted(set(issues)), "fixed_text": text,
                 "metrics": metrics, "source": source}
+
+    # ---------- 禁语（42.4 起以人格卡为准） ----------
+    def _banned_pairs(self):
+        rows = list(_BANNED)
+        try:
+            from core.chat.persona_card import PersonaCard
+            base = getattr(self.trunk, "base", ".") or "."
+            known = {w for w, _ in rows}
+            rows += [(w, r) for w, r in PersonaCard.load(base).banned_pairs()
+                     if w not in known]
+        except Exception as e:
+            _x6_swallowed(__name__, e, "banned_pairs")
+        rows.sort(key=lambda row: -len(row[0]))
+        return rows
 
     # ---------- 可选模型重写 ----------
     def _rewrite_enabled(self):

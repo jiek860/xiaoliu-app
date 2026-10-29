@@ -90,3 +90,43 @@ def test_summarize_separates_skip_and_match():
     assert stats["nl"]["rate"] == 1.0
     assert stats["chat"]["skipped"] == 1
     assert stats["chat"]["rate"] == 0.0
+
+
+def test_chat_case_with_model_generates_and_scores(monkeypatch):
+    class FakeTrunk:
+        def reply(self, text, force_chat=False):
+            assert force_chat is True
+            return "先看报错。参数没传。"
+
+    monkeypatch.setattr(run_eval, "_chat_trunk", lambda: FakeTrunk())
+    out = run_eval._run_case(
+        {"id": "t5", "kind": "chat_case", "input": "为什么报错",
+         "expect": {"max_sentences": 2, "max_chars": 40}},
+        strict=False, with_model=True)
+    assert out["ok"] is True
+    assert out["text"] == "先看报错。参数没传。"
+    assert out["metrics"]["sentences"] == 2
+
+
+def test_chat_case_with_model_marks_overlong(monkeypatch):
+    class FakeTrunk:
+        def reply(self, text, force_chat=False):
+            return "第一句。第二句。第三句。"
+
+    monkeypatch.setattr(run_eval, "_chat_trunk", lambda: FakeTrunk())
+    out = run_eval._run_case(
+        {"id": "t6", "kind": "chat_case", "input": "你好",
+         "expect": {"max_sentences": 1}}, strict=False, with_model=True)
+    assert out["ok"] is False
+    assert "句子过多" in out["detail"]
+
+
+def test_markdown_reports_chat_summary():
+    md = run_eval._markdown({
+        "total": 1, "passed": 1, "rate": 1.0, "skipped": 0,
+        "results": [{"id": "c1", "domain": "chat", "ok": True,
+                     "elapsed": 0.1, "detail": ""}],
+        "chat_summary": {"count": 2, "avg_chars": 12.5, "repeat_rate": 0.125},
+    }, "v-test")
+    assert "聊天真实生成：2 条" in md
+    assert "8-gram 重复率 0.125" in md
