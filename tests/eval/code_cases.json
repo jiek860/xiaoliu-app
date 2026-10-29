@@ -1,0 +1,22 @@
+[
+  {"id": "code_001", "kind": "code_fixture", "fixture": "tests/fixtures/code/snake", "goal": "修复吃到食物后分数不增加", "max_files": 2, "max_diff_lines": 20, "expect_initial": "failing"},
+  {"id": "code_002", "kind": "code_fixture", "fixture": "tests/fixtures/code/snake", "goal": "补一个吃到食物分数增加的回归测试", "max_files": 3, "max_diff_lines": 40, "expect_initial": "failing"},
+  {"id": "code_003", "kind": "code_fixture", "fixture": "tests/fixtures/code/snake", "goal": "让长度和分数同时更新，且不改变公开方法名", "max_files": 1, "max_diff_lines": 12, "expect_initial": "failing"},
+  {"id": "code_004", "kind": "code_fixture", "fixture": "tests/fixtures/code/snake", "goal": "解释 game.py 为什么分数不增加", "max_files": 0, "max_diff_lines": 0, "expect_initial": "failing"},
+  {"id": "code_005", "kind": "code_fixture", "fixture": "tests/fixtures/code/pyqt_form", "goal": "修复提交时没有调用回调", "max_files": 2, "max_diff_lines": 15, "expect_initial": "failing"},
+  {"id": "code_006", "kind": "code_fixture", "fixture": "tests/fixtures/code/pyqt_form", "goal": "回调抛异常时不能把保存次数加一", "max_files": 1, "max_diff_lines": 20, "expect_initial": "failing"},
+  {"id": "code_007", "kind": "code_fixture", "fixture": "tests/fixtures/code/pyqt_form", "goal": "补一个 handler 必被调用的测试", "max_files": 3, "max_diff_lines": 40, "expect_initial": "failing"},
+  {"id": "code_008", "kind": "code_fixture", "fixture": "tests/fixtures/code/pyqt_form", "goal": "让 submit 返回是否保存成功", "max_files": 2, "max_diff_lines": 25, "expect_initial": "failing"},
+  {"id": "code_009", "kind": "code_fixture", "fixture": "tests/fixtures/code/calc", "goal": "修复空列表除零", "max_files": 1, "max_diff_lines": 8, "expect_initial": "failing"},
+  {"id": "code_010", "kind": "code_fixture", "fixture": "tests/fixtures/code/calc", "goal": "空列表返回 0，并补边界测试", "max_files": 2, "max_diff_lines": 20, "expect_initial": "failing"},
+  {"id": "code_011", "kind": "code_fixture", "fixture": "tests/fixtures/code/calc", "goal": "让 average 支持生成器输入", "max_files": 1, "max_diff_lines": 12, "expect_initial": "failing"},
+  {"id": "code_012", "kind": "code_fixture", "fixture": "tests/fixtures/code/calc", "goal": "解释 average([]) 现在为什么崩", "max_files": 0, "max_diff_lines": 0, "expect_initial": "failing"},
+  {"id": "code_013", "kind": "code_fixture", "fixture": "tests/fixtures/code/import_cycle", "goal": "修复 a 与 b 的循环导入", "max_files": 3, "max_diff_lines": 30, "expect_initial": "failing"},
+  {"id": "code_014", "kind": "code_fixture", "fixture": "tests/fixtures/code/import_cycle", "goal": "把 VALUE 抽到独立模块", "max_files": 3, "max_diff_lines": 30, "expect_initial": "failing"},
+  {"id": "code_015", "kind": "code_fixture", "fixture": "tests/fixtures/code/import_cycle", "goal": "用延迟导入修复循环依赖，保持 API 不变", "max_files": 2, "max_diff_lines": 20, "expect_initial": "failing"},
+  {"id": "code_016", "kind": "code_fixture", "fixture": "tests/fixtures/code/import_cycle", "goal": "解释循环导入发生在哪一行", "max_files": 0, "max_diff_lines": 0, "expect_initial": "failing"},
+  {"id": "code_017", "kind": "code_fixture", "fixture": "tests/fixtures/code/unicode_path", "goal": "修复中文路径写入后用 UTF-8 读不回的问题", "max_files": 1, "max_diff_lines": 6, "expect_initial": "failing"},
+  {"id": "code_018", "kind": "code_fixture", "fixture": "tests/fixtures/code/unicode_path", "goal": "统一写入编码为 UTF-8，并补中文用例", "max_files": 2, "max_diff_lines": 20, "expect_initial": "failing"},
+  {"id": "code_019", "kind": "code_fixture", "fixture": "tests/fixtures/code/unicode_path", "goal": "让 write_text 支持追加模式", "max_files": 1, "max_diff_lines": 15, "expect_initial": "failing"},
+  {"id": "code_020", "kind": "code_fixture", "fixture": "tests/fixtures/code/unicode_path", "goal": "解释为什么这里会解码失败", "max_files": 0, "max_diff_lines": 0, "expect_initial": "failing"}
+]

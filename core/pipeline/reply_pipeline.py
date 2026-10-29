@@ -40,6 +40,7 @@ class ReplyPipeline:
 
     def run(self, user_input: str, on_token=None, cancel_token=None) -> str:
         t = self.trunk
+        _t_start = time.time()
         try:
             if "agent_flow" not in t.modules:
                 t.call("agent_flow", "__no__")
@@ -57,9 +58,11 @@ class ReplyPipeline:
         fast = self._try_computer_control(user_input)
         if fast is not None:
             self._record("电脑控制", "ok", "快速通道命中")
+            self._shadow(user_input, True, _t_start, None, fast, fast="computer")
             return fast
 
         is_simple = self.ctx.is_simple(user_input)
+        _t_ctx = time.time()
         context = self.ctx.build(user_input, is_simple)
         self._record("组装上下文", "ok", "简单=%s" % is_simple)
 
@@ -88,6 +91,8 @@ class ReplyPipeline:
         # 否则"停止"之后还要再等十几秒后台动作才真正结束。
         if cancel_token is not None and cancel_token.is_cancelled():
             self._record("用户取消", "cancelled")
+            self._shadow(user_input, is_simple, _t_start, _t_ctx, answer,
+                         cancelled=True)
             self._finish_chat(t)
             return answer or ""
 
@@ -95,10 +100,31 @@ class ReplyPipeline:
         answer = self.pp.merge_group(user_input, answer, prefetch=role_fut)
         answer = self.pp.verify_code(user_input, answer)
         self.pp.kick_off_background(user_input, answer)
+        self._shadow(user_input, is_simple, _t_start, _t_ctx, answer)
         self._record("收尾", "ok")
 
         self._finish_chat(t)
         return answer
+
+    def _shadow(self, user_input, is_simple, t_start, t_ctx, answer, **extra):
+        """影子状态：只记录，失败静默（批次 41.4）。"""
+        try:
+            now = time.time()
+            payload = {
+                "text": str(user_input or "")[:80],
+                "chars": len(str(user_input or "")),
+                "is_simple": bool(is_simple),
+                "intent": self.ctx.guess_intent(user_input),
+                "topic": self.ctx.guess_topic(user_input),
+                "total_ms": int((now - t_start) * 1000),
+                "ctx_ms": int((t_ctx - t_start) * 1000) if t_ctx else 0,
+                "gen_ms": int((now - t_ctx) * 1000) if t_ctx else 0,
+                "answer_chars": len(str(answer or "")),
+            }
+            payload.update(extra)
+            self.ctx.record_shadow(payload)
+        except Exception as e:
+            _x6_swallowed(__name__, e, "shadow")
 
     def _finish_chat(self, t):
         t._chat_in_progress = False

@@ -1,5 +1,41 @@
 # 版本变更记录
 
+## v25.2.36 - 2026-10-29
+
+**评测底座 + 回归基线 + 聊天影子状态（批次 41；用户可见行为零变化）**
+（冻结期不新增 Feature / 按钮：Feature 46、按钮 60 保持不变）
+
+**评测底座**
+- `tools/run_eval.py` 支持 `--domain safe|chat|nl|code|all`、`--dry-run`、
+  `--strict`、`--report`：安全、聊天、自然语言路由、代码任务四类用例可独立跑，
+  失败能定位到 case id；
+- 新增 60 条聊天用例、40 条自然语言路由用例、20 条代码任务用例（原 20 条
+  安全用例保留），共 **140 条**；`--with-model` 未开时聊天用例标记跳过；
+- 新增 `tools/eval_metrics.py`：句数/字数/emoji/问号/禁语命中/8-gram 重复率/
+  期望约束校验，纯函数、无网络；
+- 新增 5 个代码修复 fixture（分数不增加、按钮不响应、空列表除零、循环导入、
+  中文路径编码），评测时复制到临时目录，不污染本仓；
+- 基线报告 `docs/104_评测基线_2026-10-29.md`：safe 20/20、nl 40/40
+  （期望意图匹配 32/40=80%）、code 20/20（初始健康度），chat 待接模型。
+
+**聊天影子状态（只记录，不参与回复）**
+- 每轮对话追加一行 `data/chat_shadow.jsonl`：意图、话题、是否简单、
+  上下文/生成/整轮耗时、回答长度、是否用户取消；超过 2MB 自动轮转为 `.1`；
+- 开关「聊天.影子状态」默认开启；关闭后零行为差异，写入失败按
+  `diagnostics.swallowed` 静默，绝不影响回复。
+
+**内部**
+- 41.0 治理决策：后续批次新增 `core/chat/*` 等模块时，在**同一 PR 内**
+  执行 `check_feature_freeze.py --rebase --force` 并记录理由，不提前预留名额；
+- 新增测试 `test_eval_metrics.py`、`test_eval_domains.py`、
+  `test_shadow_state.py`，定向 21 passed。
+
+**验收**
+- `py -3 tools/run_eval.py --domain all` 出报告；`--dry-run` 结构校验通过；
+- `scripts\ci_local.py --quick` **13/13 通过 · 71.1 秒**；
+- `check_feature_freeze`（Feature 46 / core 210 / gui 100 / 按钮 60 / 测试 174）、
+  `check_file_sizes`、`ruff` 全绿。
+
 ## v25.2.35 - 2026-10-29
 
 **终端可选真 PTY（ConPTY）：装了 pywinpty 就有 Tab 补全 / 颜色 / 交互式程序**
