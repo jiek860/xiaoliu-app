@@ -219,7 +219,61 @@ class ContextBuilder:
         except Exception:
             return ""
 
+    # ============ 记忆 v2（批次 43.1）============
+    #
+    # 旧入口（memory_loop 情景）保持不变；`记忆.v2` 默认 shadow：
+    # 只把「本来会注入什么」写进影子日志，上下文仍是旧内容。
+    # `on` 才用新入口替换，且任何异常都回落到旧结果。
+    def memory_mode(self):
+        """记忆开关：off / shadow / on（`记忆.v2`，默认 shadow）。"""
+        try:
+            value = self.trunk.rule("记忆.v2", "shadow")
+        except Exception as e:
+            _x6_swallowed(__name__, e, "memory_mode")
+            value = "shadow"
+        if isinstance(value, bool):
+            return "on" if value else "off"
+        value = str(value or "").strip().lower()
+        return value if value in ("off", "shadow", "on") else "shadow"
+
+    def _memory_rule_int(self, key, default):
+        try:
+            return max(0, int(self.trunk.rule(key, default)))
+        except (TypeError, ValueError):
+            return int(default)
+
     def _ctx_memory(self, user_input: str) -> str:
+        legacy = self._ctx_memory_legacy(user_input)
+        mode = self.memory_mode()
+        if mode == "off":
+            return legacy
+        try:
+            from core.chat.memory_v2 import MemoryV2
+            base = getattr(self.trunk, "base", ".") or "."
+            mv = MemoryV2(base)
+            cards = mv.recall(
+                user_input,
+                topic=self.guess_topic(user_input),
+                limit=self._memory_rule_int("记忆.注入张数", 3),
+                max_chars=self._memory_rule_int("记忆.注入字数", 200),
+                hours=self._memory_rule_int("记忆.去重小时", 24),
+            )
+            text = mv.render(cards)
+            if mode == "shadow":
+                if text:
+                    self.record_shadow({"kind": "memory_v2",
+                                        "count": len(cards),
+                                        "preview": text[:200]})
+                return legacy
+            if text:
+                mv.commit(cards)         # 只有真正注入才记 24h 去重
+                return "\n" + text
+            return legacy
+        except Exception as e:
+            _x6_swallowed(__name__, e, "memory_v2")
+            return legacy
+
+    def _ctx_memory_legacy(self, user_input: str) -> str:
         try:
             ml = self.trunk.modules.get("memory_loop")
             if not ml:
