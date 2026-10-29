@@ -10,6 +10,12 @@ from __future__ import annotations
 
 import re
 
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:  # pragma: no cover
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 
 CODE_WORDS = (
     "代码", "函数", "类", "模块", "项目", "仓库", "编译", "重构", "报错",
@@ -39,9 +45,64 @@ def _score(text, words):
     return score, hits
 
 
-def route_goal(goal, *, has_code_root=True, explicit=None):
-    """返回 {kind, confidence, reason, scores}。"""
+def route_goal(goal, *, has_code_root=True, explicit=None, trunk=None,
+               context=None):
+    """返回 {kind, confidence, reason, scores}。
+
+    传入 ``trunk`` 时叠加批次 44.1 的 NL 意图层（开关 ``nl.intent_v2``）：
+        off    —— 完全走原三词表，行为与旧版一致
+        shadow —— 只把 NL 结果记进影子日志，``kind`` 不变（默认）
+        on     —— 原三词表仍先跑；只有“代码域 + 明确工作台意图 + 置信度
+                  ≥0.8 + 带文件/符号目标”时才保留/升级为 code，绝不抢占
+                  computer 域，也不会自动执行任何破坏性动作
+    """
     text = str(goal or "").strip()
+    result = _route_by_words(text, has_code_root=has_code_root,
+                             explicit=explicit)
+    if trunk is None:
+        return result
+    try:
+        from core.nl import intent as nl
+        mode = nl.mode(trunk)
+        if mode == "off":
+            return result
+        info = nl.route(text, context=context, threshold=0.62)
+        if mode == "shadow":
+            nl.record_shadow(trunk, info, text)
+            merged = dict(result)
+            merged["nl"] = info
+            return merged
+        return _merge_nl(result, info)
+    except Exception as e:
+        _x6_swallowed(__name__, e, "nl intent layer")
+        return result
+
+
+def _merge_nl(result, info):
+    """NL 只做加法：不抢电脑域、不自动执行，风险高的意图保留原路由。"""
+    out = dict(result)
+    out["nl"] = info
+    intent = info.get("intent", "chat")
+    has_target = any(t.get("type") in ("file", "symbol", "test")
+                     for t in info.get("targets") or [])
+    confident = float(info.get("confidence") or 0) >= 0.8
+    if out.get("kind") == "code" and intent in ("open_file", "run_test",
+                                                 "explain", "fix_error",
+                                                 "edit_code", "refactor",
+                                                 "plan", "undo", "search"):
+        out["reason"] = "%s / 意图:%s" % (out.get("reason", ""), intent)
+        return out
+    if out.get("kind") in ("chat", "computer") and has_target and confident \
+            and intent in ("fix_error", "edit_code", "refactor", "run_test",
+                           "explain", "open_file", "plan", "undo", "search"):
+        out.update({"kind": "code", "confidence": info.get("confidence", 0.8),
+                    "reason": "NL 意图:%s" % intent})
+    return out
+
+
+def _route_by_words(text, *, has_code_root=True, explicit=None):
+    """原三词表规则档（批次 44 起作为 NL 的第一段）。"""
+    text = str(text or "").strip()
     if explicit in ("code", "computer", "chat"):
         return {"kind": explicit, "confidence": 1.0,
                 "reason": "用户显式指定", "scores": {}}
