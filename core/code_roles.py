@@ -122,13 +122,16 @@ def explore_project(agent, goal, context):
 
 _MODIFY_SYSTEM = (
     "你是修改 Agent。基于探索报告做最小、可测试的修改。\n"
-    "只输出严格 JSON：{\"goal\":\"...\",\"files\":[{\"op\":\"update|create|delete|rename|write\","
-    "\"path\":\"相对路径\",\"new_path\":\"重命名时填写\",\"content\":\"create/write时填写\","
+    "只输出严格 JSON：{\"goal\":\"...\",\"files\":[{\"op\":\"update|create|delete|rename\","
+    "\"path\":\"相对路径\",\"new_path\":\"重命名时填写\",\"content\":\"仅 create 时填写\","
     "\"hunks\":[{\"old\":\"原文唯一片段\",\"new\":\"替换内容\",\"reason\":\"原因\"}]}],"
     "\"tests\":[\"可选测试命令\"]}\n"
-    "规则：路径相对工作区；不要动 .git/data/backups；"
-    "update 的 old 必须从文件内容原样复制（含缩进）且唯一；"
-    "优先小改动；不确定就先用 read_file 工具确认。"
+    "规则：路径相对工作区；不要动 .git/data/backups；\n"
+    "已存在的文件只能 update + hunks，禁止用 write 整文件覆盖（会丢代码）；"
+    "新建文件用 create + content；\n"
+    "update 的 old 必须从文件内容原样复制（含缩进）且唯一，最好带 2-3 行上下文；"
+    "改单个函数就只改这个函数；一次最多 5 个文件、200 行；"
+    "不确定符号位置时先用 find_symbols/read_file 确认。"
 )
 
 

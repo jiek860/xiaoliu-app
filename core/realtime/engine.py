@@ -239,6 +239,16 @@ class RealtimeEngine:
             self._tts_q.put((rid, None))
             self._set_state("LISTENING")
 
+    def _tts_emotion(self):
+        """48.3：语音情绪跟人格心境走；关闭开关返回 None（旧行为）。"""
+        try:
+            if not bool(self.trunk.rule("语音.情绪", True)):
+                return None
+            pers = (getattr(self.trunk, "modules", {}) or {}).get("personality")
+            return str((getattr(pers, "data", {}) or {}).get("mood") or "")
+        except Exception:
+            return None
+
     def _tts_loop(self):
         """TTS 线程
 
@@ -269,7 +279,8 @@ class RealtimeEngine:
                     self.player.end_round(rr["gen"])
                     continue
                 try:
-                    p = self.tts.synthesize(sent, tag=str(rid))
+                    p = self.tts.synthesize(sent, tag=str(rid),
+                                            emotion=self._tts_emotion())
                     if p:
                         self.player.play(rr["gen"], p)
                 except Exception as e:

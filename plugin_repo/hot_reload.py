@@ -167,11 +167,34 @@ class HotReload(BaseModule):
             sys.modules[mod_key] = mod
             spec.loader.exec_module(mod)
             new_cls = None
+            # ⚠️ 选类规则（2026-10-28 修正）：
+            #   1) 先找 `BaseModule` 的公开子类；
+            #   2) 没有就退回"第一个公开类"（老插件不一定继承 BaseModule）；
+            #   3) 以下划线开头的一律跳过 —— 那是模块内部实现类。
+            # 旧逻辑直接取"第一个类"，而 voice.py 第一个类恰恰是内部的
+            # `_BackendFasterWhisper`，于是 `new_cls(self.trunk)` 把 trunk 当
+            # model_name，后台线程里去加载 Whisper 模型 → C 层 access violation，
+            # 整个进程直接死（日志里连栈都没有）。
+            try:
+                from modules.base import BaseModule as _BaseModule
+            # 静默是故意的：老插件可能没有 modules.base，退回下面的宽松匹配
+            except Exception:
+                _BaseModule = None
+            candidates = []
             for _k, v in vars(mod).items():
-                if isinstance(v, type) and v.__module__ == mod.__name__:
+                if isinstance(v, type) and v.__module__ == mod.__name__ \
+                        and not _k.startswith("_"):
+                    candidates.append(v)
+            for v in candidates:
+                if _BaseModule is not None and issubclass(v, _BaseModule):
                     new_cls = v
                     break
-            if new_cls and self.trunk:
+            if new_cls is None and candidates:
+                new_cls = candidates[0]
+            if new_cls is None:
+                self._rollback(name, bak_path)
+                return False, "❌ %s 里没找到模块类（需要有公开的类定义），已回滚" % name
+            if self.trunk:
                 try:
                     self.trunk.modules[name] = new_cls(self.trunk)
                 except TypeError:

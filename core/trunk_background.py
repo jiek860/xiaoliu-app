@@ -336,7 +336,12 @@ class TrunkBackgroundMixin:
             try:
                 _rfl = self.modules.get("self_reflect") or self._load_lazy("self_reflect")
                 if _rfl and hasattr(_rfl, "quick_eval"):
-                    _rfl.quick_eval(user_input, answer)
+                    _res = _rfl.quick_eval(user_input, answer)
+                    # 48.3：错误占位也算一个可主动关心的事件（每天最多一条）
+                    if _res and (_res.get("分数") or 10) <= 2:
+                        _pers = self.modules.get("personality")
+                        if _pers and hasattr(_pers, "queue_proactive"):
+                            _pers.queue_proactive("error", str(user_input)[:40])
             except Exception as e:
                 _x6_swallowed(__name__, e)
                 pass

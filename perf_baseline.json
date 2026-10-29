@@ -1,44 +1,89 @@
 {
   "cold_start_ms": {
     "ok": true,
-    "ms_median": 441.01,
+    "ms_median": 382.02,
     "samples_ms": [
-      454.13,
-      436.99,
-      441.01
+      383.17,
+      380.25,
+      382.02
     ]
   },
   "first_token_ms": {
     "ok": true,
-    "ms_median": 0.0026,
+    "ms_median": 0.0023,
     "samples_ms": [
-      0.0305,
-      0.0076,
-      0.0042,
-      0.003,
-      0.003
+      0.0353,
+      0.0081,
+      0.0041,
+      0.0026,
+      0.0028
     ]
   },
   "import_core_modules": {
     "ok": true,
-    "ms_median": 173.44,
+    "ms_median": 155.81,
     "samples_ms": [
-      181.09,
-      173.44,
-      172.98
+      159.79,
+      155.3,
+      155.81
     ]
   },
   "import_gui_build_ui": {
     "ok": true,
-    "ms_median": 184.92,
+    "ms_median": 149.36,
     "samples_ms": [
-      320.19,
-      184.92,
-      155.46
+      149.37,
+      141.97,
+      149.36
     ]
   },
-  "artifact_bytes": 0,
-  "source_bytes": 6549616,
-  "generated_at": "2026-10-25T13:45:58Z",
-  "process_rss_mb": 18.48
+  "code_index_refresh_ms": {
+    "ok": true,
+    "ms_median": 158.78,
+    "samples_ms": [
+      349.32,
+      155.63,
+      158.78
+    ]
+  },
+  "code_index_search_ms": {
+    "ok": true,
+    "ms_median": 186.04,
+    "samples_ms": [
+      186.56,
+      177.73,
+      186.04
+    ]
+  },
+  "retrieval_search_ms": {
+    "ok": true,
+    "ms_median": 216.92,
+    "samples_ms": [
+      216.92,
+      215.17,
+      218.53
+    ]
+  },
+  "memory_recall_ms": {
+    "ok": true,
+    "ms_median": 582.78,
+    "samples_ms": [
+      582.78,
+      590.77,
+      579.52
+    ]
+  },
+  "context_trim_ms": {
+    "ok": true,
+    "ms_median": 63.92,
+    "samples_ms": [
+      64.79,
+      63.92,
+      61.68
+    ]
+  },
+  "artifact_bytes": 184612264,
+  "source_bytes": 7796927,
+  "generated_at": "2026-10-29T15:26:39Z",
+  "process_rss_mb": 18.51
 }

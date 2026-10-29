@@ -235,6 +235,31 @@ class RuleEngine:
         self.register("安全.研究放开", E, "规则", "允许学习CVE/CTF/渗透/防御等公开安全资料（用于学习与防御）", True)
         self.register("安全.底线严格", E, "规则", "拒绝攻击真实系统/恶意软件/入侵盗号/诈骗勒索", True)
 
+        # ===== F 组：成长与主动（批次 48） =====
+        F = "F-成长与主动"
+        self.register("反思.多维评分", F, "规则",
+                      "多维反思 off/shadow/on（关掉回到 v2.1 行为）", "shadow")
+        self.register("反思.失败库", F, "规则",
+                      "低分样本写入 data/chat_failures.jsonl", True)
+        self.register("反思.建议晋升", F, "规则",
+                      "同类建议聚合为候选规则（人工确认后生效）", True)
+        self.register("反思.晋升阈值", F, "参数",
+                      "同类建议出现几次生成候选", 3)
+        self.register("反思.TTL天", F, "参数",
+                      "反思建议有效天数（防过拟合）", 30)
+        self.register("主动.事件驱动", F, "规则",
+                      "事件驱动主动搭话 off/shadow/on", "shadow")
+        self.register("主动.免打扰开始", F, "参数", "免打扰开始小时（24 制）", 22)
+        self.register("主动.免打扰结束", F, "参数", "免打扰结束小时（24 制）", 8)
+        self.register("主动.沉默分钟", F, "参数",
+                      "用户多久没说话才触发长沉默搭话（分钟）", 90)
+        self.register("主动.接受窗口分钟", F, "参数",
+                      "用户多久内回话算接受主动搭话（分钟）", 30)
+        self.register("语音.情绪", F, "规则",
+                      "TTS 按心境调语速/音调 off/on", "on")
+        self.register("语音.首包上限ms", F, "参数",
+                      "语音首包超过该毫秒数回退文本", 1500)
+
     def get_all_rules(self):
         """获取所有规则"""
         return {rid: r for rid, r in self.registry.items()}

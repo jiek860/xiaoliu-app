@@ -28,6 +28,13 @@ class PersonalityStateMixin:
             "new_words": [], "guilt": [],
             "last_proactive_date": "",       # 今天是否已主动搭过话
             "last_user_feeling": "中性",     # 上次用户情绪
+            # 批次 48.3：事件驱动主动 + 接受率统计（旧文件自动补齐）
+            "pending_proactive": [],         # 待发事件（最多 5 条）
+            "proactive_last": {},            # 最近一次主动：id/kind/ts/accepted
+            "proactive_history": [],         # 最近主动记录（含是否被接受）
+            "proactive_stats": {"sent": 0, "accepted": 0,
+                                "suppressed": 0, "shadow": 0},
+            "proactive_shadow": [],          # 影子模式记录（不真的发）
         }
         if os.path.exists(self.path):
             try:
@@ -167,6 +174,11 @@ class PersonalityStateMixin:
         """从用户话里提取值得以后提的事，存进 narrative"""
         if re.search(r'(明天|下周|后天|过两天|以后要|回头|待会|等下)', user_text) and len(user_text) < 60:
             self.add_narrative(user_text[:60])
+            # 48.3：记下的约定也是一个可主动追问的事件
+            try:
+                self.queue_proactive("commitment", user_text[:40])
+            except Exception as e:
+                _x6_swallowed(__name__, e)
 
     def learn_feedback(self, user_text):
         if re.search(r'(你真聪明|你真好|你厉害|谢谢你|辛苦你|你好棒|夸你)', user_text):

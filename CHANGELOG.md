@@ -1,5 +1,385 @@
 # 版本变更记录
 
+## v25.3.0 - 2026-10-29
+
+**反思、成长、主动与发布（批次 48–49）**
+（48 批开关默认 `shadow`/关：`反思.多维评分=shadow`、`主动.事件驱动=shadow`；
+`语音.情绪=on` 只在用户主动朗读时生效，关掉即回旧行为）
+
+**多维反思与失败库（48.1）**
+- `core/chat/critic.py` 增加 `rubric_dims`：准确/贴合/人格/有用/长度各 1-5 分，
+  规则先给底线分，模型可用时覆盖；总分 <3.0 或任一项 ≤2 记为低分。
+- `modules/installed/self_reflect.py`：`reflect`/`quick_eval` 记录维度；
+  `off` 模式完全回到 v2.1（只返回旧三键）；`shadow` 不改旧分数语义。
+- `core/chat/fewshot.py` 新增 `data/chat_failures.jsonl` 失败库：脱敏、
+  7 天内同类去重、最多 200 条；`recheck_failures` 按当前规则复查并算复现率；
+  `weekly_report` 输出近 7 天低分、失败类别与行动项。
+
+**建议晋升（48.2）**
+- 同类建议 ≥3 次生成候选，**必须人工 `confirm_candidate` 才生效**；
+  写入 `data/chat_promoted_rules.json`，`revoke_candidate` 立即撤销；
+  确认/撤销全程写 `data/chat_promoted_audit.jsonl`。
+- `core/chat/persona_card.py` 只读生效规则：禁语并入 `banned_pairs`，
+  风格文本并入人格卡；`ResponseCritic` 因此能直接拦截晋升禁语。
+- `get_advice` 注入生效规则与 30 天内低分建议，过期建议自动失效。
+
+**事件驱动主动与语音情绪（48.3）**
+- `core/personality_style_hints.py`：`queue_proactive` / `consume_proactive`
+  / `note_user_reply` / `proactive_stats`；任务完成、报错、约定、里程碑、
+  长沉默五类事件，每天最多一条，22:00-08:00 免打扰，30 分钟内回话记接受。
+- `core/agent_service.py` 任务结束入队；`core/trunk_background.py` 错误占位入队；
+  `remember_event` 记下约定时入队；GUI 定时器先取事件，再回退旧搭话。
+- `modules/installed/tts.py`：按 mood 调 rate/pitch/volume；
+  首包超过 `语音.首包上限ms`（默认 1500）取消合成并返回
+  `{"ok": false, "fallback": "text"}`，不让用户干等。
+- `core/realtime/tts.py` 同步支持情绪参数。
+
+**开关矩阵与发布（49.1–49.3）**
+- 新增 `tools/ab_matrix.py`：17 个开关的成对覆盖矩阵（24 组，覆盖任意
+  两开关的全部取值组合），本地探针验证读回、反思 off/shadow/on、主动预算、
+  语音情绪；`--full` 可笛卡尔积（默认上限 256）。
+- 新增 `docs/105_开关矩阵与默认决策_2026-10-29.md`：默认值决策表、
+  回滚方式、41.3 基线对比口径；不编造模型指标，待采集项明确标注。
+- `tools/perf_baseline.py` 增加索引刷新/检索、检索器、记忆召回、上下文裁剪
+  探针；本机门禁通过（数值见 `perf_baseline.json`）。
+- 稳定版 v25.3.0；48/49 回归见 `docs/20` 批次记录。`docs/30` 规则数同步为
+  75（新增 F 组 12 条）；`tts` 的情绪表改为只读元组，插件质量门禁回到 0 error。
+
+**崩溃修复（发布门禁）**
+- `gui/code_editor_widget.py`：`document().modificationChanged` 原来连到 lambda，
+  分屏第二个视图销毁后连接仍挂在共享文档上，回调落进已销毁控件会造成
+  Qt 访问冲突（0xC0000005，全量跑到 95% 时随机中断）。改为绑定方法
+  `_on_modified`，共享文档后重新连接；控件销毁时 Qt 自动断开。
+
+**CI 门禁修复（PR #70）**
+- Bandit B324：6 处 SHA1 显式传 `usedforsecurity=False`
+  （`chat/fewshot.py`、`chat/memory_v2.py`、`code/index_v2.py`、`code/rules.py`、
+  `gui/memory_view_dialog.py`）；这些哈希只做缓存键/去重 id，不用于安全，行为不变。
+- CodeQL “Inefficient regular expression”：`core/agent_router.py` 识别
+  “目录/文件.py”的正则含嵌套量词，20000 个 `-` 需 3.2–7.8 秒；改为线性
+  `_looks_like_code_path`（切词后判“含 / 且以代码后缀结尾”，或含三反引号），
+  语义不变，压测 0.3ms。
+
+## v25.2.42 - 2026-10-29
+
+**补全与代码问答（批次 47）**
+（开关默认全关：`code_complete.jedi=false`、`code_qa.enabled=false`——
+默认补全仍是本地关键字 + 本文件符号，问答仍交给代码 Agent）
+
+**jedi 可选接入（47.1）**
+- `core/code/completion.py`：`jedi_completions`（Top-5、过滤 dunder；
+  临时把项目根放进 `sys.path`，同项目 `import` 的模块也能被推断）、
+  `jedi_available`（每进程只探测一次）、`complete_words`（编排；
+  jedi 没装/报错一律回退关键字）。
+- `gui/code_editor_widget.py`：开关打开才叠 jedi 候选，补全永远不会"空"；
+  编辑器由 `code_editor_dialog` 挂上 trunk 读取开关与索引。
+
+**排序与节流（47.2）**
+- `rank_words`：本文件 > jedi > 近期编辑 > 同目录 > 索引；同档先看前缀
+  大小写是否精确命中，再按长度/字典序，候选顺序稳定不跳。
+- 键入到出候选的防抖 300ms → **80ms**；同目录候选按 mtime 签名缓存，
+  文件改了自动失效。
+
+**代码问答（47.3）**
+- `core/agent_router.py`：五模板（解释/定位/影响面/用法/对比）分类；
+  带动作词（改/修复/实现/删除…）的句子不拦，仍交给代码 Agent。
+- `answer_code_question` 用工作区索引出引用：回答必带 `文件:行`，
+  解释/用法/对比补签名与首行说明，影响面/用法列相关测试；
+  找不到符号就返回 `ok=False`，调用方退回正常流程。
+- 工作台开关开着且识别为代码问题时先就地回答、不启动 Agent；
+  `gui/ai_dock_service.py` 的 `LinkPlainTextEdit` 让 `文件:行`
+  可双击 / Ctrl+单击跳到编辑器对应行。
+
+**文件拆分**
+- 新增 `gui/ai_dock_service.py`（后台任务接线 + 可点击引用），
+  `workbench_ai_dock.py` 578 → 479 行。
+
+**冻结期名额**
+- 新增 `core/code/completion.py`、`gui/ai_dock_service.py`，
+  core 229 → 230、gui 101 → 102，同提交执行
+  `check_feature_freeze.py --rebase --force`；测试 198 → 200；
+  Feature / 按钮预算不变（46 / 60）。
+
+**测试**
+- 新增 `test_completion_jedi`（17，无 jedi 时相关用例跳过）、
+  `test_code_qa`（18），共 **35 passed**；工作台/Agent 回归 133 passed。
+
+## v25.2.41 - 2026-10-29
+
+**代码 Agent v2：后台任务 + 局部补丁 + 影响面验证（批次 46）**
+（开关默认全关：`code_agent.background=false`、`code_agent.auto_apply=false`、
+`code.patch_v2=shadow`、`code.verify_select=off`，默认行为与 v25.2.40 一致）
+
+**后台任务服务（46.1）**
+- `core/agent_service.py`：单写者锁（同一项目同时只跑一个任务）、
+  队列消费（`data/code_jobs/queue.json`）、暂停/取消/续跑、事件扇出。
+- `gui/workers.py` 增加 `AgentServiceWorker`：后台线程只调用 core 服务、
+  只 emit 信号，不碰控件；面板关闭后由注册表持有线程，避免 QThread 被 GC。
+- 工作台 `code_agent.background=true` 时改走后台线程，窗口不再 `processEvents`
+  硬撑；关闭面板任务继续跑，重开可看事件。
+- 审批改为"事件 + 应答"：后台线程 emit `approval` 与 request_id，
+  GUI 线程弹窗后 `answer(request_id, ok)`；超时/取消按拒绝处理（fail-closed）。
+
+**L2 自动档（46.2）**
+- 风险分级复用 `core/patch_protocol.classify_patch`：新建/新增测试=低，
+  单函数小改=中，删改/重命名/配置依赖/跨 3 文件/大改=高，受保护路径=禁止。
+- `code_agent.auto_apply=true` 时 L2 自动应用 low/medium，high 仍问人；
+  L3 在计划确认后连 high 也自动应用；每次自动应用 emit `auto_apply`，
+  UI 顶部提示走撤销入口（备份清单由 Agent 产出）。
+
+**PatchV2（46.3）**
+- `core/patch_protocol.py`：在 `validate_patch` 之上补 v2 规则——
+  已存在文件禁止 `write`（整文件覆盖）、单次最多 5 文件/200 行、
+  `line` 锚点软校验（偏移 >3 行只警告）、落盘前 Python/JSON 语法预演。
+- `core/code_roles.py` 提示词改为"update + hunks 局部修改，create 新建"，
+  不再引导模型 `write` 整文件。
+- `core/code_explorer.py` 的 `_parse_patch` 接入审查：shadow 记录事件、
+  on 才拒绝并触发回修，off 完全走旧逻辑。
+
+**影响面验证（46.4）**
+- `core/code/verify.py`：`select_tests`（按改动文件反查 import 相关测试）、
+  `selected_commands`（拼 pytest 目标，找不到 pytest 退回全量）、
+  `locate_failures`（`File "...", line N` / `path.py:N` → 函数名）、
+  `retry_flakes`（失败用例重跑一次，仍挂才算真失败）。
+- `code_agent.run_tests(changed_files=...)` 与失败摘要接入上述能力，
+  `code.verify_select=on` 才启用。
+
+**内联编辑（46.5）**
+- `gui/code_editor_ai.py`：AI 修复按"选区 > 光标所在函数 > 整文件"取目标，
+  只替换目标范围；整文件回退时用 `minimal_hunks` 压成行级 hunk，
+  不再直接 `setPlainText` 覆盖全文。
+- 所有修改仍先过 diff 预览；写后记审计（`data/code_edits.jsonl`，
+  文件、模式、前后哈希）。
+
+**冻结期名额**
+- 新增 `core/agent_service.py`、`core/patch_protocol.py`、
+  `core/code/verify.py`，core 226 → 229，同提交执行
+  `check_feature_freeze.py --rebase --force`；测试 193 → 198；
+  Feature / gui / 按钮预算不变（46 / 101 / 60）。
+
+**测试**
+- 新增 `test_agent_service`（13）、`test_auto_apply`（10）、
+  `test_patch_protocol`（17）、`test_verify_select`（11）、
+  `test_inline_edit`（8），共 **57 passed**；
+  Agent/工作台回归 161 passed。
+
+## v25.2.40 - 2026-10-29
+
+**代码索引与上下文 v2（批次 45）**
+（`code.context_v2` 默认 shadow：Agent 上下文与 v25.2.39 完全一致，
+只按 10% 抽样记影子日志）
+
+**函数级代码索引（45.1–45.2）**
+- `core/code/index_v2.py`：AST 切函数/类/模块块，写入独立库
+  `data/code_index_v2.db`（SQLite FTS5）；`search / outline` 返回
+  `path / symbol / kind / start_line / end_line / score`。
+- 增量刷新：`meta` 表按 `mtime + size + sha1` 跳过未变文件，删除文件时
+  同步清 `chunks / calls / imports`；单文件 >2MB 直接跳过。
+- 调用图：`calls / imports` 落库，`callers_of / callees_of / tests_for`
+  走 SQL 反查，不再每次重算 AST。
+
+**上下文 v2（45.3–45.4）**
+- `core/code/context_v2.py`：块优先级拼装
+  （项目约定 > 任务 > 选区 > 失败栈 > 当前文件 > 相关文件 > 相关测试），
+  预算 = `max_chars × 0.75`，超预算丢低优块并标 `truncated`。
+- `parse_failure`：只认 `File "...", line N` 与 `path.py:N[:C]`，
+  命中文件提升为高优块；解析失败返回空、不抛错。
+- `core/code_context.py` 改为分发器：`off` 旧实现、`shadow` 旧实现 +
+  抽样对照、`on` 走 v2；v2 异常静默回退旧上下文。
+
+**项目约定（45.5）**
+- `core/code/rules.py`：读 `x6.rules.md / AGENTS.md / CONTRIBUTING.md /
+  coding_rules.md` 与 `docs/` 规则类 md，抽取标题/列表/强约束词，
+  压到 1200 字；`mtime+size` 签名缓存，原子写 `data/code_rules_cache.json`。
+
+**冻结期名额**
+- 新增 `core/code/__init__.py / index_v2.py / context_v2.py / rules.py`，
+  core 222 → 226，同提交执行 `check_feature_freeze.py --rebase --force`；
+  测试 189 → 193；Feature / gui / 按钮预算不变（46 / 101 / 60）。
+
+**测试**
+- 新增 `test_code_index_v2`（10）、`test_call_graph`（6）、
+  `test_code_context_v2`（10）、`test_code_rules`（7），共 **32 passed**；
+  旧链路回归 44 passed。
+
+## v25.2.39 - 2026-10-29
+
+**工作台自然语言命令层（批次 44）**
+（`nl.intent_v2` 默认 shadow：命令中心行为与 v25.2.38 完全一致，只记影子日志）
+
+**统一意图（44.1）**
+- `core/nl/intent.py`：`intent / targets / scope / constraints / risk` 五字段
+  schema；10 类工作台意图；斜杠命令 `/open /test /explain /fix /code
+  /refactor /search /undo /plan /chat`。
+- 三段式路由：规则档（斜杠/路径/符号/测试名，≥0.78 不调模型）→
+  小模型档（注入 `model_call`，解析 JSON，坏输出回退）→ 追问档
+  （低于阈值只问一个最关键的问题）。
+- 撤销短语优先于「改」；`undo / refactor` 固定高风险，出现删除/格式化/
+  全项目等字样升级为高风险；破坏性意图 `auto_execute` 恒为 False。
+- `core/agent_router.route_goal(..., trunk=...)` 叠加 NL：`off` 完全走旧
+  三词表，`shadow` 只记影子日志，`on` 仅在带明确文件/符号目标且置信度
+  ≥0.8 时升级为 code，绝不抢占电脑域。
+
+**实体解析（44.2）**
+- `core/nl/entities.py`：文件（精确 > 路径后缀 > 同名 > 前缀 > 子串）、
+  符号（复用 `workspace_index.find_symbols`）、测试名、本地分支
+  （读 `.git/refs/heads` 与 `packed-refs`，不跑子进程）；解析不到给
+  ≤5 个候选；无索引时文件退回磁盘遍历。
+
+**澄清与计划卡（44.3）**
+- `core/nl/clarify.py`：缺 target / test / query 时只问一句；当前文件、
+  选区、最近报错可补槽位；候选不唯一时给出 ≤5 个选项；回答可直接并回
+  意图（补文件/符号/测试/关键词/全部测试）。
+- 计划卡复用 `core/code_plan`：步骤统一带 `done=False`、`index`，附
+  风险/测试/回退提示，界面可直接渲染成可勾选清单。
+
+**命令中心（44.4）**
+- 新增 `gui/ide_command_center.py`，`gui/ide_sidebar.py` 从 591 行降到
+  510 行并 re-export 旧入口；执行顺序仍为「精确命令 → 模糊命令 →
+  NL 意图 → 按文件名打开」。
+- `core/nl/command.py`：`@file` / `@symbol` 直引；动作仅 open /
+  run_test / search / ai / undo；撤销读 `data/patch_backups` 最新清单并
+  调 `patch_engine.rollback`，无清单明确提示。
+- shadow 时 `_run_nl()` 只写 `nl_intent` 影子日志并回退旧逻辑；`off`
+  不记录；`on` 才执行。未新增任何按钮（仍 60/60）。
+
+**冻结期名额**
+- 合并 rebase：core 219 → 222（entities/clarify/command）、gui 100 → 101
+  （ide_command_center），同提交 `check_feature_freeze.py --rebase --force`；
+  Feature / 按钮预算不变。
+
+**测试**
+- 新增 `test_nl_intent`（58）、`test_nl_entities`（15）、`test_nl_clarify`
+  （14）、`test_command_center`（22）；GUI 回归 171 passed · 2 skipped。
+
+## v25.2.38 - 2026-10-29
+
+**记忆 v2 收尾：每周巩固任务 + 灰度对照报告（批次 43.5）**
+（默认 shadow：不生成、不改写记忆内容，用户可见行为与 v25.2.37 一致）
+
+**每周巩固（43.5）**
+- `core/chat/memory_jobs.py`：`weekly_consolidate()` 只做减法 —— 删除已过期卡、
+  同 id 只留最新一条、总量压到 800 条上限；旧卡没有 id 一律保留，
+  不误删、不做摘要、不调模型。
+- 有改动才留 `memory_cards.jsonl.bak` 并用 `.tmp + os.replace` 原子替换；
+  无改动不碰文件；异常只记 `stats["error"]`，由 scheduler 记录并重试。
+- `modules/installed/scheduler.py` 接入：`定时.记忆巩固间隔秒` 默认 7 天，
+  启动 600 秒后首轮、聊天中让路；成功后日志输出「前→后（过期/重复/裁剪）」。
+
+**灰度对照报告（43.5）**
+- `tools/memory_report.py`：只读 `data/chat_shadow.jsonl`，统计 v2 注入字数
+  与旧记忆段字数、用户说「还记得」时的预览命中率、影子期本应写入条数；
+  支持 `--base / --json / --markdown`，可生成 `docs/105` 灰度报告。
+- 影子行补充 `v2_chars / legacy_chars`，旧日志缺字段时回退 `preview` 长度。
+
+**冻结期名额**
+- 新增 `core/chat/memory_jobs.py`，core 模块 216 → 217：同提交执行
+  `check_feature_freeze.py --rebase --force` 并记录理由（巩固逻辑需脱离
+  Qt/Trunk 独立测试，且 `memory_v2.py` 已 576 行，继续内联会越过 600 行硬限）；
+  Feature / gui / 按钮预算均未增加。
+
+**测试**
+- 新增 `tests/test_memory_jobs.py`（11）与 `tests/test_memory_report.py`（8），
+  合计 19 passed。
+
+## v25.2.37 - 2026-10-29
+
+**聊天拟人 v1：状态层 + 规划器 + 校验器 + 分层人格卡 + few-shot 灰度（批次 42）**
+（默认影子 / 灰度 0：用户可见行为与 v25.2.36 一致；冻结期不新增 Feature / 按钮）
+
+**对话状态层（42.1，默认 shadow）**
+- 新增 `core/chat/state.py`：逐轮记录意图、期望、长度偏好、情绪（EMA）、
+  话题（双轮切换防抖）、关系、未回答数、承诺到期；
+- 原子写 `data/chat_state.json`（`.tmp` + `os.replace`），损坏文件回默认，
+  异常按 `diagnostics.swallowed` 静默，不影响回复；
+- 开关「聊天.状态层」= `off | shadow | on`，默认 `shadow`。
+
+**回应规划器（42.2，默认 shadow）**
+- 新增 `core/chat/planner.py`：按状态与用户输入规划 8 种 act
+  （ack/answer/answer_with_action/comfort/clarify/refuse/tease/remind），
+  输出长度、语气、必须包含/避免内容、是否反问；
+- 危险请求在入口直接规则拒绝，不交给模型规划；
+- `rule/model` 生效时把「本轮回复要求」作为一条 system 消息插在最终用户消息前；
+- 开关「聊天.规划器」= `off | shadow | rule | model`。
+
+**生成后校验器（42.3，默认 shadow）**
+- 新增 `core/chat/critic.py`：检查空回复/超长/复述用户话/重复句/禁语/列点/
+  emoji 超预算/反问过多/疑似答非所问；
+- 规则修复优先（截断、去复述、去重句、拆列点、减 emoji），
+  「聊天.校验重写」打开时才允许一次模型重写，超长/空结果即拒绝；
+- 开关「聊天.校验器」= `off | shadow | on`。
+
+**分层人格卡（42.4，默认 shadow）**
+- 新增 `core/chat/data/persona_tiers.json`（随包种子，用户可在
+  `data/persona_tiers.json` 放同名文件覆盖）与 `core/chat/persona_card.py`：
+  L1 核心 / L2 关系 / L3 情境 / L4 风格四层，总预算 520 字，按句读截断；
+- 四种风格（松弛/毒舌/温和/专业）各自 emoji 预算；用户自定义 `ai_persona`
+  仍最高优先级；
+- 人格卡禁语表与校验器内置表合并，按词长降序替换；
+- 开关「聊天.人格卡」= `off | shadow | on`，风格由「聊天.人格风格」覆盖。
+
+**检索式 few-shot + 灰度（42.5）**
+- 新增 `core/chat/data/chat_fewshot.json`（12 条随包种子，`data/` 可覆盖）
+  与 `core/chat/fewshot.py`：
+  按 act（权重 2）+ topic（权重 1）检索最多 2 条，冷启动回退内置样例；
+- 「聊天.灰度比例」0–100，按会话 id 的 `zlib.crc32 % 100` 稳定分流；
+  命中时规划器 `shadow→rule`、校验器/人格卡 `shadow→on`，并注入 few-shot；
+  比例归 0 即完全回旧版；
+- 影子日志新增 `plan / critic / persona / gray` 字段，供评测对照。
+
+**真实聊天评测**
+- `tools/run_eval.py --with-model --chat-limit N` 走完整回复链路生成聊天样例，
+  输出平均字数与 8-gram 重复率（`chat_summary`），Markdown 报告同步展示；
+- 评测时关闭联网与工具调用，结果可复现。
+
+**内部**
+- 冻结名额按 41.0 方案 A 同提交 rebase：`core 210 → 215`、
+  测试 `174 → 179`（Feature 46 / gui 100 / 按钮 60 不变）；
+- 批次 42 定向测试 **111 passed**；回复链路回归 **38 passed**；
+  `run_eval --domain all --dry-run` **140 道通过**。
+
+**验收**
+- 默认全部影子 / 灰度 0：提示词与回复文本与 v25.2.36 一致；
+- 全量测试 **2441 passed · 3 skipped**（289 秒）；
+- `scripts\ci_local.py --quick` **13/13 通过 · 69.9 秒**；
+- `check_version`、`check_file_sizes`、`check_silent`、`check_feature_freeze` 全绿。
+
+## v25.2.36 - 2026-10-29
+
+**评测底座 + 回归基线 + 聊天影子状态（批次 41；用户可见行为零变化）**
+（冻结期不新增 Feature / 按钮：Feature 46、按钮 60 保持不变）
+
+**评测底座**
+- `tools/run_eval.py` 支持 `--domain safe|chat|nl|code|all`、`--dry-run`、
+  `--strict`、`--report`：安全、聊天、自然语言路由、代码任务四类用例可独立跑，
+  失败能定位到 case id；
+- 新增 60 条聊天用例、40 条自然语言路由用例、20 条代码任务用例（原 20 条
+  安全用例保留），共 **140 条**；`--with-model` 未开时聊天用例标记跳过；
+- 新增 `tools/eval_metrics.py`：句数/字数/emoji/问号/禁语命中/8-gram 重复率/
+  期望约束校验，纯函数、无网络；
+- 新增 5 个代码修复 fixture（分数不增加、按钮不响应、空列表除零、循环导入、
+  中文路径编码），评测时复制到临时目录，不污染本仓；
+- 基线报告 `docs/104_评测基线_2026-10-29.md`：safe 20/20、nl 40/40
+  （期望意图匹配 32/40=80%）、code 20/20（初始健康度），chat 待接模型。
+
+**聊天影子状态（只记录，不参与回复）**
+- 每轮对话追加一行 `data/chat_shadow.jsonl`：意图、话题、是否简单、
+  上下文/生成/整轮耗时、回答长度、是否用户取消；超过 2MB 自动轮转为 `.1`；
+- 开关「聊天.影子状态」默认开启；关闭后零行为差异，写入失败按
+  `diagnostics.swallowed` 静默，绝不影响回复。
+
+**内部**
+- 41.0 治理决策：后续批次新增 `core/chat/*` 等模块时，在**同一 PR 内**
+  执行 `check_feature_freeze.py --rebase --force` 并记录理由，不提前预留名额；
+- 新增测试 `test_eval_metrics.py`、`test_eval_domains.py`、
+  `test_shadow_state.py`，定向 21 passed。
+
+**验收**
+- `py -3 tools/run_eval.py --domain all` 出报告；`--dry-run` 结构校验通过；
+- `scripts\ci_local.py --quick` **13/13 通过 · 71.1 秒**；
+- `check_feature_freeze`（Feature 46 / core 210 / gui 100 / 按钮 60 / 测试 174）、
+  `check_file_sizes`、`ruff` 全绿。
+
 ## v25.2.35 - 2026-10-29
 
 **终端可选真 PTY（ConPTY）：装了 pywinpty 就有 Tab 补全 / 颜色 / 交互式程序**

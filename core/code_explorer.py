@@ -47,6 +47,29 @@ class CodeExplorerMixin:
             p = os.path.join(self.root, rel.replace("/", os.sep))
             if os.path.isfile(p):
                 fp.setdefault("base_hash", sha256_file(p))
+        # 批次 46.3：PatchV2 审查（唯一匹配、禁整文件覆盖、语法、最小性）。
+        # shadow 只记录不拦截；on 才拒绝；off 完全走旧逻辑。
+        report = None
+        try:
+            from core.patch_protocol import review as review_patch
+            report = review_patch(self.root, data, getattr(self, "trunk", None))
+        except PatchError:
+            raise
+        except Exception as e:  # 静默是故意的 - 审查器故障不能挡住旧链路
+            _x6_swallowed(__name__, e, "patch v2 review")
+        if report is not None:
+            how = report.get("mode") or "shadow"
+            if how in ("shadow", "on"):
+                self._emit("patch_check", {
+                    "step": "PatchV2 校验：%s" % ("通过" if report["ok"] else "需回修"),
+                    "ok": report["ok"], "risk": report.get("risk"),
+                    "errors": report.get("errors")[:5],
+                    "warnings": report.get("warnings")[:5],
+                })
+            if how == "on" and not report.get("ok"):
+                raise PatchError("PatchV2 校验失败：" +
+                                 "；".join(report.get("errors")[:5]))
+            return report.get("normalized") or validate_patch(self.root, data)
         return validate_patch(self.root, data)
 
     def _tool_result(self, name, args):

@@ -8,6 +8,9 @@ except ImportError:
         return None
 
 import concurrent.futures
+import json
+import os
+import threading
 import time
 
 
@@ -27,6 +30,80 @@ class ContextBuilder:
     def is_simple(self, user_input: str) -> bool:
         has_complex = any(w in user_input for w in self._TRIGGERS)
         return len(user_input.strip()) <= 15 and not has_complex
+
+    # ============ 影子状态（批次 41.4）============
+    #
+    # 只记录、不参与回复：给批次 42 的状态层/规划器攒分布数据。
+    # 任何写入失败都吞掉（按 diagnostics.swallowed），绝不影响聊天。
+    _SHADOW_LOCK = threading.Lock()
+    _SHADOW_MAX_BYTES = 2 * 1024 * 1024
+
+    _INTENT_RULES = (
+        ("correct", ("不对", "不是这个", "我是说", "你错了", "理解错", "跑题")),
+        ("vent", ("烦", "累", "难受", "崩溃", "气死", "焦虑", "睡不着",
+                  "不想上班")),
+        ("ask_fact", ("是什么", "为什么", "怎么", "多少", "几点", "谁", "哪")),
+        ("request_help", ("帮我", "帮忙", "写", "做", "修", "改", "查",
+                          "看看")),
+        ("smalltalk", ("你好", "在吗", "hi", "hello", "谢谢", "晚安", "早")),
+    )
+
+    _TOPIC_RULES = (
+        ("代码", ("代码", "报错", "函数", "bug", "pytest", "重构", "接口",
+                  "文件", "报错")),
+        ("情绪", ("累", "烦", "难受", "焦虑", "开心", "被夸")),
+        ("工作", ("上班", "老板", "项目", "周报", "加班")),
+        ("生活", ("天气", "吃", "睡", "周末", "电影")),
+    )
+
+    def guess_intent(self, user_input: str) -> str:
+        """规则版意图，仅用于影子记录与后续规划的兜底。"""
+        q = str(user_input or "").strip().lower()
+        for name, words in self._INTENT_RULES:
+            if any(w.lower() in q for w in words):
+                return name
+        return "chat"
+
+    def guess_topic(self, user_input: str) -> str:
+        q = str(user_input or "")
+        for name, words in self._TOPIC_RULES:
+            if any(w in q for w in words):
+                return name
+        return "闲聊"
+
+    def shadow_enabled(self) -> bool:
+        try:
+            return bool(self.trunk.rule("聊天.影子状态", True))
+        except Exception:
+            return True
+
+    def shadow_path(self) -> str:
+        base = getattr(self.trunk, "base", ".") or "."
+        return os.path.join(base, "data", "chat_shadow.jsonl")
+
+    def record_shadow(self, payload: dict) -> bool:
+        """追加一行影子状态，返回是否写入成功。"""
+        try:
+            if not self.shadow_enabled():
+                return False
+            row = dict(payload or {})
+            row.setdefault("ts", round(time.time(), 3))
+            path = self.shadow_path()
+            folder = os.path.dirname(path)
+            if folder:
+                os.makedirs(folder, exist_ok=True)
+            with self._SHADOW_LOCK:
+                try:
+                    if os.path.getsize(path) > self._SHADOW_MAX_BYTES:
+                        os.replace(path, path + ".1")
+                except OSError:
+                    pass
+                with open(path, "a", encoding="utf-8") as fp:
+                    fp.write(json.dumps(row, ensure_ascii=False) + "\n")
+            return True
+        except Exception as e:
+            _x6_swallowed(__name__, e, "shadow_state")
+            return False
 
     # ============ 联网：只在"明确要查外部信息"时才搜 ============
     #
@@ -142,7 +219,63 @@ class ContextBuilder:
         except Exception:
             return ""
 
+    # ============ 记忆 v2（批次 43.1）============
+    #
+    # 旧入口（memory_loop 情景）保持不变；`记忆.v2` 默认 shadow：
+    # 只把「本来会注入什么」写进影子日志，上下文仍是旧内容。
+    # `on` 才用新入口替换，且任何异常都回落到旧结果。
+    def memory_mode(self):
+        """记忆开关：off / shadow / on（`记忆.v2`，默认 shadow）。"""
+        try:
+            value = self.trunk.rule("记忆.v2", "shadow")
+        except Exception as e:
+            _x6_swallowed(__name__, e, "memory_mode")
+            value = "shadow"
+        if isinstance(value, bool):
+            return "on" if value else "off"
+        value = str(value or "").strip().lower()
+        return value if value in ("off", "shadow", "on") else "shadow"
+
+    def _memory_rule_int(self, key, default):
+        try:
+            return max(0, int(self.trunk.rule(key, default)))
+        except (TypeError, ValueError):
+            return int(default)
+
     def _ctx_memory(self, user_input: str) -> str:
+        legacy = self._ctx_memory_legacy(user_input)
+        mode = self.memory_mode()
+        if mode == "off":
+            return legacy
+        try:
+            from core.chat.memory_v2 import MemoryV2
+            base = getattr(self.trunk, "base", ".") or "."
+            mv = MemoryV2(base)
+            cards = mv.recall(
+                user_input,
+                topic=self.guess_topic(user_input),
+                limit=self._memory_rule_int("记忆.注入张数", 3),
+                max_chars=self._memory_rule_int("记忆.注入字数", 200),
+                hours=self._memory_rule_int("记忆.去重小时", 24),
+            )
+            text = mv.render(cards)
+            if mode == "shadow":
+                if text:
+                    self.record_shadow({"kind": "memory_v2",
+                                        "count": len(cards),
+                                        "v2_chars": len(text),
+                                        "legacy_chars": len(legacy or ""),
+                                        "preview": text[:200]})
+                return legacy
+            if text:
+                mv.commit(cards)         # 只有真正注入才记 24h 去重
+                return "\n" + text
+            return legacy
+        except Exception as e:
+            _x6_swallowed(__name__, e, "memory_v2")
+            return legacy
+
+    def _ctx_memory_legacy(self, user_input: str) -> str:
         try:
             ml = self.trunk.modules.get("memory_loop")
             if not ml:

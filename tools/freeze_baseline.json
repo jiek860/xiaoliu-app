@@ -1,5 +1,5 @@
 {
-  "version": "v25.2.34",
+  "version": "v25.2.42",
   "features": 46,
   "feature_ids": [
     "attach",
@@ -49,9 +49,9 @@
     "web_console",
     "workbench"
   ],
-  "core_files": 210,
-  "gui_files": 100,
-  "test_files": 171,
+  "core_files": 230,
+  "gui_files": 102,
+  "test_files": 200,
   "button_total": 60,
   "button_widgets": 60,
   "coverage_thresholds": {

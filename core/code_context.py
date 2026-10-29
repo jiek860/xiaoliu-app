@@ -88,6 +88,82 @@ class CodeContextMixin:
                          for i, s in enumerate(seg))
 
     def build_context(self, goal, max_files=22, max_chars=24000):
+        """上下文入口：批次 45.3 起按 ``code.context_v2`` 决定走 v2 还是旧实现。
+
+        off    —— 旧实现（默认行为不变）
+        shadow —— 旧实现 + 抽样双跑（默认 10%），只记录 token 对照，不改文本
+        on     —— 预算感知 v2
+        影子抽样是为了避免每次 Agent 运行都双跑一遍，拖慢响应。
+        """
+        how, sample = "off", 0.0
+        try:
+            from core.code.context_v2 import mode as v2_mode
+            trunk = getattr(self, "trunk", None)
+            how = v2_mode(trunk)
+            if trunk is not None and hasattr(trunk, "rule"):
+                sample = float(trunk.rule("code.context_v2_sample", 0.1))
+        except Exception as e:
+            _x6_swallowed(__name__, e, "context v2 mode")
+            how = "off"
+        if how == "on":
+            built = self._build_context_v2(goal, max_files, max_chars)
+            if built:
+                return built
+        legacy = self._build_context_legacy(goal, max_files, max_chars)
+        if how == "shadow":
+            try:
+                import zlib
+                hit = (zlib.crc32(str(goal).encode("utf-8")) % 100) < \
+                    max(0.0, min(1.0, sample)) * 100
+                if hit:
+                    v2 = self._build_context_v2(goal, max_files, max_chars)
+                    if v2:
+                        from core.code.context_v2 import estimate_tokens
+                        payload = {
+                            "kind": "context_v2", "mode": "shadow",
+                            "tokens": v2["tokens"],
+                            "legacy_tokens": estimate_tokens(
+                                legacy.get("text", "")),
+                            "files": v2["files"][:8],
+                        }
+                        ctx = getattr(getattr(self, "trunk", None),
+                                      "ctx", None)
+                        if ctx is not None and hasattr(ctx, "record_shadow"):
+                            ctx.record_shadow(payload)
+                        legacy["context_v2"] = payload
+            except Exception as e:
+                _x6_swallowed(__name__, e, "context v2 shadow")
+        return legacy
+
+    def _build_context_v2(self, goal, max_files, max_chars):
+        try:
+            from core.code.context_v2 import build as build_v2
+            from core.code.rules import summary as rules_summary
+            index = getattr(self, "index", None)
+            try:
+                if index is not None:
+                    if index.data.get("files"):
+                        index.refresh()
+                    else:
+                        index.rebuild()
+            except Exception as e:
+                _x6_swallowed(__name__, e, "context v2 index refresh")
+            built = build_v2(
+                goal, root=getattr(self, "root", "") or ".",
+                index=getattr(self, "index", None),
+                selection=getattr(self, "selection", ""),
+                open_files=getattr(self, "open_files", []) or [],
+                last_error=getattr(self, "last_error", ""),
+                max_files=min(int(max_files or 12), 12),
+                max_chars=max_chars,
+                rules=rules_summary(getattr(self, "root", "") or "."))
+            built["mode"] = "on"
+            return built
+        except Exception as e:
+            _x6_swallowed(__name__, e, "context v2 build")
+            return {}
+
+    def _build_context_legacy(self, goal, max_files=22, max_chars=24000):
         try:
             if self.index.data.get("files"):
                 self.index.refresh()

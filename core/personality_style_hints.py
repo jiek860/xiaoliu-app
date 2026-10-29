@@ -103,6 +103,170 @@ class PersonalityStyleHintsMixin:
             self.data["last_user_feeling"] = "友好"
         self._save()
 
+    # ---------------------------------------------------------- 48.3 事件驱动
+    # 开关：主动.事件驱动 off/shadow/on（默认 shadow，不真的发消息）
+    # 预算：每天 1 条（沿用 last_proactive_date）；免打扰 22:00-08:00；
+    # 接受率：用户在该条发出后 30 分钟内回话，记为 accepted。
+    _PROACTIVE_LINES = {
+        "task_done": "刚才那个任务跑完了，要不要一起看眼结果？",
+        "error": "刚才有条回复没答好，我记下来了；要不要现在重试？",
+        "commitment": "你之前说的事，后来咋样了？",
+        "milestone": "陪你聊了这么多，我居然还记得。突然有点想跟你说声谢谢。",
+        "long_silence": "在忙吗？不忙的话跟我说两句，我有点闲。",
+    }
+    _PROACTIVE_PRIORITY = ("task_done", "commitment", "error",
+                           "milestone", "long_silence")
+
+    def _p_rule(self, key, default):
+        try:
+            return self.trunk.rule(key, default)
+        except Exception as e:
+            _x6_swallowed(__name__, e)
+            return default
+
+    def _proactive_mode(self):
+        value = str(self._p_rule("主动.事件驱动", "shadow") or "shadow").lower()
+        return value if value in ("off", "shadow", "on") else "shadow"
+
+    def _quiet_now(self, now=None):
+        """免打扰时段：跨午夜（默认 22:00-08:00）。"""
+        hour = datetime.fromtimestamp(now or time.time()).hour
+        start = int(self._p_rule("主动.免打扰开始", 22) or 22)
+        end = int(self._p_rule("主动.免打扰结束", 8) or 8)
+        if start == end:
+            return False
+        if start < end:
+            return start <= hour < end
+        return hour >= start or hour < end
+
+    def _proactive_budget_used(self, now=None):
+        today = datetime.fromtimestamp(now or time.time()).strftime("%Y-%m-%d")
+        return self.data.get("last_proactive_date") == today
+
+    def _proactive_stats(self):
+        stats = self.data.setdefault("proactive_stats", {})
+        for key in ("sent", "accepted", "suppressed", "shadow"):
+            stats.setdefault(key, 0)
+        return stats
+
+    def queue_proactive(self, event, detail="", now=None):
+        """登记一个事件，等 consume_proactive 在合适时机发。
+
+        返回是否入队。off 模式直接拒；shadow 模式照样入队/记录，但不真发。
+        同一事件类型同一天只留一条，避免"任务完成"连发五次。
+        """
+        if self._proactive_mode() == "off":
+            return False
+        kind = str(event or "").strip()
+        if kind not in self._PROACTIVE_LINES:
+            return False
+        now = float(now or time.time())
+        if self._quiet_now(now):
+            stats = self._proactive_stats()
+            stats["suppressed"] += 1
+            self._save()
+            return False
+        today = datetime.fromtimestamp(now).strftime("%Y-%m-%d")
+        rows = [r for r in (self.data.get("pending_proactive") or [])
+                if now - float(r.get("ts") or 0) <= 86400]
+        if any(r.get("kind") == kind and r.get("date") == today for r in rows):
+            return False
+        rows.append({"kind": kind, "detail": str(detail or "")[:80],
+                     "ts": now, "date": today})
+        self.data["pending_proactive"] = rows[-5:]
+        self._save()
+        return True
+
+    def _proactive_line(self, kind, detail=""):
+        line = self._PROACTIVE_LINES.get(kind, "")
+        if kind == "commitment" and detail:
+            line = "你之前说的「%s」，后来咋样了？" % str(detail)[:30]
+        return line or None
+
+    def consume_proactive(self, now=None):
+        """到点取一条该发的主动消息；没有就 None（不消耗预算）。"""
+        if self._proactive_mode() == "off":
+            return None
+        now = float(now or time.time())
+        if self._quiet_now(now) or self._proactive_budget_used(now):
+            return None
+        rows = [r for r in (self.data.get("pending_proactive") or [])
+                if now - float(r.get("ts") or 0) <= 86400]
+        if not rows:
+            silence_min = float(self._p_rule("主动.沉默分钟", 90) or 90)
+            last_active = float(self.data.get("last_active") or now)
+            if now - last_active >= silence_min * 60:
+                rows = [{"kind": "long_silence", "detail": "", "ts": now,
+                         "date": datetime.fromtimestamp(now).strftime("%Y-%m-%d")}]
+        if not rows:
+            return None
+        rows.sort(key=lambda r: self._PROACTIVE_PRIORITY.index(r.get("kind"))
+                  if r.get("kind") in self._PROACTIVE_PRIORITY else 99)
+        picked = rows[0]
+        line = self._proactive_line(picked.get("kind"), picked.get("detail"))
+        if not line:
+            return None
+        if self._proactive_mode() == "shadow":
+            stats = self._proactive_stats()
+            stats["shadow"] += 1
+            shadow = list(self.data.get("proactive_shadow") or [])
+            shadow.append({"ts": int(now), "kind": picked.get("kind"),
+                           "line": line[:80]})
+            self.data["proactive_shadow"] = shadow[-20:]
+            self._save()
+            return None
+        pending = [r for r in (self.data.get("pending_proactive") or [])
+                   if r is not picked]
+        self.data["pending_proactive"] = pending
+        self.data["last_proactive_date"] = datetime.fromtimestamp(now) \
+            .strftime("%Y-%m-%d")
+        self.data["last_active"] = now
+        self.data["proactive_last"] = {
+            "id": "p_%d" % int(now), "kind": picked.get("kind"),
+            "line": line[:80], "ts": now, "accepted": None,
+        }
+        history = list(self.data.get("proactive_history") or [])
+        history.append({"id": "p_%d" % int(now), "kind": picked.get("kind"),
+                        "ts": now, "accepted": None})
+        self.data["proactive_history"] = history[-20:]
+        self._proactive_stats()["sent"] += 1
+        self._save()
+        return line
+
+    def note_user_reply(self, text="", now=None):
+        """用户回话：30 分钟内算接受了这条主动搭话。"""
+        last = dict(self.data.get("proactive_last") or {})
+        if not last or last.get("accepted") is not None:
+            return False
+        now = float(now or time.time())
+        window = float(self._p_rule("主动.接受窗口分钟", 30) or 30)
+        if now - float(last.get("ts") or now) > window * 60:
+            return False
+        last["accepted"] = True
+        last["reply"] = str(text or "")[:40]
+        self.data["proactive_last"] = last
+        history = list(self.data.get("proactive_history") or [])
+        for row in reversed(history):
+            if row.get("id") == last.get("id"):
+                row["accepted"] = True
+                break
+        self.data["proactive_history"] = history[-20:]
+        self._proactive_stats()["accepted"] += 1
+        self._save()
+        return True
+
+    def proactive_stats(self):
+        """主动搭话接受率：已回应的条数 / 已发出的条数。"""
+        history = list(self.data.get("proactive_history") or [])
+        accepted = len([h for h in history if h.get("accepted")])
+        sent = len(history)
+        stats = dict(self._proactive_stats())
+        return {"sent": sent, "accepted": accepted,
+                "pending": len([h for h in history if h.get("accepted") is None]),
+                "rate": round(accepted / float(sent), 3) if sent else 0.0,
+                "suppressed": stats.get("suppressed", 0),
+                "shadow": stats.get("shadow", 0), "mode": self._proactive_mode()}
+
     def proactive_lines(self):
         """返回现在该主动说的一句话，或 None。一天最多一次。"""
         today = datetime.now().strftime("%Y-%m-%d")

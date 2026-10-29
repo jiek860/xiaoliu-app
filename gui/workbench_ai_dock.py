@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (QCheckBox, QHBoxLayout, QLabel, QListWidget,
                              QWidget)
 
 from core.code_plan import plan_text
+from gui.ai_dock_service import AgentDockServiceMixin, LinkPlainTextEdit
 
 
 def resolve_explicit(goal):
@@ -40,7 +41,7 @@ except ImportError:  # 独立导入时兜底
         return None
 
 
-class AgentDock(QWidget):
+class AgentDock(AgentDockServiceMixin, QWidget):
     """AI 面板：目标输入 + 执行按钮 + 步骤时间线。
 
     不自己实现 Agent 逻辑，委托给 AgentOrchestrator / CodeAgent
@@ -52,6 +53,8 @@ class AgentDock(QWidget):
         self.wb = workbench
         self.orchestrator = None
         self.queue = None
+        self.service = None
+        self.worker = None
         self.current_job_id = ""
         self._running = False
         self._build()
@@ -112,8 +115,10 @@ class AgentDock(QWidget):
         v.addWidget(self.queue_list)
 
         # 右侧 AI 栏按对话面板的阅读顺序：历史在上，输入在底部。
-        self.timeline = QPlainTextEdit()
+        # 批次 47.3：`文件:行` 引用可点击跳转（双击 / Ctrl+单击）。
+        self.timeline = LinkPlainTextEdit()
         self.timeline.setReadOnly(True)
+        self.timeline.refClicked.connect(self.open_reference)
         self.timeline.setPlaceholderText("执行步骤会显示在这里")
         self.timeline.setStyleSheet(
             "background:#1e1e1e;color:#d4d4d4;font-family:Consolas;"
@@ -200,12 +205,20 @@ class AgentDock(QWidget):
         if not goal:
             self.timeline.appendPlainText("⚠ 请先描述要做什么")
             return
+        # 批次 47.3：开关开着且这是代码问题（解释/定位/影响面/用法/对比）时，
+        # 先用本地索引就地回答并给出可点击的 `文件:行`，不启动 Agent。
+        if self.try_code_qa(goal):
+            return
         root = getattr(self.wb, "root", None) or getattr(
             self.wb.trunk, "base", ".")
         open_files = []
         if self.open_with_agent.isChecked():
             open_files = self.wb.editor_open_files()
         self.current_job_id = ""
+        if self._background_enabled():
+            # 批次 46.1：后台线程执行，UI 不再 processEvents 硬撑。
+            self._start_background(goal, open_files)
+            return
         try:
             from core.code_task_queue import get_code_queue
             self.queue = get_code_queue(root)
@@ -323,6 +336,9 @@ class AgentDock(QWidget):
             self.current_job_id = job.get("job_id")
             self.timeline.appendPlainText(
                 "↯ 继续任务（从第 %s 轮）" % (state.get("round") or 1))
+            if self._background_enabled():
+                self._resume_background(job)
+                return
             self._run_job(job.get("goal") or "", open_files=job.get("open_files"),
                           resume_state=state)
         else:
@@ -350,7 +366,12 @@ class AgentDock(QWidget):
         self.cancel_btn.setEnabled(False)
 
     def _on_event(self, event, data=None):
+        """同步执行路径的事件：处理完顺手刷一下界面。"""
+        self._handle_event(event, data)
         from PyQt5.QtWidgets import QApplication
+        QApplication.processEvents()      # 让界面边跑边刷
+
+    def _handle_event(self, event, data=None):
         text = str(event or "")
         if isinstance(data, dict):
             text = str(data.get("step") or text)
@@ -376,7 +397,6 @@ class AgentDock(QWidget):
             answer = str(data.get("result") or "").strip()
             if answer:
                 self.timeline.appendPlainText("📄 回答：\n" + answer[:4000])
-        QApplication.processEvents()      # 让界面边跑边刷
 
     def _show_inline_diff(self, patch):
         """在编辑器里展示内联 diff；应用后用 backup manifest 撤销。"""
@@ -411,6 +431,19 @@ class AgentDock(QWidget):
             return False
 
     def toggle_pause(self):
+        if self.worker is not None and self.worker.isRunning() and self.service:
+            try:
+                if self.pause_btn.text().startswith("⏸"):
+                    self.service.pause()
+                    self.pause_btn.setText("▶ 继续")
+                    self.timeline.appendPlainText("⏸ 已暂停")
+                else:
+                    self.service.resume_paused()
+                    self.pause_btn.setText("⏸ 暂停")
+                    self.timeline.appendPlainText("▶ 已继续")
+            except Exception as e:  # 静默是故意的
+                self.timeline.appendPlainText("[错误] %s" % str(e)[:200])
+            return
         if self.orchestrator is None:
             return
         try:
@@ -426,6 +459,13 @@ class AgentDock(QWidget):
             self.timeline.appendPlainText("[错误] %s" % str(e)[:200])
 
     def cancel(self):
+        if self.worker is not None and self.worker.isRunning():
+            try:
+                self.service.cancel()
+                self.timeline.appendPlainText("🛑 已请求取消，等 Agent 到检查点")
+            except Exception as e:  # 静默是故意的
+                self.timeline.appendPlainText("[错误] %s" % str(e)[:200])
+            return
         if self.orchestrator is None:
             return
         try:
