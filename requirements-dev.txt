@@ -1,8 +1,8 @@
-﻿pytest>=9.1.1
+pytest>=9.1.1
 pytest-qt>=4.5
 pytest-timeout>=2.4
 ruff>=0.17.2
 mypy>=2.4.0
 # coverage 保持 7.16 下限：7.17 的 requires_python 已是 >=3.11，
 # 与本仓库 Python 3.10 兼容下限冲突；CI 锁定版本见 requirements-dev.lock
-coverage>=7.16
+coverage>=7.17.0
