@@ -109,13 +109,15 @@ class ReplyPipeline:
             return answer or ""
 
         t.mem_add(user_input, answer)
+        memory = self._remember(user_input)
         answer, critic = self._critique(user_input, answer, plan, gray=gray)
         answer = self.pp.merge_group(user_input, answer, prefetch=role_fut)
         answer = self.pp.verify_code(user_input, answer)
         self.pp.kick_off_background(user_input, answer)
         self._shadow(user_input, is_simple, _t_start, _t_ctx, answer,
                      state=state_summary, plan=plan, critic=critic,
-                     persona=getattr(self.pa, "last_persona", {}), gray=gray)
+                     persona=getattr(self.pa, "last_persona", {}), gray=gray,
+                     memory=memory)
         self._record("收尾", "ok")
 
         self._finish_chat(t)
@@ -246,6 +248,39 @@ class ReplyPipeline:
         except Exception as e:
             _x6_swallowed(__name__, e, "critique")
             return answer, {}
+
+    def _remember(self, user_input):
+        """记忆写入：强信号立即写，普通对话每 5 轮写摘要（批次 43.2）。
+
+        shadow 只记录会写什么、不落盘；on 才真正追加。异常静默，不阻断回复。
+        """
+        mode = self.ctx.memory_mode()
+        if mode == "off":
+            return {}
+        try:
+            from core.chat.memory_v2 import MemoryV2
+            base = getattr(self.trunk, "base", ".") or "."
+            store = MemoryV2(base)
+            rounds = int(getattr(self.trunk, "_reply_n", 0) or 0)
+            result = store.remember(
+                user_input, rounds=rounds, recent=self._recent_user_texts(),
+                dry_run=(mode == "shadow"))
+            cards = result.get("cards") or []
+            summary = {"reason": result.get("reason", ""),
+                       "count": len(cards),
+                       "written": int(result.get("written") or 0)}
+            if mode == "shadow" and cards:
+                self.ctx.record_shadow({
+                    "kind": "memory_write",
+                    "reason": summary["reason"],
+                    "count": summary["count"],
+                    "preview": [str(c.get("text") or "")[:60]
+                                for c in cards[:3]],
+                })
+            return summary
+        except Exception as e:
+            _x6_swallowed(__name__, e, "memory_write")
+            return {}
 
     def _shadow(self, user_input, is_simple, t_start, t_ctx, answer, **extra):
         """影子状态：只记录，失败静默（批次 41.4）。"""
