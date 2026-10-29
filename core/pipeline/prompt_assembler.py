@@ -10,7 +10,8 @@ class PromptAssembler:
     def __init__(self, trunk):
         self.trunk = trunk
 
-    def assemble(self, user_input: str, context: str, is_simple: bool) -> list:
+    def assemble(self, user_input: str, context: str, is_simple: bool,
+                 plan=None) -> list:
         pers_hint, few_shot = self._persona(user_input, is_simple)
         persona = self._compose_persona(pers_hint)
 
@@ -35,8 +36,24 @@ class PromptAssembler:
             messages.append({"role": "user", "content": h["u"]})
             messages.append({"role": "assistant", "content": h["a"]})
 
+        # 批次 42.2：规划结果放在最后一段做硬约束（越靠后模型越服从）。
+        hint = self._plan_hint(plan)
+        if hint:
+            messages.append({"role": "system",
+                             "content": "本轮回复要求（必须遵守）：" + hint})
+
         messages.append({"role": "user", "content": user_input})
         return messages
+
+    def _plan_hint(self, plan):
+        if not plan:
+            return ""
+        try:
+            from core.chat.planner import render_hint
+            return render_hint(plan)
+        except Exception as e:
+            _x6_swallowed(__name__, e, "plan_hint")
+            return ""
 
     def _persona(self, user_input, is_simple):
         pers_hint, few_shot = "", []

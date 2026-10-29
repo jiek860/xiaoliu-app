@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """回复管线编排器：把 _reply_inner 的 300 行变成 30 行的流程"""
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -64,12 +64,16 @@ class ReplyPipeline:
             return fast
 
         is_simple = self.ctx.is_simple(user_input)
+        planner_mode = self._planner_mode()
+        plan = self._plan(user_input, state_summary, planner_mode)
         _t_ctx = time.time()
         context = self.ctx.build(user_input, is_simple)
         self._record("组装上下文", "ok", "简单=%s" % is_simple)
 
         t._set_status("正在思考...")
-        messages = self.pa.assemble(user_input, context, is_simple)
+        plan_for_prompt = plan if planner_mode in ("rule", "model") else None
+        messages = self.pa.assemble(user_input, context, is_simple,
+                                    plan=plan_for_prompt)
         self._record("拼提示词", "ok")
 
         # 先把群聊角色回复发出去，让它和主回复的生成**并行**。
@@ -94,16 +98,17 @@ class ReplyPipeline:
         if cancel_token is not None and cancel_token.is_cancelled():
             self._record("用户取消", "cancelled")
             self._shadow(user_input, is_simple, _t_start, _t_ctx, answer,
-                         cancelled=True, state=state_summary)
+                         cancelled=True, state=state_summary, plan=plan)
             self._finish_chat(t)
             return answer or ""
 
         t.mem_add(user_input, answer)
+        answer, critic = self._critique(user_input, answer, plan)
         answer = self.pp.merge_group(user_input, answer, prefetch=role_fut)
         answer = self.pp.verify_code(user_input, answer)
         self.pp.kick_off_background(user_input, answer)
         self._shadow(user_input, is_simple, _t_start, _t_ctx, answer,
-                     state=state_summary)
+                     state=state_summary, plan=plan, critic=critic)
         self._record("收尾", "ok")
 
         self._finish_chat(t)
@@ -137,6 +142,71 @@ class ReplyPipeline:
         except Exception as e:
             _x6_swallowed(__name__, e, "track_state")
             return {}
+
+    def _planner_mode(self):
+        """规划器开关：off / shadow / rule / model（批次 42.2，默认 shadow）。"""
+        try:
+            value = str(self.trunk.rule("聊天.规划器", "shadow") or "shadow")
+        except Exception as e:
+            _x6_swallowed(__name__, e, "planner_mode")
+            value = "shadow"
+        value = value.strip().lower()
+        return value if value in ("off", "shadow", "rule", "model") else "shadow"
+
+    def _plan(self, user_input, state_summary, mode):
+        """生成回应计划；shadow 只记录，rule/model 才注入提示词。"""
+        if mode == "off":
+            return {}
+        try:
+            from core.chat.planner import ResponsePlanner
+            planner = ResponsePlanner(self.trunk)
+            return planner.plan(state_summary, user_input,
+                                mode="model" if mode == "model" else "rule",
+                                recent=self._recent_user_texts())
+        except Exception as e:
+            _x6_swallowed(__name__, e, "plan")
+            return {}
+
+    def _recent_user_texts(self):
+        try:
+            rows = self.trunk.mem_recent(6) or []
+            return [str(r.get("u") or r.get("text") or "")
+                    for r in rows if isinstance(r, dict)]
+        except Exception as e:
+            _x6_swallowed(__name__, e, "recent_texts")
+            return []
+
+    def _critic_mode(self):
+        """校验器开关：off / shadow / on（批次 42.3，默认 shadow）。"""
+        try:
+            value = str(self.trunk.rule("聊天.校验器", "shadow") or "shadow")
+        except Exception as e:
+            _x6_swallowed(__name__, e, "critic_mode")
+            value = "shadow"
+        value = value.strip().lower()
+        return value if value in ("off", "shadow", "on") else "shadow"
+
+    def _critique(self, user_input, answer, plan):
+        """返回 (最终文本, 校验摘要)；shadow 只记录，on 才替换。"""
+        mode = self._critic_mode()
+        if mode == "off":
+            return answer, {}
+        try:
+            from core.chat.critic import ResponseCritic
+            result = ResponseCritic(self.trunk).check(
+                answer, plan, user_text=user_input)
+            fixed = result.get("fixed_text") or answer
+            summary = {
+                "ok": bool(result.get("ok")),
+                "issues": list(result.get("issues") or [])[:8],
+                "source": result.get("source", "rule"),
+                "before": len(str(answer or "")),
+                "after": len(str(fixed or "")),
+            }
+            return (fixed if mode == "on" else answer), summary
+        except Exception as e:
+            _x6_swallowed(__name__, e, "critique")
+            return answer, {}
 
     def _shadow(self, user_input, is_simple, t_start, t_ctx, answer, **extra):
         """影子状态：只记录，失败静默（批次 41.4）。"""
