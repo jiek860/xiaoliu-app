@@ -34,7 +34,8 @@ CHUNK_MAX_CHARS = 8000
 
 
 def _hash_text(text):
-    return hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:16]
+    return hashlib.sha1(text.encode("utf-8", "replace"),
+                        usedforsecurity=False).hexdigest()[:16]
 
 
 def _walk_files(root, max_files):

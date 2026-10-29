@@ -51,6 +51,15 @@
   Qt 访问冲突（0xC0000005，全量跑到 95% 时随机中断）。改为绑定方法
   `_on_modified`，共享文档后重新连接；控件销毁时 Qt 自动断开。
 
+**CI 门禁修复（PR #70）**
+- Bandit B324：6 处 SHA1 显式传 `usedforsecurity=False`
+  （`chat/fewshot.py`、`chat/memory_v2.py`、`code/index_v2.py`、`code/rules.py`、
+  `gui/memory_view_dialog.py`）；这些哈希只做缓存键/去重 id，不用于安全，行为不变。
+- CodeQL “Inefficient regular expression”：`core/agent_router.py` 识别
+  “目录/文件.py”的正则含嵌套量词，20000 个 `-` 需 3.2–7.8 秒；改为线性
+  `_looks_like_code_path`（切词后判“含 / 且以代码后缀结尾”，或含三反引号），
+  语义不变，压测 0.3ms。
+
 ## v25.2.42 - 2026-10-29
 
 **补全与代码问答（批次 47）**

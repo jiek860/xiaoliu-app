@@ -332,7 +332,8 @@ def append_cards(path, cards, *, now=None):
 
 
 def card_id(text):
-    return "m_" + hashlib.sha1(str(text).encode("utf-8")).hexdigest()[:10]
+    return "m_" + hashlib.sha1(str(text).encode("utf-8"),
+                               usedforsecurity=False).hexdigest()[:10]
 
 
 def recency(created_at, now):

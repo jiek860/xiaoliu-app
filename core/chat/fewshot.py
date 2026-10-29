@@ -169,7 +169,7 @@ def record_failure(base, user_input, ai_response, *, dims=None, issues=None,
     answer = redact_text(str(ai_response or ""), limit=120)
     sig = hashlib.sha1(("%s|%s|%s" % (
         _norm(user)[:60], _norm(answer)[:40], category)
-    ).encode("utf-8", "replace")).hexdigest()[:12]
+    ).encode("utf-8", "replace"), usedforsecurity=False).hexdigest()[:12]
     now = int(time.time())
     rows = failure_rows(base)
     for row in rows:
@@ -326,7 +326,7 @@ def promote_candidates(base, *, threshold=3, days=CAND_TTL_DAYS):
         rule = dict(FALLBACK_RULES.get(cat) or {
             "type": "avoid", "value": "同类问题别再犯：%s" % cat})
         cid = "c_%d_%s" % (now, hashlib.sha1(
-            (cat + str(count)).encode("utf-8")).hexdigest()[:6])
+            (cat + str(count)).encode("utf-8"), usedforsecurity=False).hexdigest()[:6])
         item = {
             "id": cid, "category": cat, "count": count,
             "suggestion": (suggestions.get(cat) or [rule["value"]])[-1],

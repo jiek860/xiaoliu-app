@@ -101,6 +101,20 @@ def _merge_nl(result, info):
     return out
 
 
+_CODE_EXTS = (".py", ".js", ".ts", ".tsx", ".go", ".rs", ".java", ".cs")
+
+
+def _looks_like_code_path(text):
+    """文本里是否有“目录/文件.py”这类路径（线性扫描，避免正则回溯）。"""
+    s = str(text or "")
+    if "```" in s:
+        return True
+    for part in re.split(r"[^\w\-./]+", s):
+        if "/" in part and part.rstrip("/").endswith(_CODE_EXTS):
+            return True
+    return False
+
+
 def _route_by_words(text, *, has_code_root=True, explicit=None):
     """原三词表规则档（批次 44 起作为 NL 的第一段）。"""
     text = str(text or "").strip()
@@ -123,7 +137,7 @@ def _route_by_words(text, *, has_code_root=True, explicit=None):
     chat, chat_hits = _score(text, CHAT_WORDS)
 
     # 明确的开发上下文：项目 / 文件路径 / 代码块。
-    if re.search(r"```|(?:^|\s)(?:[\w\-/]+/)+[\w\-]+\.(?:py|js|ts|tsx|go|rs|java|cs)", text):
+    if _looks_like_code_path(text):
         code += 4
     if re.search(r"[A-Za-z]:\\|(?:^|\s)\.{0,2}/", text):
         pc += 1

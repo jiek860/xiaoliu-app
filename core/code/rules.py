@@ -80,7 +80,7 @@ def extract(text, max_chars=1200):
 
 
 def _signature(root, files):
-    digest = hashlib.sha1()
+    digest = hashlib.sha1(usedforsecurity=False)
     for rel in files:
         path = os.path.join(str(root or "."), rel.replace("/", os.sep))
         try:

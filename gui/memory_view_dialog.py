@@ -86,7 +86,7 @@ def edit_card(card, new_text, *, now=None):
         edited["id"] = card_id(text)
     except Exception:
         edited["id"] = "m_" + hashlib.sha1(
-            text.encode("utf-8")).hexdigest()[:10]
+            text.encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
     edited["updated_at"] = float(now or time.time())
     return edited
 
