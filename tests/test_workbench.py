@@ -257,6 +257,141 @@ def test_terminal_cd_and_clear_are_local(wb):
     assert b.term.toPlainText() == ""
 
 
+def _term_lines(b):
+    return [t.strip() for t in b.term.toPlainText().splitlines()]
+
+
+def test_terminal_ansi_and_pipe_decoding_helpers():
+    """ANSI 清洗 + 管道解码：UTF-8 优先，OEM 代码页兜底（cmd 按 936 写中文）。"""
+    from gui.ide_editor_shell import (_clean_ansi, _decode_shell_bytes,
+                                      _shell_encoding)
+    assert _clean_ansi("\x1b[31mred\x1b[0m ok") == "red ok"
+    assert _clean_ansi("") == ""
+    assert _decode_shell_bytes("中文".encode("utf-8"))[0] == "中文"
+    assert _decode_shell_bytes("中文".encode("gbk"))[0] == "中文"
+    assert _shell_encoding()
+    # 半个汉字要留到下一次 read，不能变成 �
+    raw = "中文".encode("utf-8")
+    head, carry = _decode_shell_bytes(raw[:5], b"")
+    assert head == "中" and carry == raw[3:5]
+    assert _decode_shell_bytes(raw[5:], carry)[0] == "文"
+
+
+@pytest.mark.skipif(not sys.platform.startswith("win"), reason="需要 cmd.exe")
+def test_terminal_keeps_one_shell_and_shares_cwd(wb, app, tmp_path):
+    """连续命令共用一个 cmd 进程，本地 cd 也会同步到 shell 的 cwd。"""
+    b = wb._editor.bottom
+    b.run_terminal("echo x6-one")
+    assert _pump_until(app, lambda: "x6-one" in _term_lines(b)), \
+        b.term.toPlainText()
+    first = b._shell
+    assert first is not None
+    b._change_dir(str(tmp_path))
+    seen = b.term.toPlainText().count(os.path.basename(str(tmp_path)))
+    b.run_terminal("echo %CD%")
+    assert _pump_until(
+        app,
+        lambda: b.term.toPlainText().count(
+            os.path.basename(str(tmp_path))) > seen), b.term.toPlainText()
+    b.run_terminal("echo x6-two")
+    assert _pump_until(app, lambda: "x6-two" in _term_lines(b))
+    assert b._shell is first, "重复执行不应重建 shell"
+    b._change_dir(BASE)
+
+
+def _oem_can_type_chinese():
+    """cmd 的管道编码 = Windows OEM 代码页；非中文系统（如 CI 的 437）发不了中文。"""
+    try:
+        from gui.ide_editor_shell import _shell_encoding
+        "中文".encode(_shell_encoding())
+        return True
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not sys.platform.startswith("win"), reason="需要 cmd.exe")
+def test_terminal_chinese_is_not_mojibake(wb, app):
+    """中文命令的中文回显不能乱码（OEM 代码页 + 自定义提示符哨兵）。"""
+    if not _oem_can_type_chinese():
+        pytest.skip("系统 OEM 代码页不支持中文")
+    b = wb._editor.bottom
+    b.run_terminal("echo 中文不乱码")
+    assert _pump_until(app, lambda: "中文不乱码" in _term_lines(b)), \
+        b.term.toPlainText()
+    assert "@x6@" not in b.term.toPlainText(), "提示符哨兵必须被剥离"
+
+
+@pytest.mark.skipif(not sys.platform.startswith("win"), reason="需要 cmd.exe")
+def test_terminal_restarts_after_shell_is_killed(wb, app):
+    """shell 被杀掉后终端不卡死：下次回车/命令自动重启一个新进程。"""
+    b = wb._editor.bottom
+    b.run_terminal("echo x6-alive")
+    assert _pump_until(app, lambda: "x6-alive" in _term_lines(b))
+    old = b._shell
+    old.kill()
+    assert _pump_until(app, lambda: b._shell is None), "shell 退出后应被清理"
+    b.run_terminal("echo x6-restart")
+    assert _pump_until(app, lambda: "x6-restart" in _term_lines(b))
+    assert b._shell is not None and b._shell is not old
+
+
+@pytest.mark.skipif(not sys.platform.startswith("win"), reason="需要 cmd.exe")
+def test_terminal_shutdown_leaves_no_shell(wb, app):
+    """关闭工作台（closeEvent 调 shutdown）不能留下常驻 shell。"""
+    b = wb._editor.bottom
+    b.run_terminal("echo x6-shutdown")
+    assert _pump_until(app, lambda: "x6-shutdown" in _term_lines(b))
+    assert b._shell_alive()
+    b.shutdown()
+    assert b._shell is None
+    assert not b._shell_alive()
+
+
+def test_shell_encoding_falls_back_when_api_missing(monkeypatch):
+    """拿不到 GetOEMCP（非 Windows / 调用异常）时退回系统 locale，不能抛。"""
+    import ctypes
+    from gui.ide_editor_shell import _shell_encoding
+
+    class _NoKernel32(object):
+        @property
+        def kernel32(self):
+            raise OSError("no kernel32")
+
+    monkeypatch.setattr(ctypes, "windll", _NoKernel32(), raising=False)
+    assert _shell_encoding()
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert _shell_encoding()
+
+
+def test_decode_shell_bytes_replaces_undecodable_bytes():
+    """UTF-8 与 GBK 都解不出来的字节要替换掉，不能抛异常。"""
+    from gui.ide_editor_shell import _decode_shell_bytes
+    text, carry = _decode_shell_bytes(b"\xff\xfe\xfd\x80")
+    assert isinstance(text, str) and carry == b""
+
+
+def test_terminal_exit_and_empty_enter(wb, app):
+    """exit 立刻回收 shell；空回车在 shell 退出后自动重启。"""
+    if not sys.platform.startswith("win"):
+        pytest.skip("需要 cmd.exe")
+    b = wb._editor.bottom
+    assert b._ensure_shell() is not None
+    b.run_terminal("exit")
+    assert _pump_until(app, lambda: b._shell is None, 5)
+    b.run_terminal("")              # 空回车 = 重启
+    assert b._shell_alive()
+    b.shutdown()
+
+
+def test_terminal_start_failure_is_reported(wb, monkeypatch):
+    """shell 起不来时返回 None 并把原因写进终端页，不抛异常。"""
+    b = wb._editor.bottom
+    b.shutdown()
+    monkeypatch.setattr(sys, "platform", "linux")   # Windows 上没有 /bin/sh
+    assert b._ensure_shell() is None
+    assert "终端启动失败" in b.term.toPlainText()
+
+
 # ---------------- P2：资源管理器 ----------------
 def test_git_status_colors_in_explorer(wb):
     """文件树用文件名颜色标出 Git 改动（不换图标）。"""
