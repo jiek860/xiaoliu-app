@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import os
 import re
 
 try:
@@ -156,3 +157,226 @@ def route_label(info):
     kind = (info or {}).get("kind", "chat")
     return {"code": "代码 Agent", "computer": "电脑 Agent",
             "chat": "对话"}.get(kind, "对话")
+
+
+# ======================================================================
+# 代码问答（批次 47.3）
+# ----------------------------------------------------------------------
+# 五种模板：解释 / 定位 / 影响面 / 用法 / 对比。回答一律带 `文件:行`
+# 引用，工作台面板再把引用变成可点击跳转。
+# 开关 ``code_qa.enabled`` 默认关：关着的时候一切走原路由，行为不变。
+# 含"改/修复/实现"这类动作词的句子不算问答，仍交给代码 Agent。
+# ======================================================================
+QA_TEMPLATES = ("compare", "impact", "usage", "locate", "explain")
+QA_TEMPLATE_WORDS = {
+    "compare": ("区别", "不同", "对比", "差异", "相比", "不一样"),
+    "impact": ("影响", "依赖", "调用方", "引用", "牵连", "波及", "改到"),
+    "usage": ("怎么用", "怎么调用", "如何使用", "用法", "示例", "例子"),
+    "locate": ("在哪", "在哪里", "位置", "哪个文件", "定位", "查找", "找到"),
+    "explain": ("解释", "什么意思", "作用", "干嘛", "做什么", "原理"),
+}
+_QA_ACTION_WORDS = ("改", "修复", "实现", "添加", "新增", "删除", "重构",
+                    "写一个", "写个", "生成", "新建", "重命名", "跑测试")
+_QA_QUOTED_RE = re.compile(r"`([^`]{1,80})`")
+_QA_FILE_RE = re.compile(
+    r"([\w\-./\\]+\.(?:py|pyw|js|jsx|ts|tsx|go|rs|java|cs))")
+_QA_IDENT_RE = re.compile(r"(?<![\w.])([A-Za-z_][A-Za-z0-9_]{1,40})(\(\))?")
+_QA_STOP = {
+    "python", "python3", "javascript", "typescript", "java", "golang",
+    "rust", "test", "tests", "pytest", "ruff", "lint", "git", "import",
+    "code", "bug", "api", "json", "html", "css", "def", "class", "return",
+    "true", "false", "none", "and", "the", "this", "that", "main",
+}
+
+
+def code_qa_enabled(trunk=None):
+    """开关 ``code_qa.enabled``：默认关，读不到也按关处理。"""
+    try:
+        value = trunk.rule("code_qa.enabled", False) if trunk is not None \
+            else False
+    except Exception as e:
+        _x6_swallowed(__name__, e, "code qa switch")
+        value = False
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "on", "true", "yes", "开")
+    return bool(value)
+
+
+def _question_targets(text):
+    """从问题里抽目标：反引号 > 文件名 > 标识符，去重保序。"""
+    out = []
+
+    def add(name):
+        name = str(name or "").strip().strip("`")
+        if name and name not in out:
+            out.append(name)
+
+    for m in _QA_QUOTED_RE.finditer(text):
+        add(m.group(1))
+    for m in _QA_FILE_RE.finditer(text):
+        add(m.group(1).replace("\\", "/"))
+    for m in _QA_IDENT_RE.finditer(text):
+        name = m.group(1)
+        if name.lower() in _QA_STOP or name.isdigit():
+            continue
+        add(name)
+    return out
+
+
+def classify_code_question(goal):
+    """识别代码问答模板；不是问答返回 None。
+
+    ``compare`` 至少要两个目标，否则按 ``explain`` 处理；带动作词的
+    句子直接返回 None（那是改代码，不是问代码）。
+    """
+    text = str(goal or "").strip()
+    if not text or len(text) > 240:
+        return None
+    if any(w in text for w in _QA_ACTION_WORDS):
+        return None
+    low = text.lower()
+    template = ""
+    for name in QA_TEMPLATES:
+        if any(w in low for w in QA_TEMPLATE_WORDS[name]):
+            template = name
+            break
+    if not template:
+        return None
+    targets = _question_targets(text)
+    if not targets:
+        return None
+    if template == "compare" and len(targets) < 2:
+        template = "explain"
+    return {"template": template, "targets": targets[:5],
+            "confidence": round(min(1.0, 0.5 + 0.1 * len(targets)), 2)}
+
+
+def _workspace_index(root):
+    """没有索引就现场建一个（小项目可以接受；工作台会直接传躯干索引）。"""
+    try:
+        from core.workspace_index import WorkspaceIndex
+        idx = WorkspaceIndex(str(root or "."), str(root or "."))
+        if not (idx.data.get("files") or idx.data.get("symbols")):
+            idx.refresh(max_files=2000)
+        return idx
+    except Exception as e:  # 静默是故意的 - 没索引就退回 Agent
+        _x6_swallowed(__name__, e, "code qa index")
+        return None
+
+
+def _norm_rel(path):
+    return str(path or "").replace("\\", "/")
+
+
+def _collect_refs(index, targets, limit=5):
+    """目标 -> [{path, line, symbol, kind}]，按 (path,line) 去重。"""
+    refs, seen = [], set()
+    for target in targets:
+        rows = []
+        if index is not None:
+            try:
+                if target.endswith((".py", ".js", ".ts", ".tsx", ".jsx")):
+                    rows.append({"path": _norm_rel(target), "line": 1,
+                                 "symbol": target, "kind": "file"})
+                rows.extend({"path": _norm_rel(s.get("file")),
+                             "line": int(s.get("line") or 1),
+                             "symbol": str(s.get("name") or target),
+                             "kind": str(s.get("kind") or "")}
+                            for s in index.find_symbols(target, limit=limit))
+            except Exception as e:  # 静默是故意的 - 索引坏了就少一条引用
+                _x6_swallowed(__name__, e, "code qa find symbols")
+        for row in rows:
+            key = (row["path"], row["line"])
+            if not row["path"] or key in seen:
+                continue
+            seen.add(key)
+            refs.append(row)
+        if len(refs) >= limit:
+            break
+    return refs[:max(1, int(limit or 1))]
+
+
+def _symbol_detail(root, rel, line, max_lines=40):
+    """读定义附近的签名与首行说明，让回答不只给一行行号。"""
+    out = {"signature": "", "doc": ""}
+    try:
+        path = os.path.join(str(root or "."), rel)
+        with open(path, encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return out
+    start = max(0, int(line or 1) - 1)
+    for i in range(start, min(len(lines), start + max_lines)):
+        text = lines[i].strip()
+        if not out["signature"] and re.match(r"(?:def|class|function|const|let)\b",
+                                             text):
+            out["signature"] = text[:120]
+            for j in range(i + 1, min(len(lines), i + 6)):
+                nxt = lines[j].strip()
+                if nxt and not nxt.startswith(('"""', "'''", '#')):
+                    out["doc"] = nxt[:120]
+                    break
+                if nxt:
+                    out["doc"] = nxt.strip('"\'').strip()[:120]
+                    break
+            break
+    return out
+
+
+def _render_answer(info, refs, index, root):
+    tpl = info["template"]
+    head = {"explain": "解释", "locate": "定位", "impact": "影响面",
+            "usage": "用法", "compare": "对比"}[tpl]
+    lines = ["【%s】%s" % (head, "、".join(info["targets"])),
+             "共 %d 处引用：" % len(refs)]
+    for ref in refs:
+        extra = ""
+        if tpl in ("explain", "usage", "compare"):
+            detail = _symbol_detail(root, ref["path"], ref["line"])
+            if detail["signature"]:
+                extra = "  " + detail["signature"]
+            elif detail["doc"]:
+                extra = "  " + detail["doc"]
+        kind = ("（%s）" % ref["kind"]) if ref["kind"] else ""
+        lines.append("- `%s` `%s:%d`%s%s" % (
+            ref["symbol"], ref["path"], ref["line"], kind, extra))
+    if tpl == "impact" and index is not None:
+        lines.append("相关测试：" + _related_test_hint(index, refs))
+    elif tpl == "usage" and index is not None:
+        lines.append("相关测试：" + _related_test_hint(index, refs))
+    elif tpl == "compare":
+        sigs = []
+        for ref in refs[:2]:
+            detail = _symbol_detail(root, ref["path"], ref["line"])
+            sigs.append(detail["signature"] or ref["symbol"])
+        if len(sigs) == 2:
+            lines.append("差异：`%s` ↔ `%s`" % (sigs[0], sigs[1]))
+    return "\n".join(lines)
+
+
+def _related_test_hint(index, refs, limit=3):
+    out = []
+    for ref in refs[:limit]:
+        try:
+            tests = index.related_tests(ref["path"]) or []
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "code qa related tests")
+            tests = []
+        for test in tests[:limit]:
+            if test not in out:
+                out.append(test)
+    return "、".join("`%s`" % t for t in out) if out else "未找到"
+
+
+def answer_code_question(goal, *, root=".", index=None, limit=5):
+    """本地索引回答代码问题；找不到引用时 ``ok=False``，调用方退回 Agent。"""
+    info = classify_code_question(goal)
+    if not info:
+        return {"ok": False, "reason": "不是代码问题"}
+    idx = index if index is not None else _workspace_index(root)
+    refs = _collect_refs(idx, info["targets"], limit=limit)
+    if not refs:
+        return {"ok": False, "reason": "索引里没找到相关符号",
+                "template": info["template"]}
+    return {"ok": True, "template": info["template"], "targets": info["targets"],
+            "answer": _render_answer(info, refs, idx, root), "refs": refs}

@@ -371,6 +371,8 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
 
     def _new_edit(self):
         w = CodeEditWidget()
+        # 批次 47.1：补全开关（code_complete.jedi）与索引候选都从躯干读
+        w.trunk = self.trunk
         w.askAssistantRequested.connect(self.askAssistantRequested.emit)
         w.cursorPositionChanged.connect(lambda w=w: self._emit_cursor(w))
         w.syntaxErrorChanged.connect(lambda n, w=w: self._emit_syntax(w, n))

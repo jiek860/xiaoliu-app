@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (QCheckBox, QHBoxLayout, QLabel, QListWidget,
                              QWidget)
 
 from core.code_plan import plan_text
+from gui.ai_dock_service import AgentDockServiceMixin, LinkPlainTextEdit
 
 
 def resolve_explicit(goal):
@@ -40,7 +41,7 @@ except ImportError:  # 独立导入时兜底
         return None
 
 
-class AgentDock(QWidget):
+class AgentDock(AgentDockServiceMixin, QWidget):
     """AI 面板：目标输入 + 执行按钮 + 步骤时间线。
 
     不自己实现 Agent 逻辑，委托给 AgentOrchestrator / CodeAgent
@@ -114,8 +115,10 @@ class AgentDock(QWidget):
         v.addWidget(self.queue_list)
 
         # 右侧 AI 栏按对话面板的阅读顺序：历史在上，输入在底部。
-        self.timeline = QPlainTextEdit()
+        # 批次 47.3：`文件:行` 引用可点击跳转（双击 / Ctrl+单击）。
+        self.timeline = LinkPlainTextEdit()
         self.timeline.setReadOnly(True)
+        self.timeline.refClicked.connect(self.open_reference)
         self.timeline.setPlaceholderText("执行步骤会显示在这里")
         self.timeline.setStyleSheet(
             "background:#1e1e1e;color:#d4d4d4;font-family:Consolas;"
@@ -202,6 +205,10 @@ class AgentDock(QWidget):
         if not goal:
             self.timeline.appendPlainText("⚠ 请先描述要做什么")
             return
+        # 批次 47.3：开关开着且这是代码问题（解释/定位/影响面/用法/对比）时，
+        # 先用本地索引就地回答并给出可点击的 `文件:行`，不启动 Agent。
+        if self.try_code_qa(goal):
+            return
         root = getattr(self.wb, "root", None) or getattr(
             self.wb.trunk, "base", ".")
         open_files = []
@@ -223,112 +230,6 @@ class AgentDock(QWidget):
         except Exception as e:  # 静默是故意的 - 队列不可用也要能跑任务
             _x6_swallowed(__name__, e, "enqueue code job")
         self._run_job(goal, open_files=open_files)
-
-    def _background_enabled(self):
-        try:
-            from core.patch_protocol import background_enabled
-            return bool(background_enabled(self.wb.trunk))
-        except Exception as e:  # 静默是故意的 - 读不到开关就按前台执行
-            _x6_swallowed(__name__, e, "background switch")
-            return False
-
-    def _start_background(self, goal, open_files):
-        """把任务交给 AgentService，再由 AgentServiceWorker 后台消费。"""
-        try:
-            from core.agent_service import get_agent_service
-            from gui.workers import AgentServiceWorker
-        except Exception as e:
-            self.timeline.appendPlainText("[错误] 后台服务不可用: %s"
-                                          % str(e)[:200])
-            return
-        root = getattr(self.wb, "root", None) or getattr(
-            self.wb.trunk, "base", ".")
-        try:
-            self.service = get_agent_service(self.wb.trunk, root=root)
-            submitted = self.service.submit(
-                goal, open_files=open_files,
-                max_rounds=self.rounds_spin.value(),
-                explicit=resolve_explicit(goal))
-        except Exception as e:  # 静默是故意的 - 出错显示给用户而不是崩
-            self.timeline.appendPlainText("[错误] 无法提交后台任务: %s"
-                                          % str(e)[:200])
-            return
-        if not submitted.get("ok"):
-            self.timeline.appendPlainText(
-                "[错误] %s" % submitted.get("error", "提交失败"))
-            return
-        self.queue = self.service.queue
-        self.current_job_id = submitted["job_id"]
-        self.timeline.clear()
-        self.timeline.appendPlainText("▶ 目标: " + goal)
-        if open_files:
-            self.timeline.appendPlainText(
-                "  参考文件: " + ", ".join(os.path.basename(f)
-                                          for f in open_files))
-        self.timeline.appendPlainText(
-            "  轮次上限: %d" % self.rounds_spin.value())
-        self.timeline.appendPlainText(
-            "  执行域: 代码 Agent（后台任务，可切回窗口继续用）")
-        self._running = True
-        self.start_btn.setEnabled(False)
-        self.pause_btn.setEnabled(True)
-        self.cancel_btn.setEnabled(True)
-        self._refresh_queue()
-        self._launch_worker()
-
-    def _launch_worker(self):
-        from gui.workers import AgentServiceWorker
-        self.worker = AgentServiceWorker(self.service, trunk=self.wb.trunk)
-        self.worker.event.connect(self._on_service_event)
-        self.worker.done.connect(self._on_service_done)
-        self.worker.start()
-
-    def _resume_background(self, job):
-        """后台模式下续跑：把断点任务重新置为 queued 再起线程。"""
-        try:
-            from core.agent_service import get_agent_service
-        except Exception as e:
-            self.timeline.appendPlainText("[错误] 后台服务不可用: %s"
-                                          % str(e)[:200])
-            return
-        root = getattr(self.wb, "root", None) or getattr(
-            self.wb.trunk, "base", ".")
-        self.service = get_agent_service(self.wb.trunk, root=root)
-        self.queue = self.service.queue
-        result = self.service.resume(job.get("job_id"))
-        if not result.get("ok"):
-            self.timeline.appendPlainText("[错误] %s"
-                                          % result.get("error", "无法续跑"))
-            return
-        self.current_job_id = job.get("job_id")
-        state = self.queue.checkpoint_of(job)
-        self.timeline.clear()
-        self.timeline.appendPlainText(
-            "↯ 继续任务（从第 %s 轮）" % (state.get("round") or 1))
-        self.timeline.appendPlainText("▶ 目标: " + str(job.get("goal") or ""))
-        self.timeline.appendPlainText("  执行域: 代码 Agent（后台任务）")
-        self._running = True
-        self.start_btn.setEnabled(False)
-        self.pause_btn.setEnabled(True)
-        self.pause_btn.setText("⏸ 暂停")
-        self.cancel_btn.setEnabled(True)
-        self._refresh_queue()
-        self._launch_worker()
-
-    def _on_service_event(self, event, data=None):
-        """后台线程的事件在 GUI 线程处理；审批走"事件-应答"而不是弹窗线程。"""
-        data = data if isinstance(data, dict) else {}
-        if str(event) == "approval" and data.get("request_id"):
-            ok = self._approve(data.get("kind"), data.get("payload"))
-            if self.service is not None:
-                self.service.answer(data.get("request_id"), ok)
-            return
-        self._handle_event(event, data)
-
-    def _on_service_done(self, result):
-        self.worker = None
-        self._refresh_queue()
-        self._on_done(result)
 
     def _run_job(self, goal, open_files=None, resume_state=None):
         if self._running:

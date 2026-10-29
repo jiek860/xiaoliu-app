@@ -1,5 +1,49 @@
 # 版本变更记录
 
+## v25.2.42 - 2026-10-29
+
+**补全与代码问答（批次 47）**
+（开关默认全关：`code_complete.jedi=false`、`code_qa.enabled=false`——
+默认补全仍是本地关键字 + 本文件符号，问答仍交给代码 Agent）
+
+**jedi 可选接入（47.1）**
+- `core/code/completion.py`：`jedi_completions`（Top-5、过滤 dunder；
+  临时把项目根放进 `sys.path`，同项目 `import` 的模块也能被推断）、
+  `jedi_available`（每进程只探测一次）、`complete_words`（编排；
+  jedi 没装/报错一律回退关键字）。
+- `gui/code_editor_widget.py`：开关打开才叠 jedi 候选，补全永远不会"空"；
+  编辑器由 `code_editor_dialog` 挂上 trunk 读取开关与索引。
+
+**排序与节流（47.2）**
+- `rank_words`：本文件 > jedi > 近期编辑 > 同目录 > 索引；同档先看前缀
+  大小写是否精确命中，再按长度/字典序，候选顺序稳定不跳。
+- 键入到出候选的防抖 300ms → **80ms**；同目录候选按 mtime 签名缓存，
+  文件改了自动失效。
+
+**代码问答（47.3）**
+- `core/agent_router.py`：五模板（解释/定位/影响面/用法/对比）分类；
+  带动作词（改/修复/实现/删除…）的句子不拦，仍交给代码 Agent。
+- `answer_code_question` 用工作区索引出引用：回答必带 `文件:行`，
+  解释/用法/对比补签名与首行说明，影响面/用法列相关测试；
+  找不到符号就返回 `ok=False`，调用方退回正常流程。
+- 工作台开关开着且识别为代码问题时先就地回答、不启动 Agent；
+  `gui/ai_dock_service.py` 的 `LinkPlainTextEdit` 让 `文件:行`
+  可双击 / Ctrl+单击跳到编辑器对应行。
+
+**文件拆分**
+- 新增 `gui/ai_dock_service.py`（后台任务接线 + 可点击引用），
+  `workbench_ai_dock.py` 578 → 479 行。
+
+**冻结期名额**
+- 新增 `core/code/completion.py`、`gui/ai_dock_service.py`，
+  core 229 → 230、gui 101 → 102，同提交执行
+  `check_feature_freeze.py --rebase --force`；测试 198 → 200；
+  Feature / 按钮预算不变（46 / 60）。
+
+**测试**
+- 新增 `test_completion_jedi`（17，无 jedi 时相关用例跳过）、
+  `test_code_qa`（18），共 **35 passed**；工作台/Agent 回归 133 passed。
+
 ## v25.2.41 - 2026-10-29
 
 **代码 Agent v2：后台任务 + 局部补丁 + 影响面验证（批次 46）**

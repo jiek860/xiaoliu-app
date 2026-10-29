@@ -23,12 +23,15 @@ except ImportError:
 
 # 高亮 / 行号 / minimap 搬到了 gui/editor_parts.py；
 # 这里 re-export 保持旧导入路径（from gui.code_editor_widget import _PyHighlighter）
+from core.code.completion import (complete_words, indexed_words, jedi_enabled,
+                                  project_root, same_dir_words)
 from gui.editor_parts import (  # noqa: F401,E402
     _LineNumberArea, _MiniMap, _PyHighlighter)
 
 
 _RUFF_TIMEOUT_MS = 5000
-_COMPLETE_DELAY_MS = 300
+_COMPLETE_DELAY_MS = 80          # 批次 47.2：键入后 80ms 再算候选
+_MAX_COMPLETION_WORDS = 300
 
 
 def ruff_command(path):
@@ -123,11 +126,19 @@ def js_symbols(code):
 
 
 def completion_words(code, path=""):
-    """补全候选：语言关键字 + 内置名 + 本文件符号（不做 LSP、不跨文件）。"""
+    """补全候选：语言关键字 + 内置名 + 本文件符号（jedi 关时的全部候选）。"""
     ext = os.path.splitext(str(path or "").lower())[1]
     if ext in _JS_EXT:
         return sorted(set(_JS_WORDS) | js_symbols(code))
     return sorted(set(_PY_WORDS) | python_symbols(code))
+
+
+def local_symbols(code, path=""):
+    """本文件符号（排序第一档）：复用同一套 ast / 正则解析。"""
+    ext = os.path.splitext(str(path or "").lower())[1]
+    if ext in _JS_EXT:
+        return js_symbols(code)
+    return python_symbols(code)
 
 
 class CodeEditWidget(QPlainTextEdit):
@@ -171,6 +182,9 @@ class CodeEditWidget(QPlainTextEdit):
         self.textChanged.connect(self._err_timer.start)
         # 文件路径
         self._filepath = None
+        self.trunk = None            # 由 code_editor_dialog 挂上，读补全开关
+        self._recent_words = []      # 最近用过的补全词（排序第二档）
+        self._completion_source = ""
         self._dirty = False
         self._syntax_errors = 0
         self.document().modificationChanged.connect(
@@ -301,6 +315,19 @@ class CodeEditWidget(QPlainTextEdit):
             tc.deletePreviousChar()
         tc.insertText(s)
         self.setTextCursor(tc)
+        self._remember_word(s)
+
+    def _remember_word(self, word):
+        """记住刚用过的补全词（近期编辑档），最多 200 个，新的排前面。"""
+        w = str(word or "")
+        if not w:
+            return
+        try:
+            self._recent_words.remove(w)
+        except ValueError:
+            pass
+        self._recent_words.insert(0, w)
+        del self._recent_words[200:]
 
     def _completion_enabled(self):
         """只对 .py/.js/.ts 启用；未保存的新标签按 Python 处理。"""
@@ -325,7 +352,7 @@ class CodeEditWidget(QPlainTextEdit):
         return False
 
     def _try_complete(self, force=False):
-        """本地补全：语言关键字 + 内置名 + 本文件符号（不做 LSP）。"""
+        """补全：关键字 + 本文件符号；``code_complete.jedi`` 开了再叠 jedi Top-5。"""
         try:
             if not self._completion_enabled() or self._in_comment_or_string():
                 self._hide_completion()
@@ -334,8 +361,20 @@ class CodeEditWidget(QPlainTextEdit):
             if len(prefix) < 2 and not force:
                 self._hide_completion()
                 return
-            words = completion_words(self.toPlainText(), self._filepath)
-            self._completer.model().setStringList(words)
+            text = self.toPlainText()
+            cur = self.textCursor()
+            result = complete_words(
+                completion_words(text, self._filepath), text, self._filepath,
+                cur.blockNumber() + 1, cur.columnNumber(), prefix=prefix,
+                jedi=jedi_enabled(self.trunk),
+                root=project_root(self.trunk, self._filepath),
+                local=local_symbols(text, self._filepath),
+                recent=self._recent_words,
+                same_dir=same_dir_words(self._filepath),
+                indexed=indexed_words(self.trunk),
+                limit=_MAX_COMPLETION_WORDS)
+            self._completion_source = str(result.get("source") or "local")
+            self._completer.model().setStringList(result.get("words") or [])
             self._completer.setCompletionPrefix(prefix)
             if not self._completer.completionCount():
                 self._hide_completion()
