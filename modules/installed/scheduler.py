@@ -34,6 +34,7 @@ class Scheduler(BaseModule):
         self.last_auto = 0  # 自动更新巡检（P0-3: 每6小时检查建议，部署需手动确认）
         self.last_anomaly = 0  # 异常检测（接上 anomaly_detector，只读检查）
         self.last_workflow = 0  # 定时工作流（workflow_runner.tick，仅跑带 schedule 的）
+        self.last_memory = 0  # 每周记忆巩固（批次 43.5：只清过期/重复）
         self._boot_time = time.time()  # v10.1: 启动先让用户用聊天，后台闭环延后开跑，不抢 Ollama
         self.last_error = ""  # D7: 最近一次任务失败信息
         self.fail_count = 0
@@ -83,9 +84,11 @@ class Scheduler(BaseModule):
                 auto_iv = self.trunk.rule("定时.自动更新间隔秒", 21600)
                 an_iv = self.trunk.rule("定时.异常检测间隔秒", 3600)
                 wf_iv = self.trunk.rule("定时.工作流间隔秒", 60)
+                memo_iv = self.trunk.rule("定时.记忆巩固间隔秒", 604800)
             except Exception:
                 bk_iv, heal_iv, rv_iv, rc_iv, auto_iv, an_iv = 3600, 14400, 1800, 300, 21600, 3600
                 wf_iv = 60
+                memo_iv = 604800
             # 每小时备份（D7: 失败自动重试+告警）
             if now - self.last_backup > bk_iv:
                 def _do_backup():
@@ -160,6 +163,21 @@ class Scheduler(BaseModule):
                         ml.do_review()
                 self._safe_run("记忆复习", _review)
                 self.last_review = now
+            # 每周记忆巩固（启动 600 秒后首轮；只清过期/重复/裁剪，不碰模型）
+            if now - self.last_memory > memo_iv and now - self._boot_time > 600 and not busy:
+                def _memory_tidy():
+                    from core.chat.memory_jobs import weekly_consolidate
+                    stats = weekly_consolidate(
+                        getattr(self.trunk, "base", ".") or ".")
+                    if stats.get("changed"):
+                        self.trunk._log(
+                            "记忆巩固: %d→%d（过期%d 重复%d 裁剪%d）" % (
+                                stats.get("before", 0), stats.get("after", 0),
+                                stats.get("removed_expired", 0),
+                                stats.get("removed_dupes", 0),
+                                stats.get("trimmed", 0)))
+                self._safe_run("记忆巩固", _memory_tidy)
+                self.last_memory = now
             if now - self.last_health > 600 and now - self._boot_time > 120:
                 def _health():
                     # ① Ollama 可达性 + 模型数（用配置地址，非硬编码）

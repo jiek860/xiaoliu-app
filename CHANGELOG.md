@@ -1,5 +1,35 @@
 # 版本变更记录
 
+## v25.2.38 - 2026-10-29
+
+**记忆 v2 收尾：每周巩固任务 + 灰度对照报告（批次 43.5）**
+（默认 shadow：不生成、不改写记忆内容，用户可见行为与 v25.2.37 一致）
+
+**每周巩固（43.5）**
+- `core/chat/memory_jobs.py`：`weekly_consolidate()` 只做减法 —— 删除已过期卡、
+  同 id 只留最新一条、总量压到 800 条上限；旧卡没有 id 一律保留，
+  不误删、不做摘要、不调模型。
+- 有改动才留 `memory_cards.jsonl.bak` 并用 `.tmp + os.replace` 原子替换；
+  无改动不碰文件；异常只记 `stats["error"]`，由 scheduler 记录并重试。
+- `modules/installed/scheduler.py` 接入：`定时.记忆巩固间隔秒` 默认 7 天，
+  启动 600 秒后首轮、聊天中让路；成功后日志输出「前→后（过期/重复/裁剪）」。
+
+**灰度对照报告（43.5）**
+- `tools/memory_report.py`：只读 `data/chat_shadow.jsonl`，统计 v2 注入字数
+  与旧记忆段字数、用户说「还记得」时的预览命中率、影子期本应写入条数；
+  支持 `--base / --json / --markdown`，可生成 `docs/105` 灰度报告。
+- 影子行补充 `v2_chars / legacy_chars`，旧日志缺字段时回退 `preview` 长度。
+
+**冻结期名额**
+- 新增 `core/chat/memory_jobs.py`，core 模块 216 → 217：同提交执行
+  `check_feature_freeze.py --rebase --force` 并记录理由（巩固逻辑需脱离
+  Qt/Trunk 独立测试，且 `memory_v2.py` 已 576 行，继续内联会越过 600 行硬限）；
+  Feature / gui / 按钮预算均未增加。
+
+**测试**
+- 新增 `tests/test_memory_jobs.py`（11）与 `tests/test_memory_report.py`（8），
+  合计 19 passed。
+
 ## v25.2.37 - 2026-10-29
 
 **聊天拟人 v1：状态层 + 规划器 + 校验器 + 分层人格卡 + few-shot 灰度（批次 42）**

@@ -263,6 +263,8 @@ class ContextBuilder:
                 if text:
                     self.record_shadow({"kind": "memory_v2",
                                         "count": len(cards),
+                                        "v2_chars": len(text),
+                                        "legacy_chars": len(legacy or ""),
                                         "preview": text[:200]})
                 return legacy
             if text:
