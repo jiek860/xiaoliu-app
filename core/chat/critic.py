@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""生成后校验器 ResponseCritic（批次 42.3）。
+"""生成后校验器 ResponseCritic（批次 42.3）+ 多维反思规则（批次 48.1）。
 
 只做规则检查与轻量修复，不重跑检索：
     超长 / 复述用户 / 重复句 / 禁语 / 列点 / emoji 超预算 / 多余反问 / 疑似答非所问。
@@ -7,7 +7,12 @@
 返回 ``{ok, issues, fixed_text, metrics, source}``；任何异常都返回原文。
 ``chat.critic`` 开关默认 ``shadow``：只记录 issues，不改回复；``on`` 才替换文本。
 ``chat.critic_rewrite`` 打开且模型可用时，允许一次轻量重写（失败即保留规则修复）。
+
+48.1 起本文件还提供 ``rubric_dims`` 等纯函数：按准确/贴合/人格/有用/长度
+五个维度给回答打 1-5 分。它们不调模型，「失败库/建议晋升」的存储放在
+``core.chat.fewshot``，避免本文件超过 600 行。
 """
+import json
 import re
 
 try:
@@ -189,7 +194,7 @@ class ResponseCritic:
         return {"ok": ok, "issues": sorted(set(issues)), "fixed_text": text,
                 "metrics": metrics, "source": source}
 
-    # ---------- 禁语（42.4 起以人格卡为准） ----------
+    # ---------- 禁语（42.4 起以人格卡为准；48.2 起含晋升规则） ----------
     def _banned_pairs(self):
         rows = list(_BANNED)
         try:
@@ -243,3 +248,175 @@ def render_plan_avoid(plan):
         if item and item not in seen:
             seen.append(item)
     return seen
+
+
+# ================================================================
+# 多维反思规则（48.1）
+# 纯函数：不调模型、不读写文件；存储与晋升在 core.chat.fewshot。
+# ================================================================
+_DIM_KEYS = ("准确", "贴合", "人格", "有用", "长度")
+_DIM_ALIASES = {
+    "准确": ("准确", "accuracy", "acc"),
+    "贴合": ("贴合", "相关", "relevance", "relevant"),
+    "人格": ("人格", "persona", "风格", "style"),
+    "有用": ("有用", "useful", "helpful", "utility"),
+    "长度": ("长度", "length", "len"),
+}
+LOW_TOTAL = 3.0
+LOW_DIM = 2
+FALLBACK_RULES = {
+    "too_long": {"type": "avoid", "value": "回复控制在 3 句内，别铺陈",
+                 "style": "说得短一点，最多三句。"},
+    "restate": {"type": "avoid", "value": "不要复述用户问题，直接回答",
+                "banned": ["你问的是", "你的问题是", "你想了解"]},
+    "banned": {"type": "avoid", "value": "别说客服腔和“作为 AI”这类话",
+               "banned": ["作为AI", "作为 AI", "很高兴为您",
+                          "希望对你有所帮助", "希望对您有帮助"]},
+    "bullets": {"type": "avoid", "value": "少列点，能一句话说清就别分条"},
+    "off_topic": {"type": "avoid", "value": "先回答问题本身，别跑题"},
+    "too_short": {"type": "avoid", "value": "回答具体一点，别只回几个字"},
+    "error": {"type": "avoid", "value": "答不出来就说原因，别用错误占位蒙混"},
+}
+_CUSTOMER_WORDS = ("作为AI", "作为 AI", "很高兴为您", "希望对你有所帮助",
+                   "希望对您有帮助", "我是一个人工智能", "以下是", "综上所述")
+_RESTATE_WORDS = ("你问的是", "你的问题是", "你想了解", "关于你提到的")
+_OFFTOPIC_WORDS = ("顺便说", "另外我还想", "换个话题")
+
+
+def _clamp(value, lo=1, hi=5):
+    try:
+        return max(lo, min(hi, int(round(float(value)))))
+    except (TypeError, ValueError):
+        return lo
+
+
+def _norm(text):
+    return re.sub(r"\s+", "", str(text or "")).lower()
+
+
+def _bigrams(text):
+    text = _norm(text)
+    return {text[i:i + 2] for i in range(max(0, len(text) - 1))}
+
+
+def _overlap(a, b):
+    x, y = _bigrams(a), _bigrams(b)
+    if not x or not y:
+        return 0.0
+    return len(x & y) / float(len(x | y))
+
+
+def _has_any(text, words):
+    low = str(text or "").lower()
+    return any(str(word).lower() in low for word in words)
+
+
+def rubric_dims(user_input, ai_response):
+    """规则维度：不调模型也能给出稳定底线分（1-5）。"""
+    q = str(user_input or "")
+    a = str(ai_response or "")
+    qn, an = _norm(q), _norm(a)
+    ov = _overlap(q, a)
+    is_question = bool(re.search(r"[?？]|怎么|为什么|如何|吗|能不能|可以", q))
+    wants_code = bool(re.search(r"代码|报错|函数|实现|脚本|命令|bug|error", q))
+
+    accuracy = 5
+    if not an or len(an) < 5:
+        accuracy = 1
+    elif a.startswith(("（抱歉", "本地模型错误", "（模型错误")):
+        accuracy = 1
+    elif is_question and len(qn) >= 8 and ov < 0.04:
+        accuracy = 2
+    elif _has_any(a, _OFFTOPIC_WORDS) and not _has_any(q, _OFFTOPIC_WORDS):
+        accuracy = 3
+
+    relevance = 5
+    if not an:
+        relevance = 1
+    elif is_question and ov < 0.10:
+        relevance = 2 if len(qn) >= 8 else 3
+    elif _has_any(a, _RESTATE_WORDS):
+        relevance = min(relevance, 3)
+
+    persona = 5
+    if _has_any(a, _CUSTOMER_WORDS):
+        persona = 2
+    elif _has_any(a, _RESTATE_WORDS):
+        persona = 3
+    if len(re.findall(r"^\s*(?:[-*]|\d+[.、])", a, re.M)) >= 4 and len(an) < 300:
+        persona = min(persona, 3)
+
+    if wants_code:
+        useful = 5 if ("```" in a or re.search(r"\bdef\b|pip |npm |import ", a)) else 2
+    elif re.search(r"难受|难过|烦|累|焦虑|生气|委屈|崩溃", q):
+        useful = 5 if re.search(r"辛苦|理解|陪|慢慢来|抱抱|别急", a) else 3
+    else:
+        useful = 5 if (re.search(r"\d", a) or len(an) >= 20) else 2
+    if accuracy == 1:
+        useful = 1
+
+    n = len(an)
+    if wants_code:
+        length = 5 if n <= 3000 else (3 if n <= 5000 else 2)
+    elif n < 5:
+        length = 1
+    elif n < 15:
+        length = 3
+    elif n <= 400:
+        length = 5
+    elif n <= 800:
+        length = 3
+    else:
+        length = 2
+    return {"准确": _clamp(accuracy), "贴合": _clamp(relevance),
+            "人格": _clamp(persona), "有用": _clamp(useful),
+            "长度": _clamp(length)}
+
+
+def rubric_total(dims):
+    values = [float(dims.get(key) or 0) for key in _DIM_KEYS]
+    return round(sum(values) / float(len(values)), 2) if values else 0.0
+
+
+def rubric_issues(dims, user_input="", ai_response=""):
+    out = []
+    a = str(ai_response or "")
+    if not a.strip() or a.startswith(("（抱歉", "本地模型错误", "（模型错误")):
+        out.append("error")
+    if dims.get("长度", 5) <= 2 and len(a) > 800:
+        out.append("too_long")
+    if len(a) < 15:
+        out.append("too_short")
+    if _has_any(a, _RESTATE_WORDS):
+        out.append("restate")
+    if _has_any(a, _CUSTOMER_WORDS):
+        out.append("banned")
+    if len(re.findall(r"^\s*(?:[-*]|\d+[.、])", a, re.M)) >= 4:
+        out.append("bullets")
+    if dims.get("贴合", 5) <= 2 or dims.get("准确", 5) <= 2:
+        out.append("off_topic")
+    return list(dict.fromkeys(out))
+
+
+def parse_model_json(raw):
+    """解析模型返回的维度 JSON；失败返回 None（不抛异常）。"""
+    match = re.search(r"\{.*\}", str(raw or ""), re.S)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(0))
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    dims, suggestion = {}, ""
+    for key, aliases in _DIM_ALIASES.items():
+        for alias in aliases:
+            if alias in data:
+                dims[key] = _clamp(data.get(alias))
+                break
+    for key in ("建议", "suggestion", "改进"):
+        if key in data:
+            suggestion = str(data.get(key) or "")[:100]
+            break
+    return dims, suggestion

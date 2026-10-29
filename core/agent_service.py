@@ -187,7 +187,22 @@ class AgentService:
                                 "ok": bool(result.get("ok")),
                                 "cancelled": bool(result.get("cancelled")),
                                 "stop_reason": result.get("stop_reason", "")})
+        if not result.get("cancelled"):
+            self._queue_personality(
+                "task_done" if result.get("ok") else "error",
+                result.get("goal") or job_id)
         return result
+
+    def _queue_personality(self, event, detail=""):
+        """48.3：任务结束事件入队，由人格模块在合适时机主动说一句。"""
+        try:
+            pers = (getattr(self.trunk, "modules", {}) or {}).get("personality")
+            if pers is None and self.trunk is not None:
+                pers = self.trunk._load_lazy("personality")
+            if pers is not None and hasattr(pers, "queue_proactive"):
+                pers.queue_proactive(event, detail)
+        except Exception as e:
+            _x6_swallowed(__name__, e, "queue personality event")
 
     def _default_runner(self, service, job):
         from core.agent_orchestrator import AgentOrchestrator

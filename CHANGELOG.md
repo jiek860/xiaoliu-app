@@ -1,5 +1,50 @@
 # 版本变更记录
 
+## v25.3.0 - 2026-10-29
+
+**反思、成长、主动与发布（批次 48–49）**
+（48 批开关默认 `shadow`/关：`反思.多维评分=shadow`、`主动.事件驱动=shadow`；
+`语音.情绪=on` 只在用户主动朗读时生效，关掉即回旧行为）
+
+**多维反思与失败库（48.1）**
+- `core/chat/critic.py` 增加 `rubric_dims`：准确/贴合/人格/有用/长度各 1-5 分，
+  规则先给底线分，模型可用时覆盖；总分 <3.0 或任一项 ≤2 记为低分。
+- `modules/installed/self_reflect.py`：`reflect`/`quick_eval` 记录维度；
+  `off` 模式完全回到 v2.1（只返回旧三键）；`shadow` 不改旧分数语义。
+- `core/chat/fewshot.py` 新增 `data/chat_failures.jsonl` 失败库：脱敏、
+  7 天内同类去重、最多 200 条；`recheck_failures` 按当前规则复查并算复现率；
+  `weekly_report` 输出近 7 天低分、失败类别与行动项。
+
+**建议晋升（48.2）**
+- 同类建议 ≥3 次生成候选，**必须人工 `confirm_candidate` 才生效**；
+  写入 `data/chat_promoted_rules.json`，`revoke_candidate` 立即撤销；
+  确认/撤销全程写 `data/chat_promoted_audit.jsonl`。
+- `core/chat/persona_card.py` 只读生效规则：禁语并入 `banned_pairs`，
+  风格文本并入人格卡；`ResponseCritic` 因此能直接拦截晋升禁语。
+- `get_advice` 注入生效规则与 30 天内低分建议，过期建议自动失效。
+
+**事件驱动主动与语音情绪（48.3）**
+- `core/personality_style_hints.py`：`queue_proactive` / `consume_proactive`
+  / `note_user_reply` / `proactive_stats`；任务完成、报错、约定、里程碑、
+  长沉默五类事件，每天最多一条，22:00-08:00 免打扰，30 分钟内回话记接受。
+- `core/agent_service.py` 任务结束入队；`core/trunk_background.py` 错误占位入队；
+  `remember_event` 记下约定时入队；GUI 定时器先取事件，再回退旧搭话。
+- `modules/installed/tts.py`：按 mood 调 rate/pitch/volume；
+  首包超过 `语音.首包上限ms`（默认 1500）取消合成并返回
+  `{"ok": false, "fallback": "text"}`，不让用户干等。
+- `core/realtime/tts.py` 同步支持情绪参数。
+
+**开关矩阵与发布（49.1–49.3）**
+- 新增 `tools/ab_matrix.py`：17 个开关的成对覆盖矩阵（24 组，覆盖任意
+  两开关的全部取值组合），本地探针验证读回、反思 off/shadow/on、主动预算、
+  语音情绪；`--full` 可笛卡尔积（默认上限 256）。
+- 新增 `docs/105_开关矩阵与默认决策_2026-10-29.md`：默认值决策表、
+  回滚方式、41.3 基线对比口径；不编造模型指标，待采集项明确标注。
+- `tools/perf_baseline.py` 增加索引刷新/检索、检索器、记忆召回、上下文裁剪
+  探针；本机门禁通过（数值见 `perf_baseline.json`）。
+- 稳定版 v25.3.0；48/49 回归见 `docs/20` 批次记录。`docs/30` 规则数同步为
+  75（新增 F 组 12 条）；`tts` 的情绪表改为只读元组，插件质量门禁回到 0 error。
+
 ## v25.2.42 - 2026-10-29
 
 **补全与代码问答（批次 47）**

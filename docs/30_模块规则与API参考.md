@@ -27,7 +27,7 @@
 > | 事实源 | 内容 | 现状 |
 > |---|---|---|
 > | `core/lazy_config.py` | 模块登记表 | **72 个模块** |
-> | `core/rules_engine.py` | 规则定义 | **63 条规则** |
+> | `core/rules_engine.py` | 规则定义 | **75 条规则** |
 > | `core/core_caps.py` | core 侧能力声明 | 19 条 |
 > | `core/module_caps.py` | 能力注册表（合并两来源） | 64 条能力 |
 > | `modules_repo/manifest.json` | 插件清单（RSA 签名） | 48 条 |
@@ -819,7 +819,7 @@ tc._dispatch(info, args, query, tool_name)
 ### 八、LAZY_MAP 与能力
 
 - 模块登记：`core/lazy_config.py` 的 `LAZY_MAP`，当前 72 个。
-- 规则定义：`core/rules_engine.py`，当前 63 条。
+- 规则定义：`core/rules_engine.py`，当前 75 条（批次 48 新增 F 组 12 条）。
 - 能力注册：`core/module_caps.py`，当前 64 条。
 - 插件清单：`modules_repo/manifest.json`，当前 48 条。
 

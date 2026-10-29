@@ -24,6 +24,14 @@ class ChatMixin:
                 _x6_swallowed(__name__, e, "best-effort fallback")
             return
 
+        # 48.3：用户回话 -> 若 30 分钟内回过主动搭话，记为接受
+        try:
+            pers = self.trunk.modules.get("personality")
+            if pers and hasattr(pers, "note_user_reply"):
+                pers.note_user_reply(text)
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "best-effort fallback")
+
         # 上一条还在回复时不要并行发：两个 Worker 同时往同一个视图写字，
         # 内容会交错。给一句可执行的提示（Esc 可停），而不是静默丢弃。
         try:
@@ -514,7 +522,11 @@ class ChatMixin:
             pers = self.trunk.modules.get("personality")
             if not pers:
                 return
-            line = pers.proactive_lines()
+            line = None
+            if hasattr(pers, "consume_proactive"):
+                line = pers.consume_proactive()
+            if not line:
+                line = pers.proactive_lines()
             if line:
                 self.chat.append(
                     f'<b style="color:#1a1a2e">{self.ai_name}:</b><br>{line}<br>'

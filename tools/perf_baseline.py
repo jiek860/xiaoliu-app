@@ -66,6 +66,65 @@ def _first_token_probe():
         return {"ok": False, "error": str(exc)[:300]}
 
 
+def _index_probe(mode):
+    """49.2：索引刷新/检索耗时（临时 30 个文件，隔离 data 目录）。"""
+    setup = (
+        "import os, tempfile, time;"
+        "from core.code.index_v2 import CodeIndexV2;"
+        "base=tempfile.mkdtemp(prefix='x6_idx_'); root=os.path.join(base,'proj');"
+        "os.makedirs(root);"
+        "[open(os.path.join(root,'m%d.py'%i),'w',encoding='utf-8')"
+        ".write('def f%d(x):\\n    return x+%d\\n'%(i,i)) for i in range(30)];"
+    )
+    if mode == "refresh":
+        body = ("idx=CodeIndexV2(base, root);"
+                "t=time.perf_counter(); st=idx.refresh(root);"
+                "print((time.perf_counter()-t)*1000)")
+    else:
+        body = ("idx=CodeIndexV2(base, root); idx.refresh(root);"
+                "t=time.perf_counter();"
+                "[idx.search('f%d x'%i, top_k=10) for i in range(30)];"
+                "print((time.perf_counter()-t)*1000/30)")
+    return _probe(setup + body)
+
+
+def _retrieval_probe():
+    """49.2：200 篇文档的检索耗时（纯本地，不加载向量模型）。"""
+    return _probe(
+        "import tempfile, time;"
+        "from core.retrieval import HybridRetriever;"
+        "base=tempfile.mkdtemp(prefix='x6_rtr_'); r=HybridRetriever(base);"
+        "r.add_many([{'text':'第%d篇 关于索引、检索、上下文的说明'%i,'source':'s'} "
+        "for i in range(200)]);"
+        "t=time.perf_counter();"
+        "[r.search('检索 上下文', top_k=5) for _ in range(50)];"
+        "print((time.perf_counter()-t)*1000/50)")
+
+
+def _context_probe():
+    """49.2：上下文裁剪耗时（100 条消息、超预算触发裁剪）。"""
+    return _probe(
+        "import time;"
+        "from core.context_budget import trim_messages;"
+        "msgs=[{'role':'user','content':'第%d条 这是一段用来触发预算裁剪的对话内容'%i}"
+        " for i in range(100)];"
+        "t=time.perf_counter();"
+        "[trim_messages(msgs, 2000, 200) for _ in range(100)];"
+        "print((time.perf_counter()-t)*1000/100)")
+
+
+def _memory_probe():
+    """49.2：记忆召回耗时（200 张卡、50 次召回）。"""
+    return _probe(
+        "import tempfile, time;"
+        "from core.chat.memory_v2 import MemoryV2, make_card, append_cards;"
+        "base=tempfile.mkdtemp(prefix='x6_mem_'); m=MemoryV2(base);"
+        "append_cards(m.path, [make_card('我喜欢第%d种咖啡'%i) for i in range(200)]);"
+        "t=time.perf_counter();"
+        "[m.recall('咖啡', limit=5) for _ in range(50)];"
+        "print((time.perf_counter()-t)*1000/50)")
+
+
 def _tree_size(path):
     total = 0
     if not path.exists():
@@ -90,6 +149,11 @@ def measure():
         "import_gui_build_ui": _probe(
             "import time; t=time.perf_counter(); import gui.build_ui;"
             " print((time.perf_counter()-t)*1000)"),
+        "code_index_refresh_ms": _index_probe("refresh"),
+        "code_index_search_ms": _index_probe("search"),
+        "retrieval_search_ms": _retrieval_probe(),
+        "memory_recall_ms": _memory_probe(),
+        "context_trim_ms": _context_probe(),
         "artifact_bytes": _tree_size(BASE / "dist"),
         "source_bytes": _tree_size(BASE / "core") + _tree_size(BASE / "gui") +
                         _tree_size(BASE / "modules" / "installed"),
@@ -111,6 +175,11 @@ def compare(current, baseline, tolerance=0.20):
         "first_token_ms": "ms_median",
         "import_core_modules": "ms_median",
         "import_gui_build_ui": "ms_median",
+        "code_index_refresh_ms": "ms_median",
+        "code_index_search_ms": "ms_median",
+        "retrieval_search_ms": "ms_median",
+        "memory_recall_ms": "ms_median",
+        "context_trim_ms": "ms_median",
         "source_bytes": None,
         "artifact_bytes": None,
     }

@@ -88,8 +88,30 @@ class PersonaCard:
     def style_names(self):
         return list((self.data["layers"]["l2"].get("styles") or {}).keys())
 
+    def promoted_rules(self):
+        """反思晋升后的人工确认规则（批次 48.2）。
+
+        文件由 ``self_reflect.confirm_candidate`` 写入，撤销时移除。这里只读，
+        不参与自动生成；坏文件按空处理，回复行为回到未晋升状态。
+        """
+        path = os.path.join(self.base, "data", "chat_promoted_rules.json")
+        data = _read(path)
+        rules = (data or {}).get("rules") if isinstance(data, dict) else None
+        return [r for r in (rules or []) if isinstance(r, dict)]
+
+    def promoted_avoids(self):
+        return [str(r.get("value") or "").strip()
+                for r in self.promoted_rules()
+                if str(r.get("value") or "").strip()][:3]
+
     def banned_pairs(self):
-        return [(str(k), str(v)) for k, v in (self.data.get("banned") or {}).items()]
+        pairs = [(str(k), str(v)) for k, v in (self.data.get("banned") or {}).items()]
+        for rule in self.promoted_rules():
+            for word in (rule.get("banned") or []):
+                word = str(word or "").strip()
+                if word and word not in dict(pairs):
+                    pairs.append((word, ""))
+        return pairs
 
     def banned_words(self):
         return [k for k, _ in self.banned_pairs()]
@@ -125,6 +147,14 @@ class PersonaCard:
         if style_row.get("text"):
             parts.append(str(style_row["text"]))
             used.append("l2")
+        promoted_styles = [str(r.get("style") or "").strip()
+                           for r in self.promoted_rules()
+                           if str(r.get("style") or "").strip()]
+        for extra in promoted_styles[:2]:
+            if extra not in parts:
+                parts.append(extra)
+                if "l2" not in used:
+                    used.append("l2")
         topics = layers["l3"].get("topics") or {}
         topic = str(state.get("topic") or "")
         if topic in topics:
