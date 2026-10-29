@@ -1,5 +1,44 @@
 # 版本变更记录
 
+## v25.2.40 - 2026-10-29
+
+**代码索引与上下文 v2（批次 45）**
+（`code.context_v2` 默认 shadow：Agent 上下文与 v25.2.39 完全一致，
+只按 10% 抽样记影子日志）
+
+**函数级代码索引（45.1–45.2）**
+- `core/code/index_v2.py`：AST 切函数/类/模块块，写入独立库
+  `data/code_index_v2.db`（SQLite FTS5）；`search / outline` 返回
+  `path / symbol / kind / start_line / end_line / score`。
+- 增量刷新：`meta` 表按 `mtime + size + sha1` 跳过未变文件，删除文件时
+  同步清 `chunks / calls / imports`；单文件 >2MB 直接跳过。
+- 调用图：`calls / imports` 落库，`callers_of / callees_of / tests_for`
+  走 SQL 反查，不再每次重算 AST。
+
+**上下文 v2（45.3–45.4）**
+- `core/code/context_v2.py`：块优先级拼装
+  （项目约定 > 任务 > 选区 > 失败栈 > 当前文件 > 相关文件 > 相关测试），
+  预算 = `max_chars × 0.75`，超预算丢低优块并标 `truncated`。
+- `parse_failure`：只认 `File "...", line N` 与 `path.py:N[:C]`，
+  命中文件提升为高优块；解析失败返回空、不抛错。
+- `core/code_context.py` 改为分发器：`off` 旧实现、`shadow` 旧实现 +
+  抽样对照、`on` 走 v2；v2 异常静默回退旧上下文。
+
+**项目约定（45.5）**
+- `core/code/rules.py`：读 `x6.rules.md / AGENTS.md / CONTRIBUTING.md /
+  coding_rules.md` 与 `docs/` 规则类 md，抽取标题/列表/强约束词，
+  压到 1200 字；`mtime+size` 签名缓存，原子写 `data/code_rules_cache.json`。
+
+**冻结期名额**
+- 新增 `core/code/__init__.py / index_v2.py / context_v2.py / rules.py`，
+  core 222 → 226，同提交执行 `check_feature_freeze.py --rebase --force`；
+  测试 189 → 193；Feature / gui / 按钮预算不变（46 / 101 / 60）。
+
+**测试**
+- 新增 `test_code_index_v2`（10）、`test_call_graph`（6）、
+  `test_code_context_v2`（10）、`test_code_rules`（7），共 **32 passed**；
+  旧链路回归 44 passed。
+
 ## v25.2.39 - 2026-10-29
 
 **工作台自然语言命令层（批次 44）**
