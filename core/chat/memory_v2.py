@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""记忆 v2 统一入口（批次 43.1 / 43.2）。
+"""记忆 v2 统一入口（批次 43.1 / 43.2 / 43.3）。
 
 现有记忆资产各管一段（记忆卡 / 情景 / 向量 / 遗忘曲线），本模块做三件事：
 统一卡片 schema、统一召回排序、统一注入预算；43.2 起再加写入侧——
 强信号立即写、普通对话每 5 轮写一张摘要卡、承诺卡必须带 due，
-敏感信息只留「已隐去」标记。数据仍读旧的 ``data/memory_cards.jsonl``，
-不迁移、不改写已有行，只追加新 schema。
+敏感信息只留「已隐去」标记；43.3 补冲突消解（同类新卡覆盖旧卡、正反偏好
+取最新并降置信度）与自动过期（事件 7 天、承诺到期后 3 天）。数据仍读旧的
+``data/memory_cards.jsonl``，不迁移、不改写已有行，只追加新 schema。
 
 排序权重按 docs/102 §2.9：
     0.45 相关度 + 0.25 重要度 + 0.20 时新性（半衰期 60 天）+ 0.10 话题匹配
@@ -126,8 +127,128 @@ def is_signal(text):
     return bool(_STRONG_PAT.search(raw) or _SENSITIVE_PAT.search(raw))
 
 
-def make_card(text, *, now=None, source="chat"):
-    """从一句用户原话生成 v2 卡；敏感信息只留标记。"""
+_WEEKDAY = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5,
+            "日": 6, "天": 6}
+
+
+def _morning(ts):
+    lt = time.localtime(ts)
+    return time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 9, 0, 0, 0, 0, -1))
+
+
+def due_at(text, now):
+    """把中文时间词换算成时间戳；认不出返回 0（不猜）。"""
+    raw = str(text or "")
+    now = float(now)
+    match = re.search(r"(\d+)天后", raw)
+    if match:
+        return now + int(match.group(1)) * 86400
+    if "后天" in raw:
+        return now + 2 * 86400
+    if "明天" in raw:
+        return now + 86400
+    if "今晚" in raw or "今天" in raw:
+        return now
+    wd = time.localtime(now).tm_wday
+    match = re.search(r"下周([一二三四五六日天])", raw)
+    if match:
+        days = 7 - wd + _WEEKDAY[match.group(1)]
+        return _morning(now + days * 86400)
+    match = re.search(r"周([一二三四五六日天])", raw)
+    if match:
+        days = (_WEEKDAY[match.group(1)] - wd) % 7 or 7
+        return _morning(now + days * 86400)
+    if "周末" in raw:
+        days = (5 - wd) % 7 or 7
+        return _morning(now + days * 86400)
+    match = re.search(r"(\d{1,2})月(\d{1,2})日", raw)
+    if match:
+        year = time.localtime(now).tm_year
+        ts = time.mktime((year, int(match.group(1)), int(match.group(2)),
+                          9, 0, 0, 0, 0, -1))
+        return ts if ts >= now else time.mktime(
+            (year + 1, int(match.group(1)), int(match.group(2)),
+             9, 0, 0, 0, 0, -1))
+    match = re.search(r"(\d{1,2})号", raw)
+    if match:
+        day = int(match.group(1))
+        lt = time.localtime(now)
+        month, year = lt.tm_mon, lt.tm_year
+        ts = time.mktime((year, month, day, 9, 0, 0, 0, 0, -1))
+        if ts < now:
+            month += 1
+            if month > 12:
+                month, year = 1, year + 1
+            ts = time.mktime((year, month, day, 9, 0, 0, 0, 0, -1))
+        return ts
+    return 0.0
+
+
+def jaccard(a, b):
+    ga, gb = grams(a), grams(b)
+    if not ga or not gb:
+        return 0.0
+    return len(ga & gb) / float(len(ga | gb))
+
+
+_PREF_OBJ = re.compile(r"(?:我喜欢|我爱|我讨厌|我不喜欢|喜欢|讨厌|偏爱|不爱)(.+)$")
+
+
+def pref_object(text):
+    match = _PREF_OBJ.search(clean(text))
+    return clean(match.group(1))[:20] if match else ""
+
+
+def polarity(text):
+    t = str(text or "")
+    if any(w in t for w in ("讨厌", "不喜欢", "不爱", "烦")):
+        return -1
+    if any(w in t for w in ("喜欢", "偏爱", "爱")):
+        return 1
+    return 0
+
+
+def same_topic_conflict(newer, older, threshold=0.55, pref_similar=0.50):
+    """判断两张同类卡是否该互相覆盖（43.3 规则）。"""
+    text_new, text_old = newer.get("text", ""), older.get("text", "")
+    if newer.get("type") == "preference":
+        obj_new, obj_old = pref_object(text_new), pref_object(text_old)
+        if obj_new and obj_new == obj_old and polarity(text_new) * polarity(text_old) < 0:
+            return True                     # 同一对象的正反偏好
+        if polarity(text_new) * polarity(text_old) < 0 and \
+                jaccard(text_new, text_old) >= 0.20:
+            return True                     # 正反偏好且说法接近
+        return jaccard(text_new, text_old) >= pref_similar
+    return jaccard(text_new, text_old) >= threshold
+
+
+def resolve_conflicts(cards, *, threshold=0.55, pref_threshold=0.50):
+    """同类新卡覆盖旧卡：旧卡被跳过，新卡记 conflicts_with 并降一点置信度。"""
+    ordered = sorted(
+        [c for c in (cards or []) if c],
+        key=lambda c: (-float(c.get("created_at") or 0), c.get("id", "")))
+    kept = []
+    for card in ordered:
+        rival = None
+        ctype = card.get("type")
+        for newer in kept:
+            if newer.get("type") != ctype:
+                continue
+            if (same_topic_conflict(newer, card, threshold=threshold,
+                                    pref_similar=pref_threshold)):
+                rival = newer
+                break
+        if rival is not None:
+            rival.setdefault("conflicts_with", []).append(card.get("id"))
+            rival["confidence"] = round(
+                max(0.3, float(rival.get("confidence") or 0.8) - 0.1), 3)
+            continue
+        kept.append(card)
+    return kept
+
+
+def make_card(text, *, now=None, source="chat", auto_expire=True):
+    """从一句用户原话生成 v2 卡；敏感信息只留标记，事件/承诺自动过期。"""
     now = float(now or time.time())
     text = clean(text)
     if not text:
@@ -151,6 +272,14 @@ def make_card(text, *, now=None, source="chat"):
     }, now=now)
     if card and due:
         card["due"] = due
+    if card and auto_expire:
+        if ctype == "commitment" and due:
+            deadline = due_at(text, now)
+            if deadline:
+                card["due_at"] = deadline
+                card["expires_at"] = deadline + 3 * 86400   # 到期后 3 天清理
+        elif ctype == "event":
+            card["expires_at"] = now + 7 * 86400            # 事件 7 天过期
     return card
 
 
@@ -251,6 +380,8 @@ def normalize(raw, *, now=None, index=0):
             card["follow_up"] = clean(raw["follow_up"])
         if raw.get("due"):
             card["due"] = clean(raw["due"])
+        if raw.get("due_at") is not None:
+            card["due_at"] = float(raw["due_at"])
         if raw.get("expires_at") is not None:
             card["expires_at"] = float(raw["expires_at"])
         return card
@@ -351,11 +482,15 @@ class MemoryV2:
         now = float(now or time.time())
         self.last_scores = []
         state = load_state(self.state_path)
-        ranked = []
+        fresh = []
         for card in load_cards(self.path, now=now):
             expires = card.get("expires_at")
             if expires is not None and expires <= now:
                 continue
+            fresh.append(card)
+        fresh = resolve_conflicts(fresh)      # 同类新卡覆盖旧卡（43.3）
+        ranked = []
+        for card in fresh:
             if recently_injected(state, card["id"], now, hours):
                 continue
             value, rel, topic_hit = score(card, query, topic, now)
