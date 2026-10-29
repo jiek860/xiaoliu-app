@@ -1,5 +1,55 @@
 # 版本变更记录
 
+## v25.2.39 - 2026-10-29
+
+**工作台自然语言命令层（批次 44）**
+（`nl.intent_v2` 默认 shadow：命令中心行为与 v25.2.38 完全一致，只记影子日志）
+
+**统一意图（44.1）**
+- `core/nl/intent.py`：`intent / targets / scope / constraints / risk` 五字段
+  schema；10 类工作台意图；斜杠命令 `/open /test /explain /fix /code
+  /refactor /search /undo /plan /chat`。
+- 三段式路由：规则档（斜杠/路径/符号/测试名，≥0.78 不调模型）→
+  小模型档（注入 `model_call`，解析 JSON，坏输出回退）→ 追问档
+  （低于阈值只问一个最关键的问题）。
+- 撤销短语优先于「改」；`undo / refactor` 固定高风险，出现删除/格式化/
+  全项目等字样升级为高风险；破坏性意图 `auto_execute` 恒为 False。
+- `core/agent_router.route_goal(..., trunk=...)` 叠加 NL：`off` 完全走旧
+  三词表，`shadow` 只记影子日志，`on` 仅在带明确文件/符号目标且置信度
+  ≥0.8 时升级为 code，绝不抢占电脑域。
+
+**实体解析（44.2）**
+- `core/nl/entities.py`：文件（精确 > 路径后缀 > 同名 > 前缀 > 子串）、
+  符号（复用 `workspace_index.find_symbols`）、测试名、本地分支
+  （读 `.git/refs/heads` 与 `packed-refs`，不跑子进程）；解析不到给
+  ≤5 个候选；无索引时文件退回磁盘遍历。
+
+**澄清与计划卡（44.3）**
+- `core/nl/clarify.py`：缺 target / test / query 时只问一句；当前文件、
+  选区、最近报错可补槽位；候选不唯一时给出 ≤5 个选项；回答可直接并回
+  意图（补文件/符号/测试/关键词/全部测试）。
+- 计划卡复用 `core/code_plan`：步骤统一带 `done=False`、`index`，附
+  风险/测试/回退提示，界面可直接渲染成可勾选清单。
+
+**命令中心（44.4）**
+- 新增 `gui/ide_command_center.py`，`gui/ide_sidebar.py` 从 591 行降到
+  510 行并 re-export 旧入口；执行顺序仍为「精确命令 → 模糊命令 →
+  NL 意图 → 按文件名打开」。
+- `core/nl/command.py`：`@file` / `@symbol` 直引；动作仅 open /
+  run_test / search / ai / undo；撤销读 `data/patch_backups` 最新清单并
+  调 `patch_engine.rollback`，无清单明确提示。
+- shadow 时 `_run_nl()` 只写 `nl_intent` 影子日志并回退旧逻辑；`off`
+  不记录；`on` 才执行。未新增任何按钮（仍 60/60）。
+
+**冻结期名额**
+- 合并 rebase：core 219 → 222（entities/clarify/command）、gui 100 → 101
+  （ide_command_center），同提交 `check_feature_freeze.py --rebase --force`；
+  Feature / 按钮预算不变。
+
+**测试**
+- 新增 `test_nl_intent`（58）、`test_nl_entities`（15）、`test_nl_clarify`
+  （14）、`test_command_center`（22）；GUI 回归 171 passed · 2 skipped。
+
 ## v25.2.38 - 2026-10-29
 
 **记忆 v2 收尾：每周巩固任务 + 灰度对照报告（批次 43.5）**

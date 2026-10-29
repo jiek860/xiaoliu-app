@@ -99,16 +99,22 @@ def _targets(text):
         seen.add((kind, value))
         out.append({"type": kind, "value": value[:200]})
 
+    file_values = []
     for match in _FILE_RE.findall(text):
         value = match.replace("\\", "/")
         if value.lower() in ("a.py", "x.py"):
             continue
+        file_values.append(value)
         add("file", value)
     for sym in _SYMBOL_RE.findall(text):
         add("symbol", sym[0] or sym[1])
     for name in _SNAKE_RE.findall(text):
-        if not name.lower().endswith((".py", ".js", ".ts", ".md")):
-            add("symbol", name)
+        if name.lower().endswith((".py", ".js", ".ts", ".md")):
+            continue
+        # 文件名里的下划线不是符号（core/agent_router.py → agent_router）
+        if any(name in f for f in file_values):
+            continue
+        add("symbol", name)
     for name in _TEST_RE.findall(text):
         add("test", name)
     return out[:5]
