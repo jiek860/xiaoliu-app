@@ -61,6 +61,10 @@ playwright>=1.40.0
 # ===== 代码编辑器自动补全 =====
 jedi>=0.19.0
 
+# ===== 终端：真 PTY（Tab 补全 / 颜色 / python REPL 等交互式程序）=====
+# 不装也能用：终端自动回退到"常驻 cmd.exe + 管道"实现（见 docs/20 批次 37）。
+pywinpty>=3.0; sys_platform == "win32"
+
 
 # ===== 知识库文档解析（Phase 3）=====
 pypdf>=3.0

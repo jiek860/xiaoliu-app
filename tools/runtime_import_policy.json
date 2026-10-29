@@ -53,6 +53,7 @@
     "torch": "本地模型加速（GPU），只在 modules/retired 里用，源码版由 optional_libs 提供",
     "tree_sitter_languages": "代码符号解析的可选加速：没装就走正则兜底（core/symbol_parser.py）",
     "whisper": "语音识别模型，源码版由 optional_libs 提供；exe 不含",
+    "winpty": "终端真 PTY（pywinpty，可选）：装了走 ConPTY（Tab 补全/颜色/REPL），没装自动回退到 cmd.exe 管道模式（docs/20 批次 37/38）",
     "yaml": "插件/工作流用 YAML 配置：源码版由 optional_libs 的 PyYAML 提供，exe 里走 JSON 兜底"
   }
 }

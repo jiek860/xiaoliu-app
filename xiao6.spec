@@ -5,6 +5,20 @@ block_cipher = None
 
 from PyInstaller.building.datastruct import Tree
 
+# 可选的真终端后端：装了 pywinpty 才打包（没装时 gui/ide_terminal.py 自动回退管道）。
+# 依赖在 requirements-optional.txt，构建环境（.build-venv）默认没装，
+# 所以这里必须 try，不能让打包因为可选依赖直接失败。
+_pty_hidden = []
+_pty_datas = []
+try:
+    import winpty  # noqa: F401
+    _pty_hidden = ['winpty', 'winpty._winpty', 'winpty.enums',
+                   'winpty.ptyprocess']
+    from PyInstaller.utils.hooks import collect_data_files as _collect
+    _pty_datas = _collect('winpty', includes=['*.dll', '*.exe'])
+except Exception:
+    pass
+
 
 a = Analysis(
     ['run.py'],
@@ -35,7 +49,7 @@ a = Analysis(
         'win32timezone',
         'win32com',
         'win32com.client',
-    ],
+    ] + _pty_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -85,6 +99,10 @@ import os as _os
 # （2026-10-28 实测踩到：COLLECT 报 2 元组解包失败 → 改成 3 元组但顺序错了）。
 a.datas += [(_os.path.join(d[1], _os.path.basename(d[0])), d[0], 'DATA')
             for d in collect_data_files('uiautomation', includes=['bin/*.dll'])]
+
+# 可选 PTY 后端的运行时文件（winpty.dll / conpty.dll / OpenConsole.exe …）
+a.datas += [(_os.path.join(d[1], _os.path.basename(d[0])), d[0], 'DATA')
+            for d in _pty_datas]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

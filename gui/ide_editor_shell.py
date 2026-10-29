@@ -17,75 +17,21 @@ QTabWidget 把标签栏和内容区绑死，面包屑只能插在它上方（标
 """
 from __future__ import annotations
 
-import locale
 import os
-import re
-import sys
 
-from PyQt5.QtCore import QProcess, QPoint, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QColor, QTextCharFormat, QTextCursor
-from PyQt5.QtWidgets import (QLineEdit, QListWidget, QListWidgetItem,
-                             QPlainTextEdit, QSplitter, QStackedWidget,
-                             QTabBar, QVBoxLayout, QWidget)
+from PyQt5.QtCore import QPoint, Qt, pyqtSignal
+from PyQt5.QtGui import QColor, QTextCharFormat
+from PyQt5.QtWidgets import (QListWidget, QListWidgetItem, QPlainTextEdit,
+                             QSplitter, QStackedWidget, QTabBar,
+                             QVBoxLayout, QWidget)
+
+from gui.ide_terminal import TerminalMixin
 
 try:
     from core.diagnostics import swallowed as _x6_swallowed
 except ImportError:  # 独立导入时兜底
     def _x6_swallowed(component, error, context=""):
         return None
-
-
-_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
-
-
-def _clean_ansi(text):
-    """去掉 ANSI 转义序列：QPlainTextEdit 不解析颜色，留着只会是乱码。"""
-    return _ANSI_RE.sub("", str(text or ""))
-
-
-def _decode_shell_bytes(data, carry=b""):
-    """管道字节流解码：先 UTF-8，失败再按本地编码（中文 Windows 是 GBK）。
-
-    UTF-8 失败且只是"结尾被截断"时，把尾部留给下一次 read —— 否则一个汉字
-    被拆成两次读取就会变成 U+FFFD。
-    """
-    buf = bytes(carry) + bytes(data or b"")
-    if not buf:
-        return "", b""
-    try:
-        return buf.decode("utf-8"), b""
-    except UnicodeDecodeError as e:
-        if e.reason.startswith("unexpected end") and len(buf) - e.start <= 8:
-            try:
-                return buf[:e.start].decode("utf-8"), buf[e.start:]
-            except UnicodeDecodeError:
-                pass
-    for enc in ("gbk", "gb18030", _shell_encoding()):
-        try:
-            return buf.decode(enc), b""
-        except (UnicodeDecodeError, LookupError):
-            continue
-    return buf.decode("utf-8", errors="replace"), b""
-
-
-def _shell_encoding():
-    """cmd.exe 读写管道用的是 Windows OEM 代码页（中文系统 936）。
-
-    不能用 locale.getpreferredencoding(False)：Python 开了 UTF-8 模式后它恒为
-    utf-8（本机 3.12 就是这样），拿它发中文会被 cmd 按 936 解成乱码。
-    """
-    if sys.platform.startswith("win"):
-        try:
-            import ctypes
-            cp = int(ctypes.windll.kernel32.GetOEMCP())
-            if cp > 0:
-                return "utf-8" if cp == 65001 else "cp%d" % cp
-        except Exception:      # 静默是故意的：拿不到就走下面的兜底
-            pass
-    try:
-        return locale.getpreferredencoding(False) or "utf-8"
-    except Exception:      # 静默是故意的：拿不到就用 UTF-8
-        return "utf-8"
 
 
 _TAB_QSS = (
@@ -242,8 +188,8 @@ class EditorTabs(QWidget):
             self.stack.setCurrentIndex(max(0, self.bar.currentIndex()))
 
 
-class BottomPanel(QWidget):
-    """底部面板：输出（复用编辑器输出框） / 问题 / 终端。"""
+class BottomPanel(TerminalMixin, QWidget):
+    """底部面板：输出（复用编辑器输出框） / 问题 / 终端 / 差异。"""
 
     jumpRequested = pyqtSignal(int)
 
@@ -251,11 +197,6 @@ class BottomPanel(QWidget):
         super().__init__(parent)
         self.root = os.path.abspath(root or os.getcwd())
         self.cwd = self.root
-        self._shell = None      # 常驻 shell（懒启动，见 _ensure_shell）
-        self._shell_killing = False   # 主动关闭时别再打印"已退出"
-        self._shell_primed = True     # Windows 先丢掉旧提示符，见 _on_shell_output
-        self._shell_carry = b""       # UTF-8 被截断的半个汉字
-        self._shell_prompt = "@x6@"   # 自定义提示符（不能含 <>|，会被当重定向）
         self.bar = QTabBar(self)
         self.bar.setDocumentMode(True)
         self.bar.setDrawBase(False)
@@ -289,225 +230,6 @@ class BottomPanel(QWidget):
         lay.setSpacing(0)
         lay.addWidget(self.bar)
         lay.addWidget(self.stack, 1)
-
-    # ---------------------------------------------------- 终端页
-    def _build_terminal(self):
-        host = QWidget()
-        v = QVBoxLayout(host)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(0)
-        self.term = QPlainTextEdit()
-        self.term.setReadOnly(True)
-        self.term.setStyleSheet(
-            "background:#1e1e1e;color:#d4d4d4;font-family:Consolas;"
-            "font-size:12px;border:none;")
-        self.term_input = QLineEdit()
-        self.term_input.setPlaceholderText(
-            "输入命令，Enter 执行（支持 cd / cls / pwd）")
-        self.term_input.setStyleSheet(
-            "QLineEdit{background:#252526;color:#d4d4d4;border:none;"
-            "border-top:1px solid #3c3c3c;padding:3px 6px;"
-            "font-family:Consolas;font-size:12px;}")
-        self.term_input.returnPressed.connect(self.run_terminal)
-        v.addWidget(self.term, 1)
-        v.addWidget(self.term_input)
-        return host
-
-    def _echo(self, text):
-        try:
-            self.term.appendPlainText(str(text))
-        except Exception as e:  # 静默是故意的
-            _x6_swallowed(__name__, e, "terminal echo")
-
-    def _append_raw(self, text):
-        """流式追加：不自动补换行，且只在原本贴底时跟随滚动。"""
-        if not text:
-            return
-        try:
-            bar = self.term.verticalScrollBar()
-            stick = bar.value() >= bar.maximum() - 4
-            cur = self.term.textCursor()
-            cur.movePosition(QTextCursor.End)
-            if cur.columnNumber() > 0 and not text.startswith("\n"):
-                text = "\n" + text      # 别和上一行（$ 命令回显）粘在一起
-            self.term.setTextCursor(cur)
-            self.term.insertPlainText(text)
-            if stick:
-                bar.setValue(bar.maximum())
-        except Exception as e:  # 静默是故意的
-            _x6_swallowed(__name__, e, "terminal stream output")
-
-    def run_terminal(self, text=None):
-        """执行命令：cd / cls / pwd 本地处理，其余写进常驻 shell。"""
-        cmd = (text if text is not None else self.term_input.text()).strip()
-        if text is None:
-            self.term_input.clear()
-        if not cmd:
-            # 空回车：shell 已退出就重启（"进程退出后回车自动重启"）
-            if not self._shell_alive():
-                self.select(2)
-                self._ensure_shell()
-            return
-        low = cmd.casefold()
-        if low in ("cls", "clear"):
-            self.term.clear()
-            return
-        if low in ("pwd", "cd"):
-            self._echo(self.cwd)
-            return
-        if low.startswith("cd "):
-            self._change_dir(cmd.split(" ", 1)[1].strip())
-            return
-        self.select(2)
-        self._echo("$ " + cmd)
-        if low in ("exit", "quit"):
-            self.shutdown()
-            return
-        if self._ensure_shell() is None:
-            return      # _ensure_shell 已经把失败原因写到终端页
-        self._write_shell(cmd)
-
-    def _change_dir(self, arg):
-        target = arg.strip().strip('"').strip("'")
-        new = os.path.normpath(
-            target if os.path.isabs(target) else os.path.join(self.cwd, target))
-        if os.path.isdir(new):
-            self.cwd = new
-            self._echo(new)
-            self._sync_shell_cwd()
-        else:
-            self._echo("目录不存在：%s" % target)
-
-    # ---------------------------------------------------- 常驻 shell
-    def _shell_alive(self):
-        return self._shell is not None and self._shell.state() != QProcess.NotRunning
-
-    def _ensure_shell(self):
-        """返回可用的 shell；没有就启动一个（cwd 跟随终端当前目录）。"""
-        if self._shell_alive():
-            return self._shell
-        self._drop_shell()
-        p = QProcess(self)
-        env = p.processEnvironment()
-        # 子进程（python 等）默认会按本地编码写管道，强制 UTF-8 才不乱码
-        env.insert("PYTHONUTF8", "1")
-        env.insert("PYTHONIOENCODING", "utf-8")
-        p.setProcessEnvironment(env)
-        p.setWorkingDirectory(self.cwd)
-        p.setProcessChannelMode(QProcess.MergedChannels)
-        p.readyReadStandardOutput.connect(self._on_shell_output)
-        p.finished.connect(self._on_shell_done)
-        self._shell_carry = b""
-        if sys.platform.startswith("win"):
-            # 不用 /u，也不要 chcp 65001：实测 cp65001 下中文输入会被 cmd 当成
-            # 未闭合的续行（输出 "More?" 后卡死）；默认管道编码下 UTF-8 反而正常。
-            p.start("cmd.exe", ["/q", "/k"])
-        else:
-            p.start("/bin/sh", ["-i"])
-        if not p.waitForStarted(3000):
-            err = p.errorString()
-            p.deleteLater()
-            self._echo("终端启动失败：%s" % err)
-            return None
-        self._shell = p
-        if sys.platform.startswith("win"):
-            # 把提示符换成哨兵，输出里好剥掉；先缓冲，见到哨兵再开始显示
-            self._shell_primed = False
-            self._write_shell("prompt " + self._shell_prompt)
-            QTimer.singleShot(2000, self._prime_shell)
-        else:
-            self._shell_primed = True
-        return p
-
-    def _prime_shell(self):
-        """兜底：2 秒还没见到哨兵就别再憋着（提示符可能设失败）。"""
-        if self._shell_alive() and not self._shell_primed:
-            self._shell_primed = True
-            self._shell_carry = b""
-
-    def _write_shell(self, cmd):
-        """把一行命令写进 shell 的 stdin；cwd 同步也走这里。"""
-        p = self._shell
-        if p is None or p.state() == QProcess.NotRunning:
-            return False
-        end = "\r\n" if sys.platform.startswith("win") else "\n"
-        try:
-            data = (cmd + end).encode(_shell_encoding())
-        except (UnicodeEncodeError, LookupError):
-            data = (cmd + end).encode("utf-8", errors="replace")
-        try:
-            p.write(data)
-            p.waitForBytesWritten(2000)
-            return True
-        except Exception as e:  # 静默是故意的
-            _x6_swallowed(__name__, e, "terminal write")
-            return False
-
-    def _sync_shell_cwd(self):
-        """shell 里也切一次目录，保证 dir / python 用的是同一个 cwd。"""
-        if not self._shell_alive():
-            return
-        if sys.platform.startswith("win"):
-            self._write_shell('cd /d "%s"' % self.cwd.replace('"', '""'))
-        else:
-            self._write_shell("cd '%s'" % self.cwd.replace("'", "'\\''"))
-
-    def _on_shell_output(self):
-        p = self.sender()
-        if p is None or p is not self._shell:
-            return
-        try:
-            data = bytes(p.readAllStandardOutput())
-        except Exception as e:  # 静默是故意的
-            _x6_swallowed(__name__, e, "terminal read")
-            return
-        if not data:
-            return
-        text, self._shell_carry = _decode_shell_bytes(data, self._shell_carry)
-        text = _clean_ansi(text).replace("\r\n", "\n").replace("\r", "\n")
-        if not self._shell_primed:
-            # 旧提示符 + 哨兵之前的输出都丢掉，从哨兵之后开始算真正的输出
-            if self._shell_prompt not in text:
-                return
-            text = text.split(self._shell_prompt, 1)[1]
-            self._shell_primed = True
-        text = text.replace(self._shell_prompt, "")
-        self._append_raw(text)
-
-    def _on_shell_done(self, code, _status=None):
-        p = self.sender()
-        killing = self._shell_killing
-        self._shell_killing = False
-        if p is self._shell:
-            self._shell = None
-        try:
-            p.deleteLater()
-        except Exception as e:  # 静默是故意的
-            _x6_swallowed(__name__, e, "terminal cleanup")
-        if not killing:
-            self._echo("<<< shell 已退出（%d），按 Enter 重启" % int(code))
-
-    def shutdown(self):
-        """关闭工作台时调用：杀掉常驻 shell，别留孤儿进程。"""
-        self._drop_shell()
-
-    def _drop_shell(self):
-        p = self._shell
-        self._shell = None
-        self._shell_primed = True
-        self._shell_carry = b""
-        if p is None:
-            return
-        self._shell_killing = True
-        try:
-            p.kill()
-            p.waitForFinished(1000)
-        except Exception as e:  # 静默是故意的
-            _x6_swallowed(__name__, e, "kill terminal shell")
-        try:
-            p.deleteLater()
-        except Exception as e:  # 静默是故意的
-            _x6_swallowed(__name__, e, "delete terminal shell")
 
     # ---------------------------------------------------- 问题页
     def set_problems(self, items):

@@ -51,6 +51,9 @@ FEATURES = {
     "代码补全": ["jedi"],
     "界面组件": ["uiautomation", "comtypes"],
     "知识库文档解析": ["pypdf", "python-docx", "openpyxl", "python-pptx"],
+    # 终端真 PTY（ConPTY）：装了能跑 python REPL / Tab 补全 / 颜色，
+    # 没装自动回退到常驻 cmd.exe 管道（docs/20 批次 37/38）。
+    "终端真 PTY": ["pywinpty"],
 }
 
 # pip 名 -> import 名（名字不一致的那些）
@@ -63,6 +66,7 @@ _IMPORT_NAME = {
     "huggingface-hub": "huggingface_hub",
     "python-docx": "docx",
     "python-pptx": "pptx",
+    "pywinpty": "winpty",
 }
 
 # 已知的版本约束（来自 requirements-optional.txt 的注释，都是踩过的坑）

@@ -1330,23 +1330,44 @@ EditorTabs(header=None)         QTabBar + 面包屑 + QStackedWidget
     .widget(i) / .count() / .currentWidget() / .currentIndex()
     .set_secondary(w) / .clear_secondary() / .has_secondary()
 
-BottomPanel(output, root=".")
+BottomPanel(output, root=".")     终端页逻辑在 gui/ide_terminal.py 的 TerminalMixin
     .set_problems([(line, msg)])   兼容 (行,描述) 与 (行,列,规则码,描述)
                                    问题页双击发 jumpRequested(int)
-    .run_terminal(text=None)       cd / pwd / cls 本地处理，其余写进常驻 shell
-    ._ensure_shell()               懒启动 cmd.exe /q /k（Unix /bin/sh -i），失败返回 None
-    ._write_shell(cmd)             stdin 写入；按 Windows OEM 代码页编码（936=GBK）
-    ._shell_alive()                shell 进程是否还活着（退出后回车自动重启）
-    ._append_raw(text)             流式追加；只在贴底时跟随滚动，不会粘上一行
-    .shutdown()                    关闭工作台时调用：杀掉 shell，不留孤儿进程
     .show_diff(rel, text)          差异页按 +/- 着色并切过去（索引 3）
     .diff / .diff_index            差异页控件与页签索引
     .select(index)                 0=输出 1=问题 2=终端 3=差异
+```
 
-_clean_ansi(text)                 去掉 ANSI 转义序列
+### gui/ide_terminal.py
+
+终端这一块（ANSI 清洗、编码、shell 生命周期、PTY 适配）从 `ide_editor_shell.py`
+拆出来，既让上层文件回到 600 行预算内，也方便单独测。`BottomPanel`
+继承 `TerminalMixin`，下面这些方法仍是它的 API。
+
+```python
+pty_available() -> bool             Windows + 装了 pywinpty 才 True（失败静默返回 False）
+PtyShellProcess(parent=None)        pywinpty/ConPTY 后端，接口对齐 TerminalMixin 用到的 QProcess 子集
+    .start(program, args) / .write(str|bytes) / .readAllStandardOutput() -> str
+    .state() / .kill() / .waitForFinished(ms) / .errorString()
+    readyReadStandardOutput / finished(code, status)  由后台读线程发出（线程里不碰控件）
+
+TerminalMixin
+    .run_terminal(text=None)       cd / pwd / cls 本地处理，其余写进常驻 shell
+    ._ensure_shell()               懒启动：装了 pywinpty 走 ConPTY，否则 cmd.exe /q /k
+                                   （Unix /bin/sh -i）；失败返回 None
+    ._write_shell(cmd)             PTY 写 "cmd\r"；管道按 Windows OEM 代码页编码（936=GBK）
+    ._shell_alive()                shell 进程是否还活着（退出后回车自动重启）
+    ._append_raw(text)             流式追加；只在贴底时跟随滚动，不会粘上一行
+    .shutdown()                    关闭工作台时调用：杀掉 shell，不留孤儿进程
+
+_clean_ansi(text)                 去掉 CSI/OSC 转义序列（ConPTY 还会改窗口标题）
 _decode_shell_bytes(data, carry)  先 UTF-8、失败退 OEM/GBK；尾部半个汉字留在 carry
 _shell_encoding()                 GetOEMCP() → "cp936"；不能用 locale（UTF-8 模式恒 utf-8）
 ```
+
+两种后端对上层是同一套调用：`_shell_kind` 记 `"pty"` / `"pipe"`。PTY 是"屏幕画面"
+（控制台自己回显、含光标/颜色序列），所以不再补 `$ cmd` 回显，输出先 `_clean_ansi`；
+提示符用环境变量 `PROMPT=@x6@` 设（省一次按键），首次输出要等哨兵出现才显示。
 
 ### gui/code_editor_widget.py
 

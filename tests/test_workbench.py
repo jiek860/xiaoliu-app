@@ -263,9 +263,12 @@ def _term_lines(b):
 
 def test_terminal_ansi_and_pipe_decoding_helpers():
     """ANSI 清洗 + 管道解码：UTF-8 优先，OEM 代码页兜底（cmd 按 936 写中文）。"""
-    from gui.ide_editor_shell import (_clean_ansi, _decode_shell_bytes,
-                                      _shell_encoding)
+    from gui.ide_terminal import (_clean_ansi, _decode_shell_bytes,
+                                   _shell_encoding)
     assert _clean_ansi("\x1b[31mred\x1b[0m ok") == "red ok"
+    # ConPTY 还会改窗口标题（OSC），不剥掉会残留 @x6@ 之类的乱码
+    assert _clean_ansi("\x1b]0;title\x1b\\ok") == "ok"
+    assert _clean_ansi("\x1b]0;title\x07ok") == "ok"
     assert _clean_ansi("") == ""
     assert _decode_shell_bytes("中文".encode("utf-8"))[0] == "中文"
     assert _decode_shell_bytes("中文".encode("gbk"))[0] == "中文"
@@ -302,7 +305,7 @@ def test_terminal_keeps_one_shell_and_shares_cwd(wb, app, tmp_path):
 def _oem_can_type_chinese():
     """cmd 的管道编码 = Windows OEM 代码页；非中文系统（如 CI 的 437）发不了中文。"""
     try:
-        from gui.ide_editor_shell import _shell_encoding
+        from gui.ide_terminal import _shell_encoding
         "中文".encode(_shell_encoding())
         return True
     except Exception:
@@ -350,7 +353,7 @@ def test_terminal_shutdown_leaves_no_shell(wb, app):
 def test_shell_encoding_falls_back_when_api_missing(monkeypatch):
     """拿不到 GetOEMCP（非 Windows / 调用异常）时退回系统 locale，不能抛。"""
     import ctypes
-    from gui.ide_editor_shell import _shell_encoding
+    from gui.ide_terminal import _shell_encoding
 
     class _NoKernel32(object):
         @property
@@ -365,7 +368,7 @@ def test_shell_encoding_falls_back_when_api_missing(monkeypatch):
 
 def test_decode_shell_bytes_replaces_undecodable_bytes():
     """UTF-8 与 GBK 都解不出来的字节要替换掉，不能抛异常。"""
-    from gui.ide_editor_shell import _decode_shell_bytes
+    from gui.ide_terminal import _decode_shell_bytes
     text, carry = _decode_shell_bytes(b"\xff\xfe\xfd\x80")
     assert isinstance(text, str) and carry == b""
 
@@ -390,6 +393,152 @@ def test_terminal_start_failure_is_reported(wb, monkeypatch):
     monkeypatch.setattr(sys, "platform", "linux")   # Windows 上没有 /bin/sh
     assert b._ensure_shell() is None
     assert "终端启动失败" in b.term.toPlainText()
+
+
+# ---------------- P2：真 PTY（pywinpty）后端 ----------------
+class _FakePtyProc(object):
+    """假 PTY 进程：既能"一次吐完就 EOF"，也能阻塞到 terminate。"""
+
+    def __init__(self, chunks, block_after=False):
+        self.chunks = list(chunks)
+        self.writes = []
+        self.exitstatus = 0
+        self._closed = False
+        self._block_after = bool(block_after)
+
+    def read(self, size=4096):
+        if self.chunks:
+            return self.chunks.pop(0)
+        if not self._block_after:
+            raise EOFError("closed")
+        while not self._closed:
+            time.sleep(0.01)      # 模拟真终端：没输出就一直等
+        raise EOFError("closed")
+
+    def write(self, s):
+        self.writes.append(s)
+        return len(s)
+
+    def isalive(self):
+        return not self._closed
+
+    def terminate(self, force=False):
+        self._closed = True
+        self.chunks = []
+
+
+def _install_fake_winpty(monkeypatch, chunks=("hi\r\n",), spawn_error=None,
+                         block_after=False):
+    """把 gui.ide_terminal 的 winpty 换成假的，CI 上没装 pywinpty 也能测。"""
+    from gui import ide_terminal
+    box = {}
+
+    class _Pty(object):
+        @staticmethod
+        def spawn(argv, **kw):
+            if spawn_error is not None:
+                raise spawn_error
+            proc = _FakePtyProc(chunks, block_after=block_after)
+            box["proc"] = proc
+            box["argv"] = argv
+            box["kw"] = kw
+            return proc
+
+    class _Backend(object):
+        ConPTY = 0
+        WinPTY = 1
+
+    class _Mod(object):
+        PtyProcess = _Pty
+        Backend = _Backend
+
+    monkeypatch.setattr(ide_terminal, "_load_winpty", lambda: _Mod)
+    return box
+
+
+def test_pty_available_is_false_without_module(monkeypatch):
+    """没装 pywinpty / 非 Windows 时 pty_available() 必须安静地返回 False。"""
+    from gui import ide_terminal
+
+    def _boom():
+        raise ImportError("no winpty")
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(ide_terminal, "_load_winpty", _boom)
+    assert ide_terminal.pty_available() is False
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert ide_terminal.pty_available() is False
+
+
+def test_pty_backend_streams_and_writes(app, monkeypatch):
+    """PtyShellProcess 要像 QProcess：读到输出发信号，退出发 finished。"""
+    from gui import ide_terminal
+    box = _install_fake_winpty(monkeypatch, ["hello\r\n"])
+    p = ide_terminal.PtyShellProcess()
+    out, done = [], []
+    p.readyReadStandardOutput.connect(
+        lambda: out.append(p.readAllStandardOutput()))
+    p.finished.connect(lambda code, status: done.append((code, status)))
+    assert p.start("cmd.exe", [])
+    assert p.state() == p.Running
+    assert p.write("echo x6\r") > 0
+    assert box["proc"].writes[-1] == "echo x6\r"
+    assert p.write(b"echo bytes\r") > 0
+    assert box["proc"].writes[-1] == "echo bytes\r"
+    assert _pump_until(app, lambda: bool(done)), "读线程结束必须发 finished"
+    assert "".join(out).strip() == "hello"
+    assert box["argv"] == ["cmd.exe"]
+    assert box["kw"]["dimensions"] == (30, 120)
+    assert box["kw"]["backend"] == 0          # ConPTY
+    assert p.state() == p.NotRunning
+    assert p.waitForFinished(2000) and p.exit_code() == 0
+
+
+def test_pty_backend_reports_spawn_failure(monkeypatch):
+    """ConPTY 起不来（老系统/被策略禁用）要能报错并回退，不抛异常。"""
+    from gui import ide_terminal
+    _install_fake_winpty(monkeypatch, spawn_error=OSError("conpty 不可用"))
+    p = ide_terminal.PtyShellProcess()
+    assert p.start("cmd.exe", []) is False
+    assert "conpty 不可用" in p.errorString()
+    assert p.state() == p.NotRunning
+
+
+def test_terminal_prefers_pty_backend(wb, app, monkeypatch):
+    """装了 pywinpty：终端走 PTY，提示符走 PROMPT 环境变量，写命令用 \\r。"""
+    from gui import ide_terminal
+    box = _install_fake_winpty(
+        monkeypatch,
+        ["Microsoft Windows\r\n@x6@echo x6-pty-ok\r\nx6-pty-ok\r\n@x6@"],
+        block_after=True)
+    b = wb._editor.bottom
+    b.shutdown()
+    b.term.clear()                 # wb 是 module 级 fixture，先清掉前面用例的输出
+    b._ensure_shell()
+    assert b._shell_kind == "pty"
+    assert box["kw"]["env"]["PROMPT"] == b._shell_prompt
+    assert _pump_until(app, lambda: "x6-pty-ok" in _term_lines(b)), \
+        b.term.toPlainText()
+    assert "Microsoft Windows" not in b.term.toPlainText(), "启动横幅应被哨兵挡掉"
+    b.run_terminal("echo x6-write")
+    assert box["proc"].writes[-1] == "echo x6-write\r"
+    assert "$ echo x6-write" not in b.term.toPlainText(), "PTY 里 console 自己回显"
+    assert b._shell_alive()
+    b.shutdown()
+    assert not b._shell_alive()
+
+
+def test_terminal_falls_back_to_pipe_without_pty(wb, monkeypatch):
+    """没装 pywinpty：仍走批次 37 的常驻 cmd 管道，功能不缺席。"""
+    from PyQt5.QtCore import QProcess
+    from gui import ide_terminal
+    monkeypatch.setattr(ide_terminal, "pty_available", lambda: False)
+    b = wb._editor.bottom
+    b.shutdown()
+    p = b._ensure_shell()
+    assert p is not None and isinstance(p, QProcess)
+    assert b._shell_kind == "pipe"
+    b.shutdown()
 
 
 # ---------------- P2：资源管理器 ----------------
@@ -1224,8 +1373,12 @@ def test_workbench_buttons_have_enough_height(app):
 
 
 # ---------------- P2：静态检查（桌面上真的跑一次 ruff / ast 兜底） ----------------
-def _pump_until(app, cond, timeout=10.0):
-    """等后台 QProcess 回调：一边 pump 事件循环，一边轮询条件。"""
+def _pump_until(app, cond, timeout=20.0):
+    """等后台 QProcess 回调：一边 pump 事件循环，一边轮询条件。
+
+    CI 上第一次拉起 cmd.exe 可能被 Defender 扫一遍，实测出现过 >10 秒才吐第一段
+    输出的情况（本机通常 1 秒内），所以默认给 20 秒，避免慢机器误报。
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
         app.processEvents()
