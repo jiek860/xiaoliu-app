@@ -187,8 +187,9 @@ class CodeEditWidget(QPlainTextEdit):
         self._completion_source = ""
         self._dirty = False
         self._syntax_errors = 0
-        self.document().modificationChanged.connect(
-            lambda m: setattr(self, '_dirty', bool(m)))
+        self.document().modificationChanged.connect(self._on_modified)
+
+    def _on_modified(self, flag): self._dirty = bool(flag)
 
     # ----- 属性 -----
     @property
@@ -203,8 +204,7 @@ class CodeEditWidget(QPlainTextEdit):
         return list(self._problems)
 
     def is_dirty(self):
-        # 文档状态才是唯一真相：setPlainText 会先发 modified=True 再复位，
-        # 只信 _dirty 会误判"刚打开的文件未保存"。
+        # 文档状态是唯一真相；setPlainText 会先置 modified 再复位，别只信缓存
         return bool(self._dirty or self.document().isModified())
 
     # ----- 行号 -----
@@ -233,6 +233,7 @@ class CodeEditWidget(QPlainTextEdit):
             _x6_swallowed(__name__, e, "detach highlighter")
         self._hl = None
         self.setDocument(doc)
+        self.document().modificationChanged.connect(self._on_modified)
         self._update_ln_area_width(0)
         self._minimap.update()
 
