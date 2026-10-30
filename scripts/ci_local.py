@@ -12,7 +12,8 @@
     py -3 scripts\\ci_local.py --quick      # 跳过 pytest 与类型检查
     py -3 scripts\\ci_local.py --no-record  # 只打印，不写 docs
 
-结果写入 `docs/96_本地CI运行记录.md`（表格追加一行，失败项会带原因）。
+结果写入 `docs/10_开发流程与工程手册.md` 末尾的「附录：本地 CI 运行记录（自动追加区）」
+（表格追加一行，失败项会带原因）。文档已按主题合并为合订本，见 docs/109 §13。
 
 退出码：0 全过；1 有失败项。
 """
@@ -25,7 +26,8 @@ import sys
 import time
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RECORD = os.path.join(BASE, "docs", "96_本地CI运行记录.md")
+RECORD = os.path.join(BASE, "docs", "10_开发流程与工程手册.md")
+RECORD_SECTION = "## 附录：本地 CI 运行记录（自动追加区）"
 PY = sys.executable or "py"
 
 # (名称, 命令参数, 是否可被 --quick 跳过)
@@ -111,8 +113,8 @@ def run_pytest_chunked():
 
 
 def _write_record(rows, passed, total, dt):
-    """往 docs/96_本地CI运行记录.md 追加一行（没有就建表头）"""
-    head = ("# 本地定时 CI 运行记录\n\n"
+    """往 docs/10 末尾「附录：本地 CI 运行记录（自动追加区）」追加一行"""
+    head = ("\n\n" + RECORD_SECTION + "\n\n"
             "> 由 `scripts/ci_local.py` 自动追加。GitHub Actions 等网络可用后以云端为准，\n"
             "> 这里只解决「现在全靠手动跑门禁」的问题。\n\n"
             "| 时间 | 结果 | 通过/总数 | 耗时 | 失败项 |\n"
@@ -129,7 +131,12 @@ def _write_record(rows, passed, total, dt):
         if not os.path.exists(RECORD):
             os.makedirs(os.path.dirname(RECORD), exist_ok=True)
             with open(RECORD, "w", encoding="utf-8", newline="") as f:
-                f.write(head)
+                f.write("# 本地定时 CI 运行记录\n" + head)
+        else:
+            with open(RECORD, encoding="utf-8", errors="ignore") as f:
+                if RECORD_SECTION not in f.read():
+                    with open(RECORD, "a", encoding="utf-8", newline="") as fa:
+                        fa.write(head)
         with open(RECORD, "a", encoding="utf-8", newline="") as f:
             f.write(line)
         return True

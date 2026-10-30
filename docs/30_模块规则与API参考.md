@@ -1,5 +1,10 @@
 # 小6智能体  模块规则与 API 参考
 
+> **文档分类**：模块规则与 API（模块规则、智能体、插件标准、插件审计）
+> **状态**：合订本（2026-10-30 合并，原零散文件已并入本文）
+> **合并来源**：31_三个智能体使用手册.md、MODULE_STANDARD.md、PLUGIN_STANDARD.md、PLUGIN_SDK.md、plugin_audit_v21.md、plugin_audit_v21_batch1.md、plugin_audit_v21_batch2.md、91_插件质量门禁修复记录_2026-10-22.md
+> **维护要求**：新内容先判断归属，属于本类的追加到文末对应章节，不再新建同级 md/txt（详见 docs/109 第十三节）。
+
 版本：v25.2.29
 更新日期：2026-10-25
 文档定位：**开发者查阅模块/规则/能力与 Trunk API 的参考手册。**
@@ -1674,3 +1679,1919 @@ py -3 tools\run_eval.py --out data\eval_result.json --markdown docs\92_Agent回�
   让任务中心 / 活动中心注销运行时订阅、停掉定时器。
 - 守卫：`tests/test_dialog_singleton.py`（静态检查 + 真实连点），
   详见 `docs/10_开发流程与工程手册.md`「窗口单实例」。
+
+---
+
+## 附录：三个智能体使用手册
+
+> 原文件 `docs/31_三个智能体使用手册.md`，2026-10-30 合并入本文。
+
+# 三个子智能体使用手册
+
+> 适用版本：v25.2.33（2026-10-27）
+> 覆盖模块：`agent_analyst` / `agent_coder` / `agent_planner`（均为 v1.1.0）
+> 文档定位：怎么用、参数是什么、返回什么、失败时怎么办。模块规则与能力全景见 `30_模块规则与API参考.md`。
+
+---
+
+## 一、先分清两条使用路径
+
+三个智能体有两种“说话方式”，能力不是一回事：
+
+| 路径 | 入口 | 走什么 | 适合 |
+|---|---|---|---|
+| 人设对话 | 聊天 / 群聊的小七、小八、小九 | `reply()`，只调用 LLM 人设 | 闲聊、补充观点、快速问答 |
+| 专属工具链 | 命令面板 `Ctrl+K`，或代码 `trunk.call()` | 模块声明的 `TOOLS`，带搜索/图谱/沙箱/工作流 | 要证据、要跑代码、要可执行步骤 |
+
+> 群聊里的“小七/小八/小九”不会自动跑沙箱或写工作流；要跑工具链，请用 `Ctrl+K` 或下面的 API 示例。
+
+### 1.1 命令面板（普通用户）
+
+1. 按 `Ctrl+K` 打开命令面板；
+2. 输入下表中的提示词之一，选中对应能力；
+3. 按弹窗逐个填参数（`confirm=True` 的能力会先弹确认）；
+4. 结果在面板下方输出，执行走 `tool_caller._dispatch`，带权限中心审计，界面不卡。
+
+| 想要 | 搜这些词 | 能力名 |
+|---|---|---|
+| 有证据的分析 | 分析一下 / 深度分析 / 利弊 / 风险分析 | `agent_analyze` |
+| A/B 或数据对比 | 对比一下 / 哪个好 / 方案对比 / 数据对比 | `agent_compare` |
+| 写代码并跑通 | 写代码并运行 / 代码验证 / 帮我跑一下 / 修 bug | `agent_code_solve` |
+| 只跑一段代码 | 运行代码 / 跑 Python / 沙箱运行 | `agent_code_run` |
+| 只审查不执行 | 代码审查 / review 代码 / 看看有没有 bug | `agent_code_review` |
+| 拆解目标 | 做个计划 / 拆解目标 / 执行步骤 / 方案步骤 | `agent_plan` |
+| 计划变成工作流 | 计划变工作流 / 生成可执行工作流 / 自动执行计划 | `agent_plan_workflow` |
+| 看下一步做什么 | 下一步做什么 / 计划执行到哪 / 哪些步骤能做 | `agent_plan_next` |
+
+### 1.2 Python / 自动化（开发者）
+
+```python
+r = trunk.call("agent_analyst", "analyze", "问题或对象", baseline="对比基准")
+```
+
+`trunk.call(模块名, 方法名, *位置参数, **关键字参数)`，返回 Python dict；
+工具调用路径返回同样的 dict，失败时统一带 `ok=False` 与 `error.code`。
+
+---
+
+## 二、agent_analyst（分析专家）
+
+### 2.1 它做什么
+
+1. 用 `deep_search` 取外部证据（取前 5 条）；
+2. 用 `graph_rag` 取本地知识三元组（取前 8 条）；
+3. 本地做数值配对（差值、变化率），不依赖模型算数；
+4. 交给 LLM 输出结论、利弊、风险和建议；
+5. 无 LLM 时仍然返回结构化结果，不会空答。
+
+**不负责**：替用户做最终决策、改知识图谱、写长期记忆、选模型。
+
+### 2.2 `agent_analyze(topic, baseline="")`
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `topic` | 是 | 要分析的问题、对象或方案 |
+| `baseline` | 否 | 对比基准；填了才会做左右数值配对 |
+
+```python
+r = trunk.call(
+    "agent_analyst", "analyze",
+    "本地部署：延迟 2.0 秒，成本 0 元/次",
+    baseline="云端部署：延迟 1.2 秒，成本 0.02 元/次",
+)
+print(r["分析"], r["风险"], r["数据对比"])
+```
+
+返回字段：
+
+| 字段 | 说明 |
+|---|---|
+| `ok` | 成功为 `True` |
+| `主题` / `基准` | 回显输入 |
+| `证据` | 搜索摘要 + 图谱三元组，最多 3000 字 |
+| `数据对比` | `[{"序号","左","右","差值","变化率"}]` |
+| `分析` | LLM 结论；无 LLM 时为结构化兜底 |
+| `风险` | 风险清单（含“需人工复核”） |
+| `llm` | 本次是否真的用了 LLM |
+| `警告` | 搜索/图谱失败等非阻断问题 |
+
+> **数值配对规则**：按“第 N 个数字”一一对应。两边数字顺序要一致、单位要一致，否则差值没有意义。
+> 正则会把型号/版本里的数字也当成数据（例如 `7B`、`Qwen2.5`），所以对比金额/延迟时，最好把型号写到括号外或保证两边数字顺序一致、数量相同。
+
+### 2.3 `agent_compare(left, right, dimensions="")`
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `left` / `right` | 是 | 两个方案或两组数据 |
+| `dimensions` | 否 | 对比维度，逗号分隔；默认“目标契合、成本、风险、可维护性” |
+
+```python
+r = trunk.call(
+    "agent_analyst", "compare",
+    "方案A：月成本 3000 元，交付 30 天",
+    "方案B：月成本 4500 元，交付 20 天",
+    dimensions="成本,交付周期,风险",
+)
+```
+
+返回字段：`左`、`右`、`维度`、`数据对比`、`分析`、`风险`、`证据`、`llm`、`警告`。
+无 LLM 时按“右侧大于左侧的项数”给兜底结论（B 更优 / A 更优 / 数据不足）。
+
+### 2.4 失败与降级
+
+| 情况 | 表现 |
+|---|---|
+| 缺 `topic` / `left` / `right` | `ok=False`，`error.code=PLUGIN_MISSING_ARG` |
+| `deep_search` 或 `graph_rag` 没装/查询失败 | 分析继续，`警告` 里记录原因 |
+| LLM 不可用 | 仍返回 `ok=True`，`llm=False`，给结构化兜底 |
+
+---
+
+## 三、agent_coder（编程小匠）
+
+### 3.1 它做什么
+
+1. LLM 只输出代码块；
+2. 可选拼上你给的测试代码；
+3. 交给 `code_runner` 的进程级沙箱执行；
+4. 失败把 stderr 回传给模型，最多再修 2 轮（总共最多 3 次尝试）；
+5. `review` 只做语法检查 + 静态审查，**从不执行代码**。
+
+**不负责**：改项目文件（那是 `coder_pro`）、保证业务规范、沙箱本身的安全边界。
+
+### 3.2 `agent_code_solve(task, language="python", tests="")`
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `task` | 是 | 要实现的功能或要修的 bug |
+| `language` | 否 | 默认 `python`；`py` 等价；其它语言只生成不运行 |
+| `tests` | 否 | 追加在生成代码后面的测试/校验代码 |
+
+```python
+r = trunk.call(
+    "agent_coder", "solve",
+    "实现 is_palindrome(s)：忽略大小写和空格判断回文",
+    tests='assert is_palindrome("A man a plan a canal Panama")',
+)
+print(r["运行成功"], r["轮次"], r["代码"])
+```
+
+返回字段：
+
+| 字段 | 说明 |
+|---|---|
+| `代码` | 最终采用的一版代码 |
+| `运行` | `code_runner` 原始结果（`成功`/`输出`/`错误`/`stdout`/`stderr`/`returncode`） |
+| `运行成功` | 沙箱是否跑通；非 Python 为 `None` |
+| `轮次` | 实际尝试次数（1~3） |
+| `修复记录` | 每轮 `{轮次, 成功, 错误}` |
+| `llm` | 是否用了 LLM |
+
+注意：
+
+- `solve` 使用 `code_runner` 当前超时（默认 10 秒）。长时间代码请改用 `agent_code_run` 显式传 `timeout`。
+- 非 Python 语言返回 `运行成功=None` 和“非 Python 不在沙箱执行”，不会偷偷执行。
+- LLM 不可用：`ok=False`，`PLUGIN_NOT_AVAILABLE`。
+- 生成内容里没有可用代码：`ok=False`，`PLUGIN_INTERNAL_ERROR`。
+
+### 3.3 `agent_code_run(code, timeout=None)`
+
+只执行，不生成、不审查：
+
+```python
+r = trunk.call("agent_coder", "run_code", "print(sum(range(10)))", timeout=3)
+print(r["运行"]["输出"], r["运行成功"])
+```
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `code` | 是 | 要运行的 Python 代码 |
+| `timeout` | 否 | 秒；不填沿用 `code_runner.timeout`（默认 10） |
+
+返回：`ok`、`运行`、`运行成功`。
+
+### 3.4 `agent_code_review(code)`
+
+只审查，不执行：
+
+```python
+r = trunk.call("agent_coder", "review", "def f(x):\n    return x / 0\n")
+print(r["问题"], r["审查"])
+```
+
+返回：
+
+| 字段 | 说明 |
+|---|---|
+| `问题` | `compile()` 发现的语法错误（没有则为空列表） |
+| `审查` | LLM 列出的语法/逻辑/边界/安全/可读性问题与最小修改建议 |
+| `llm` | 是否用了 LLM；无 LLM 时只做 `compile` 检查并说明 |
+
+### 3.5 失败与边界
+
+| 情况 | 表现 |
+|---|---|
+| 缺 `task` / `code` | `PLUGIN_MISSING_ARG` |
+| `code_runner` 不可用 | `PLUGIN_NOT_AVAILABLE` |
+| 沙箱超时 | `运行.成功=False`，`运行.错误` 说明超时 |
+| 沙箱执行异常 | 返回 `{"成功": False, "错误": ...}`，不会直接 `exec` 用户代码 |
+| 代码审查 | 即使代码有副作用也不会执行；只读 |
+
+> 安全分级：`agent_code_solve` / `agent_code_run` 为 `confirm=True, danger=True, risk=exec`；
+> 命令面板会先弹确认，聊天触发也走权限中心和审计。
+
+---
+
+## 四、agent_planner（策划专家）
+
+### 4.1 它做什么
+
+1. LLM 输出 JSON 计划：`id / title / action / args / depends_on / done_when`；
+2. 校验动作只能是 `search / llm / code / set / wait`；
+3. 依赖只保留真实存在且不是自己的 id；
+4. `plan_to_workflow` 把计划摊平成 `workflow_runner` 字段，写入 `data/workflows/`；
+5. `next_steps` 按依赖算出“现在能做 / 被阻塞 / 还剩什么”。
+
+**不负责**：替用户批准执行、具体工具实现、项目排期与资源管理。
+
+### 4.2 `agent_plan(goal, constraints="")`
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `goal` | 是 | 要达成的目标 |
+| `constraints` | 否 | 约束、资源、截止时间 |
+
+```python
+r = trunk.call(
+    "agent_planner", "plan",
+    "两周内完成本地模型切换的评估与灰度",
+    constraints="只有 1 台测试机；不能影响线上；预算 0",
+)
+for step in r["步骤"]:
+    print(step["id"], step["action"], step["title"], step["depends_on"])
+```
+
+步骤格式（LLM 输出，模块会规范化）：
+
+```json
+[
+  {"id": "s1", "title": "明确验收标准", "action": "set",
+   "args": {"value": "延迟≤2.5s，成本≤0.01元/次"},
+   "depends_on": [], "done_when": "标准可量化"},
+  {"id": "s2", "title": "收集基线", "action": "search",
+   "args": {"query": "本地 7B 部署 延迟 成本"},
+   "depends_on": ["s1"], "done_when": "至少 3 条有效资料"}
+]
+```
+
+动作与参数约定：
+
+| action | `args` 必填键 | 说明 |
+|---|---|---|
+| `search` | `query` | 交给 `deep_search` |
+| `llm` | `prompt` | 交给 `llm.chat` |
+| `code` | `code` | 交给 `code_runner`；缺代码会降级为 `llm` |
+| `set` | `value` | 只写变量，不调外部模块 |
+| `wait` | `seconds` | 等待；非数字按 0 处理 |
+
+返回：`ok`、`目标`、`约束`、`步骤`、`llm`、`警告`。
+无 LLM 时返回 4 步通用模板（set → search → llm → wait），并带 `警告`；
+LLM 有回复但 JSON 无法解析时同样回退到通用模板（原因记在模块的 `_last_error`，
+此时 `llm` 仍可能是 `true`、`警告` 可能为空，属于已知边界）。
+
+### 4.3 `agent_plan_workflow(goal, name="", run=False, overwrite=False)`
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `goal` | 是 | 目标 |
+| `name` | 否 | 工作流名；只保留中文/字母/数字/`_`/`-`，最长 40；不填生成 `agent_plan_时间戳` |
+| `run` | 否 | `true` 写完立即交给 `workflow_runner.start_async` 后台跑 |
+| `overwrite` | 否 | 同名文件默认不覆盖；要覆盖必须显式 `true` |
+
+```python
+r = trunk.call(
+    "agent_planner", "plan_to_workflow",
+    "整理一份本地 7B vs 云端 32B 的对比简报",
+    name="local_vs_cloud",
+    run=False,
+)
+print(r["文件"], r["步骤"], r["已启动"])
+```
+
+返回：`ok`、`目标`、`工作流`、`文件`、`步骤`、`已启动`、`计划`。
+同名文件已存在且未允许覆盖：`ok=False`，`PLUGIN_BAD_INPUT`。
+
+转换规则（计划 → 工作流）：
+
+- `search` → `query`；`llm` → `prompt`；`code` → `code`；`set` → `value`；`wait` → `seconds`；
+- 只有一个依赖时写成 `when: 前一步的标题`（`workflow_runner` 的条件只支持单依赖）；
+- 多个依赖不会被展开成并行/扇入，执行时按顺序跑；
+- 写入用临时文件 + `os.replace`，失败返回 `PLUGIN_INTERNAL_ERROR`。
+
+### 4.4 `agent_plan_next(steps, done="")`
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `steps` | 是 | 步骤列表；工具调用时传 JSON 字符串，Python 里可直接传 list |
+| `done` | 否 | 已完成的 id，逗号分隔；Python 里也可传 list |
+
+```python
+r = trunk.call("agent_planner", "next_steps", plan["步骤"], done="s1")
+print("现在能做:", r["可执行"])
+print("被阻塞:", r["阻塞"])
+print("还剩:", r["剩余"])
+```
+
+返回：`ok`、`可执行`、`阻塞`、`剩余`、`已完成`。
+`done` 里不存在的 id 会原样出现在 `已完成`；步骤里不存在的依赖会被忽略。
+
+### 4.5 失败与边界
+
+| 情况 | 表现 |
+|---|---|
+| 缺 `goal` | `PLUGIN_MISSING_ARG` |
+| `steps` 不是合法 JSON / 不是列表 | `PLUGIN_BAD_INPUT` |
+| 同名工作流已存在 | `PLUGIN_BAD_INPUT`（提示 `overwrite=true`） |
+| `workflow_runner` 不可用 | 文件仍写入，`已启动=False` |
+| LLM 不可用 | 使用通用 4 步模板，`llm=False` + `警告` |
+| LLM 有回复但 JSON 无法解析 | 同样回退通用模板；`llm` 可能仍为 `true`，原因见 `_last_error` |
+
+---
+
+## 五、端到端示例：从目标到工作流
+
+```python
+# 1) 拆计划
+plan = trunk.call("agent_planner", "plan", "给项目补一份发布前检查清单")
+steps = plan["步骤"]
+
+# 2) 看当前能做什么
+now = trunk.call("agent_planner", "next_steps", steps, done="")
+print(now["可执行"], now["阻塞"])
+
+# 3) 落成工作流（不自动跑）
+wf = trunk.call("agent_planner", "plan_to_workflow",
+                "给项目补一份发布前检查清单", name="release_checklist")
+print(wf["文件"])
+
+# 4) 后台运行并查状态
+trunk.call("workflow_runner", "start_async", "release_checklist", {"input": "发布前检查"})
+print(trunk.call("workflow_runner", "status"))
+```
+
+对应的 GUI 入口：`Ctrl+K` → 搜“日历待办”（打开「实用工具」对话框）→ 切到「工作流」tab
+（`gui/tools_dialog.py` 内复用，不新增按钮）→ 选择 `release_checklist` → 运行。
+
+---
+
+## 六、常见问题
+
+**Q1：Ctrl+K 里搜不到某个工具？**
+先确认模块已安装（设置 → 扩展 → 插件市场），再试上表里的提示词（匹配靠 `hints`，不是只认工具名）。三个模块的 `TOOLS` 会自动进入能力注册表，不需要重启程序。
+
+**Q2：提示「agent_xxx」没装好 / 功能不可用？**
+检查 `modules/installed/` 是否有对应文件，以及 `modules_repo` / `plugin_repo` 是否同步。发布前可用：
+
+```powershell
+py -3 tools/check_repo_sync.py
+py -3 tools/check_plugin_repo.py
+```
+
+**Q3：没有配模型，还能用吗？**
+
+- 分析：能用，返回 `llm=False` 的结构化兜底；
+- 编码：`solve` 返回 `PLUGIN_NOT_AVAILABLE`；`review` 仍返回 `compile` 检查结果（`llm=False`，说明里注明没做静态审查）；`run_code` 照常在沙箱执行；
+- 规划：返回 4 步通用模板，`llm=False` + `警告`。
+
+**Q4：计划写进 `data/workflows/` 了，但没跑起来？**
+看 `workflow_runner.status` 的 `running` / `last.error`；确认工作流文件名与 `name` 一致（`.yaml` 或 PyYAML 缺失时的 `.json`），以及 `run=true` 是否真的传了。定时触发需要工作流里写 `schedule`（cron 5 段）。
+
+**Q5：沙箱超时怎么办？**
+`agent_code_solve` 沿用 `code_runner.timeout`（默认 10 秒）；需要更久就用 `agent_code_run` 显式传 `timeout`（秒）。不要靠死循环长时间占用。
+
+**Q6：对比结果为什么没有变化率？**
+变化率以“左侧”为分母；左侧为 0 时只给差值，变化率留空。两边数字数量不一致时，只配对能对上的部分。
+
+---
+
+## 七、相关文件
+
+| 文件 | 作用 |
+|---|---|
+| `modules/installed/agent_analyst.py` | 分析专家：证据、数值对比、风险 |
+| `modules/installed/agent_coder.py` | 编程小匠：生成、沙箱执行、自动修、审查 |
+| `modules/installed/agent_planner.py` | 策划专家：JSON 计划、工作流、下一步 |
+| `modules/installed/workflow_runner.py` | 执行计划生成的工作流 |
+| `modules/installed/code_runner.py` | 进程级 Python 沙箱 |
+| `modules/installed/deep_search.py` / `graph_rag.py` | 分析与计划的外部/本地证据 |
+| `gui/command_palette.py` | `Ctrl+K` 能力入口 |
+| `tests/test_lowcov_modules_extra.py` | 三个智能体的主路径回归用例 |
+| `tests/test_agents_toolchain.py` | 三个智能体的分支/降级/错误码单元测试（假 LLM/搜索/沙箱，不联网） |
+
+---
+
+## 附录：模块标准
+
+> 原文件 `docs/MODULE_STANDARD.md`，2026-10-30 合并入本文。
+
+# 模块级程序标准（Module-Level Program Standard）v1.0
+
+> 本文件是外部给的通用模块标准原文，作为对照基线保留。
+> 小6 的落地情况与差异见本文「附录：插件标准 v2.1」第五节对照表，
+> 用户版见根目录 `插件标准.txt`。
+
+适用范围：单个可独立开发、测试、发布、复用的模块级程序，包括库、插件、
+MCP 服务、Agent 工具等。
+
+分级说明：必须（MUST）= 硬性要求；应当（SHOULD）= 默认要求，例外需说明；
+建议（MAY）= 推荐实践。
+
+---
+
+## 一、接口契约
+
+1.1 模块必须具有单一、明确的职责，并在文档中声明其边界与不负责的事项。
+1.2 模块必须提供明确入口点，例如 `__init__.py`、`index.ts`、main 入口、
+MCP 初始化接口或插件 manifest。
+1.3 对外接口必须声明名称、参数类型、返回类型、异常/错误类型和副作用。
+1.4 对外接口应当遵循接口隔离原则，只暴露调用方需要的方法，不强迫依赖无关能力。
+1.5 输入输出应当使用稳定、可序列化的数据格式；跨进程/协议边界必须使用纯 JSON
+可序列化类型。
+1.6 基于协议的模块必须遵守对应协议规范；MCP 服务必须符合 JSON-RPC 2.0 的消息、
+请求 ID、result/error 二选一等规则。
+1.7 接口变更必须遵循语义化版本或等价兼容性策略，破坏性变更必须提升主版本并记录
+迁移说明。
+
+## 二、封装与边界
+
+2.1 模块必须隐藏内部实现细节，外部只能通过公开接口访问。
+2.2 模块必须遵循统一访问原则：同一能力只通过一致的公开入口暴露。
+2.3 模块应当保持最小暴露面，不公开不必要的函数、类、配置项和内部数据结构。
+2.4 模块不得要求调用方依赖其内部文件路径、私有变量或未声明的实现细节。
+2.5 模块边界必须清晰：不得越过边界直接读写其他模块的持久层、缓存或内部状态。
+
+## 三、依赖管理
+
+3.1 模块必须在清单文件中显式声明运行时依赖、开发依赖和可选依赖。
+3.2 模块必须禁止循环依赖；跨模块依赖必须通过显式导入或显式协议调用完成。
+3.3 模块应当保持高内聚、松耦合：内部元素高度相关，模块之间尽量独立。
+3.4 模块不得隐式依赖全局状态、环境变量或未声明的外部服务；如需要，必须显式配置
+并文档化。
+3.5 依赖版本必须可锁定或可复现；发布物应当附带锁定文件或等价依赖约束。
+
+## 四、生命周期与协议
+
+4.1 模块必须定义初始化、运行、关闭/销毁的生命周期，并说明各阶段可执行的操作。
+4.2 需要资源释放的模块必须提供清理机制，例如 close、dispose、shutdown 或上下文管理器。
+4.3 基于协议的模块必须实现连接初始化、能力协商、会话控制和错误终止流程。
+4.4 协议模块必须校验消息格式、必填字段、类型和请求 ID；非法消息必须返回结构化错误。
+4.5 模块必须定义超时、重试、取消和并发安全策略；不适用时必须明确说明。
+
+## 五、配置与安全
+
+5.1 模块必须提供标准化配置入口，例如 Config 对象、配置文件、环境变量或命令行参数，
+并声明优先级。
+5.2 配置项必须文档化，包括名称、类型、默认值、是否必填、敏感性和影响范围。
+5.3 模块不得硬编码密钥、令牌、密码等敏感信息；敏感配置必须通过安全注入方式提供。
+5.4 模块必须对输入进行校验和边界检查，防止注入、路径穿越、反序列化等风险。
+5.5 模块应当遵循最小权限原则，只申请完成职责所需的最小权限。
+
+## 六、错误处理与可观测性
+
+6.1 模块必须使用结构化错误，包含错误码、错误消息和必要的上下文；不得只返回无意义字符串。
+6.2 模块必须区分可恢复错误与不可恢复错误，并说明调用方应如何处理。
+6.3 模块应当提供标准日志接口，日志必须包含时间、级别、模块标识和关键上下文。
+6.4 模块应当支持遥测或监控接入点，例如指标、追踪或健康检查；不适用时需说明。
+6.5 模块不得吞掉异常；捕获异常后必须处理、转换或重新抛出并保留上下文。
+
+## 七、文档标准
+
+7.1 模块根目录必须包含 README，说明用途、安装、快速开始、配置和示例。
+7.2 模块必须包含接口文档或 API 参考，覆盖所有公开接口、参数、返回值和错误。
+7.3 模块应当包含 SPEC 或技术规格文档，说明架构、边界、依赖和设计约束。
+7.4 面向 Agent/自动化调用的模块应当包含 AGENTS.md 或等价代理指南。
+7.5 文档必须与代码版本同步；破坏性变更必须提供迁移指南。
+7.6 模块应当提供可运行的最小示例，示例不得依赖未文档化的内部实现。
+
+## 八、测试与验证
+
+8.1 模块必须包含单元测试，覆盖所有公开接口和关键分支。
+8.2 模块必须包含契约合规性测试，验证其是否真正实现声明的接口和协议。
+8.3 模块应当包含集成测试，验证与依赖模块、外部服务或协议客户端的交互。
+8.4 模块必须包含错误路径测试，包括非法输入、超时、依赖失败和资源耗尽场景。
+8.5 发布前必须通过静态检查、类型检查、依赖漏洞检查和质量门禁。
+8.6 测试必须可重复执行，不得依赖未声明的外部状态；需要外部服务时应提供 mock 或
+容器化环境。
+
+## 九、版本、发布与交付
+
+9.1 模块必须具有唯一名称和语义化版本号。
+9.2 发布物必须包含源码或可执行产物、依赖清单、许可证、README 和变更日志。
+9.3 模块必须声明兼容的运行环境，例如语言版本、操作系统、协议版本和平台限制。
+9.4 模块必须提供变更日志，记录新增、修复、弃用和破坏性变更。
+9.5 模块应当提供可复现构建方式，例如构建脚本、容器或锁文件。
+9.6 插件形态的模块必须遵循目标平台的 manifest、加载、卸载和权限规范。
+9.7 MCP 形态的模块必须提供 MCP 服务配置、工具列表发现和协议版本声明。
+
+## 十、质量门禁检查清单
+
+- [ ] 职责单一且边界清晰
+- [ ] 有明确入口点和公开接口契约
+- [ ] 输入输出类型明确且可序列化
+- [ ] 内部实现已封装，暴露面最小
+- [ ] 依赖显式声明，无循环依赖
+- [ ] 生命周期和资源释放已定义
+- [ ] 协议消息符合规范并校验
+- [ ] 配置项完整文档化，敏感信息未硬编码
+- [ ] 错误结构化，日志可观测
+- [ ] README、API 文档、SPEC/AGENTS 文档齐全
+- [ ] 单元测试、契约测试、集成测试、错误路径测试通过
+- [ ] 版本、许可证、变更日志、兼容环境已声明
+- [ ] 构建可复现，质量门禁全部通过
+
+## 附：模块交付最小文件集
+
+```text
+README.md
+SPEC.md 或 API.md
+AGENTS.md（面向 Agent 调用时）
+依赖清单文件
+配置文件示例
+CHANGELOG.md
+LICENSE
+测试目录
+构建/发布脚本
+插件 manifest 或 MCP 服务配置（按形态提供）
+```
+
+
+---
+
+## 对照结论（2026-10-22 现状）
+
+本文件是外部《模块级程序标准 v1.0》原文，作为基线保留。
+小6 的实际落地见本文「附录：插件标准 v2.1」与根目录 `插件标准.txt`。
+
+### 落地情况摘要
+
+| 条款组 | 状态 | 落地位置 |
+|---|---|---|
+| 1.x 接口契约 | ✅ | `core/tool_contract.py` + manifest |
+| 2.x 封装边界 | ✅ | `PUBLIC_CORE_MODULES` 白名单 |
+| 3.x 依赖管理 | 🟡 | 全局锁文件有；插件级 `requires` 待补 |
+| 4.x 生命周期 | ✅ | `core/module_lifecycle.py`（start/stop/health） |
+| 5.x 配置安全 | ✅ | capabilities + `get_secret` 代理 |
+| 6.x 错误可观测 | ✅ | `core/plugin_errors.py`（18 个错误码）+ 审计 |
+| 7.x 文档 | 🟡 | 全局文档齐全；插件级 README/AGENTS 待补 |
+| 8.x 测试 | ✅ | 框架级 + 插件级双层契约测试 |
+| 9.x 版本发布 | ✅ | SemVer 三段式 + RSA 签名 + 仓库 LICENSE 待补 |
+
+### 门禁命令
+
+```powershell
+py -3 tools/check_plugin_quality.py     # 48 模块，error 必须为 0
+py -3 tools/check_plugin_tier.py        # L1/L2/L3 推导一致
+py -3 tools/check_plugin_deps.py --ast  # 依赖边界 + 环检测
+py -3 tools/check_plugin_security.py    # 配置/路径/密钥/L3 专项
+py -3 tools/verify_signature.py --all   # RSA 签名 + 公钥位数
+```
+
+---
+
+## 附录：插件标准
+
+> 原文件 `docs/PLUGIN_STANDARD.md`，2026-10-30 合并入本文。
+
+# 小6插件标准 v2.1（模块级程序标准整合修订版）
+
+> [MUST]/[SHOULD]/[MAY] 分级 · [全]/[PY]/[MCP]/[L3] 形态标记 · L1/L2/L3 插件分级
+
+- **适用版本**：v25.2.23 起
+- **状态**：已落地并强制执行（不是建议稿）
+- **更新日期**：2026-10-21
+
+## 事实源（代码即标准）
+
+| 源文件 | 对应标准 |
+|---|---|
+| `core/plugin_api.py` | 插件 API v1.0、公共模块白名单、依赖边界 |
+| `core/plugin_capabilities.py` | 能力声明 schema、风险分级 |
+| `core/plugin_errors.py` | 结构化错误码（标准 6.1/6.2） |
+| `core/module_lifecycle.py` | 生命周期状态机（标准 4.1/4.2/6.4） |
+| `core/tool_contract.py` | 工具接口契约（标准 1.3/1.5） |
+| `core/plugin_broker.py` | 运行时权限代理（标准 5.5） |
+| `core/plugin_registry.py` | 版本/兼容/信任等级 |
+| `modules_repo/manifest.json` | 官方插件清单（RSA 签名） |
+
+## 自动门禁
+
+```powershell
+py -3 tools/check_plugin_quality.py            # 质量门禁（error 必须为 0）
+py -3 tools/check_plugin_quality.py --strict   # 连 warn 也算失败
+py -3 tools/check_plugin_api.py                 # API 边界
+py -3 tools/check_plugin_repo.py               # 签名与哈希
+py -3 -m pytest tests/test_plugin_standard.py tests/test_module_standard.py -q
+```
+
+---
+
+## 一、适用范围
+
+本程序里的"插件"包括：
+
+1. `modules/installed/` 里的功能模块（42 个官方模块）
+2. 第三方插件（未来通过插件市场安装）
+3. 以插件形态封装的 Agent 工具 / MCP 客户端
+
+**不适用于**：`core/` 内核模块、`gui/` 界面代码（它们另有 file_size / thread 等守卫）。
+
+---
+
+## 二、与《模块级程序标准 v1.0》的对应关系
+
+本标准 = 模块级程序标准（通用）+ 插件安全标准（本程序特有）。
+
+- **第 1 层**　模块级程序标准　管"是不是一个合格模块"
+- **第 2 层**　插件标准（本文）　管"作为插件是否安全可装、可运行"
+- **第 3 层**　运行时权限模型　管"运行时实际能做什么"（broker 强制）
+
+逐条对照（M=必须 S=应当 Y=建议）：
+
+| 模块级标准条款 | 本程序状态 | 落地位置 |
+|---|---|---|
+| 1.1 职责单一 + 声明边界 | 已落地 | `BaseModule.describe()` / `NOT_RESPONSIBLE` |
+| 1.2 明确入口点 | 已落地 | `BaseModule.run()` + `manifest.json` |
+| 1.3 接口契约（类型/返回/错误/副作用） | 已落地 | `core/tool_contract.py`（contract 字段） |
+| 1.4 接口隔离 | 已落地 | `PUBLIC_CORE_MODULES` 白名单 |
+| 1.5 纯 JSON 可序列化 | 已落地 | broker/worker JSON-RPC + `is_json_serializable` |
+| 1.6 遵循协议规范（MCP/JSON-RPC） | 已落地 | `core/mcp_stdio.py`（2024-11-05） |
+| 1.7 语义化版本 + 兼容策略 | 已落地 | `api_version` + `min/max_host_version` |
+| 2.1 隐藏内部实现 | 已落地 | broker 只暴露受限 ctx |
+| 2.2 统一访问原则 | 部分 | 存在多入口，见第六节待改进 |
+| 2.3 最小暴露面 | 已落地 | 能力白名单 + 权限代理 |
+| 2.4 不依赖内部路径 | 已落地 | 禁止 `core.trunk` / `secret_store` 等前缀 |
+| 2.5 不越界读写他人持久层 | 已落地 | 插件只能写 `data/plugin_data/<名>/` |
+| 3.1 显式声明依赖 | 部分 | 全局 lock 有，插件级待补 |
+| 3.2 禁止循环依赖 | 已落地 | `check_shapes` 星型拓扑检查 |
+| 3.3 高内聚低耦合 | 部分 | 靠评审 |
+| 3.4 不隐式依赖全局状态 | 部分 | 质量门禁 warn（环境变量/global/相对路径） |
+| 3.5 依赖可锁定 | 已落地 | `requirements-*.lock` |
+| 4.1 生命周期定义 | 已落地 | `core/module_lifecycle.py` |
+| 4.2 资源释放机制 | 已落地 | `stop/close/shutdown`（幂等） |
+| 4.3 连接/协商/会话/错误终止 | 已落地 | MCP 客户端实现 |
+| 4.4 协议消息校验 | 已落地 | JSON-RPC 校验 + 结构化错误 |
+| 4.5 超时/重试/取消/并发 | 已落地 | broker 超时、MCP timeout、Job Object |
+| 5.1 配置入口与优先级 | 部分 | 见第五节配置优先级 |
+| 5.2 配置项文档化 | 部分 | docs/30 汇总，插件级待补 |
+| 5.3 不硬编码密钥 | 已落地 | `check_secrets` + 质量门禁扫描 |
+| 5.4 输入校验与路径穿越防护 | 已落地 | `safe_join` / `safe_plugin_filename` |
+| 5.5 最小权限 | 已落地 | capabilities + 风险分级 |
+| 6.1 结构化错误 | 已落地 | `core/plugin_errors.py` |
+| 6.2 可恢复/不可恢复区分 | 已落地 | `error.retryable` |
+| 6.3 标准日志接口 | 部分 | `trunk._log`，插件未强制 |
+| 6.4 遥测/指标/健康检查 | 已落地 | `BaseModule.health()`/`stats()` |
+| 6.5 不吞异常 | 已落地 | `check_silent` + 质量门禁（带理由豁免） |
+| 7.1 模块 README | 未落地 | 见第七节待补 |
+| 7.2 接口文档/API 参考 | 部分 | 全局 docs/30，插件级待补 |
+| 7.3 SPEC 技术规格 | 部分 | 本文「附录：插件标准 v2.1」 |
+| 7.4 AGENTS.md 代理指南 | 未落地 | 见第七节待补 |
+| 7.5 文档与代码同步 | 已落地 | `tests/test_docs_consistency.py` |
+| 7.6 最小可运行示例 | 部分 | `docs/examples/plugins/hello_plugin.py` |
+| 8.1 单元测试 | 部分 | 内置模块有，插件级不完整 |
+| 8.2 契约合规测试 | 已落地 | `tests/test_plugin_standard.py` |
+| 8.3 集成测试 | 部分 | 见第七节待补 |
+| 8.4 错误路径测试 | 部分 | 见第七节待补 |
+| 8.5 静态/类型/漏洞/门禁 | 已落地 | Ruff+Mypy+Bandit+pip-audit+SBOM+质量门禁 |
+| 8.6 测试可重复 | 已落地 | conftest 隔离 + mock |
+| 9.1 唯一名称 + 语义化版本 | 部分 | 名称有；部分插件 version 非三段式 |
+| 9.2 发布物含许可证/README/变更日志 | 未落地 | 仓库无 LICENSE，见第七节 |
+| 9.3 声明兼容运行环境 | 已落地 | docs/70 兼容矩阵 |
+| 9.4 变更日志 | 部分 | 全局 CHANGELOG，插件级待补 |
+| 9.5 可复现构建 | 已落地 | `xiao6.spec` + lock 文件 |
+| 9.6 manifest/加载/卸载/权限规范 | 部分 | 卸载仍改源码，见第六节 |
+| 9.7 MCP 服务配置/工具发现/协议声明 | 已落地 | `tools/list` + `protocolVersion` |
+| 第十节 质量门禁清单 | 已落地 | `tools/check_plugin_quality.py` |
+
+---
+
+## 三、本程序特有的强制标准（模块级标准没有覆盖）
+
+### S-SIGN　RSA 签名 + sha256 校验
+
+- 清单每条必须有 `sha256` 与 `signature`
+- `plugin_repo/.gitattributes` 固定 `* -text`，防止换行转换破坏哈希
+- 远程安装：HTTPS + 主机白名单 + 验签，任一不满足即拒绝
+- 远程插件即使开 `allow_unsigned_plugins` 也拒绝
+
+### S-TRUST　信任等级
+
+- `official` = `first_party=true` 且签名有效
+- `signed` = 第三方且签名有效
+- `unsigned` = 无签名（远程一律拒绝，本地默认拒绝）
+
+### S-UPDATE　更新与回滚
+
+- 更新前自动备份到 `data/plugin_backups/`
+- 安装/更新记录写入 `data/plugin_ledger.json`
+- 只提供与宿主版本、API 版本兼容的更新
+
+### S-ISOLATE　运行时隔离
+
+- 插件在受限 worker 中运行，只拿 `ctx.files` / `network` / `process` / `config` / `audit`
+- 每次能力调用经 broker 授权，超出声明即拒绝
+- 网络只允许 http/https 且必须在声明域名内
+- 子进程只允许 manifest 中固定 argv
+
+### S-RISK　风险自动分级
+
+- `high` = `process` 或 `ui_control` 或 `config.read_secrets`
+- `medium` = `network` 或 `filesystem.write`
+- `low` = 其余
+
+---
+
+## 四、能力声明（capabilities）标准
+
+5 个分段必须齐全，缺一段即不合格：
+
+```json
+"capabilities": {
+  "network":    {"enabled": true,  "domains": ["api.example.com"], "methods": ["GET"]},
+  "filesystem": {"read": ["data/plugin_data/<插件名>/notes"],
+                 "write": ["data/plugin_data/<插件名>/cache"]},
+  "process":    {"enabled": false, "allow_argv": []},
+  "ui_control": {"enabled": false},
+  "config":     {"read_secrets": false, "public_keys": ["theme"]}
+}
+```
+
+规则要点：
+
+- `network.enabled=true` 必须给 `domains` 与 `methods`（默认 `GET`）
+- 域名只接受合法域名；额外允许回环地址 `localhost` / `127.0.0.1` / `::1`
+  （插件连本地模型、MCP、浏览器调试端口需要）；带端口的地址不允许
+- `filesystem` 路径必须落在 `data/plugin_data/<插件名>/` 内，
+  绝对路径、`..`、盘符路径一律拒绝
+- `process.allow_argv` 必须是固定 argv 数组，禁止 `; & | < > ` $ % 换行`，
+  禁止 `cmd / powershell / bash / wscript / cscript` 包装器
+- `config.public_keys` 不得出现 `key/token/secret/password/credential/private`
+
+---
+
+## 五、工具接口契约（contract 字段）
+
+标准 1.3 要求声明名称、参数类型、返回类型、错误类型和副作用。
+工具声明里可选加 `contract`（写了就强校验，没写计入"未声明契约"）：
+
+```json
+{
+  "name": "weather_query",
+  "method": "query",
+  "desc": "查天气",
+  "contract": {
+    "params": {"city": {"type": "string", "required": true, "max_len": 64}},
+    "returns": {"type": "object",
+                "properties": {"temp": {"type": "number"},
+                               "desc": {"type": "string"}}},
+    "errors": ["PLUGIN_BAD_INPUT", "PLUGIN_UPSTREAM_ERROR", "PLUGIN_TIMEOUT"],
+    "side_effects": ["network:GET wttr.in"],
+    "idempotent": true,
+    "timeout_ms": 8000,
+    "concurrency_safe": true,
+    "description": "按城市名查询实时天气",
+    "not_responsible": ["预报", "历史数据"]
+  }
+}
+```
+
+- **类型白名单**：`string` / `integer` / `number` / `boolean` / `array` / `object` / `null`
+- **副作用白名单**：`network` / `filesystem_read` / `filesystem_write` / `process` / `ui_control` / `config_write`
+
+---
+
+## 六、结构化错误（标准 6.1 / 6.2）
+
+统一格式：
+
+```json
+{"error": {"code": "PLUGIN_TIMEOUT",
+           "message": "天气服务 8 秒内没有响应",
+           "retryable": true,
+           "context": {"module": "weather", "upstream": "wttr.in"},
+           "schema_version": "1.0"}}
+```
+
+错误码表（新增必须登记到 `core/plugin_errors.ERROR_CATALOG`）：
+
+| 错误码 | 含义 | 可恢复性 |
+|---|---|---|
+| `PLUGIN_BAD_INPUT` | 参数不合法 | 不可恢复 |
+| `PLUGIN_MISSING_ARG` | 缺少必填参数 | 不可恢复 |
+| `PLUGIN_BAD_PATH` | 路径不合法 | 不可恢复 |
+| `PLUGIN_PERMISSION_DENIED` | 能力未授权 | 不可恢复 |
+| `PLUGIN_NEEDS_CONFIRM` | 需要用户确认 | 可恢复 |
+| `PLUGIN_UNSUPPORTED_CAPABILITY` | 不具备该能力 | 不可恢复 |
+| `PLUGIN_MISSING_DEPENDENCY` | 缺少依赖 | 不可恢复 |
+| `PLUGIN_NOT_AVAILABLE` | 依赖服务不可用 | 可恢复 |
+| `PLUGIN_TIMEOUT` | 执行超时 | 可恢复 |
+| `PLUGIN_CANCELLED` | 已取消 | 可恢复 |
+| `PLUGIN_BUSY` | 繁忙，稍后重试 | 可恢复 |
+| `PLUGIN_UPSTREAM_ERROR` | 上游返回错误 | 可恢复 |
+| `PLUGIN_RATE_LIMITED` | 被限流 | 可恢复 |
+| `PLUGIN_RESOURCE_EXHAUSTED` | 资源耗尽 | 可恢复 |
+| `PLUGIN_BAD_OUTPUT` | 返回格式不符合契约 | 不可恢复 |
+| `PLUGIN_NOT_IMPLEMENTED` | 尚未实现 | 不可恢复 |
+| `PLUGIN_INTERNAL_ERROR` | 插件内部错误 | 不可恢复 |
+| `PLUGIN_UNKNOWN` | 未知错误 | 不可恢复 |
+
+**迁移**：历史 `return {"错误": "..."}` 可继续工作，
+用 `core.plugin_errors.normalize_error()` 统一转换（会自动推断错误码）。
+
+---
+
+## 七、生命周期标准（标准 4.1 / 4.2 / 6.4）
+
+状态机：`new -> started -> stopped`（可 `restart`）
+
+接口（`BaseModule` 已默认实现，子类按需覆盖钩子）：
+
+| 接口 | 说明 |
+|---|---|
+| `start()` | 一次性准备；失败会自动回滚到 stopped |
+| `run()` | 真正干活，可并发调用 |
+| `stop()` | 幂等；重复调用返回 `already_stopped` 且**不再执行清理逻辑** |
+| `close()` / `shutdown()` | `stop()` 的别名 |
+| `health()` | 快速返回 `{ok, stage, uptime_s, start_count, stop_count}` |
+| `describe()` | 返回 `{name, version, purpose, not_responsible}` |
+
+子类只需覆盖 `_on_start()` / `_on_stop()`，不必自己管状态机。
+
+---
+
+## 八、质量门禁（标准第十节落地）
+
+命令：`py -3 tools/check_plugin_quality.py [--strict] [--json]`
+
+检查项（error 级，必须为 0）：
+
+1. 清单必填字段齐全
+2. `api_version` 在支持列表
+3. capabilities 5 段齐全
+4. 已签名 + 有 `sha256`
+5. 源码存在
+6. 依赖边界（只能 import 公共 core 模块）
+7. 无硬编码密钥
+8. 无未标注理由的 `except pass`
+9. 有入口 `run()`
+10. 工具 contract 合法（写了就校验）
+
+检查项（warn 级，逐步收敛）：
+
+- 未声明 `stop()`/`close()`
+- 未声明"不负责的事项"
+- 模块缺 docstring
+- 工具未声明 contract
+- 直接读环境变量 / `global` / 相对路径 / 模块级可变容器
+- 返回 `{"错误": ...}` 旧式文本
+- `version` 非语义化三段式
+
+当前实测（2026-10-22）：
+
+```text
+模块 48 · error 0 · warn 142 → 门禁通过
+```
+
+---
+
+## 九、交付最小文件集（对模块级标准附录）
+
+单个插件建议目录结构：
+
+```text
+<插件名>/
+    README.md          用途、安装、快速开始、配置、示例
+    API.md             公开接口、参数、返回值、错误码
+    AGENTS.md          面向 Agent 的调用指南（标准 7.4）
+    SPEC.md            架构、边界、依赖、设计约束
+    CHANGELOG.md       插件级变更记录
+    manifest.json      清单（本程序格式）
+    <插件名>.py        实现
+    examples/          可运行最小示例
+    tests/             单元 + 契约 + 错误路径测试
+```
+
+注：官方 48 个模块当前为"平铺 + 统一 manifest"形态，
+上面的目录结构是**新增插件**的推荐形态，存量模块逐步迁移。
+
+---
+
+## 十、发布流程
+
+```powershell
+# 1. 模块放入 modules/installed/，在 core/lazy_config.py 登记
+# 2. 同步到仓库（自动生成标准 capabilities）
+py -3 tools/rebuild_modules_repo.py --apply
+# 3. 签名
+set X6_KEY_VAULT=E:\xiao6-keys
+py -3 tools/sign_modules.py
+# 4. 发布到 GitHub 公共镜像
+py -3 tools/sync_plugin_repo.py --apply
+# 5. 全量验证
+py -3 tools/check_plugin_quality.py
+py -3 tools/check_plugin_api.py
+py -3 tools/check_plugin_repo.py
+py -3 -m pytest tests/test_plugin_standard.py tests/test_module_standard.py -q
+```
+
+---
+
+## 十一、官方模块合规现状（2026-10-21）
+
+```text
+模块总数                42
+声明 capabilities       42 / 42
+5 段齐全                42 / 42
+已签名                  42 / 42
+api_version = 1.0       42 / 42
+清单+源码校验通过       42 / 42
+legacy（未声明能力）    0
+质量门禁 error          0
+质量门禁 warn           81（逐步收敛，不阻塞发布）
+```
+
+高风险显式声明：
+
+| 模块 | 声明 |
+|---|---|
+| `computer_controller` | `ui_control.enabled = true` |
+| `code_runner` | `process.enabled = true`，`allow_argv = [["python"],["py"]]` |
+| `weather` | `network.enabled = true`（wttr.in / open-meteo） |
+| `deep_search` | `network.enabled = true`（duckduckgo / bing / brave） |
+| `browser`, `mcp_client` | `network` 仅回环地址 |
+
+---
+
+## 十二、已知差距与后续计划
+
+**P0（影响"合格模块"判定）**
+
+1. 插件级依赖声明：manifest 增加 `requires` / `optional_requires` / `system`
+2. 插件级 README / API.md 生成与校验
+3. 插件级单元测试与错误路径测试覆盖
+4. 仓库 LICENSE
+
+**P1**
+
+5. AGENTS.md 规范与模板
+6. 配置优先级显式化：
+   `config.default.json -> data/config.json -> data/team/central_config.json -> 环境变量（仅明确列出的键）`
+7. 卸载改为 manifest 驱动，不再修改 `core/lazy_config.py` 源码
+8. 插件级 CHANGELOG
+
+**P2**
+
+9. 遥测/指标统一出口（Prometheus 或 JSON 指标）
+10. 插件目录结构迁移（平铺 -> 目录化）
+11. 全量工具 contract 覆盖（当前多数工具未声明）
+
+---
+
+## 十三、v2.1 落地：分级、审计、熔断、密钥与门禁（2026-10-21）
+
+### 13.1 插件分级 L1/L2/L3（自动推导）
+
+- 推导函数 `core/plugin_tier.py::derive(capabilities)`
+- **L3 系统型**：`process.enabled` 或 `ui_control.enabled` 或 `config.read_secrets`
+- **L2 IO 型**：`network.enabled` 或 `filesystem.write` 非空
+- **L1 计算型**：其余（豁免 N4.3/N4.4/N4.5/N6.4/N8.3）
+- manifest 的 `plugin_tier` / `risk_level` 由 capabilities 自动写入，
+  手写值与推导值不一致时以推导值覆盖并告警。
+- 当前分布：**L1 = 36，L2 = 4，L3 = 2**（code_runner / computer_controller）
+
+### 13.2 审计日志（N15）
+
+- `core/plugin_audit.py`
+- 每条记录字段：`ts`(ISO-8601 UTC) / `plugin` / `version` / `action` /
+  `capability` / `allowed` / `detail` / `session_id`
+- 敏感字段写盘前由 `core/redaction` 脱敏；写失败只计数不阻断。
+- 默认保留 **90 天**，`purge_expired()` 清理过期记录。
+
+### 13.3 熔断与资源上限（N13）
+
+- `core/plugin_limits.py`
+- **熔断**：连续失败 **5 次** → 熔断，冷却 **60 秒**，错误码 `PLUGIN_CIRCUIT_OPEN`
+- **限额**：单次调用 30s / 单插件内存 512MB / 单次写 100MB / 网络 60 次每分钟
+- 超限错误码 `PLUGIN_RESOURCE_EXHAUSTED`
+
+### 13.4 凭据读取（S3/S7）
+
+插件必须在 `capabilities.config` 声明 `read_secrets=true` 与 `secret_names` 列表，
+经 `ctx.config.get_secret(name)` 由 broker 代理读取；
+未声明即拒绝；审计只记录凭据"名字"，不记录值。
+
+### 13.5 签名算法明细（S5）
+
+- RSA ≥ **2048**（实测 2048）/ RSASSA-PKCS1-v1_5 / SHA-256 / Base64 无换行
+- 校验证书链与吊销列表：`config/plugin_key_revocation.json`
+- 工具：`py -3 tools/verify_signature.py --all`
+
+### 13.6 回环端口规则（S3）
+
+允许 `localhost:8080` / `127.0.0.1:5000` / `[::1]:3000` 这类回环+端口写法；
+非回环域名一律禁止带端口。
+
+### 13.7 版本规范（N9.1）
+
+- `version` 必须三段式语义化；历史 `"1.0"`/`"5.1"` 已统一补成 `"1.0.0"`/`"5.1.0"`。
+- `api_version` 与 `version` 语义分离：前者精确匹配，后者语义化。
+
+### 13.8 manifest v2.1 新增字段
+
+- **必填**：`license` / `author` / `min_host_version` / `plugin_tier` / `risk_level`
+- **条件必填**：`dev_depends` / `optional_depends` / `homepage` / `changelog_url` / `data_version`
+- 当前实测：**48/48** 全部具备
+
+### 13.9 发布与门禁命令（全部必须通过）
+
+```powershell
+py -3 tools/check_plugin_repo.py
+py -3 tools/check_plugin_api.py
+py -3 tools/check_plugin_quality.py
+py -3 tools/check_plugin_tier.py
+py -3 tools/check_plugin_deps.py --ast
+py -3 tools/check_plugin_security.py
+py -3 tools/verify_signature.py --all
+py -3 -m pytest tests/test_plugin_standard.py tests/test_plugin_standard_v21.py tests/test_plugin_contract.py -q
+```
+
+### 13.10 插件级契约测试（N8.2b）
+
+- `tests/test_plugin_contract.py`　框架级批量契约测试（48 模块）
+- `templates/plugin_contract_test.py`　单个插件的契约测试模板
+- 覆盖：入口可实例化 / tools 方法存在 / 生命周期幂等 / stats JSON 可序列化
+
+### 13.11 当前实测（2026-10-22）
+
+```text
+模块 48 · 质量门禁 error 0 · 分级一致 48/48 · 依赖无环
+签名有效 48/48（RSA 2048） · 安全检查 error 0
+测试：test_plugin_standard 17 · v21 19 · contract 29 全通过
+```
+
+---
+
+## 十四、仍待补齐（诚实清单）
+
+- **P0**　仓库 LICENSE 文件；插件级 README/API/AGENTS 文档；插件级依赖声明字段落地
+- **P1**　配置优先级显式化；manifest 驱动卸载；插件级 CHANGELOG；密钥吊销接口
+- **P2**　遥测指标出口；插件目录化；工具 contract 全覆盖（当前多数未声明）
+
+---
+
+> 文档同步：2026-10-21 / 插件标准 v2.1 / 事实源以代码为准
+>
+> 相关文档：本文「附录：插件 SDK」（开发指南）、本文「附录：模块标准」（模块级标准对照）
+>
+> 用户版权威事实源：根目录 `插件标准.txt`
+
+---
+
+## 附录：v1.0 版保留的参考细节（与 v2.1 正文不冲突，备查）
+
+> 以下内容来自本文件 v1.0 版，v2.1 正文未逐条重述，但仍为实现事实，保留备查。
+
+### 附录 A　manifest 清单必填字段示例
+
+每个模块在 `modules_repo/manifest.json` 里必须有：
+
+```json
+{
+  "name": "weather",
+  "title": "天气查询",
+  "file": "weather.py",
+  "cls": "Weather",
+  "desc": "查询实时天气",
+  "group": "联网检索",
+  "version": "1.0",
+  "api_version": "1.0",
+  "first_party": true,
+  "needs_model": false,
+  "depends": [],
+  "tools": [],
+  "size": 3029,
+  "sha256": "…",
+  "signature": "…",
+  "capabilities": { … }
+}
+```
+
+缺任何一项都按不合格处理（`tests/test_plugin_standard.py` 会红）。
+
+API 版本常量：
+
+```python
+PLUGIN_API_VERSION = "1.0"
+SUPPORTED_PLUGIN_API = {"1.0"}
+```
+
+- 不写 `api_version` → `legacy=True`，只给警告，但**新发布必须写**。
+- 写了不支持的版本 → 直接拒绝安装。
+- 版本号是硬比较，不做范围匹配。
+
+### 附录 B　依赖边界白名单与禁止前缀
+
+第三方插件只能依赖 `PUBLIC_CORE_MODULES` 里的公共模块，例如：
+
+```text
+core.safe / core.error_text / core.path_safety / core.document_parser
+core.net_guard / core.permission_center / core.audit_log / core.retrieval
+core.fts_index / core.plugin_api / core.lazy_config / core.plugin_signer
+```
+
+**永远禁止**（`FORBIDDEN_CORE_PREFIXES`）：
+
+```text
+core.trunk*  core.data_schema  core.data_migrations  core.secret_store
+core.default_secrets  core.license_*  core.auth  core.pipeline
+core.release_sign  core._deprecated
+```
+
+另外：
+
+- 禁止 `from core import *`。
+- 禁止从 core 导入下划线开头的私有符号。
+- 官方模块（`first_party: true`）可额外依赖少量审计过的集成层
+  （`core.computer_*` / `core.mcp_stdio` 等），但私有实现同样禁止。
+
+检查方式：AST 解析源文件，**不执行插件代码**。
+
+### 附录 C　v1.1 / v2.1 早期落地备注
+
+- `core/plugin_errors.py`：18 个结构化错误码 + `retryable` + `context`
+- `core/module_lifecycle.py`：`start/stop/health` 幂等状态机
+- `core/tool_contract.py`：工具 contract 字段校验
+- `tools/check_plugin_quality.py`：48 模块质量门禁（error 必须为 0）
+- 基类升级：`BaseModule` 继承 `LifecycleMixin`，新增 `NOT_RESPONSIBLE` 与 `describe()`；
+  `agent_generic` 同步继承 `BaseModule`。
+- 门禁首跑发现的真实问题：3 个 agent 模块缺 run；3 处 except pass 无理由；
+  localhost 无法通过域名白名单；生成能力时漏 filesystem 段。均已修复。
+- 早期实测：模块 42 · error 0 · warn 125 · 全部已签名 · 0 个 legacy。
+
+新增模块与工具（v2.1 早期登记，后并入正文第十三节）：
+
+| 模块 | 职责 |
+|---|---|
+| `core/plugin_tier.py` | L1/L2/L3 分级与 risk_level 自动推导 |
+| `core/plugin_audit.py` | N15 审计日志（8 字段 + 脱敏 + 保留期） |
+| `core/plugin_limits.py` | N13 熔断 + 资源上限 + 限流 |
+
+| 工具 | 作用 |
+|---|---|
+| `tools/check_plugin_tier.py` | 分级一致性校验 |
+| `tools/check_plugin_deps.py` | 依赖语法 + 环检测 + AST 边界 |
+| `tools/check_plugin_security.py` | 配置/路径/密钥/审计/L3 专项 |
+| `tools/verify_signature.py` | RSA 签名 + 公钥位数 + CRL |
+
+| 测试 | 覆盖 |
+|---|---|
+| `tests/test_plugin_contract.py` | 48 模块批量契约（29 项） |
+| `tests/test_plugin_standard_v21.py` | v2.1 组件单测（19 项） |
+| `templates/plugin_contract_test.py` | 单插件模板 |
+
+
+---
+
+## 13. v2.1 落地核对（2026-10-22）
+
+| 条款 | 落地 | 位置 |
+|---|---|---|
+| §0.3 分级 L1/L2/L3 | ✅ | `core/plugin_tier.py` |
+| S1 manifest 必填 | ✅ 48/48 | `modules_repo/manifest.json` |
+| S2 api_version | ✅ | `core/plugin_api.py` |
+| S3 capabilities + 回环端口 | ✅ | `core/plugin_capabilities.py` |
+| S4 依赖边界 | ✅ | AST 扫描 + `check_plugin_deps.py` |
+| S5 签名 RSA2048 | ✅ 48/48 | `tools/verify_signature.py` |
+| S6 路径越界 | ✅ | `check_plugin_security.py --paths` |
+| S7 运行时隔离 | ✅ | `core/plugin_broker.py` |
+| S8 信任等级 | ✅ | `core/plugin_registry.py` |
+| N6 结构化错误 | ✅ | `core/plugin_errors.py` |
+| N8 双层契约测试 | ✅ | `test_plugin_standard.py` + `test_plugin_contract.py` |
+| N13 熔断/限额 | ✅ | `core/plugin_limits.py` |
+| N15 审计 | ✅ | `core/plugin_audit.py` |
+
+### 当前实测
+
+```text
+模块 48 · 质量门禁 error 0
+分级一致 48/48
+签名有效 48/48（RSA 2048）
+依赖无环
+```
+
+### 仍未落地（P0）
+
+1. 仓库 LICENSE 文件
+2. 插件级 README / API.md / AGENTS.md
+3. manifest `requires` 依赖声明字段
+
+---
+
+## 附录：插件 SDK
+
+> 原文件 `docs/PLUGIN_SDK.md`，2026-10-30 合并入本文。
+
+# Isolated Plugin SDK
+
+> 完整的强制性规范（清单必填字段、能力 5 段、依赖边界、签名、风险等级）
+> 见本文 **「附录：插件标准 v2.1」**。本文只讲怎么写一个插件。
+
+Plugins run through a broker/worker boundary. They do not receive `trunk`,
+`os`, `subprocess`, raw filesystem paths or API keys.
+
+## Manifest
+
+```json
+{
+  "name": "hello",
+  "file": "hello.py",
+  "cls": "HelloPlugin",
+  "version": "1.0.0",
+  "api_version": "1.0",
+  "first_party": false,
+  "publisher": "example",
+  "min_host_version": "25.0.0",
+  "capabilities": {
+    "filesystem": {"read": ["notes"], "write": ["notes"]},
+    "network": {"enabled": true, "domains": ["api.example.com"]},
+    "process": {"enabled": false},
+    "config": {"public_keys": ["theme"]}
+  },
+  "sha256": "...",
+  "signature": "..."
+}
+```
+
+## Capability Rules
+
+- `filesystem`: only plugin-scoped `data/plugin_data/<name>/` paths
+- `network`: HTTPS only, declared host allowlist
+- `process`: fixed argv only, no shell, bounded output/time
+- `config`: public keys only
+- `ui_control`: requires explicit user confirmation
+- `secrets`: never returned to plugin code
+
+## Trust Tiers
+
+- `official`: first-party + valid signature
+- `signed`: third-party + valid signature
+- `unsigned`: denied for remote installs and denied by default locally
+
+## Versioning
+
+The host checks `api_version`, `min_host_version` and `max_host_version`.
+Updates are only offered when compatible. The market keeps a rollback copy
+before applying an update.
+
+## Example
+
+See `docs/examples/plugins/hello_plugin.py`.
+
+
+---
+
+## 插件运行时能力（2026-10-22 更新）
+
+### 可用的上下文对象
+
+```python
+ctx.files.read(path, max_bytes=65536)
+ctx.files.write(path, text, append=False)
+ctx.network.request(url, method="GET", headers=None, body=None, timeout=10)
+ctx.process.run(argv, timeout=15)
+ctx.config.get_public(key)
+ctx.config.get_secret(name)      # 需 capabilities.config.read_secrets
+ctx.audit.record(event)
+```
+
+### 网络与局域网
+
+插件只能访问 `capabilities.network.domains` 里声明的域名。
+若插件需要连本机服务，声明回环地址：
+
+```json
+"network": {
+  "enabled": true,
+  "domains": ["127.0.0.1:5000", "localhost:8080"],
+  "methods": ["GET"]
+}
+```
+
+非回环域名**不允许带端口**。局域网私有地址（192.168.x.x）
+即使声明也会被网络守卫拒绝 —— 那是宿主的 `allow_lan_*` 策略，
+不开放给插件。
+
+### 资源上限（v2.1 N13）
+
+| 限制 | 默认值 |
+|---|---|
+| 单次调用 | 30s |
+| 内存 | 512MB |
+| 单次写盘 | 100MB |
+| 网络频率 | 60 次/分钟 |
+| 熔断 | 连续失败 5 次 → 冷却 60s |
+
+---
+
+## 附录：插件审计 v2.1（总表）
+
+> 原文件 `docs/plugin_audit_v21.md`，2026-10-30 合并入本文。
+
+# 插件标准 v2.1 合规审计总报告（42 模块全量）
+
+- **审计日期**：2026-10-21
+- **权威标准**：《小6插件标准 v2.1》（`E:\xiaoliu\插件标准.txt`，14 节，MUST/SHOULD/MAY 分级）
+- **审计对象**：`E:\xiaoliu\modules\installed\` 下 42 个官方插件模块（agent_analyst ~ weather，voice 的清单条目名为 stt）
+- **判定口径**：仅以强制项（MUST）为准——manifest 必填字段、version 三段式、capabilities 5 段合规、tier/risk 推导一致、依赖边界、无硬编码密钥、无未标注裸吞异常、入口 run()、contract 合法、生命周期接口；第 12 节已知差距 P0/P1/P2 与第 14 节仍待补齐项（插件级 README/API/AGENTS、LICENSE、requires 字段、单测、CHANGELOG、配置优先级、manifest 驱动卸载、密钥吊销、遥测出口、目录化、工具 contract 全覆盖）允许未落地，warn 级问题不改。
+- **基线**：审计前质量门禁 error=0、warn=125。
+
+---
+
+## 一、总览
+
+| 结论 | 数量 | 说明 |
+|---|---|---|
+| ✅ 符合（无需修改） | 26 | 强制项全部通过 |
+| 🔧 符合（已修复） | 14 | 审计发现问题并就地修复，修复后门禁复验通过 |
+| ❌ 不符合（未修） | 2 | memory_cards、personality——数据文件被 core/gui 按旧路径共享，迁移须联动非插件代码，超出本轮修改边界，建议纳入主流程数据布局迁移 |
+
+**42 个模块 = 40 符合 + 2 不符合未修（有明确原因与后续建议）**。
+
+## 二、修复清单（14 个模块）
+
+### 2.1 数据文件沙箱迁移（13 个，批次 2）
+
+将模块私有持久化从 `data/` 根目录迁入 `data/plugin_data/<插件名>/` 沙箱（对应 manifest filesystem 声明目录），全部带旧路径一次性迁移（os.replace / os.rename，失败静默不阻断）：
+
+| 模块 | 改动 |
+|---|---|
+| notes.py | notes.json → data/plugin_data/notes/ |
+| todo.py | todo.json → data/plugin_data/todo/ |
+| memory_loop.py | memory_loop.json、episodic_memory.json → data/plugin_data/memory_loop/ |
+| multimodal.py | temp_frame.jpg、camera.jpg → data/plugin_data/multimodal/ |
+| self_reflect.py | reflect_history.json → data/plugin_data/self_reflect/ |
+| skill_capture.py | skills/、skills_pending/ → data/plugin_data/skill_capture/ |
+| smart_router.py | router_cache.json → data/plugin_data/smart_router/ |
+| task_loop.py | task_loop.json → data/plugin_data/task_loop/ |
+| task_planner.py | tasks/ → data/plugin_data/task_planner/ |
+| mcp_server.py | mcp_tools.json → data/plugin_data/mcp_server/ |
+| mcp_client.py | mcp_trust.json → data/plugin_data/mcp_client/ |
+| tts.py | 输出 mp3 → data/plugin_data/tts/ |
+| voice.py | 临时 wav → data/plugin_data/stt/（与清单声明目录一致） |
+
+已独立复核：core/、gui/、libs/ 均无对上述旧路径的引用，迁移不破坏集成。
+
+### 2.2 裸异常加固（1 个，批次 1）
+
+- **deep_search.py**：`_read_page()` 裸 `except:` 收窄为 `except Exception:` 并补注释——裸 except 会连 KeyboardInterrupt/SystemExit 一并吞掉，违反标准 6.5「不吞异常」。
+
+### 2.3 门禁豁免注释（10 个，复验轮）
+
+rebuild 后质量门禁复验发现 10 个模块（mcp_client/mcp_server/memory_loop/notes/self_reflect/skill_capture/smart_router/task_loop/task_planner/todo）的迁移逻辑 `except OSError: pass` 未标注理由，按门禁规则（pass 行前 3 行内出现「静默是故意的」或「nosec」即豁免）补注 `# 静默是故意的：旧数据（目录）迁移失败不阻断主流程`。修复后门禁 error=0。
+
+## 三、不符合未修（2 个，需联动 core/gui）
+
+| 模块 | 违反条款 | 原因 | 建议 |
+|---|---|---|---|
+| memory_cards | 第 4 节 filesystem 沙箱约束 | `data/memory_cards.jsonl` 被 core/memory_organizer.py、gui/stats_dialog.py、gui/memory_view_dialog.py 按旧路径直读，且登记在 core/data_schema.py 并由 core/data_migrations.py 管理版本迁移 | 纳入主流程统一数据布局迁移（需同轮改 core/gui） |
+| personality | 第 4 节 filesystem 沙箱约束 | `data/personality.json` 是 core 级共享资产（data_schema 登记、data_migrations v0→v1→v2 迁移、growth_report 读取、personality_market 写入） | 同上 |
+
+## 四、能力声明滞后观察项（登记备查，不影响强制项判定）
+
+代码实际行为与 manifest 声明 capabilities 之间的差距（修复点在 manifest 重新推导，本次按修改边界未动 manifest，未做破坏功能的代码裁剪）：
+
+1. **image_ocr**：`requests.post` 直连 open.bigmodel.cn、从 config 读 cloud_api_key，但声明 network=false / read_secrets=false → 建议升 L3/high
+2. **deep_search**：除声明域名外还命中 cn.bing.com / www.sogou.com / api.github.com
+3. **hot_reload / auto_updater**：subprocess 沙盒验证/重启，process 未声明
+4. **task_loop**：verify() 以 subprocess 跑 py_compile；**mcp_client**：stdio 按配置拉起子进程；**scheduler**：巡检直连 127.0.0.1:11434；**tts**：edge-tts 出网；**mcp_server**：127.0.0.1 起 HTTP 服务——运行时行为 vs 清单声明差异
+5. **cache / calendar / error_lib / forgetting_curve / group_loop / learning_loop**：实际写 `data/*.json`，声明 filesystem.write=[]
+
+> 说明：manifest 内部自洽（tier/risk 由声明 capabilities 推导，0 mismatch）；上述差异属标准第 12 节已知差距的同类收敛项，不阻塞发布。
+
+## 五、门禁与发布终态（2026-10-21 实测）
+
+| 门禁 | 结果 |
+|---|---|
+| check_plugin_quality.py | ✅ error=0（warn 125，与标准记录一致） |
+| check_plugin_api.py | ✅ failed=[] |
+| check_plugin_tier.py | ✅ 42/42 分级与风险推导一致 |
+| check_plugin_deps.py --ast | ✅ error 0，无循环依赖 |
+| check_plugin_security.py | ✅ error 0 / warn 0 |
+| check_plugin_repo.py | ✅ 42 个已签名文件核验通过 |
+| verify_signature.py --all | ✅ 42/42 RSA 2048 签名与 sha256 有效 |
+| pytest（standard 17 + v21 19 + contract 29） | ✅ 65 passed |
+
+**发布管线**（按标准第十节）：
+- `rebuild_modules_repo.py --apply`：42 个模块入库，manifest 重建（version 三段式、capabilities 标准生成、tier/risk 自动推导）
+- `sign_modules.py`：42/42 签名写回
+- `sync_plugin_repo.py --apply`：42 个已签名文件发布至下载源 `E:\xiaoliu\plugin_repo`，`--check` 与仓库门禁通过
+- `sync_package.py`：打包源 `E:\xiao6-package` 同步 30 个更新文件、0 删除，同步后校验「已完全一致 + 安全检查通过」，含 modules/、modules_repo/、插件标准.txt 等随包文件（4579 个文件，202.4 MB）
+- 一致性终检：modules_repo / plugin_repo / xiao6-package 三处 manifest.json 字节一致；修复模块已落位打包目录；42 条全部三段式版本且 sha256+签名齐全
+
+## 六、详细记录
+
+- 批次 1（agent_analyst ~ learning_loop，21 个）：本文末尾「附录：插件审计 v2.1（第一批）」
+- 批次 2（mcp_client ~ weather，21 个）：本文末尾「附录：插件审计 v2.1（第二批）」
+
+## 七、遗留事项
+
+1. memory_cards / personality 数据布局迁移（需联动 core/gui，等待用户决策）
+2. 能力声明滞后项（见第四节，建议随下次 manifest 推导统一收敛）
+3. git 提交/推送未执行：下载源本地镜像已同步，但发布到 GitHub 公共下载源需 git commit + push，按约定待用户确认后执行
+
+
+---
+
+## 审计后续（2026-10-22）
+
+审计发现的差距中，本轮已补:
+
+| 项 | 状态 |
+|---|---|
+| 分级与风险自动推导 | ✅ `core/plugin_tier.py` |
+| 结构化错误码 | ✅ `core/plugin_errors.py` |
+| 生命周期幂等 | ✅ `core/module_lifecycle.py` |
+| 工具 contract 校验 | ✅ `core/tool_contract.py` |
+| 审计日志格式 | ✅ `core/plugin_audit.py` |
+| 熔断与资源上限 | ✅ `core/plugin_limits.py` |
+
+仍待补（与 `插件标准.txt` 第十五节一致）：
+
+```text
+P0  LICENSE / 插件级 README / requires 字段
+P1  配置优先级 / manifest 驱动卸载 / 插件 CHANGELOG
+P2  遥测出口 / 插件目录化 / 工具 contract 全覆盖
+```
+
+---
+
+## 附录：插件审计 v2.1（第一批）
+
+> 原文件 `docs/plugin_audit_v21_batch1.md`，2026-10-30 合并入本文。
+
+# 插件标准 v2.1 合规审计报告 — 批次 1
+
+- **审计日期**：2026-10-21
+- **权威标准**：`E:\xiaoliu\插件标准.txt`（v2.1，14 节，含 S-* / capabilities / contract / 错误码 / 生命周期 / 门禁清单）
+- **清单事实源**：`E:\xiaoliu\modules_repo\manifest.json`（42 条，本批次抽取 21 条）
+- **审计对象**：`E:\xiaoliu\modules\installed\<名>.py`，共 **21 个**
+  agent_analyst, agent_coder, agent_planner, anomaly_detector, auto_updater, browser,
+  cache, calendar, code_runner, computer_controller, deep_search, error_lib, file_upload,
+  forgetting_curve, group_chat, group_loop, group_parallel, hot_reload, image_ocr,
+  knowledge_qa, learning_loop
+- **判定口径**：仅以 8 项 MUST 为准；第 12 节 P0/P1/P2 与第 14 节待补齐项（插件级 README/API/AGENTS、LICENSE、requires 字段、单测、CHANGELOG、配置优先级、manifest 驱动卸载、密钥吊销、遥测出口、目录化、工具 contract 全覆盖）**不判不合格**；warn 级问题（未声明 stop()、未声明不负责事项、工具未声明 contract、旧式 `{"错误":...}` 返回等）**不改**。
+- **修改边界**：仅可改本批次 21 个 `.py`；未动 core/、gui/、templates/、docs/、tests/、tools/、manifest.json、plugin_repo/、其他批次模块、`__init__.py`；未运行 rebuild/sign/sync/pytest 等集中脚本；未做 git 操作；未删除任何文件。
+- **基线**：质量门禁 error=0、warn=125（warn 不阻塞）。
+
+---
+
+## 一、汇总
+
+| 状态 | 数量 | 模块 |
+|---|---|---|
+| ✅ 符合（无需修改） | 20 | 除 deep_search 外的全部 |
+| 🔧 已修复 | 1 | deep_search |
+| ❌ 不符合未修 | 0 | — |
+
+**修复明细**：仅 `deep_search.py` 一处——`_read_page()` 的裸 `except:`（连带吞掉 `KeyboardInterrupt/SystemExit` 且无理由标注）收窄为 `except Exception:` 并补注释。已通过 `ast.parse` 语法自检。
+
+> 说明：代码行为与 manifest 能力声明之间存在若干「声明滞后」观察项（见附录 A），其修复点在 manifest 重新推导（`rebuild_modules_repo`/`sign_modules`），属主流程统一执行范围，本次不改代码、不改 manifest，仅登记。
+
+---
+
+## 二、通用结论（适用于全部 21 个模块）
+
+1. **manifest 必填字段**：21/21 均含 name/file/cls/version/api_version/license/author/min_host_version/plugin_tier/risk_level/capabilities/sha256/signature（另含 title/desc/group/first_party）。✅
+2. **version 三段式语义化**：21/21 均为 `X.Y.Z`（1.0.0 / 5.0.0 / 5.1.0 / 7.0.0 / 7.1.0 / 10.0.0 / 11.0.0 / 16.0.0 等）。✅
+3. **capabilities 五段齐全**：21/21 均含 network/filesystem/process/ui_control/config。
+   - network.enabled=true 的仅 browser（localhost/127.0.0.1，GET/POST，无端口）与 deep_search（duckduckgo.com / html.duckduckgo.com / www.bing.com / api.search.brave.com，GET，非回环域名均无端口）——合法。✅
+   - filesystem 声明读路径全部落在 `data/plugin_data/<名>/`，无绝对路径/`..`/盘符。✅
+   - process.enabled=true 仅 code_runner，allow_argv=`[["python"],["py"]]`，固定 argv 数组，无 cmd/powershell/bash/wscript/cscript 包装器，无 `; & | < > \` $ % 换行。✅
+   - config：read_secrets 全为 false；public_keys 全为空，无 key/token/secret/password/credential/private。✅
+4. **tier/risk 推导一致**：用 `core/plugin_tier.check_manifest` 程序化核对，21/21 声明值与推导值一致，0 mismatch。
+   - L3/high：code_runner（process）、computer_controller（ui_control）。
+   - L2/medium：browser、deep_search（network）。
+   - L1/low：其余 17 个。✅
+5. **依赖边界**：21/21 的 import 全部为标准库 / `modules.base` / 白名单 core（core.safe、core.diagnostics、core.path_safety、core.agent_generic、core.net_guard、core.screen_geometry、core.error_text、core.sandbox、core.document_parser、core.retrieval、core.fts_index）/ 首方集成层（core.auto_update_*、core.computer_*）；grep 复核无 `core.trunk`/`core.secret_store`/`core.data_schema`/`core.pipeline` 等禁止前缀。✅
+6. **硬编码密钥**：grep 复核 `api_key/token/secret/password="..."`、`sk-...`、`BEGIN PRIVATE KEY` 三类模式 0 命中。✅
+7. **裸 except: pass**：仅两处裸 `except:`——computer_controller:108 为 `except: pass  # 静默是故意的…`（已标注理由，门禁豁免，合规）；deep_search:102 为 `except: return ""`（已就地收窄为 `except Exception:`，见下）。其余吞异常均为 `_x6_swallowed(__name__, e[, reason])` 约定式带因豁免。✅
+8. **入口 run()**：21/21 均有 `run()`（agent_analyst/coder/planner 经 `AgentGeneric.run` 继承，已确认基类存在 run/reply）。✅
+9. **contract 字段**：本批次 TOOLS 均未写 `contract` 子字段（写了才强校验，未写记 warn），无非法 contract。✅
+10. **生命周期**：21/21 均继承 `modules.base.BaseModule`（其经 `LifecycleMixin` 提供 start/run/stop/close/shutdown/health/describe，stop 幂等）；browser 自实现 `shutdown()` 并做 hasattr 判空 + 置空引用，幂等。✅
+11. **结构化错误**：旧式 `return {"错误": ...}` 多处存在，按基线口径属 warn，不改；无「明显破坏 JSON 可序列化契约」的返回。✅
+
+---
+
+## 三、逐模块审计结论
+
+### 1. agent_analyst.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：继承 `core.agent_generic.AgentGeneric`（白名单），经基类获得 `run()/reply()`；无 secret、无裸 except；manifest L1/low 与推导一致。
+
+### 2. agent_coder.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：同上（`core.agent_generic` 白名单）；入口继承自基类；L1/low 一致。
+
+### 3. agent_planner.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：同上；L1/low 一致。
+
+### 4. anomaly_detector.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：`core.safe`（白名单）+ `modules.base`；自实现 `run()`；无 secret、无未标注 except；声明读路径在 `data/plugin_data/anomaly_detector/`；L1/low 一致。（代码内 `VERSION="1.0"` 为模块属性，对外以 manifest `7.0.0` 三段式为准，不判。）
+
+### 5. auto_updater.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：`core.auto_update_*` 属首方集成层（`_FIRST_PARTY_INTEGRATION`），非禁止前缀；`core.diagnostics` 白名单；自实现 `run()`；无硬编码密钥、无未标注 except。（其编排行为涉及 subprocess/文件替换，能力声明见附录 A 观察项，本次不改。）
+
+### 6. browser.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：`core.safe`/`core.diagnostics` 白名单；`run()` 齐备；自实现 `shutdown()` 幂等（hasattr 判空 + 引用置空 + atexit 注册）；吞异常均带因 `_x6_swallowed`；network 声明仅回环 localhost/127.0.0.1（GET/POST，无端口）合法；L2/medium 与推导一致。
+
+### 7. cache.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：`core.safe`/`core.diagnostics` 白名单；`run()` 齐备；吞异常走 `_x6_swallowed`（带因豁免）；L1/low 一致。（实际持久化路径 `data/cache.json` 为既有实现，能力声明读路径在插件目录内，见附录 A。）
+
+### 8. calendar.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：`core.safe`/`core.diagnostics` 白名单；`run()` 齐备；TOOLS 无非法 contract；L1/low 一致。
+
+### 9. code_runner.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：`core.safe`/`core.sandbox`（均白名单）；`run()` 齐备；process.enabled=true、allow_argv=`[["python"],["py"]]` 固定 argv、无 shell 包装器/元字符；L3/high 与推导一致。（`{"错误":...}` 旧式返回属 warn，不改。）
+
+### 10. computer_controller.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：`core.computer_*` 首方集成层 + `core.path_safety`/`core.error_text`/`core.screen_geometry`/`core.diagnostics` 白名单；`run()` 齐备；ui_control.enabled=true → L3/high 与推导一致；文件操作走 `is_within` 白名单。108 行 `except: pass  # 静默是故意的…` 已标注理由、门禁豁免，不属未标注裸吞。
+
+### 11. deep_search.py
+- 状态：✅ 符合（已加固一处）
+- 修改：已修改——`_read_page()` 第 102 行裸 `except:` 收窄为 `except Exception:`，并补「best-effort 单页抓取失败当无摘要」注释。原因：裸 `except:` 会连 `KeyboardInterrupt/SystemExit` 一并吞掉，违反标准 6.5「不吞异常」；收窄后对普通异常行为不变。
+- 其余检查项：`core.safe`/`core.diagnostics`/`core.net_guard`（均白名单）；网络走 `net_guard.check` 授权；声明域名 4 个均合法无端口；L2/medium 一致。（代码实际还会命中 cn.bing.com / www.sogou.com / api.github.com，超出声明域名，见附录 A。）
+
+### 12. error_lib.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：`core.safe`/`core.diagnostics` 白名单；`run()` 齐备；吞异常带因；无 secret；L1/low 一致。
+
+### 13. file_upload.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：`core.safe`/`core.path_safety`/`core.diagnostics` 白名单；文件名经 `safe_join`+`safe_name` 防穿越；`run()` 齐备；L1/low 一致。
+
+### 14. forgetting_curve.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：白名单依赖；`run()` 齐备；吞异常带因；L1/low 一致。
+
+### 15. group_chat.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：白名单依赖；`run()` 齐备；子角色编排走 `trunk.call`；吞异常均带因；L1/low 一致。
+
+### 16. group_loop.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：白名单依赖；`run()` 齐备；状态键缺省补齐；TOOLS 无非法 contract；L1/low 一致。
+
+### 17. group_parallel.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：白名单依赖；`run()` 齐备；TOOLS 无非法 contract；L1/low 一致。
+
+### 18. hot_reload.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：`core.diagnostics` 白名单 + 标准库；`run()` 齐备；临时文件清理 `except OSError: pass # 静默是故意的…` 已标注理由、豁免；L1/low 一致。（其 `subprocess` 沙盒验证/重启行为的 process 能力声明见附录 A。）
+
+### 19. image_ocr.py
+- 状态：✅ 符合（强制项口径）
+- 修改：无需修改
+- 检查项：`core.safe` 白名单；`run()` 齐备；无硬编码密钥（`cloud_api_key` 从 config 读取而非字面量）；TOOLS 无非法 contract；manifest L1/low 与「声明 capabilities」推导一致。
+- 观察项（见附录 A）：代码 `requests.post` 直连 open.bigmodel.cn、并从 config 读 `cloud_api_key`，而 manifest 声明 network.enabled=false、config.read_secrets=false——声明滞后，需主流程 rebuild 重新推导（预计升 L3/high）。本次不改为代码（会整体移除 OCR 功能）。
+
+### 20. knowledge_qa.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：`core.safe`/`core.path_safety`/`core.document_parser`/`core.retrieval`/`core.fts_index`/`core.diagnostics` 白名单；`core.rag_pipeline`/`core.untrusted_content` 非禁止前缀（首方模块仅禁 FORBIDDEN 前缀）；`run()` 齐备；路径经 `safe_join`/`safe_name`；TOOLS 无非法 contract；L1/low 一致。
+
+### 21. learning_loop.py
+- 状态：✅ 符合
+- 修改：无需修改
+- 检查项：`core.diagnostics` 白名单 + 标准库；`run()` 齐备；联网经 `trunk.call("deep_search",…)` 委派而非直连；吞异常带因；TOOLS 无非法 contract；L1/low 一致。
+
+---
+
+## 附录 A：能力声明滞后观察项（移交主流程 rebuild/sign，本次不改代码、不改 manifest）
+
+以下为「代码实际行为」与「manifest 声明 capabilities」之间的差距。修复点在 manifest 重新推导（`rebuild_modules_repo --apply` → `sign_modules`），属主流程统一执行；本次按修改边界不动 manifest，也不做会破坏功能的代码裁剪，仅登记备查：
+
+| 模块 | 代码行为 | 当前声明 | 建议主流程重新推导 |
+|---|---|---|---|
+| image_ocr | `requests.post` 直连 `open.bigmodel.cn`；从 `trunk.config` 读 `cloud_api_key` | network.enabled=false；read_secrets=false | network.enabled=true + domains=[open.bigmodel.cn]；config.read_secrets=true + secret_names=["cloud_api_key"]；预计升 L3/high |
+| deep_search | 除声明的 duckduckgo/bing/brave 外，还命中 cn.bing.com、www.sogou.com、api.github.com | network.domains 仅 4 个 | rebuild 时补登实际检索域名（或收敛代码） |
+| hot_reload | `subprocess.run([sys.executable,…])` 沙盒验证、重启 GUI | process.enabled=false | 若 broker 对首方进程亦强制，则需声明固定 argv |
+| auto_updater | 编排层经 mixin 下载/替换/沙盒（子进程） | process/network/write 均未声明 | 随 rebuild 一并重新推导 |
+| cache / calendar / error_lib / forgetting_curve / group_loop / learning_loop | 实际写 `data/*.json`，声明 filesystem.write=[] | write=[]（故 L1） | rebuild 时按真实写路径补 write 声明（可能影响 L1/L2 推导） |
+
+> 说明：这些不影响本次 8 项 MUST 的判定——manifest 内部自洽（tier/risk 由声明 capabilities 推导，0 mismatch），代码层无硬编码密钥、无禁止 import、无未标注裸吞、入口/生命周期齐备。
+
+## 附录 B：自检
+- 已修改文件：`deep_search.py`。
+- 语法自检：`py -3 -c "import ast; ast.parse(open(r'...\deep_search.py', encoding='utf-8').read())"` → 通过。
+- 未运行 rebuild_modules_repo / sign_modules / sync_plugin_repo / sync_package / pytest（按要求留待主流程）。
+
+---
+
+## 附录：插件审计 v2.1（第二批）
+
+> 原文件 `docs/plugin_audit_v21_batch2.md`，2026-10-30 合并入本文。
+
+# 插件标准 v2.1 合规审计报告 —— 批次 2（21 个模块）
+
+- 审计日期：2026-10-21
+- 权威标准：《小6插件标准 v2.1》（E:\xiaoliu\插件标准.txt，14 节）
+- 清单事实源：E:\xiaoliu\modules_repo\manifest.json（42 条，RSA 签名）
+- 批次范围（21 个，均在 E:\xiaoliu\modules\installed\）：
+  mcp_client, mcp_server, memory_cards, memory_loop, multimodal, notes, personality,
+  plugin_market, realtime_chat, scheduler, self_reflect, skill_capture, smart_router,
+  task_loop, task_planner, todo, tool_caller, translate, tts, voice(manifest 条目名 stt), weather
+
+## 汇总
+
+- 符合：19（其中 13 个已就地修复、6 个无需修改）
+- 已修复：13
+- 不符合未修：2（memory_cards、personality —— 原因见各自小节，均因数据文件被 core/gui 共享，迁移超出本批次修改边界）
+- 自检：13 个被修改模块均通过 `py -3 -c "import ast; ast.parse(...)"` 语法检查。
+- 未触碰：core/、gui/、templates/、docs/（除本报告）、tests/、tools/、manifest.json、plugin_repo/、其他批次模块、__init__.py；未运行 rebuild/sign/sync/pytest 等集中脚本。
+
+### 全局核对结论（21 个模块共用）
+
+| 检查项 | 结论 |
+|---|---|
+| manifest 条目存在且必填字段齐全（name/file/cls/version/api_version/license/author/min_host_version/plugin_tier/risk_level/capabilities/sha256/signature） | 全部通过；voice 模块对应 manifest 条目 name=stt（file=voice.py, cls=Voice） |
+| version 三段式语义化（13.7 N9.1） | 全部通过（1.0.0 / 7.0.0 / 7.1.0 / 10.0.0） |
+| capabilities 5 段齐全 | 全部通过；network 仅 mcp_client（localhost/127.0.0.1 回环，POST）与 weather（wttr.in、api.open-meteo.com、geocoding-api.open-meteo.com，无端口，GET）声明启用，域名合法；config.public_keys 均为空，无 read_secrets |
+| plugin_tier / risk_level 与 13.1 推导一致 | 全部通过：mcp_client、weather 因 network.enabled=true 为 L2/medium；其余 19 个 L1/low，与推导值一致 |
+| 依赖边界（门禁[6]，仅 import 标准库 / modules.base / 公共 core 模块） | 全部通过；未发现 import core.trunk / core.secret_store 等内部实现模块（与质量门禁 error=0 基线一致） |
+| 无硬编码密钥（门禁[7]） | 全部通过；mcp_server 鉴权 token 为运行时 secrets.token_urlsafe() 生成，不落盘 |
+| 无未标注理由的 except pass（门禁[8]） | 全部通过；各模块的 except 均走 _x6_swallowed 记录或返回错误值，无裸 `except: pass` |
+| 入口 run()（门禁[9]） | 全部通过 |
+| contract 合法（门禁[10]） | 全部通过：声明 tools 未带 contract 字段属 warn 级收敛项，按基线不改 |
+| 生命周期（第 7 节） | 全部继承 BaseModule；scheduler.stop() 置 running=False 幂等；mcp_client.stop() 重复调用安全；mcp_server.stop_http() 重复调用返回"未运行"幂等 |
+| 结构化错误（第 6 节） | 旧式 `{"错误": ...}` 返回属 warn 级，按基线不改 |
+
+### 观察项（不判不合格，留待主流程在 manifest 再生/签名时收敛）
+
+- task_loop.verify() 实际以 subprocess 跑 `py_compile`；mcp_client stdio 传输会按用户配置拉起子进程；scheduler 巡检直连 `127.0.0.1:11434`（Ollama）；tts 经 edge-tts 出网；mcp_server 在 127.0.0.1 起 HTTP 服务。这些"运行时行为 vs 清单声明"的差异需在 manifest 重新生成时补 process/network 声明并重签名，本批次无权改 manifest、也不能重跑集中脚本，故仅记录。
+
+---
+
+## 1. mcp_client
+
+- 状态：✅ 符合
+- 修改：已修改
+- 修改点：`_trust_path()` 由 `data/security/mcp_trust.json` 迁至 `data/plugin_data/mcp_client/mcp_trust.json`，含旧路径一次性迁移（os.replace，失败静默跳过）。
+- 其他核对：manifest L2/medium 与 network.enabled（回环域名）推导一致；stop() 幂等（先置 _stopped 再收 stdio 子进程）；鉴权 token 同进程内存读取，不落盘。
+
+## 2. mcp_server
+
+- 状态：✅ 符合
+- 修改：已修改
+- 修改点：`self.path` 由 `data/mcp_tools.json` 迁至 `data/plugin_data/mcp_server/mcp_tools.json`（对应清单 filesystem.read 声明目录），含旧文件一次性迁移。
+- 其他核对：HTTP 服务强制绑 127.0.0.1 + Host/Origin 校验 + Bearer 鉴权；危险工具默认禁用；stop_http() 幂等。
+
+## 3. memory_cards
+
+- 状态：❌ 不符合（违反条款：标准 4 节 filesystem 沙箱约束 / 门禁[对应 capabilities 段]）
+- 修改：未修改（修改边界不允许）
+- 原因：`CARDS_PATH = data/memory_cards.jsonl` 越出 `data/plugin_data/memory_cards/`。但该文件被 core/memory_organizer.py、gui/stats_dialog.py、gui/memory_view_dialog.py 按旧路径直接读取，且登记在 core/data_schema.py 并由 core/data_migrations.py 管理版本迁移。迁路径必须联动 core/gui/数据迁移体系，本批次只准改插件 .py，故标记为不符合未修，建议纳入主流程统一数据布局迁移。
+
+## 4. memory_loop
+
+- 状态：✅ 符合
+- 修改：已修改
+- 修改点：`memory_loop.json`、`episodic_memory.json` 由 `data/` 迁至 `data/plugin_data/memory_loop/`，两文件均含旧路径一次性迁移。
+- 其他核对：自身无 network/process；经 trunk.call 编排 memory_cards/forgetting_curve/vector_store。
+
+## 5. multimodal
+
+- 状态：✅ 符合
+- 修改：已修改
+- 修改点：`temp_frame.jpg`（视频抽帧）与 `camera.jpg`（摄像头拍照默认落点）由 `data/` 迁至 `data/plugin_data/multimodal/`（__init__ 建 self.sandbox）。调用方显式传入的 save_path 属调用方责任，未改。
+- 其他核对：whisper/cv2 为可选依赖，ImportError 时返回安装提示；旧式 `{"错误":...}` 为 warn 级不改。
+
+## 6. notes
+
+- 状态：✅ 符合
+- 修改：已修改
+- 修改点：`data/notes.json` → `data/plugin_data/notes/notes.json`，含旧文件一次性迁移；写入走 core.safe.atomic_write_json。
+
+## 7. personality
+
+- 状态：❌ 不符合（违反条款：标准 4 节 filesystem 沙箱约束）
+- 修改：未修改（修改边界不允许）
+- 原因：`self.path = data/personality.json` 越出沙箱。但该文件是 core 级共享资产：core/data_schema.py 登记其 schema、core/data_migrations.py 有 v0→v1→v2 迁移、core/growth_report.py 读取、core/personality_market.py 写入。迁移需联动 core，超出本批次边界，标记为不符合未修。
+
+## 8. plugin_market
+
+- 状态：✅ 符合
+- 修改：无需修改
+- 核对：模块职责即插件安装/卸载/验签/备份，对 modules/installed、modules_repo、data/plugin_backups 的读写是其固有功能；远程安装强制验签（RSA）+ sha256 + 主机白名单，符合 S-SIGN/S-TRUST。其"卸载改 core/lazy_config 源码"属标准 12 节 P1 已知差距（manifest 驱动卸载），允许不落地。清单 L1/low 自洽。
+
+## 9. realtime_chat
+
+- 状态：✅ 符合
+- 修改：无需修改
+- 核对：无自有文件持久化；start() 防重入、stop() 有未启动守卫；依赖 core.realtime 公共模块。
+
+## 10. scheduler
+
+- 状态：✅ 符合
+- 修改：无需修改
+- 核对：无自有文件持久化；start() 防重入、stop() 置 running=False 幂等；巡检项全部经模块调用与 net_guard 守卫（Ollama 巡检见观察项）。
+
+## 11. self_reflect
+
+- 状态：✅ 符合
+- 修改：已修改
+- 修改点：`data/reflect_history.json` → `data/plugin_data/self_reflect/reflect_history.json`，含旧文件一次性迁移。
+
+## 12. skill_capture
+
+- 状态：✅ 符合
+- 修改：已修改
+- 修改点：`data/skills/`、`data/skills_pending/` → `data/plugin_data/skill_capture/skills|skills_pending`，含旧目录一次性 os.rename 迁移（先建父目录）。core/trunk_background.py 仅调用 capture()，不直接读目录，迁移安全。
+
+## 13. smart_router
+
+- 状态：✅ 符合
+- 修改：已修改
+- 修改点：`data/router_cache.json` → `data/plugin_data/smart_router/router_cache.json`，含旧文件一次性迁移；写盘仍走 core.safe.atomic_write_json。
+
+## 14. task_loop
+
+- 状态：✅ 符合
+- 修改：已修改
+- 修改点：`data/task_loop.json` → `data/plugin_data/task_loop/task_loop.json`，含旧文件一次性迁移。
+- 观察：verify() 的 subprocess py_compile 属运行时能力差异，见全局观察项。
+
+## 15. task_planner
+
+- 状态：✅ 符合
+- 修改：已修改
+- 修改点：`data/tasks/` → `data/plugin_data/task_planner/tasks`，含旧目录一次性 os.rename 迁移（先建父目录）。
+
+## 16. todo
+
+- 状态：✅ 符合
+- 修改：已修改
+- 修改点：`data/todo.json` → `data/plugin_data/todo/todo.json`，含旧文件一次性迁移；写入走 core.safe.atomic_write_json。
+
+## 17. tool_caller
+
+- 状态：✅ 符合
+- 修改：无需修改
+- 核对：无自有持久化文件；危险工具统一经 security_policy 分类 + permission_center 授权 + 用户确认；分发执行委托给目标模块。
+
+## 18. translate
+
+- 状态：✅ 符合
+- 修改：无需修改
+- 核对：纯内存历史，无文件读写、无网络；翻译走 llm 模块。
+
+## 19. tts
+
+- 状态：✅ 符合
+- 修改：已修改
+- 修改点：输出 mp3 由系统临时目录（tempfile.gettempdir()）迁至 `data/plugin_data/tts/xiao6_tts.mp3`（__init__ 建 sandbox 目录）。
+- 观察：edge-tts 出网属运行时能力差异，见全局观察项。
+
+## 20. voice（manifest 条目：stt）
+
+- 状态：✅ 符合
+- 修改：已修改
+- 修改点：`data/_listen_tmp.wav` → `data/plugin_data/stt/_listen_tmp.wav`（与清单 filesystem.read 声明目录一致；临时文件用完即删逻辑保留）。
+- 核对：裸 except（返回错误值而非 pass）不属门禁[8]；idle 卸载守护线程为模块内部资源管理。
+
+## 21. weather
+
+- 状态：✅ 符合
+- 修改：无需修改
+- 核对：network.domains=wttr.in/api.open-meteo.com/geocoding-api.open-meteo.com 合法无端口，methods=GET，与 L2/medium 推导一致；请求经 core.net_guard 策略检查 + core.safe_http；无文件持久化。
+
+---
+
+## 修改清单（13 个文件）
+
+| 模块 | 改动 |
+|---|---|
+| notes.py | 数据文件迁入 data/plugin_data/notes/ |
+| todo.py | 数据文件迁入 data/plugin_data/todo/ |
+| memory_loop.py | 两个 json 迁入 data/plugin_data/memory_loop/ |
+| multimodal.py | 临时产物迁入 data/plugin_data/multimodal/ |
+| self_reflect.py | 历史 json 迁入 data/plugin_data/self_reflect/ |
+| skill_capture.py | skills/skills_pending 目录迁入 data/plugin_data/skill_capture/ |
+| smart_router.py | 路由缓存 json 迁入 data/plugin_data/smart_router/ |
+| task_loop.py | 状态 json 迁入 data/plugin_data/task_loop/ |
+| task_planner.py | tasks/ 目录迁入 data/plugin_data/task_planner/ |
+| mcp_server.py | mcp_tools.json 迁入 data/plugin_data/mcp_server/ |
+| mcp_client.py | mcp_trust.json 迁入 data/plugin_data/mcp_client/ |
+| tts.py | 输出 mp3 迁入 data/plugin_data/tts/ |
+| voice.py | 临时 wav 迁入 data/plugin_data/stt/ |
+
+注：13 个文件被改后，manifest 中的 size/sha256/signature 将失效，需由主流程统一执行 rebuild_modules_repo + sign_modules + sync 后重新过门禁（error=0 基线）。
+
+---
+
+## 附录：插件质量门禁修复记录（2026-10-22）
+
+> 原文件 `docs/91_插件质量门禁修复记录_2026-10-22.md`，2026-10-30 合并入本文。
+
+# 插件质量门禁修复记录（2026-10-22）
+
+## 背景
+check_plugin_quality.py 初始报 142 条 warn、8 条 error。
+用户给出三步方案：修新模块 → 改写检查器规则 → 修高价值存量。
+
+## 修复成果
+
+| 阶段 | error | warn | 说明 |
+|---|---|---|---|
+| 初始 | 8 | 142 | 刚跑出来的结果 |
+| 第一步：修 6 个新模块 | 0 | 134 | 加 docstring + contract |
+| 第二步：资源识别（stop()） | 0 | 102 | 只有持有资源的模块才要求 stop() |
+| 第二步：模块级容器正则修正 | 0 | 82 | 只匹配模块级变量，不匹配类属性 |
+| 第三步：修新模块剩余警告 | 0 | 81 | _PROVIDERS 移类里 + workflow_runner docstring |
+| **最终** | **0** | **81** | **减了 61 条假警告** |
+
+## 做了什么
+
+### 第一步：修 6 个新模块
+- 给 deep_research / coder_pro / graph_rag / workflow_runner / web_agent / api_server 加了 docstring "不负责的事项"
+- 给 3 个有 TOOLS 的模块加了 contract（正确的 error code + side_effect kind）
+- contract 合法 error code：PLUGIN_TIMEOUT / PLUGIN_UPSTREAM_ERROR / PLUGIN_INTERNAL_ERROR / PLUGIN_NEEDS_CONFIRM / PLUGIN_NOT_AVAILABLE
+- contract 合法 side_effect：network / filesystem_read / filesystem_write / process / ui_control / config_write
+
+### 第二步：改写检查器规则
+1. **资源识别（标准 4.2）**
+   - 之前：所有模块都要求 stop()/close() → 40 条假警告
+   - 现在：只有持有 threading.Thread / socket / subprocess / sqlite3 / HTTPServer / webdriver 等资源的模块才要求 stop()
+   - 结果：stop() 警告从 40 → 8
+
+2. **模块级容器正则修正（标准 3.4）**
+   - 之前：`^\s*[A-Z_]+\s*=\s*(\{|\[)` 匹配到类属性 TOOLS = [
+   - 现在：`^[A-Z_]+\s*=\s*(\{|\[)` 只匹配真正的模块级变量（不缩进）
+   - 结果：减了 20 条假警告
+
+3. **警告基线棘轮**
+   - 新增 tools/plugin_quality_baseline.json
+   - 老模块警告数只许降不许升
+   - 新模块 strict 模式（后来调整为基线模式）
+
+### 第三步：修新模块剩余警告
+- workflow_runner：加了"不负责的事项" docstring
+- deep_research：_PROVIDERS 从模块级移到类里（DeepResearch._PROVIDERS）
+- web_agent / api_server / graph_rag：全部 0 警告
+
+## 剩下的 81 条 warn（存量技术债）
+
+| 类别 | 数量 | 说明 |
+|---|---|---|
+| 旧式错误返回 {'错误': ...} | ~70 | 建议改用 core.plugin_errors |
+| 未声明"不负责的事项" | ~10 | 老模块 docstring 补边界 |
+| 有资源但未声明 stop() | 8 | cache / hot_reload / stt / task_loop / tool_caller / mcp_server / learning_loop / coder_pro |
+| 其他（环境变量 / cwd / 模块级容器） | ~3 | 合理设计选择 |
+
+## 后续计划
+- 逐步把旧式 {'错误': ...} 返回改成 core.plugin_errors 标准错误码
+- 给 8 个有资源的模块加 stop() 方法
+- 老模块 docstring 补"不负责的事项"
+
+## 最终复核（2026-10-23）
+
+- check_plugin_quality.py：模块 48，error=0，warn=81，低于基线 102
+- 全量测试：136 个测试文件，1632 passed / 2 skipped / 0 failed
+- 插件仓库：48/48 清单一致、48/48 验签通过
+- 插件安全：error=0，warn=0
+
+结论：门禁与全量回归均通过，可以提交 GitHub。

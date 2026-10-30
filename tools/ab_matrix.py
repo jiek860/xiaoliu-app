@@ -18,7 +18,7 @@
 用法
 ----
     py -3 tools\\ab_matrix.py                         # 打印摘要
-    py -3 tools\\ab_matrix.py --run --write-doc docs/105_开关矩阵与默认决策_2026-10-29.md
+    py -3 tools\\ab_matrix.py --run --write-doc docs/101_功能深化方案与批次计划.md
     py -3 tools\\ab_matrix.py --full --cases 200       # 笛卡尔积（小规模）
     py -3 tools\\ab_matrix.py --current data/eval/report_20261029.json
 """
