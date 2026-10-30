@@ -132,6 +132,7 @@
 | 模块 API 变更 | `30_模块规则与API参考.md` §5.11 voice | `listen(seconds, sample_rate, stop_event)` 支持"松开即停" |
 | 入口全景 | `82_模块与功能全景清单_2026-10-25.md` 末尾「批次 31 增量」 | 新增菜单/对话框入口表，常驻按钮仍 60/60 |
 | 版本与变更 | `CHANGELOG.md` v25.4.0 / `core/version.py` | 发布门禁 `check_version.py` 已通过 |
+| 开发规则（提交/推送/合并） | `109_开发规则与提交发布.txt` | 改代码 vs commit vs push vs merge 的区别、频率、发布链路与两档门禁 |
 
 ## 2026-10-22 新增文档条目
 
