@@ -11,8 +11,8 @@ schema（docs/102 §3.12）::
     ② 小模型档：调用方注入 ``model_call(prompt) -> str``，解析 JSON；失败退回规则档
     ③ 追问档：置信度低于阈值时只问一个最关键的问题，不猜着执行
 
-开关 ``nl.intent_v2`` = ``off | shadow | on``，默认 ``shadow``：
-影子期只记录不改行为，保证命令中心与聊天路由与上一版完全一致。
+开关 ``nl.intent_v2`` = ``off | shadow | on``，默认 ``on``（批次 D2 起）：
+shadow 只记录不改行为；``on`` 真正按三段式路由执行。
 """
 from __future__ import annotations
 
@@ -80,13 +80,13 @@ def normalize_text(text):
 
 
 def mode(trunk):
-    """读开关：off / shadow / on；认不出按 shadow。"""
+    """读开关：off / shadow / on；认不出按 on。"""
     try:
-        value = str(trunk.rule("nl.intent_v2", "shadow") or "shadow").lower()
+        value = str(trunk.rule("nl.intent_v2", "on") or "on").lower()
     except Exception as e:
         _x6_swallowed(__name__, e, "mode")
-        return "shadow"
-    return value if value in ("off", "shadow", "on") else "shadow"
+        return "on"
+    return value if value in ("off", "shadow", "on") else "on"
 
 
 def _targets(text):
@@ -237,23 +237,47 @@ def _from_model(text, data, base):
             "scope": scope, "constraints": constraints}
 
 
-def clarify_question(info):
-    """缺槽位时只问一个最关键的问题。"""
-    intent = (info or {}).get("intent", "chat")
-    has_file = any(t.get("type") == "file" for t in info.get("targets") or [])
-    has_symbol = any(t.get("type") == "symbol"
-                     for t in info.get("targets") or [])
-    has_test = any(t.get("type") == "test" for t in info.get("targets") or [])
-    if intent in ("open_file", "explain", "fix_error", "edit_code",
-                  "refactor") and not (has_file or has_symbol):
-        return "要动哪个文件或符号？给我一个文件名或函数名就行。"
+def clarify_question(info, round=1):
+    """缺槽位时只问一个最关键的问题；``round`` 让追问逐轮深入（批次 D8）。
+
+    round=1 先要对象（文件/符号/测试/关键词）；round=2 对象还没定位到就给更
+    具体的补充提示，对象齐了则问效果；round=3 问约束；再往后给「回复开始」
+    的兜底，避免无限追问。一次只问一个，不猜着执行。
+    """
+    info = info or {}
+    try:
+        rnd = max(1, int(round or 1))
+    except (TypeError, ValueError):
+        rnd = 1
+    intent = info.get("intent", "chat")
+    targets = info.get("targets") or []
+    has_file = any(t.get("type") == "file" for t in targets)
+    has_symbol = any(t.get("type") == "symbol" for t in targets)
+    has_test = any(t.get("type") == "test" for t in targets)
+    need_target = intent in ("open_file", "explain", "fix_error",
+                             "edit_code", "refactor") and \
+        not (has_file or has_symbol)
+    if need_target:
+        if rnd <= 1:
+            return "要动哪个文件或符号？给我一个文件名或函数名就行。"
+        return "还是没定位到对象，直接给相对路径最稳，比如 core/agent_router.py。"
     if intent == "run_test" and not has_test:
-        return "跑哪个测试？说个测试文件名，或者回复「全部」。"
+        if rnd <= 1:
+            return "跑哪个测试？说个测试文件名，或者回复「全部」。"
+        return "还是没看到测试名，直接回 tests/test_xxx.py 或「全部」。"
     if intent == "search" and not (info.get("query") or has_file):
-        return "想搜什么关键词？"
+        if rnd <= 1:
+            return "想搜什么关键词？"
+        return "给我一个具体关键词就行，比如函数名或报错里的英文。"
     if intent == "undo":
         return "要撤销最近一次自动修改吗？"
-    return "能再说清楚一点吗？比如要改哪个文件、想达成什么效果。"
+    if rnd <= 1:
+        return "能再说清楚一点吗？比如要改哪个文件、想达成什么效果。"
+    if rnd == 2:
+        return "想达成什么效果？比如修掉哪类报错、新增什么行为、哪些旧行为要保留。"
+    if rnd == 3:
+        return "还有别的约束吗？例如不能改公开接口、必须补测试、先给方案再动手。"
+    return "信息够了的话直接回「开始」，我按现在的理解动手。"
 
 
 def _risk(intent, text):
@@ -264,8 +288,13 @@ def _risk(intent, text):
     return risk
 
 
-def route(text, *, context=None, model_call=None, threshold=0.6):
-    """三段式路由，返回 schema + confidence/reason/stage/clarify。"""
+def route(text, *, context=None, model_call=None, threshold=0.6,
+          clarify_round=1):
+    """三段式路由，返回 schema + confidence/reason/stage/clarify。
+
+    ``clarify_round`` 只是把追问档的措辞往后推一轮（批次 D8），不影响意图
+    判定；名字不能叫 ``round``，否则会遮住内置 ``round()``（下面要用）。
+    """
     original = normalize_text(text)
     base = _rule_stage(original)
     ctx = dict(context or {})
@@ -310,10 +339,10 @@ def route(text, *, context=None, model_call=None, threshold=0.6):
         or (result["intent"] == "search"
             and not result["query"] and not result["targets"]))
     if missing_slot:
-        result["clarify"] = clarify_question(result)
+        result["clarify"] = clarify_question(result, clarify_round)
         result["stage"] = "clarify"
     elif confidence < float(threshold or 0.6) and result["intent"] != "chat":
-        result["clarify"] = clarify_question(result)
+        result["clarify"] = clarify_question(result, clarify_round)
         result["stage"] = "clarify"
     result["auto_execute"] = bool(
         result["intent"] in SAFE_INTENTS and result["risk"] == "low"

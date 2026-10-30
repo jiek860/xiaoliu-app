@@ -80,8 +80,9 @@ def test_assembler_injects_examples_when_plan_given():
 
 
 def test_assembler_shadow_without_plan_keeps_examples_empty():
+    # 批次 D4：新增 1 条长度提示 system 段，但仍不含任何 few-shot 示例
     messages = PromptAssembler(FakeTrunk()).assemble("你好", "", True)
-    assert len(messages) == 2
+    assert [m for m in messages if m["role"] == "assistant"] == []
 
 
 def test_assembler_card_on_uses_state_topic():

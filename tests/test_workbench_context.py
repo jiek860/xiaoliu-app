@@ -43,13 +43,25 @@ class _Dock(QWidget):
         self.ai_host.setWidget(QWidget())
 
 
+class _StartDock(_Dock):
+    """记录 start() 次数，验证「重构/补测试直接开跑」。"""
+
+    def __init__(self):
+        super().__init__()
+        self.started = 0
+
+    def start(self):
+        self.started += 1
+
+
 class _Dialog(QWidget):
-    def __init__(self, widget=None, with_dock=False):
+    def __init__(self, widget=None, with_dock=False, dock=None):
         super().__init__()
         self.root = BASE
         self.tabs = _Tabs(widget) if widget is not None else None
         self.status = []
-        self.ai_dock = _Dock() if with_dock else None
+        self.ai_dock = dock if dock is not None else (
+            _Dock() if with_dock else None)
 
     def _status(self, text, timeout=0):
         self.status.append(text)
@@ -113,3 +125,47 @@ def test_install_adds_shortcut():
     d = _Dialog(_Edit(""), with_dock=True)
     sc = wc.install(d)
     assert sc is not None and d.send_context_shortcut is sc
+    assert getattr(d, "ai_quick_bar", None) is None   # 没有 _editor，浮条降级
+
+
+# ---------------- 批次 D10：编辑器快捷动作 ----------------
+def test_send_action_explain_fills_without_starting():
+    f = os.path.join(BASE, "core", "trunk.py")
+    w = _Edit(f)
+    w.setPlainText("def foo():\n    return 1")
+    dock = _StartDock()
+    d = _Dialog(w, dock=dock)
+    n = wc.send_action(d, "explain")
+    assert n > 0
+    assert "解释这段代码" in dock.goal.toPlainText()
+    assert dock.started == 0
+
+
+def test_send_action_refactor_starts_agent():
+    f = os.path.join(BASE, "core", "trunk.py")
+    w = _Edit(f)
+    w.setPlainText("x = 1")
+    dock = _StartDock()
+    d = _Dialog(w, dock=dock)
+    n = wc.send_action(d, "refactor")
+    assert n > 0
+    assert "重构这段代码" in dock.goal.toPlainText()
+    assert dock.started == 1
+
+
+def test_send_action_keeps_existing_goal():
+    w = _Edit("")
+    w.setPlainText("x = 1")
+    dock = _StartDock()
+    dock.goal.setPlainText("先问一句")
+    d = _Dialog(w, dock=dock)
+    wc.send_action(d, "test")
+    assert "先问一句" in dock.goal.toPlainText()
+    assert "pytest" in dock.goal.toPlainText()
+
+
+def test_send_action_unknown_or_without_dock_is_zero():
+    d = _Dialog(_Edit(""), with_dock=False)
+    assert wc.send_action(d, "nope") == 0
+    assert wc.send_action(d, "explain") == 0
+    assert any("AI 面板不可用" in s for s in d.status)

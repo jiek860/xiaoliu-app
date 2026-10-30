@@ -527,8 +527,8 @@ class CodeAgent(
                                                out[-2000:]))
         digest = "\n\n".join(parts)
         try:
-            from core.patch_protocol import verify_mode
-            if verify_mode(getattr(self, "trunk", None)) != "off" and digest:
+            from core.patch_protocol import locate_mode
+            if locate_mode(getattr(self, "trunk", None)) != "off" and digest:
                 from core.code.verify import locate_digest, locate_failures
                 located = locate_failures(digest, root=self.root)
                 if located:

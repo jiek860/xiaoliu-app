@@ -40,6 +40,13 @@ def show_menu(dialog, pos):
         act_reveal.triggered.connect(lambda: reveal_in_tree(dialog, w))
         act_ai = menu.addAction("发送到 AI（含选区）")
         act_ai.triggered.connect(lambda: send_context_to_ai(dialog))
+        # 批次 D10：编辑器 AI 浮条的同款动作，右键也能点到。
+        for key, label in (("explain", "解释选中代码"),
+                           ("refactor", "重构选中代码"),
+                           ("test", "为选中代码补测试")):
+            act = menu.addAction(label)
+            act.triggered.connect(
+                lambda _checked=False, k=key: send_action_to_ai(dialog, k))
         menu.addSeparator()
     act_sig = menu.addAction("插入函数调用模板")
     act_sig.triggered.connect(lambda: insert_signature(dialog, w))
@@ -75,6 +82,16 @@ def send_context_to_ai(dialog):
         send_to_ai(dialog)
     except Exception as e:
         _x6_swallowed(__name__, e, "send tab context to ai")
+
+
+def send_action_to_ai(dialog, action):
+    """「解释/重构/补测试」：选中代码 + 预设指令交给 AI（批次 D10）。"""
+    try:
+        from gui.workbench_context import send_action
+        return send_action(dialog, action)
+    except Exception as e:
+        _x6_swallowed(__name__, e, "send tab action to ai")
+        return 0
 
 
 def insert_signature(dialog, w):

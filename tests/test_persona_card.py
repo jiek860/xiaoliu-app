@@ -35,7 +35,7 @@ class FakeTrunk:
 def test_real_card_loads():
     card = PersonaCard.load(".")
     assert card.version == "2026-10-29"
-    assert card.style_names() == ["松弛", "毒舌", "温和", "专业"]
+    assert card.style_names() == ["松弛", "毒舌", "温和", "专业", "口语化"]
 
 
 def test_build_default_style_has_l1_and_l2():
@@ -93,7 +93,7 @@ def test_missing_file_uses_builtin(tmp_path, monkeypatch):
     monkeypatch.setattr(persona_card, "_SEED_PATH", str(tmp_path / "nope.json"))
     card = PersonaCard.load(str(tmp_path))
     assert card.version == "builtin"
-    assert card.style_names() == ["松弛"]
+    assert card.style_names() == ["松弛", "口语化"]
 
 
 def test_invalid_file_uses_builtin(tmp_path, monkeypatch):
@@ -141,6 +141,30 @@ def test_assembler_on_uses_card_text():
     assert "你是小6" in messages[0]["content"]
     assert "语气松弛" in messages[0]["content"]
     assert pa.last_persona["mode"] == "on"
+
+
+def test_assembler_default_is_on():
+    # 批次 D1：未显式配置时人格卡默认 on，真正替换系统提示词
+    trunk = FakeTrunk()
+    pa = PromptAssembler(trunk)
+    messages = pa.assemble("你好", "", True)
+    assert pa.last_persona["mode"] == "on"
+    assert "语气松弛" in messages[0]["content"]
+
+
+def test_length_hint_levels():
+    # 批次 D4：简问短答、复杂问题可详细展开
+    simple = PromptAssembler(FakeTrunk()).assemble("你好", "", True)
+    assert any("回复长度：简短" in m["content"] for m in simple)
+    detailed = PromptAssembler(FakeTrunk()).assemble(
+        "能详细解释一下为什么吗", "", False)
+    assert any("详细展开" in m["content"] for m in detailed)
+
+
+def test_emotion_voice_injected_into_persona():
+    # 批次 D5：负面情绪触发「先接住情绪」语气提示
+    messages = PromptAssembler(FakeTrunk()).assemble("今天好累，不想动", "", False)
+    assert "本轮语气" in messages[0]["content"]
 
 
 def test_assembler_style_switch():

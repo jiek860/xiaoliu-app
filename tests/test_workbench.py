@@ -16,6 +16,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PyQt5.QtWidgets")
 from PyQt5.QtWidgets import QApplication, QTabWidget  # noqa: E402
 
+from gui.ai_dock_service import AgentDockServiceMixin  # noqa: E402
+
 
 class _FakeTrunk:
     base = BASE
@@ -952,6 +954,212 @@ def test_natural_language_defaults_to_code_agent():
     assert resolve_explicit("/chat 你好") is None
     assert resolve_explicit("/pc 打开浏览器") is None
     assert resolve_explicit("/computer 点击开始菜单") is None
+
+
+def test_intent_hint_translates_goal(wb):
+    """批次 D6：输入即把意图翻成「将打开文件」。"""
+    wb.ai_dock.goal.setPlainText("打开 README.md")
+    assert "打开文件" in wb.ai_dock.hint.text()
+
+
+def test_intent_hint_resets_when_empty(wb):
+    from gui.workbench_ai_dock import _HINT_DEFAULT
+    wb.ai_dock.goal.setPlainText("")
+    assert wb.ai_dock.hint.text() == _HINT_DEFAULT
+
+
+def test_safe_auto_exec_opens_existing_file(wb, tmp_path, monkeypatch):
+    """批次 D6：明确指名的已存在文件直接打开，不启动代码 Agent。"""
+    p = tmp_path / "target_d6.py"
+    p.write_text("print('d6')\n", encoding="utf-8")
+    monkeypatch.setattr(wb, "root", str(tmp_path), raising=False)
+    opened = []
+    monkeypatch.setattr(wb, "open_path",
+                        lambda path: opened.append(path) or True)
+    wb.ai_dock.timeline.clear()
+    started = wb.ai_dock._safe_auto_exec("打开 target_d6.py")
+    assert started is True
+    assert opened and opened[0].endswith("target_d6.py")
+    assert "打开文件" in wb.ai_dock.timeline.toPlainText()
+
+
+def test_safe_auto_exec_ignores_non_open_goal(wb):
+    assert wb.ai_dock._safe_auto_exec("给 main 加参数") is False
+
+
+def _reset_clarify(dock):
+    """wb 是模块级 fixture，澄清状态属于单个用例，用完必须清干净。"""
+    dock._pending_clarify_goal = ""
+    dock._clarify_round = 0
+
+
+def test_maybe_clarify_asks_then_runs_on_answer(wb):
+    """批次 D8：槽位不全先追问，用户补充后合并进目标再执行。"""
+    dock = wb.ai_dock
+    _reset_clarify(dock)
+    dock.timeline.clear()
+    try:
+        flag, _ = dock._maybe_clarify("帮我改一下这个")
+        assert flag == "ask"
+        assert "哪个文件或符号" in dock.timeline.toPlainText()
+        assert "还需补充" in dock.hint.text()
+
+        flag2, goal2 = dock._maybe_clarify("core/agent_router.py")
+        assert flag2 == "run"
+        assert "core/agent_router.py" in goal2
+        assert "补充：" in goal2
+        assert dock._pending_clarify_goal == ""
+    finally:
+        _reset_clarify(dock)
+
+
+def test_maybe_clarify_passes_when_slots_ready(wb):
+    dock = wb.ai_dock
+    _reset_clarify(dock)
+    try:
+        flag, goal = dock._maybe_clarify("给 main 加参数")
+        assert flag == "pass" and goal == "给 main 加参数"
+    finally:
+        _reset_clarify(dock)
+
+
+def test_maybe_clarify_runs_after_max_rounds(wb):
+    """问满 3 轮不再追问，按当前理解先跑一版，不把用户卡住。"""
+    dock = wb.ai_dock
+    _reset_clarify(dock)
+    dock.timeline.clear()
+    try:
+        for _ in range(3):
+            flag, _ = dock._maybe_clarify("帮我改一下这个")
+            assert flag == "ask"
+        flag, goal = dock._maybe_clarify("帮我改一下这个")
+        assert flag == "run"
+        assert goal.startswith("帮我改一下这个")
+        assert "按当前理解" in dock.timeline.toPlainText()
+    finally:
+        _reset_clarify(dock)
+
+
+def test_start_asks_before_launching_agent(wb, monkeypatch):
+    """追问阶段不能启动 orchestrator。"""
+    fake = _install_fake_orch(monkeypatch)
+    dock = wb.ai_dock
+    _reset_clarify(dock)
+    dock.timeline.clear()
+    try:
+        dock.goal.setPlainText("帮我改一下这个")
+        dock.start()
+        assert fake.instances == []
+        assert "哪个文件或符号" in dock.timeline.toPlainText()
+    finally:
+        _reset_clarify(dock)
+        dock.goal.setPlainText("")
+
+
+# ---------------- 批次 D10：审批回传 hunk + 新文件定位入口 ----------------
+def test_approve_returns_selected_hunks(wb, monkeypatch):
+    """审批窗口按文件/hunk 勾选后，把选择回传给 Agent（窗口自己不落盘）。"""
+    from gui import diff_dialog
+
+    class _FakeDialog:
+        Accepted = 1
+        captured = {}
+
+        def __init__(self, root, patch, parent=None, apply_on_accept=True):
+            _FakeDialog.captured = {"root": root, "patch": patch,
+                                    "apply": apply_on_accept}
+            self.selected_files = ["a.py"]
+            self.selected_hunks = ["a.py:0"]
+
+        def exec_(self):
+            return self.Accepted
+
+    monkeypatch.setattr(diff_dialog, "DiffReviewDialog", _FakeDialog)
+    patch = {"goal": "x", "files": [
+        {"op": "update", "path": "a.py",
+         "hunks": [{"old": "1", "new": "2"}]}]}
+    result = wb.ai_dock._approve("code", patch)
+    assert result == {"accepted": True, "selected_files": ["a.py"],
+                      "selected_hunks": ["a.py:0"]}
+    assert _FakeDialog.captured["apply"] is False
+    assert _FakeDialog.captured["patch"] == patch
+
+
+def test_approve_reject_returns_false(wb, monkeypatch):
+    from gui import diff_dialog
+
+    class _RejectDialog:
+        Accepted = 1
+
+        def __init__(self, *_a, **_k):
+            pass
+
+        def exec_(self):
+            return 0
+
+    monkeypatch.setattr(diff_dialog, "DiffReviewDialog", _RejectDialog)
+    assert wb.ai_dock._approve("code", {"files": []}) is False
+
+
+class _Timeline:
+    def __init__(self):
+        self.lines = []
+
+    def appendPlainText(self, text):
+        self.lines.append(str(text))
+
+
+class _StubWb:
+    def __init__(self, root, reloaded):
+        self.root = str(root)
+        self._reloaded = reloaded
+        self._open = []
+
+    def editor_open_files(self):
+        return list(self._open)
+
+    def reload_editor_path(self, rel):
+        self._reloaded.append(rel)
+
+
+class _StubDock(AgentDockServiceMixin):
+    def __init__(self, root):
+        self.timeline = _Timeline()
+        self.reloaded = []
+        self.jumped = None
+        self.wb = _StubWb(root, self.reloaded)
+
+    def open_reference(self, path, line):
+        self.jumped = (path, line)
+
+
+def test_after_applied_opens_new_file_and_jumps_entry(tmp_path):
+    (tmp_path / "new.py").write_text(
+        "x = 1\n\n\ndef main():\n    print('hi')\n", encoding="utf-8")
+    dock = _StubDock(tmp_path)
+    dock.after_applied(["new.py"])
+    assert dock.reloaded == ["new.py"]
+    assert dock.jumped[0].endswith("new.py")
+    assert dock.jumped[1] == 4
+    assert any("已定位到入口" in line for line in dock.timeline.lines)
+
+
+def test_after_applied_skips_jump_for_already_open_file(tmp_path):
+    path = tmp_path / "old.py"
+    path.write_text("def main():\n    pass\n", encoding="utf-8")
+    dock = _StubDock(tmp_path)
+    dock.wb._open = [str(path)]
+    dock.after_applied(["old.py"])
+    assert dock.reloaded == ["old.py"]
+    assert dock.jumped is None
+
+
+def test_after_applied_without_defs_only_reloads(tmp_path):
+    (tmp_path / "plain.py").write_text("x = 1\n", encoding="utf-8")
+    dock = _StubDock(tmp_path)
+    dock.after_applied(["plain.py"])
+    assert dock.reloaded == ["plain.py"]
+    assert dock.jumped is None
 
 
 def test_applied_file_opens_in_editor_and_is_editable(wb, tmp_path):

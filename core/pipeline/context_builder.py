@@ -210,6 +210,12 @@ class ContextBuilder:
     def _ctx_vector(self, user_input: str) -> str:
         try:
             vs = self.trunk.modules.get("vector_store")
+            if vs is None:
+                # 批次 D11：库真的存在才懒加载，冷启动不白起一个嵌入线程。
+                base = getattr(self.trunk, "base", ".") or "."
+                if os.path.exists(os.path.join(base, "data", "vectors.db")):
+                    self.trunk._load_lazy("vector_store")
+                    vs = self.trunk.modules.get("vector_store")
             if not vs:
                 return ""
             tk = self.trunk.rule("检索.top_k",

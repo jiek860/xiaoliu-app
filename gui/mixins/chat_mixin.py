@@ -167,6 +167,7 @@ class ChatMixin:
                 _x6_swallowed(__name__, e, "best-effort fallback")
 
     _STREAM_RENDER_INTERVAL = 0.12
+    _STREAM_RENDER_CHARS = 3
 
     def _on_token(self, t):
         # Esc 之后可能还有已排队的 token 信号：直接丢掉，不能把半条内容
@@ -198,13 +199,19 @@ class ChatMixin:
                 _x6_swallowed(__name__, e, "best-effort fallback")
 
     def _stream_tick(self, renderer):
-        """按节流间隔把缓冲内容整体重绘成气泡，首帧立即出。"""
+        """按「字符阈值 或 时间上限」双条件把缓冲内容整体重绘成气泡，首帧立即出。
+
+        批次 D3：把固定 `grown < 120` 改为按 `_STREAM_RENDER_CHARS` 触发，
+        短词（约 3 字符）即时出、长段按 `_STREAM_RENDER_INTERVAL` 强制刷，
+        观感更接近真人打字而不会每 token 重绘。
+        """
         now = time.monotonic()
         text = "".join(getattr(self, "_stream_buf", []) or [])
         first = not getattr(self, "_stream_rendered_once", False)
         grown = len(text) - int(getattr(self, "_stream_rendered_len", 0))
         if not first and now - float(getattr(self, "_stream_rendered_at", 0)) \
-                < self._STREAM_RENDER_INTERVAL and grown < 120:
+                < self._STREAM_RENDER_INTERVAL and \
+                grown < self._STREAM_RENDER_CHARS:
             return
         try:
             self._chat_anchor = renderer(

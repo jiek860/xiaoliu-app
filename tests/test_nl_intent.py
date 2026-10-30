@@ -196,10 +196,11 @@ def test_model_not_called_when_rule_is_confident():
     assert info["intent"] == "undo" and not called
 
 
-def test_mode_defaults_to_shadow_and_rejects_unknown():
+def test_mode_defaults_to_on_and_rejects_unknown():
+    # 批次 D2：显式 shadow/on 生效；未知值按默认 on
     assert nl.mode(_Trunk("shadow")) == "shadow"
     assert nl.mode(_Trunk("ON")) == "on"
-    assert nl.mode(_Trunk("banana")) == "shadow"
+    assert nl.mode(_Trunk("banana")) == "on"
 
 
 def test_record_shadow_writes_one_row():

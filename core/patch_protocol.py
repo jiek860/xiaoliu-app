@@ -77,13 +77,41 @@ def background_enabled(trunk):
 
 
 def verify_mode(trunk):
-    """``code.verify_select``：影响面选测 / 失败定位，默认 off。"""
+    """``code.verify_select``：影响面选测，默认 off（关掉就是全量测试）。"""
     try:
         value = str(trunk.rule("code.verify_select", "off") or "off").lower()
     except Exception as e:
         _x6_swallowed(__name__, e, "verify switch")
         return "off"
     return value if value in ("off", "shadow", "on") else "off"
+
+
+def locate_mode(trunk):
+    """``code.locate_failures``：失败定位（file:line → 函数），默认 on（批次 D9）。
+
+    和影响面选测拆开：定位只是给回修提示补一段"失败在哪个函数"，
+    不改跑哪些测试，所以可以默认开；选测仍由 ``verify_mode`` 控制。
+    """
+    try:
+        value = str(trunk.rule("code.locate_failures", "on") or "on").lower()
+    except Exception as e:
+        _x6_swallowed(__name__, e, "locate switch")
+        return "on"
+    return value if value in ("off", "shadow", "on") else "on"
+
+
+def lint_extra_mode(trunk):
+    """``code.lint_extra``：ruff/mypy 附加静态检查，默认 shadow（批次 D9）。
+
+    shadow 只把输出记进结果、不参与 ``ok``（避免旧仓库被历史问题卡住）；
+    on 才让类型错/风格错真正挡完成；off 完全不跑。
+    """
+    try:
+        value = str(trunk.rule("code.lint_extra", "shadow") or "shadow").lower()
+    except Exception as e:
+        _x6_swallowed(__name__, e, "lint extra switch")
+        return "shadow"
+    return value if value in ("off", "shadow", "on") else "shadow"
 
 
 def _rel(path):

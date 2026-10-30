@@ -40,6 +40,14 @@ except ImportError:  # 独立导入时兜底
     def _x6_swallowed(*_a, **_k):
         return None
 
+# 批次 D6：输入时把意图翻译成「将做什么」的人话
+_INTENT_LABELS = {
+    "open_file": "打开文件", "run_test": "跑测试", "explain": "解释",
+    "search": "搜索", "edit_code": "改代码", "fix_error": "修复报错",
+    "refactor": "重构", "undo": "撤销", "plan": "出方案",
+}
+_HINT_DEFAULT = "用自然语言说要写的代码，默认直接改文件；Ctrl+Enter 开始"
+
 
 class AgentDock(AgentDockServiceMixin, QWidget):
     """AI 面板：目标输入 + 执行按钮 + 步骤时间线。
@@ -57,6 +65,9 @@ class AgentDock(AgentDockServiceMixin, QWidget):
         self.worker = None
         self.current_job_id = ""
         self._running = False
+        # 批次 D8：多轮澄清的挂起状态（目标片段 + 已问轮次）
+        self._pending_clarify_goal = ""
+        self._clarify_round = 0
         self._build()
 
     def _build(self):
@@ -136,6 +147,7 @@ class AgentDock(AgentDockServiceMixin, QWidget):
             "QPlainTextEdit{background:#ffffff;border:1px solid #d0d5dd;"
             "border-radius:6px;padding:4px;}")
         v.addWidget(self.goal)
+        self.goal.textChanged.connect(self._intent_hint)
 
         # 按钮横向排列：主操作靠左，"暂停/取消"紧挨着，避免竖排占高度。
         # 样式按 IDE 对话面板惯例：开始=主色，"暂停/取消"弱化，危险动作只染文字。
@@ -197,6 +209,51 @@ class AgentDock(AgentDockServiceMixin, QWidget):
         """是否满足启动条件（空目标不让点）。"""
         return bool(self.current_goal())
 
+    # ------------------------------------------------------ 意图感知（D6）
+    def _intent_hint(self, *_):
+        """批次 D6：输入时实时预判意图，把「将做什么」写进提示条。"""
+        try:
+            text = self.current_goal()
+            if not text:
+                self.hint.setText(_HINT_DEFAULT)
+                return
+            from core.nl.intent import route
+            info = route(text)
+            label = _INTENT_LABELS.get(info.get("intent") or "", "")
+            if not label:
+                self.hint.setText(_HINT_DEFAULT)
+                return
+            targets = [str(t.get("value")) for t in (info.get("targets") or [])
+                       if t.get("value")][:3]
+            what = "将" + label + ("：" + "、".join(targets) if targets else "")
+            self.hint.setText(what + "（Ctrl+Enter 开始）")
+        except Exception as e:
+            _x6_swallowed(__name__, e, "intent_hint")
+
+    def _safe_auto_exec(self, goal):
+        """批次 D6：纯安全意图（打开文件）直接本地执行，不启动代码 Agent。"""
+        try:
+            from core.nl.intent import route
+            info = route(goal)
+            if info.get("intent") != "open_file" or info.get("clarify"):
+                return False
+            path = next((t["value"] for t in (info.get("targets") or [])
+                         if t.get("type") == "file"), "")
+            if not path or not hasattr(self.wb, "open_path"):
+                return False
+            root = getattr(self.wb, "root", None) or getattr(
+                self.wb.trunk, "base", ".")
+            full = path if os.path.isabs(path) else os.path.join(root, path)
+            if not os.path.exists(full):
+                return False
+            self.timeline.clear()
+            self.timeline.appendPlainText("⚡ 意图：打开文件 → " + path)
+            self.wb.open_path(full)
+            return True
+        except Exception as e:
+            _x6_swallowed(__name__, e, "safe_auto_exec")
+            return False
+
     def start(self):
         if self._running:
             self.timeline.appendPlainText("⚠ 已有任务在运行，请先暂停或取消")
@@ -205,9 +262,21 @@ class AgentDock(AgentDockServiceMixin, QWidget):
         if not goal:
             self.timeline.appendPlainText("⚠ 请先描述要做什么")
             return
+        # 批次 D8：槽位不全先追问（最多 3 轮），补齐后再启动 Agent。
+        flag, merged = self._maybe_clarify(goal)
+        if flag == "ask":
+            return
+        if flag == "run" and merged and merged != goal:
+            goal = merged
+            self.goal.blockSignals(True)
+            self.goal.setPlainText(goal)
+            self.goal.blockSignals(False)
+            self.hint.setText(_HINT_DEFAULT)
         # 批次 47.3：开关开着且这是代码问题（解释/定位/影响面/用法/对比）时，
         # 先用本地索引就地回答并给出可点击的 `文件:行`，不启动 Agent。
         if self.try_code_qa(goal):
+            return
+        if self._safe_auto_exec(goal):
             return
         root = getattr(self.wb, "root", None) or getattr(
             self.wb.trunk, "base", ".")
@@ -386,11 +455,8 @@ class AgentDock(AgentDockServiceMixin, QWidget):
             # 顺序反过来会被 mark_diff_applied 切回预览页，用户就看不到
             # 刚写出来的完整代码，更没法直接手改。
             self.wb.mark_diff_applied(data.get("backup_manifest") or "")
-            for rel in data.get("applied") or []:
-                try:
-                    self.wb.reload_editor_path(rel)
-                except Exception as e:  # 静默是故意的 - 刷新失败不影响主流程
-                    _x6_swallowed(__name__, e, "reload editor tab")
+            # 批次 D10：刷新 tab；新建文件直接打开并定位到入口函数。
+            self.after_applied(data.get("applied") or [])
         elif event == "done":
             # 普通对话分支只返回 answer，以前这里只显示"对话完成"，
             # 模型说了什么用户根本看不到。
@@ -419,12 +485,18 @@ class AgentDock(AgentDockServiceMixin, QWidget):
                     QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
                 return r == QMessageBox.Yes
             if kind == "code" and isinstance(payload, dict):
-                from core.patch_engine import unified_diff
+                # 批次 D10：按文件/hunk 勾选后把选择回传给 Agent，由 Agent
+                # 统一 dry-run + 落盘；窗口自己落盘会写两遍。
                 root = getattr(self.wb, "root", None) or "."
-                text = unified_diff(root, payload)
-            else:
-                text = str(payload or "")
-            dlg = DiffReviewDialog(text, parent=self)
+                dlg = DiffReviewDialog(root, payload, parent=self,
+                                       apply_on_accept=False)
+                if dlg.exec_() != dlg.Accepted:
+                    return False
+                return {"accepted": True,
+                        "selected_files": dlg.selected_files,
+                        "selected_hunks": dlg.selected_hunks}
+            # 非结构化 payload（旧调用/纯文本）：保留原来的文本审批窗口。
+            dlg = DiffReviewDialog(str(payload or ""), parent=self)
             return dlg.exec_() == dlg.Accepted
         except Exception as e:  # 静默是故意的 - 审批打不开就拒绝，fail-closed
             _x6_swallowed(__name__, e, "best-effort fallback")

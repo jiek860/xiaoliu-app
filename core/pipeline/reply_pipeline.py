@@ -188,16 +188,22 @@ class ReplyPipeline:
                                 mode="model" if mode == "model" else "rule",
                                 recent=self._recent_user_texts())
             if isinstance(plan, dict) and plan:
-                plan.setdefault("emoji_budget", self._emoji_budget())
+                plan.setdefault("emoji_budget", self._emoji_budget(user_input))
             return plan
         except Exception as e:
             _x6_swallowed(__name__, e, "plan")
             return {}
 
-    def _emoji_budget(self):
-        """人格卡风格决定的 emoji 预算；关闭或异常时用 2。"""
+    _EMOJI_WORK_WORDS = ("重构", "修复", "报错", "写个", "写一个", "实现",
+                          "改代码", "修改代码", "加个函数", "函数")
+
+    def _emoji_budget(self, user_input=""):
+        """人格卡风格决定的 emoji 预算；工作态（代码任务）为 0，关闭或异常时用 2。"""
         try:
-            if self.trunk.rule("聊天.人格卡", "shadow") == "off":
+            low = str(user_input or "").lower()
+            if any(w in low for w in self._EMOJI_WORK_WORDS):
+                return 0
+            if self.trunk.rule("聊天.人格卡", "on") == "off":
                 return 2
             from core.chat.persona_card import PersonaCard
             card = PersonaCard.load(getattr(self.trunk, "base", ".") or ".")
