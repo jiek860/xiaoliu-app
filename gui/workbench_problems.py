@@ -86,7 +86,7 @@ class ProblemsHub(QObject):
     def items(self, path=None):
         if path is None:
             out = []
-            for key, rows in self._items.items():
+            for rows in self._items.values():
                 out.extend(rows)
             return out
         return list(self._items.get(str(path or "")) or [])

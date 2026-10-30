@@ -375,6 +375,12 @@
 | L4 动作 | 播放/转写结果入聊天 |
 | L5 降级 | 服务不可用 → 提示安装依赖 |
 
+**接口（v25.4.0 起）**：`voice.listen(seconds=5, sample_rate=16000, stop_event=None)`。
+`stop_event` 由 GUI 传入，录音循环每 1024 帧检查一次；用户松开按钮即置位，
+因此"按住说话"不会硬等 5 秒。没录到任何帧时返回
+`{"ok": False, "error": "没有录到声音"}`，而不是静默返回空文本。
+`gui/speech.py::listen_once` 对旧签名做了 `TypeError` 回退，老插件不会被打断。
+
 #### 5.12 plugin_market（插件市场 v1.0）
 | 规则项 | 规则 |
 |---|---|

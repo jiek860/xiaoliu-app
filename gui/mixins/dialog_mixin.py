@@ -320,7 +320,6 @@ class DialogMixin(BackgroundTaskMixin):
         之所以不在 Qt 里嵌：那张图是 ECharts 画的，塞进 QWebEngine 要多背一个
         几十 MB 的运行时，交给系统浏览器最省事。
         """
-        import os
         from PyQt5.QtCore import QUrl
         from PyQt5.QtGui import QDesktopServices
         html = os.path.join(self.base, "docs", "模块星图.html")
