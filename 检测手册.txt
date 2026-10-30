@@ -945,6 +945,25 @@ CI/CD：pre-commit、GitHub Actions、GitLab CI
 共 93 项使用检测 + 7 种代码审计方法 + 13 类扩展检测 + 完整发布门禁
 ═══════════════════════════════════════════════════════════════
 
+文档同步：2026-10-30 / v25.4.0（批次 31：解冻治理与全量连线）
+本次同步：冻结守卫进入解冻期（active=false，预算上限见 docs/106）；
+新增信号审计、15 个新测试文件；插件仓库校验兼容 Windows CRLF；
+程序内"使用说明/教程"同步到聊天与工作台的新入口。
+完整说明：docs/106_解冻与预算决策_2026-10-30.md、docs/10_开发流程与工程手册.md。
+
+v25.4.0（2026-10-30）新增检测项：
+  py -3 tools/audit_signals.py
+    静态审计"声明/发射了但没人 connect"的 Qt 信号；当前仅 core/realtime
+    的 EventBus（不是 Qt 信号）属于已知误报。
+  py -3 tools/check_plugin_repo.py
+    比对 modules/installed 时忽略 CRLF/LF 差异（sha256/签名仍按原始字节校验），
+    Windows 工作区不再误报 48 个文件全部不一致。
+  新增 15 个测试文件：growth_panel / workbench_problems / workbench_test_panel /
+    chat_input_ext / workspace_context / workbench_context / voice_hold /
+    topic_index / referent / chat_timeline / chat_reply_actions / run_parse /
+    error_hints / code_signature / explorer_filter。
+  按钮预算保持 60（新入口全部走菜单/对话框/命令面板，不计入按钮）。
+
 文档同步：2026-10-26 / v25.2.33
 本次同步：v25.2.33 起所有弹窗单实例（连点只开一个窗口），
 关闭主窗口先关子窗口；兼容 Windows + Python 3.10/3.11/3.12；
