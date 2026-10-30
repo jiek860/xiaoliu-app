@@ -45,9 +45,8 @@ python run.py
 ## Documentation
 
 - `ARCHITECTURE.md` - architecture overview
-- `docs/PRODUCT_PHASE2.md` - product capability roadmap and status
-- `docs/PLUGIN_SDK.md` - isolated plugin SDK
-- `docs/30_模块规则与API参考.md` - module API reference
+- `docs/00_产品架构与UI主文档.md` - product & architecture (appendix: phase-2 roadmap)
+- `docs/30_模块规则与API参考.md` - module API reference (appendices: plugin SDK & standard)
 
 
 ## Phase-2 capabilities (2026-10-20)
@@ -62,7 +61,7 @@ python run.py
 - UIA + OCR/vision GUI agent with verification, retries and DPI/IME handling.
 - Usage and estimated-cost dashboard.
 
-See `docs/PRODUCT_PHASE2.md` and `docs/PLUGIN_SDK.md`.
+See the phase-2 appendix in `docs/00_产品架构与UI主文档.md` and the plugin SDK appendix in `docs/30_模块规则与API参考.md`.
 
 
 ## Startup and blank-window troubleshooting (2026-10-21)

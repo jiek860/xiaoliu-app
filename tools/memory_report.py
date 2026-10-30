@@ -9,7 +9,7 @@
 用法：
     py -3 tools\\memory_report.py
     py -3 tools\\memory_report.py --base . --json data/memory_report.json
-    py -3 tools\\memory_report.py --markdown docs/105_记忆v2灰度报告.md
+    py -3 tools\\memory_report.py --markdown docs/20_优化路线与实施记录.md
 """
 import argparse
 import json
