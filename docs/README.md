@@ -83,3 +83,20 @@
 
 更早的历史删除记录（`升级报告_20260923.md`、`API.md`、`全模块规则体系.md`、
 `开发流程与目录结构梳理.md`、`四阶段实施记录.md` 等）已并入上述同类合订本，不再单列。
+
+2026-10-30 第二次清理（残留收口）：
+
+| 处理 | 对象 | 原因 |
+|---|---|---|
+| 并入 `20` 附录后删除 | 根目录 `优化执行方案-终版-2026-10-22.txt`、`优化执行方案-最终版-2026-10-22.txt`、`第二阶段优化落地方案-v3.1-优化版-2026-10-23.txt` | 同一方案的三份重复稿，无任何代码/文档引用 |
+| 删除目录 | `docs/%SystemDrive%/`、根目录 `%SystemDrive%/` | 脚本误展开环境变量，把 Windows 缓存 db 拷进了仓库目录 |
+| 删除目录 | `docs/_shots/`（2 张架构全景图 jpg） | 无引用的孤儿截图，正文架构已由 `00` 描述 |
+| 删除文件 | `data/_pytest_final_split.txt` | pytest 输出残留（`data/_schema.json` 是运行时文件，保留） |
+| 删除目录 | `core/_deprecated/`（10 个死代码 + README + pyc） | 该目录 README 自述"全项目从未被 import"，2026-10-08 起仅作停放；其中 `installed_meta.json` 先移到 `modules/installed_meta.json` 保证 `rebuild_modules_repo` 仍有元数据源 |
+| 删除文件 | `staging/_reload_test_*.py`（44 个） | 热重载沙盒测试的本地残留（`staging/` 已被 `.gitignore` 忽略，目录保留） |
+
+保留项：`docs/examples/plugins/`（被 `00`、`30`、根目录 `插件标准.txt` 引用）、
+`docs/模块星图.html`、`docs/用户协议.txt`、`docs/隐私政策.txt`（运行时读取）、
+`backups/`（自愈回滚证据，不随文档清理删除）。
+`sbom.json` 是发布物料快照（当前仍为 2026-10-19 的 v25.2.23 记录），
+按发布流程在下次发版时整体重生，本次不做逐条改动。
