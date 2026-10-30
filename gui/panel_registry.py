@@ -25,6 +25,7 @@ def build_panel_commands(owner):
         "数据统计": get("stats_dialog"),
         "日历待办": get("tools_dialog"),
         "搜索聊天": get("search_dialog"),
+        "聊天话题时间线": get("chat_topics_dialog"),
         "安全中心": get("security_center_dialog"),
         "任务中心": get("open_task_center"),
         "运行中活动": get("activity_center_dialog"),

@@ -202,12 +202,13 @@ def test_minimap_paints_and_click_jumps(app):
 
 
 def test_bottom_panel_has_output_problem_terminal(wb):
-    """底部面板是「输出 / 问题 / 终端 / 差异」四个页签。"""
+    """底部面板是「输出 / 问题 / 终端 / 差异 / 测试」五个页签。"""
     b = wb._editor.bottom
-    assert b.bar.count() == 4
+    assert b.bar.count() == 5
     assert b.bar.tabText(0) == "输出"
     assert b.bar.tabText(2) == "终端"
     assert b.bar.tabText(3).startswith("差异")
+    assert b.bar.tabText(4) == "测试"
     w = wb._editor.tabs.currentWidget()
     w.setPlainText("def broken(:\n")
     w._check_syntax()

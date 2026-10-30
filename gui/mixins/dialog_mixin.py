@@ -265,6 +265,17 @@ class DialogMixin(BackgroundTaskMixin):
         from gui.panel_registry import build_panel_commands
         return build_panel_commands(self)
 
+    def chat_topics_dialog(self):
+        """🕘 聊天话题时间线：按话题跳回本轮会话里的原消息。"""
+        try:
+            from gui.chat_timeline import open_timeline
+            d = self._singleton_window(
+                "chat_timeline", lambda: open_timeline(self))
+            return d
+        except Exception as e:
+            QMessageBox.warning(self, "话题时间线", "打不开：" + str(e)[:120])
+            return None
+
     def command_palette(self):
         """⌘ 命令面板（Ctrl+K）—— 能力/面板/工具的统一搜索入口
 
@@ -309,7 +320,6 @@ class DialogMixin(BackgroundTaskMixin):
         之所以不在 Qt 里嵌：那张图是 ECharts 画的，塞进 QWebEngine 要多背一个
         几十 MB 的运行时，交给系统浏览器最省事。
         """
-        import os
         from PyQt5.QtCore import QUrl
         from PyQt5.QtGui import QDesktopServices
         html = os.path.join(self.base, "docs", "模块星图.html")
@@ -413,23 +423,14 @@ class DialogMixin(BackgroundTaskMixin):
                                  QMessageBox.Yes | QMessageBox.No)
         if r != QMessageBox.Yes:
             return
-        # 原来这一句是 trunk.call("file_upload", "read", path)，里面藏着三个问题：
-        #   ① file_upload 没有 read 方法（只有 read_file），调用只会返回
-        #      「功能不可用」，文件内容永远是空的
-        #   ② read_file(fname) 会把 fname 拼到 data/uploads 下面去找，
-        #      传绝对路径必然"文件不存在"
-        #   ③ 就算前两条都对了，它返回的键是"内容"不是这里读的"text"
-        # 直接读用户刚选中并确认过的这个文件即可，顺带兼容 GBK 编码。
+        # 统一走 chat_input_ext：PDF/Word/Excel/PPT/MD/HTML 都交给
+        # core.document_parser 解析，结果放进输入框，发送时随消息给模型。
+        # 以前这里只 open().read()，PDF/Word 直接报 UnicodeDecodeError。
         try:
-            try:
-                text = open(path, encoding="utf-8").read()
-            except UnicodeDecodeError:
-                text = open(path, encoding="gbk", errors="ignore").read()
+            from gui.chat_input_ext import attach_document
+            attach_document(self, path)
         except Exception as e:
             QMessageBox.warning(self, "读取失败", str(e)[:120])
-            return
-        self.chat.append("📄 文件: " + os.path.basename(path))
-        self.chat.append("内容: " + text[:2000])
 
     def switch_model(self):
         items = ["本地路由", "云端模型"]

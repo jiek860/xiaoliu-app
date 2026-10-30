@@ -129,3 +129,57 @@ def test_voice_error_text_turns_pyaudio_into_actionable_hint():
     text = _voice_error_text("缺少pyaudio")
     assert "pyaudio" in text and "pip" in text
     assert _voice_error_text("没听清，再说一遍试试") == "没听清，再说一遍试试"
+
+
+def test_speech_listen_once_passes_stop_event_and_falls_back():
+    """新模块接受 stop_event；老模块 TypeError 时退回固定时长。"""
+    from gui.speech import SpeechController
+
+    class _NewVoice:
+        def listen(self, seconds=5, stop_event=None):
+            return {"ok": True, "text": "停止:%s" % bool(stop_event)}
+
+    class _OldVoice:
+        def listen(self, seconds=5):
+            return {"ok": True, "text": "旧接口"}
+
+    sc = SpeechController(_SpeechTrunk(_NewVoice()), None)
+    assert sc.listen_once(1, stop_event=object())["文字"] == "停止:True"
+    sc = SpeechController(_SpeechTrunk(_OldVoice()), None)
+    assert sc.listen_once(1, stop_event=object())["文字"] == "旧接口"
+
+
+def test_voice_listen_stop_event_returns_no_audio(monkeypatch):
+    """按住说话松手太快：没录到帧时给明确错误，而不是转写空音频。"""
+    import threading
+    import types
+
+    class _Stream:
+        def read(self, *a, **k):
+            return b"\x00\x00"
+
+        def stop_stream(self):
+            pass
+
+        def close(self):
+            pass
+
+    class _PA:
+        paInt16 = 8
+
+        def open(self, **kw):
+            return _Stream()
+
+        def get_sample_size(self, fmt):
+            return 2
+
+        def terminate(self):
+            pass
+
+    fake = types.SimpleNamespace(PyAudio=_PA, paInt16=8)
+    monkeypatch.setitem(sys.modules, "pyaudio", fake)
+    v = _voice()
+    ev = threading.Event()
+    ev.set()
+    r = v.listen(seconds=1, stop_event=ev)
+    assert r["ok"] is False and "没有录到声音" in r["error"]

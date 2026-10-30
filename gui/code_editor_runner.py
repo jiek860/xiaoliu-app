@@ -52,4 +52,16 @@ class CodeEditorRunnerMixin:
             _x6_swallowed(__name__, e)
 
     def _on_fin(self, code, status):
-        self.output.appendPlainText("<<< 退出码: %d" % code)
+        text = self.output.toPlainText()
+        # 49.3：运行结束先给结论与可执行提示，再贴退出码 ——
+        # 以前只有一行"退出码: 1"，用户还得自己在输出里找异常。
+        try:
+            from core.code import run_parse, error_hints
+            self.output.appendPlainText("📌 " + run_parse.summary(text, code,
+                                                                 getattr(self, "root", None)))
+            for row in error_hints.lines_for(text):
+                self.output.appendPlainText(row)
+            self.output.appendPlainText("<<< " + run_parse.exit_text(code))
+        except Exception as e:  # 静默是故意的 - 解析失败不影响运行结果
+            _x6_swallowed(__name__, e, "run summary")
+            self.output.appendPlainText("<<< 退出码: %d" % code)

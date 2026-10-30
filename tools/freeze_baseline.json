@@ -81,7 +81,7 @@
     }
   },
   "_说明": "冻结版基线：Feature/模块/按钮/覆盖率门槛只许降不许升",
-  "active": true,
+  "active": false,
   "created": "2026-10-26",
   "freeze_until": "2026-11-23",
   "rebased": "2026-10-29"

@@ -127,3 +127,19 @@
 - 不改 `QFileSystemModel` 的文件树根目录逻辑；搜索/SCM 只读，不写文件。
 - P0 完成后，工作台应能完成「搜索 → 打开 → 修改 → 运行 → 看 Git 改动」
   全流程，不需要离开工作台。
+
+## 批次 31 补强：诊断与测试闭环（2026-10-30 / v25.4.0）
+
+在原有 P0-P2 之上，把"能看见问题、能跑测试、能把代码交给 AI"接成闭环：
+
+| 能力 | 入口 | 实现 |
+|---|---|---|
+| 问题实时聚合 | 底部「问题 N」页 | `gui/workbench_problems.py`：每个标签注册 `problemsChanged`，250ms 节流刷新 |
+| 受影响测试 / 失败定位 / 只重跑失败 | 底部「测试」页 | `gui/workbench_test_panel.py` + `core/code/verify.py`；QProcess 跑 pytest |
+| 文件树筛选 | 资源管理器顶部输入框 | `gui/explorer_filter.py`：`QFileSystemModel.setNameFilters`，不换 proxy |
+| 标签菜单 | 标签右键 | `gui/editor_tab_menu.py`：保存 / PR / 复制路径 / 定位 / 发送到 AI / 插入函数调用模板 |
+| 发送当前代码到 AI | Ctrl+Shift+A 或标签右键 | `gui/workbench_context.py` + `core/chat/workspace_context.py` |
+| 运行结论与下一步 | 「输出」页末尾 | `core/code/run_parse.py` + `core/code/error_hints.py` |
+
+约束保持：不新增 QPushButton（菜单项走 `QMenu.addAction`），
+`code_editor_dialog.py` 仍为 599 行（菜单拆出后接线）。
