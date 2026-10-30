@@ -208,3 +208,92 @@ class AgentDockServiceMixin:
                 self.wb.open_path(path)
         except Exception as e:  # 静默是故意的 - 跳转失败只提示
             self.timeline.appendPlainText("[错误] 跳转失败: %s" % str(e)[:200])
+
+    # ------------------------------------------------------ 落盘后的编辑器动作（D10）
+    _ENTRY_NAMES = ("main", "run", "cli", "app", "demo", "start")
+
+    def _jump_to_entry(self, rel):
+        """新文件落盘后直接定位到入口函数，省得用户自己找。"""
+        try:
+            from core.code import signature
+            root = str(getattr(self.wb, "root", None) or ".")
+            path = os.path.join(root, str(rel).replace("/", os.sep))
+            source = open(path, encoding="utf-8", errors="replace").read()
+            line = 0
+            hits = [d for d in signature.defs(source)
+                    if d["name"] in self._ENTRY_NAMES]
+            if hits:
+                line = int(hits[0]["line"])
+            elif "__main__" in source:
+                line = source[:source.index("__main__")].count("\n") + 1
+            elif signature.defs(source):
+                line = int(signature.defs(source)[0]["line"])
+            if line <= 0:
+                return
+            self.open_reference(path, line)
+            self.timeline.appendPlainText(
+                "· 已定位到入口：%s:%d" % (rel, line))
+        except Exception as e:  # 静默是故意的 - 定位失败不影响已写好的代码
+            _x6_swallowed(__name__, e, "jump to entry")
+
+    def after_applied(self, applied):
+        """批次 D10：刷新 tab；新文件直接打开并跳到入口，代码立刻可改。"""
+        try:
+            before = set()
+            try:
+                before = {str(p) for p in (self.wb.editor_open_files() or [])}
+            except Exception as e:
+                _x6_swallowed(__name__, e, "read open files")
+            for rel in applied or []:
+                self.wb.reload_editor_path(rel)
+                root = str(getattr(self.wb, "root", None) or ".")
+                full = os.path.join(root, str(rel).replace("/", os.sep))
+                if full not in before and os.path.exists(full):
+                    self._jump_to_entry(rel)
+        except Exception as e:  # 静默是故意的 - 刷新失败不影响主流程
+            _x6_swallowed(__name__, e, "after applied")
+
+    # ------------------------------------------------------ 多轮澄清（D8）
+    _CLARIFY_MAX_ROUNDS = 3
+
+    def _maybe_clarify(self, goal):
+        """先追问再执行：返回 ``(flag, goal)``。
+
+        flag::
+
+            ask  —— 已把追问写进时间线/提示条，本次不启动 Agent
+            run  —— 槽位补齐（可能是合并后的目标），继续正常执行
+            pass —— 路由没要求澄清，原样继续
+
+        用户第二次输入会拼回 ``_pending_clarify_goal`` 再走一次 ``route``，
+        最多问 ``_CLARIFY_MAX_ROUNDS`` 轮；再问不出来就按当前理解先跑，
+        不把用户卡在对话框里。任何异常都按 pass，保证还能正常执行。
+        """
+        try:
+            from core.nl.clarify import merge_goal
+            from core.nl.intent import route
+            pending = str(getattr(self, "_pending_clarify_goal", "") or "")
+            rnd = int(getattr(self, "_clarify_round", 0) or 0) + 1 if pending else 1
+            merged = merge_goal(pending, goal) if pending else goal
+            if rnd > self._CLARIFY_MAX_ROUNDS:
+                self._pending_clarify_goal = ""
+                self._clarify_round = 0
+                self.timeline.appendPlainText(
+                    "· 追问到第 %d 轮，先按当前理解跑一版" % rnd)
+                return "run", merged
+            info = route(merged, clarify_round=rnd)
+            question = str(info.get("clarify") or "").strip()
+            if not question:
+                self._pending_clarify_goal = ""
+                self._clarify_round = 0
+                return ("run" if merged != goal else "pass"), merged
+            self._pending_clarify_goal = merged
+            self._clarify_round = rnd
+            self.hint.setText("还需补充（第 %d 轮）：%s" % (rnd, question))
+            self.timeline.appendPlainText("❓ " + question)
+            self.timeline.appendPlainText(
+                "   把补充写进输入框，再按 Ctrl+Enter 继续")
+            return "ask", ""
+        except Exception as e:  # 静默是故意的 - 追问失败不能挡住执行
+            _x6_swallowed(__name__, e, "maybe_clarify")
+            return "pass", goal

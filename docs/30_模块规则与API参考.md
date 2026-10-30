@@ -3595,3 +3595,17 @@ check_plugin_quality.py 初始报 142 条 warn、8 条 error。
 - 插件安全：error=0，warn=0
 
 结论：门禁与全量回归均通过，可以提交 GitHub。
+
+## 附录：深化批次新增 / 变更开关（2026-10-30）
+
+规则仍然用 `core/rules_engine.py` 的 `data/rules/rules.json` 管理；下表只记录本轮新增或改默认值的开关，默认值与回滚方式同步在 `tools/ab_matrix.py` 的「默认值决策表」。
+
+| 开关 | 默认 | 取值 | 读取点 | 作用 / 回滚 |
+|---|---|---|---|---|
+| `聊天.人格卡` | `on`（原 shadow） | off / shadow / on | `PromptAssembler._card_mode()` | 分层人格进系统提示词；回滚改 `shadow` |
+| `nl.intent_v2` | `on`（原 shadow） | off / shadow / on | `core/nl/intent.py:mode()` | 三段式意图路由真正生效；回滚改 `off` |
+| `code.context_v2` | `on`（原 shadow） | off / shadow / on | `core/code/context_v2.py:mode()` | 预算感知上下文；回滚改 `off` 回旧实现 |
+| `code.lint_extra` | `shadow`（新增） | off / shadow / on | `core/patch_protocol.py:lint_extra_mode()` | ruff/mypy 附加检查：shadow 只记录，on 才挡完成 |
+| `code.locate_failures` | `on`（新增） | off / shadow / on | `core/patch_protocol.py:locate_mode()` | 测试失败 → `文件:行 → 函数` 进回修提示 |
+
+说明：`code.verify_select`（影响面选测）仍保持默认 `off`；失败定位与它拆开，避免"少跑测试"与"给定位"绑在一起。

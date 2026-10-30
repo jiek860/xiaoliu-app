@@ -43,12 +43,12 @@ def estimate_tokens(text):
 
 def mode(trunk):
     try:
-        value = str(trunk.rule("code.context_v2", "shadow")
-                    or "shadow").lower()
+        value = str(trunk.rule("code.context_v2", "on")
+                    or "on").lower()
     except Exception as e:
         _x6_swallowed(__name__, e, "mode")
-        return "shadow"
-    return value if value in ("off", "shadow", "on") else "shadow"
+        return "on"
+    return value if value in ("off", "shadow", "on") else "on"
 
 
 def goal_terms(goal, limit=12):
@@ -207,6 +207,15 @@ def build(goal, *, root=".", index=None, selection="", open_files=(),
         body = ("OUTLINE:\n%s\n" % outline if outline else "") + snippet
         add("OPEN FILE: %s" % rel, body, [rel])
     search_files, hit_lines = _rank_files(goal_terms(goal), index, max_files)
+    search_files = search_files[:max_files]
+    if index is not None:
+        # 批次 D7：把「最近改动文件」也纳入候选（与 legacy 对齐，低优先级）
+        for item in index.recent_files(10):
+            rel = item.get("path")
+            if rel and rel not in search_files:
+                search_files.append(rel)
+            if len(search_files) >= max_files + 3:
+                break
     for rel in search_files:
         if rel in files_out:
             continue

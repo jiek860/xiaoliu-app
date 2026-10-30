@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """澄清与计划卡（批次 44.3）：只问一个关键问题 + 复用 code_plan。"""
-from core.nl.clarify import (ask, fill_from_context, merge_answer,
+from core.nl.clarify import (ask, fill_from_context, merge_goal, merge_answer,
                              missing_slot, plan_card)
-from core.nl.intent import route
+from core.nl.intent import clarify_question, route
 
 
 def test_missing_target_asks_one_question():
@@ -121,3 +121,57 @@ def test_plan_card_uses_intent_targets_as_files():
     info = route("修复 core/agent_router.py 的报错")
     card = plan_card("修复 core/agent_router.py 的报错", info=info)
     assert "core/agent_router.py" in card["steps"][0]["files"]
+
+
+# ---------------- 批次 D8：多轮澄清闭环 ----------------
+def test_clarify_round_two_asks_more_specific_object():
+    """第一轮没给对象，第二轮换成更具体的提示，而不是重复同一句话。"""
+    info = route("帮我改一下这个")
+    first = clarify_question(info, round=1)
+    second = clarify_question(info, round=2)
+    assert "哪个文件或符号" in first
+    assert "相对路径" in second and second != first
+
+
+def test_clarify_round_two_and_three_ask_effect_then_constraints():
+    """对象已齐：第 2 轮问效果，第 3 轮问约束，再往后给「开始」兜底。"""
+    info = {"intent": "edit_code",
+            "targets": [{"type": "file", "value": "core/x.py"}]}
+    assert "什么效果" in clarify_question(info, round=2)
+    assert "约束" in clarify_question(info, round=3)
+    assert "开始" in clarify_question(info, round=4)
+
+
+def test_clarify_round_is_safe_for_bad_values():
+    info = {"intent": "edit_code", "targets": []}
+    assert clarify_question(info, round="bad") == clarify_question(info)
+    assert clarify_question(info, round=0) == clarify_question(info)
+
+
+def test_route_passes_round_into_clarify():
+    first = route("帮我改一下这个")["clarify"]
+    second = route("帮我改一下这个", clarify_round=2)["clarify"]
+    assert first != second
+    assert "相对路径" in second
+
+
+def test_merge_goal_appends_supplement():
+    merged = merge_goal("帮我改一下这个", "core/agent_router.py")
+    assert merged.startswith("帮我改一下这个")
+    assert "补充：core/agent_router.py" in merged
+
+
+def test_merge_goal_handles_empty_and_repeated_text():
+    assert merge_goal("", "core/x.py") == "core/x.py"
+    assert merge_goal("帮我改一下这个", "") == "帮我改一下这个"
+    # 用户把整句重述一遍时不要重复拼接
+    assert merge_goal("帮我改一下这个", "帮我改一下这个") == "帮我改一下这个"
+
+
+def test_multi_round_route_finishes_after_answer():
+    """工作台的闭环：第一轮追问，补上文件后 route 不再要求澄清。"""
+    pending = "帮我改一下这个"
+    assert route(pending)["clarify"]
+    merged = merge_goal(pending, "core/agent_router.py")
+    assert route(merged)["clarify"] == ""
+    assert route(merged)["intent"] == "edit_code"

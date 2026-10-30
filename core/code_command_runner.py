@@ -199,18 +199,71 @@ class CodeCommandRunnerMixin:
             cmds.append("gofmt -l .")
         return cmds
 
+    # 批次 D9：Python 项目的附加静态检查（已装才跑，未装记为 skipped）
+    _PY_LINT_EXTRAS = (
+        ("ruff", '"%s" -m ruff check --output-format=concise .'),
+        ("mypy", '"%s" -m mypy --ignore-missing-imports --show-error-codes .'),
+    )
+
+    def _python_project(self):
+        for name in ("pyproject.toml", "setup.py", "setup.cfg",
+                     "requirements.txt", "pytest.ini", "tox.ini"):
+            if self._exists(name):
+                return True
+        return bool(self._exists("tests"))
+
+    @staticmethod
+    def _module_installed(name):
+        try:
+            import importlib.util
+            return importlib.util.find_spec(str(name)) is not None
+        except Exception as e:  # 静默是故意的 - 探测失败按未安装处理
+            _x6_swallowed(__name__, e, "probe lint module")
+            return False
+
     def run_lint(self, commands=None):
+        """跑 lint；批次 D9 起在自动模式追加 ruff/mypy（``code.lint_extra``）。
+
+        shadow（默认）只把附加检查的输出记进结果、不参与 ``ok``，避免历史
+        类型问题把每一轮都卡成"未完成"；``on`` 才真正挡完成；``off`` 不跑。
+        """
+        explicit = bool(commands or getattr(self, "lint_commands", None))
         cmds = list(commands or self.lint_commands or self.detect_lint_commands())
+        extras, skipped = [], []
+        mode = "off"
+        if not explicit:
+            try:
+                from core.patch_protocol import lint_extra_mode
+                mode = lint_extra_mode(getattr(self, "trunk", None))
+            except Exception as e:  # 静默是故意的 - 读不到开关就不加检查
+                _x6_swallowed(__name__, e, "lint extra mode")
+                mode = "off"
+            for module, cmd in self._PY_LINT_EXTRAS:
+                if mode == "off" or not self._python_project() or \
+                        not self._module_installed(module):
+                    skipped.append(module)
+                    continue
+                formatted = cmd % sys.executable
+                if formatted not in cmds:
+                    extras.append(formatted)
+            cmds.extend(extras)
         if not cmds:
-            return {"ok": True, "results": [], "skipped": True}
+            return {"ok": True, "results": [], "skipped": True,
+                    "skipped_modules": skipped}
         results = []
         for cmd in cmds:
             self._check_control()
             r = self._run_command(cmd, timeout=180, sandboxed=True)
-            results.append({"command": cmd, "ok": r["ok"],
-                            "exit_code": r["exit_code"],
-                            "output": r["output"][:12000]})
-        return {"ok": all(x["ok"] for x in results), "results": results}
+            item = {"command": cmd, "ok": r["ok"],
+                    "exit_code": r["exit_code"],
+                    "output": r["output"][:12000]}
+            if cmd in extras and mode != "on":
+                # shadow：附加检查只记录，不改变任务是否算完成
+                item["advisory"] = True
+            results.append(item)
+        return {"ok": all(x["ok"] for x in results
+                          if not x.get("advisory")),
+                "results": results, "skipped_modules": skipped}
 
     def run_tests(self, commands=None, changed_files=None):
         cmds = list(commands or self.test_commands or self.detect_test_commands())

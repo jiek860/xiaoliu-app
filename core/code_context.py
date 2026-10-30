@@ -99,8 +99,8 @@ class CodeContextMixin:
         try:
             from core.code.context_v2 import mode as v2_mode
             trunk = getattr(self, "trunk", None)
-            how = v2_mode(trunk)
             if trunk is not None and hasattr(trunk, "rule"):
+                how = v2_mode(trunk)
                 sample = float(trunk.rule("code.context_v2_sample", 0.1))
         except Exception as e:
             _x6_swallowed(__name__, e, "context v2 mode")

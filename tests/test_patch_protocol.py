@@ -165,3 +165,17 @@ def test_switches_default_off():
     assert pp.auto_apply_enabled(trunk) is False
     assert pp.background_enabled(trunk) is False
     assert pp.verify_mode(trunk) == "off"
+
+
+def test_locate_failures_default_on_and_lint_extra_default_shadow():
+    """批次 D9：失败定位默认参与回修提示；ruff/mypy 只影子记录。"""
+    trunk = FakeTrunk()
+    assert pp.locate_mode(trunk) == "on"
+    assert pp.lint_extra_mode(trunk) == "shadow"
+    assert pp.locate_mode(FakeTrunk({"code.locate_failures": "off"})) == "off"
+    assert pp.lint_extra_mode(
+        FakeTrunk({"code.lint_extra": "on"})) == "on"
+    # 认不出的值按各自默认回退，不把链路卡死
+    assert pp.locate_mode(FakeTrunk({"code.locate_failures": "bogus"})) == "on"
+    assert pp.lint_extra_mode(
+        FakeTrunk({"code.lint_extra": "bogus"})) == "shadow"

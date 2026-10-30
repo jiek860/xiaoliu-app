@@ -63,8 +63,12 @@ def fill_from_context(info, context=None):
     return out
 
 
-def ask(info, *, resolved=None, context=None):
-    """生成一个澄清问题；已具备槽位时返回 kind=ready。"""
+def ask(info, *, resolved=None, context=None, round=1):
+    """生成一个澄清问题；已具备槽位时返回 kind=ready。
+
+    ``round``（批次 D8）：多轮追问时把轮次透传给 ``clarify_question``，
+    同一槽位没补上时换成更具体的提示，而不是重复同一句话。
+    """
     info = fill_from_context(info, context)
     slot = missing_slot(info)
     # 只有“必须落到某个对象”的意图才被实体候选卡住；搜索有关键词就够
@@ -88,9 +92,26 @@ def ask(info, *, resolved=None, context=None):
     if options:
         question = "我没确定是哪一个，你指的是下面哪个？"
     else:
-        question = clarify_question(info) or "能再说清楚一点吗？"
+        question = clarify_question(info, round) or "能再说清楚一点吗？"
     return {"kind": "clarify", "question": question, "options": options,
             "slot": slot, "info": info}
+
+
+def merge_goal(original, answer):
+    """多轮澄清闭环（批次 D8）：把追问的回答拼回完整目标。
+
+    工作台的目标是自由文本，直接拼一句「补充：…」比重新猜意图更稳：
+    原句里的意图/动词保留，用户的补充当成追加约束再走一次 ``route``。
+    """
+    base = str(original or "").strip()
+    text = str(answer or "").strip()
+    if not text:
+        return base
+    if not base:
+        return text
+    if text in base:            # 用户重述整句时不要重复拼接
+        return base
+    return base + "\n补充：" + text
 
 
 def merge_answer(info, answer, *, context=None):

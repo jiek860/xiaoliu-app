@@ -116,10 +116,11 @@ def test_build_without_index_or_inputs_is_safe(tmp_path):
     assert built["truncated"] is False
 
 
-def test_mode_defaults_shadow():
+def test_mode_defaults_on():
+    # 批次 D7：显式 shadow/on 生效；未知值按默认 on
     assert mode(_Trunk("shadow")) == "shadow"
     assert mode(_Trunk("ON")) == "on"
-    assert mode(_Trunk("whatever")) == "shadow"
+    assert mode(_Trunk("whatever")) == "on"
 
 
 def test_integration_on_mode_uses_v2(tmp_path):
