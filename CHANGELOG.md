@@ -2,8 +2,16 @@
 
 ## v25.4.0 - 2026-10-30
 
-**解冻治理与全量连线（批次 31 · docs/106 M0–M4）**
+**解冻治理与全量连线（批次 31 · docs/101 合订本 M0–M4）**
 （本轮不加新 Feature、不做聊天分屏；只把已有能力接到入口上）
+
+**文档整理（2026-10-30）**
+- docs/ 零散 43 个 md/txt 合并为 10 个合订本 + 2 个运行时 txt + 索引（PR #74）。
+- 二次清理：3 份重复优化方案并入 `docs/20` 附录后删除；删除误展开环境变量产生的
+  `%SystemDrive%/` 缓存目录、无引用的 `docs/_shots/`、`data/_pytest_final_split.txt`、
+  从未被 import 的 `core/_deprecated/`（`installed_meta.json` 移至 `modules/`）、
+  `staging/_reload_test_*.py` 44 个热重载残留。
+- 新增 `docs/109` §13 文档分类与合并规则；`scripts/ci_local.py` 的记录改写进 `docs/10`。
 
 **M0 解冻**
 - `tools/freeze_baseline.json` `active=false`；预算从"现状值"改为上限：
