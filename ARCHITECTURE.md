@@ -487,3 +487,28 @@ Feature("workbench", "工作台", "🧰", "工具", (ADVANCED,), 140,
 - **浏览器层**：`web_agent` 先取可交互元素 DOM 摘要，再用 VLM 截图描述补足；动作失败返回 ok=False。
 - **Web 控制台**：`api_server` 使用 localhost + 临时 token；任务创建/查询接真实 TaskRuntime；WebSocket 依赖 `websockets`，缺失时明确降级。
 - **按钮精简**：侧栏高级入口只保留任务中心/命令面板，其余收进右上角「更多」；技能管理只保留导入/导出/更多/关闭，低频动作进菜单。
+
+---
+
+## v25.4.0 增量架构（2026-10-30 / 批次 31：解冻治理与全量连线）
+
+只加"薄模块 + 接线"，不动 Trunk 总线、不动模块注册数（仍是 46 项能力、
+60 个常驻按钮）：
+
+- **core/chat/**：`topic_index.py`（关键词/首句/话题检索）、`referent.py`
+  （"它/这个/继续"等指代解析）、`workspace_context.py`（选区/整文件转
+  AI 上下文）。聊天侧只经 `trunk.call("ai_chat")`，不直连模型。
+- **core/code/**：`run_parse.py`（pytest/脚本退出码与失败定位）、
+  `error_hints.py`（错误 → 修复提示，统一指向功能扩展组件）、
+  `signature.py`（函数签名与调用模板）。
+- **gui/**：`workbench_problems.py`（ProblemsHub 聚合）、
+  `workbench_test_panel.py`（QProcess 异步 pytest 面板）、
+  `chat_input_ext.py`（拖文件/粘贴截图）、`explorer_filter.py`、
+  `chat_timeline.py`、`chat_reply_actions.py`、`chat_growth_panel.py`、
+  `editor_tab_menu.py`、`workbench_context.py`。
+- **接线原则**：GUI 只连"已有能力"的入口，不新增按钮；所有跨线程动作
+  用 QProcess / QTimer，UI 线程不阻塞；长期存活的 lambda 必须挂在
+  `QObject` 子对象上。
+- **治理**：冻结守卫进入解冻期（`tools/freeze_baseline.json` `active=false`），
+  预算上限见 `docs/106`；新增 `tools/audit_signals.py` 审计"有 emit 无 connect"。
+
