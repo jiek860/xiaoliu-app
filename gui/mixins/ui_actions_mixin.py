@@ -141,10 +141,12 @@ class UIActionsMixin:
         elif action == a_ocr:
             self.chat.append("（截图识字功能开发中）")
 
-    def upload_image(self):
-        """发图片：选图片 → 描述图片 → 把描述加到输入框"""
-        path, _ = QFileDialog.getOpenFileName(
-            self, "选择图片", "", "图片文件 (*.png *.jpg *.jpeg *.gif *.bmp)")
+    def upload_image(self, path=None):
+        """发图片：选图片（或直接用传入路径）→ 描述图片 → 描述加到输入框"""
+        if not path:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "选择图片", "",
+                "图片文件 (*.png *.jpg *.jpeg *.gif *.bmp)")
         if not path:
             return
         self.chat.append("📷 已选择图片：" + path)

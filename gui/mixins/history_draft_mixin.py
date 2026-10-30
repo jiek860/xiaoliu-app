@@ -36,6 +36,18 @@ class HistoryDraftMixin:
         return (getattr(acc, "username", "guest"),
                 getattr(acc, "session", "default"))
 
+    def _recent_messages(self, limit=20):
+        """最近 N 条会话消息（指代消解 / 回复动作 / 话题时间线共用）。"""
+        store = self._history_store()
+        if store is None:
+            return []
+        try:
+            username, sid = self._history_identity()
+            return store.load_page(username, sid, limit=max(1, int(limit))) or []
+        except Exception as e:  # 静默是故意的 - 读不到历史就当没有
+            _x6_swallowed(__name__, e, "load recent messages")
+            return []
+
     def _load_history_page(self):
         """渲染最近一页历史，返回是否还有更早的消息。"""
         store = self._history_store()

@@ -188,6 +188,9 @@ class WorkbenchWindow(CommandCenterMixin, WorkbenchStatusMixin,
         self._wire_editor_status()
         self._install_shortcuts()
         self._setup_command_completer()
+        # 把当前文件/选区送进右侧 AI（Ctrl+Shift+A / 标签页右键）
+        from gui.workbench_context import install as install_ai_context
+        install_ai_context(self)
 
     def _make_activity_bar(self):
         """最左侧 46px 活动栏：图标式导航，不占按钮预算。"""

@@ -66,14 +66,13 @@ class LifecycleMixin:
                     event.acceptProposedAction()
                     return True
             elif event.type() == QEvent.Drop:
-                for url in event.mimeData().urls():
-                    fp = url.toLocalFile()
-                    if fp and os.path.isfile(fp):
-                        self._dropped_file = fp
-                        self.input.setPlaceholderText(
-                            "已选文件: " + os.path.basename(fp) + "，输入内容后发送"
-                        )
-                        break
+                # 拖进来的文件直接接上解析：文档进输入框，图片交给 multimodal
+                try:
+                    from gui.chat_input_ext import attach_paths
+                    attach_paths(self, [
+                        u.toLocalFile() for u in event.mimeData().urls()])
+                except Exception as e:
+                    _x6_swallowed(__name__, e, "drop files into chat")
                 event.acceptProposedAction()
                 return True
         return super().eventFilter(obj, event)

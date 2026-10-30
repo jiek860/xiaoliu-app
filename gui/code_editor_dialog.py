@@ -43,6 +43,10 @@ from gui.code_editor_ai import CodeEditorAIMixin
 from gui.code_editor_runner import CodeEditorRunnerMixin
 from gui.ide_editor_shell import BottomPanel, EditorTabs
 from gui.ide_explorer import ExplorerMenuMixin, GitFileModel
+from gui.workbench_problems import ProblemsHub
+from gui.workbench_test_panel import attach as attach_test_panel
+from gui.explorer_filter import install as install_explorer_filter
+from gui.editor_tab_menu import install as install_tab_menu
 
 
 class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
@@ -154,6 +158,7 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
         hdr.addWidget(make_action_links([("换目录", self._change_root)]))
         tl.addWidget(hdr_host)
         tl.addWidget(self.tree)
+        install_explorer_filter(self, tl, self.tree)
         splitter.addWidget(tree_panel)
 
         # 右：工具条 + 面包屑 + tabs + 输出
@@ -199,9 +204,8 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
         self.tabs.currentChanged.connect(self._update_breadcrumb)
         self.tabs.currentChanged.connect(self._update_cursor)
         self.tabs.currentChanged.connect(self._sync_split_document)
-        # 右键菜单承载 PR 等低频操作（QAction 不占按钮预算）。
-        self.tabs.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.tabs.customContextMenuRequested.connect(self._tabs_menu)
+        # 右键菜单承载 PR / 复制路径等低频操作（QAction 不占按钮预算）。
+        install_tab_menu(self)
         rv.addWidget(self.tabs, stretch=3)
 
         # 底部面板：输出 / 问题 / 终端
@@ -214,6 +218,13 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
         self.bottom.jumpRequested.connect(self._jump_to_line)
         self.bottom.setMaximumHeight(240)
         rv.addWidget(self.bottom, stretch=1)
+        # 问题实时汇总：各标签 problemsChanged -> 250ms 节流 -> 问题页 + 状态栏
+        self.problems_hub = ProblemsHub(self)
+        self.problems_hub.changed.connect(self._on_problems_changed)
+        self._problems_timer = QTimer(self)
+        self._problems_timer.setSingleShot(True)
+        self._problems_timer.timeout.connect(self._on_problems_tick)
+        attach_test_panel(self)   # 底部「测试」页：选测 / 失败定位 / 重跑
         splitter.addWidget(right)
         splitter.setSizes([260, 840])
         self.setCentralWidget(splitter)
@@ -292,6 +303,19 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
         bottom = getattr(self, "bottom", None)
         if bottom is not None:
             bottom.set_problems(items)
+
+    def _on_problems_changed(self):
+        """编辑器报问题变化：节流 250ms，避免每个字符都重排列表。"""
+        if getattr(self, "_problems_timer", None) is None:
+            return
+        if not self._problems_timer.isActive():
+            self._problems_timer.start(250)
+
+    def _on_problems_tick(self):
+        w = self._current_edit()
+        path = getattr(w, "filepath", "") if w is not None else ""
+        self.bottom.set_problems(self.problems_hub.items(path))
+        self._status(self.problems_hub.aggregate_text(path), 4000)
 
     def _jump_to_line(self, line):
         w = self._current_edit()
@@ -383,6 +407,7 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
         idx = self.tabs.addTab(w, "未保存")
         self.tabs.setCurrentIndex(idx)
         w.textChanged.connect(lambda: self._update_tab_title(w))
+        self.problems_hub.register("未保存-%d" % id(w), w)
 
     def _update_tab_title(self, w):
         i = self.tabs.indexOf(w)
@@ -409,6 +434,9 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
                 self._save_w(w)
             elif r == QMessageBox.Cancel:
                 return
+        if hasattr(self, "problems_hub"):
+            self.problems_hub.unregister(
+                getattr(w, "filepath", "") or "未保存-%d" % id(w))
         self.tabs.removeTab(i)
 
     def _current_edit(self):
@@ -434,52 +462,8 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
         w.document().setModified(False)   # 刚打开不算改动，关闭时别弹保存
         i = self.tabs.addTab(w, os.path.basename(path))
         self.tabs.setCurrentIndex(i)
-
-    def _tabs_menu(self, pos):
-        w = self._current_edit()
-        if w is None:
-            return
-        menu = QMenu(self)
-        if w.filepath:
-            act_save = menu.addAction("保存")
-            act_save.triggered.connect(lambda: self._save_w(w))
-            act_pr = menu.addAction("推送到 GitHub 并创建 PR")
-            act_pr.triggered.connect(self._push_pr_current)
-            menu.addSeparator()
-        act_close = menu.addAction("关闭标签页")
-        act_close.triggered.connect(
-            lambda: self._close_tab(self.tabs.currentIndex()))
-        menu.exec_(self.tabs.mapToGlobal(pos))
-
-    def _push_pr_current(self):
-        """把当前文件提交到功能分支并创建 PR（走 api.github.com）。"""
-        w = self._current_edit()
-        path = getattr(w, "filepath", "") if w else ""
-        if not path:
-            QMessageBox.information(self, "PR", "请先保存文件")
-            return
-        root = os.path.abspath(getattr(self.trunk, "base", ".") or ".")
-        rel = os.path.relpath(path, root).replace("\\", "/")
-        try:
-            from core.github_pr import PRFlow
-            from PyQt5.QtWidgets import QApplication
-            QApplication.setOverrideCursor(Qt.WaitCursor)
-            try:
-                r = PRFlow(self.trunk, root).run(
-                    [(rel, w.toPlainText())],
-                    title="chore: 更新 %s" % os.path.basename(path),
-                    body="由小6代码编辑器发起", wait_ci=False)
-            finally:
-                QApplication.restoreOverrideCursor()
-            if r.get("ok"):
-                QMessageBox.information(
-                    self, "已创建 PR",
-                    "%s\n%s" % ((r.get("pr") or {}).get("url", ""),
-                                "分支: " + str(r.get("branch"))))
-            else:
-                QMessageBox.warning(self, "PR 失败", str(r.get("error"))[:500])
-        except Exception as e:  # 静默是故意的 - 失败必须告知用户
-            QMessageBox.warning(self, "PR 失败", str(e)[:500])
+        if hasattr(self, "problems_hub"):
+            self.problems_hub.register(path, w)
 
     def open_path_at(self, path, line=1):
         """打开文件并定位到指定行（diff 预览跳转用）。"""
@@ -510,6 +494,11 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
         view = InlineDiffView(root, patch, on_apply=on_apply,
                               on_undo=on_undo)
         view.jumpRequested.connect(self.open_path_at)
+        # 内联 diff 的"应用/撤销"原来只发信号没人接：接上后自动重载被改文件
+        view.applyRequested.connect(
+            lambda: QTimer.singleShot(0, lambda: self._reload_patch_files(patch)))
+        view.undoRequested.connect(
+            lambda: QTimer.singleShot(0, lambda: self._reload_patch_files(patch)))
         title = "AI 修改预览"
         for i in range(self.tabs.count()):
             old = self.tabs.widget(i)
@@ -551,6 +540,17 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
     def save_file(self):
         w = self._current_edit()
         if w: self._save_w(w)
+
+    def _reload_patch_files(self, patch):
+        """内联 diff 应用/撤销后重载受影响文件（等写盘完成再读）。"""
+        root = getattr(self, "root", None) or os.getcwd()
+        changes = (patch or {}).get("changes") or {}
+        if not isinstance(changes, dict):
+            return
+        for rel in changes:
+            path = rel if os.path.isabs(str(rel)) else os.path.join(root,
+                                                                  str(rel))
+            self.reload_path(path)
 
     def _save_w(self, w):
         path = w.filepath

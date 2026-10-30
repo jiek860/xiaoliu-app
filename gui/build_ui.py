@@ -404,6 +404,17 @@ def _build_composer(win):
                 a.setText("全选")
         menu.exec_(win.input.mapToGlobal(pos))
     win.input.customContextMenuRequested.connect(_input_menu)
+    # 拖文件进输入框 / Ctrl+V 粘贴截图（与 lifecycle_mixin 的 Enter 过滤器并存）
+    try:
+        from gui.chat_input_ext import install as install_input_ext
+        install_input_ext(win)
+    except Exception:  # 静默是故意的 - 扩展装不上不影响聊天
+        pass
+    try:
+        from gui.chat_reply_actions import install as install_chat_actions
+        install_chat_actions(win)
+    except Exception:  # 静默是故意的 - 右键菜单是便利功能
+        pass
     fl.addWidget(win.input)
 
     btn_row = QHBoxLayout()
@@ -428,9 +439,11 @@ def _build_composer(win):
     win.mode_combo.currentIndexChanged.connect(win._on_composer_mode_changed)
     btn_row.addWidget(win.mode_combo)
 
-    win.voice_btn = _small_button("🎙 语音", "语音输入 / 输入切换")
+    win.voice_btn = _small_button("🎙 语音", "点击：录 5 秒；按住：说完松开即发送")
     win.voice_btn.setFixedHeight(30)
     win.voice_btn.clicked.connect(win._voice_btn_clicked)
+    win.voice_btn.pressed.connect(win._voice_pressed)
+    win.voice_btn.released.connect(win._voice_released)
     btn_row.addWidget(win.voice_btn)
 
     win.realtime_btn = _small_button("🎧 实时对话", "实时语音对话")

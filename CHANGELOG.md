@@ -1,5 +1,55 @@
 # 版本变更记录
 
+## v25.4.0 - 2026-10-30
+
+**解冻治理与全量连线（批次 31 · docs/106 M0–M4）**
+（本轮不加新 Feature、不做聊天分屏；只把已有能力接到入口上）
+
+**M0 解冻**
+- `tools/freeze_baseline.json` `active=false`；预算从"现状值"改为上限：
+  core 230→≤236、gui 102→≤111、按钮 60→≤64、测试文件 ≥214。
+- `docs/106` 记录解冻理由、15 个模块白名单、增长纪律与回滚办法。
+
+**M1 诊断与成长**
+- `gui/workbench_problems.py`：`problemsChanged` 真正接上，多标签问题聚合、
+  250ms 节流刷新底部「问题 N」页与状态栏。
+- `gui/workbench_test_panel.py`：底部新增「测试」页 —— 按打开文件反查
+  受影响测试、失败定位双击跳行、只重跑失败；`BottomPanel.add_extra_tab`。
+- `gui/chat_growth_panel.py`：记忆可视化第 4 页「🌱 成长」，复查低分 /
+  生成候选 / 确认 / 撤销 / 标记已解决全部可用；周报为本地抽取式。
+- `InlineDiffView.applyRequested/undoRequested` 接上：应用/撤销后自动重载。
+
+**M2 输入与上下文**
+- `gui/chat_input_ext.py`：拖 PDF/Word/Excel/PPT/MD/HTML 进输入框 →
+  `document_parser.parse` → 文字进输入框；Ctrl+V 粘贴截图存
+  `data/paste_images/`；`upload_file` 统一走这里（修掉 PDF 编码错误）。
+- 按住说话：`voice.listen(stop_event=...)`，松开即停（最长 20s）；
+  `modules_repo` 重建并重新签名。
+- `gui/workbench_context.py` + `core/chat/workspace_context.py`：
+  工作台当前文件/选区（`文件:行`）一键送进 AI（Ctrl+Shift+A / 标签右键）。
+
+**M3 聊天会话**
+- `core/chat/referent.py`：发送前把「它 / 这个 / 继续」补成上一轮话题，
+  聊天区显示「🔎 已把…」提示。
+- `core/chat/topic_index.py` + `gui/chat_timeline.py`：话题时间线
+  （Ctrl+K 搜「聊天话题时间线」），双击跳回原消息，可过滤。
+- `gui/chat_reply_actions.py`：聊天右键复制上一条 / 重发 / 编辑 /
+  继续这个话题 / 话题时间线。
+
+**M4 工作台增强**
+- `gui/explorer_filter.py`：资源管理器顶部筛选框（`setNameFilters`）。
+- `gui/editor_tab_menu.py`：标签右键新增「发送到 AI（含选区）」
+  「插入函数调用模板」；原来 599 行的 `code_editor_dialog.py` 仍为 599 行。
+- `core/code/run_parse.py` + `error_hints.py`：运行结束先给结论
+  （📌 异常 + 位置）与可执行提示（💡 缺包/端口/权限等）。
+- `core/code/signature.py`：光标在函数体内时生成 `foo(a=a, b=b)` 调用模板。
+
+**验证**
+- 17 个相关测试文件 `203 passed`；新增 15 个测试文件。
+- `check_file_sizes` / `check_buttons`（60/60）/ `check_threads` /
+  `check_silent`（0）/ `check_repo_sync` 全绿。
+- 文档同步：`使用说明-小白版.txt` 与程序内教程（`gui/tutorial_dialog.py`）。
+
 ## v25.3.0 - 2026-10-29
 
 **反思、成长、主动与发布（批次 48–49）**

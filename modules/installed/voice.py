@@ -153,7 +153,13 @@ class Voice(BaseModule):
         self._last_use = time.time()
         return {"ok": True, "text": text}
 
-    def listen(self, seconds=5, sample_rate=16000):
+    def listen(self, seconds=5, sample_rate=16000, stop_event=None):
+        """录一段音并识别。
+
+        ``stop_event`` 供「按住说话」用：GUI 松开按钮时 set 它，循环在每个
+        1024 帧的边界检查一次，最多晚一个 buffer（约 64ms）就停，不必等满
+        ``seconds``。不传就保持原来的固定时长行为。
+        """
         try:
             import pyaudio
         except: return {"ok": False, "error": "缺少pyaudio"}
@@ -162,9 +168,13 @@ class Voice(BaseModule):
             stream = p.open(format=pyaudio.paInt16, channels=1, rate=sample_rate, input=True, frames_per_buffer=1024)
             frames = []
             for _ in range(int(sample_rate/1024*seconds)):
+                if stop_event is not None and stop_event.is_set():
+                    break
                 frames.append(stream.read(1024, exception_on_overflow=False))
             stream.stop_stream(); stream.close()
             sampwidth = p.get_sample_size(pyaudio.paInt16); p.terminate()
+            if not frames:
+                return {"ok": False, "error": "没有录到声音"}
             # v2.1: 临时产物必须落在 data/plugin_data/<插件名>/ 内（manifest 插件名为 stt）
             tmp = os.path.join(self.base, "data", "plugin_data", "stt", "_listen_tmp.wav")
             os.makedirs(os.path.dirname(tmp), exist_ok=True)

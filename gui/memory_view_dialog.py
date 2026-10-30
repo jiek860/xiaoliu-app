@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLab
 from PyQt5.QtCore import Qt
 
 from gui.feedback_states import make_action_links
+from gui.chat_growth_panel import GrowthPanel
 
 
 def load_cards(path):
@@ -170,6 +171,9 @@ class MemoryViewDialog(QDialog):
         self.search_result = QTextBrowser()
         l3.addWidget(self.search_result)
         tabs.addTab(tab3, "🔍 搜索")
+
+        self.growth = GrowthPanel(self.trunk, self)
+        tabs.addTab(self.growth, "🌱 成长")
 
         layout.addWidget(tabs)
 

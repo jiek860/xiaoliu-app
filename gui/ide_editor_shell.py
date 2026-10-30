@@ -287,6 +287,12 @@ class BottomPanel(TerminalMixin, QWidget):
             return ""
 
     # ---------------------------------------------------- 对外
+    def add_extra_tab(self, title, widget):
+        """挂一个额外页（如「测试」）：页签和内容区同步追加。"""
+        self.bar.addTab(str(title))
+        self.stack.addWidget(widget)
+        return self.bar.count() - 1
+
     def select(self, index):
         if 0 <= index < self.bar.count():
             self.bar.setCurrentIndex(index)

@@ -24,6 +24,17 @@ class ChatMixin:
                 _x6_swallowed(__name__, e, "best-effort fallback")
             return
 
+        # 指代消解：「它 / 这个 / 继续」补全成上一轮话题，模型不用猜
+        try:
+            from core.chat import referent
+            ref = referent.resolve(text, self._recent_messages(8))
+            if ref.get("changed"):
+                text = ref["text"]
+                self.chat.append_system("🔎 " + ref.get("note", ""))
+        except Exception as e:  # 静默是故意的 - 消解失败就用原话
+            _x6_swallowed(__name__, e, "resolve referent")
+        self._last_user_text = text
+
         # 48.3：用户回话 -> 若 30 分钟内回过主动搭话，记为接受
         try:
             pers = self.trunk.modules.get("personality")
@@ -279,6 +290,7 @@ class ChatMixin:
             # 而且重新生成时还得先删掉这条假回复。
             if not self._reply_failed(a):
                 self.account.save_line("a", a)
+                self._last_reply_text = str(a)
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
         

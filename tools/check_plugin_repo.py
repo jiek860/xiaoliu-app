@@ -69,7 +69,12 @@ def main():
             errors.append("signature mismatch: " + name)
             continue
         installed = os.path.join(INSTALLED, name)
-        if os.path.isfile(installed) and open(installed, "rb").read() != raw:
+        # 仓库强制 LF（.gitattributes "* -text"），Windows 工作区的
+        # modules/installed 常被检出成 CRLF；内容比对忽略换行差异，
+        # sha256/签名仍按仓库原始字节校验。
+        if os.path.isfile(installed) and \
+                open(installed, "rb").read().replace(b"\r\n", b"\n") != \
+                raw.replace(b"\r\n", b"\n"):
             errors.append("differs from modules/installed: " + name)
     for name in os.listdir(REPO):
         if name.endswith(".py") and name not in expected:
