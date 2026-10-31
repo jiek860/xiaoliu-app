@@ -165,19 +165,42 @@ class TaskRuntime(TaskRecoveryMixin):
         th.start()
         return th
 
-    def create(self, goal, *, mode="agent"):
+    def create(self, goal, *, mode="agent", depends_on=None, template=None,
+               schedule=None):
         tid = "task_" + time.strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
         task = {"id": tid, "goal": str(goal or "").strip(), "mode": mode,
                 "status": "pending", "created_at": time.time(),
                 "updated_at": time.time(), "trace_id": "trace_" + tid,
                 "budget": {"max_steps": 8, "max_seconds": 300,
                            "max_tokens": 20000},
+                # 功能深化二期 B1：任务级依赖/模板/定时（步骤内依赖仍在 steps[].deps）
+                "depends_on": [str(d) for d in (depends_on or [])],
+                "template": str(template or ""),
+                "schedule": schedule or {},
                 "steps": [], "checkpoint": {}, "final": "", "error": ""}
         with self._lock:
             self._tasks[tid] = task
         self._save(task)
         self._emit(task, "created")
         return task
+
+    def can_start(self, task_id):
+        """任务级依赖检查：depends_on 里的任务必须都已 completed。
+
+        返回 (ok, reason)。步骤级依赖由 ``_run`` 里的 steps[].deps 处理，
+        这里只管"跨任务"的前置编排。
+        """
+        task = self.get_task(task_id)
+        if not task:
+            return False, "任务不存在"
+        for dep in task.get("depends_on") or []:
+            t = self.get_task(dep)
+            if not t:
+                return False, "前置任务不存在: %s" % dep
+            if t.get("status") != "completed":
+                return False, "等待前置任务 %s（当前 %s）" % (
+                    dep, t.get("status"))
+        return True, None
 
     def plan(self, task_id):
         task = self.get_task(task_id)
@@ -449,6 +472,10 @@ class TaskRuntime(TaskRecoveryMixin):
             task = self.plan(task_id)
         if task.get("status") in ("running", "planning"):
             return {"ok": False, "错误": "任务已在运行"}
+        # B1：任务级依赖未满足则不启动，返回可执行原因
+        ok, why = self.can_start(task_id)
+        if not ok:
+            return {"ok": False, "错误": why}
         with self._lock:
             old = self._threads.get(task_id)
             if old is not None and old.is_alive():
