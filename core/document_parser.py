@@ -11,7 +11,24 @@ def _clean(text):
     return text.strip()
 
 
-def parse(path):
+def _cloud_ocr(trunk, path):
+    """用模块里的云端多模态 OCR 兜底，返回 {text} 或 {error}。"""
+    if trunk is None:
+        return {"error": "没有可用的云 OCR（未传入躯干）"}
+    try:
+        mod = (getattr(trunk, "modules", {}) or {}).get("image_ocr")
+        if mod is None:
+            return {"error": "云 OCR 模块未加载"}
+        r = mod.recognize(path) or {}
+        text = str(r.get("文字") or r.get("text") or "").strip()
+        if text:
+            return {"text": text}
+        return {"error": str(r.get("错误") or r.get("error") or "云 OCR 没返回文字")[:120]}
+    except Exception as e:
+        return {"error": "云 OCR 失败: " + str(e)[:100]}
+
+
+def parse(path, trunk=None):
     path = os.path.abspath(str(path or ""))
     if not os.path.isfile(path):
         return {"ok": False, "error": "文件不存在", "path": path}
@@ -60,16 +77,32 @@ def parse(path):
                         rows.append(" | ".join(vals))
             text = "\n".join(rows)
         elif ext in (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"):
+            # 本地 OCR 优先（离线、免费）；本地缺依赖或没认出字，
+            # 再用模块里的云端多模态 OCR 兜底（modules/installed/image_ocr）。
+            local_err = ""
             try:
                 from PIL import Image
                 import pytesseract
             except ImportError:
-                return {"ok": False,
-                        "error": "图片 OCR 需要 Pillow + pytesseract（并安装 Tesseract）",
-                        "path": path}
-            img = Image.open(path)
-            text = pytesseract.image_to_string(img, lang="chi_sim+eng")
-            meta["ocr"] = True
+                local_err = "本地 OCR 需要 Pillow + pytesseract（并安装 Tesseract）"
+            else:
+                try:
+                    img = Image.open(path)
+                    text = pytesseract.image_to_string(img, lang="chi_sim+eng")
+                    meta["ocr"] = "local"
+                except Exception as e:
+                    local_err = "本地 OCR 失败: " + str(e)[:80]
+            if not _clean(text):
+                cloud = _cloud_ocr(trunk, path)
+                if cloud.get("text"):
+                    text = cloud["text"]
+                    meta["ocr"] = "cloud"
+                else:
+                    reason = cloud.get("error") or local_err or "图片里没有文字"
+                    return {"ok": False, "path": path, "skipped": True,
+                            "error": "图片没识别出文字（%s）。可在「设置 → 依赖」"
+                                     "装本地 OCR，或配置云端模型后用云 OCR。"
+                                     % reason}
         elif ext == ".pptx":
             from pptx import Presentation
             prs = Presentation(path)
@@ -90,6 +123,11 @@ def parse(path):
         return {"ok": False, "error": "解析失败: " + str(e)[:120],
                 "path": path}
     text = _clean(text)
+    if not text:
+        # 扫描件 PDF / 空表格里常见：以前返回 ok=True + 空文本，
+        # 附件入口只会显示"没有可提取的文字"，用户不知道该怎么办。
+        return {"ok": False, "path": path, "skipped": True,
+                "error": "文件里没有可提取的文字（扫描件可先转成图片走 OCR）"}
     return {"ok": True, "path": path, "text": text,
             "chars": len(text), "metadata": meta}
 

@@ -49,6 +49,12 @@ def _card(facts, t=9e9):
     return json.dumps({"facts": facts, "time": t}, ensure_ascii=False)
 
 
+def _pref_card(text, t):
+    """v2 偏好卡（当前写入侧真正产出的 schema）。"""
+    return json.dumps({"type": "preference", "text": text, "time": t},
+                      ensure_ascii=False)
+
+
 def test_bad_lines_are_preserved_not_deleted():
     """解析不了的行必须原样留着 —— 这是本文件的核心断言"""
     tmp = tempfile.mkdtemp(prefix="x6mem_")
@@ -134,3 +140,55 @@ def test_check_conflicts_does_not_write():
     org.check_conflicts()
     assert open(p, encoding="utf-8").read() == before, \
         "check_conflicts 改了文件（它应该是只读的）"
+
+
+def test_conflicts_carry_line_numbers_and_newer_line():
+    """批次 O2：冲突项要带行号与新旧，记忆页才能让用户选保留哪条"""
+    tmp = tempfile.mkdtemp(prefix="x6mem_")
+    org, _p = _mk(tmp, [
+        _pref_card("我喜欢短句", t=1),
+        _pref_card("我讨厌短句", t=2),
+    ])
+    r = org.check_conflicts()
+    assert r["冲突数"] == 1, r
+    c = r["冲突"][0]
+    assert c["line1"] == 1 and c["line2"] == 2
+    assert c["newer_line"] == 2 and c["older_line"] == 1
+
+
+def test_resolve_conflict_drops_only_chosen_line():
+    """保留较新：只删较早那条，坏行和其他记忆原样留着"""
+    tmp = tempfile.mkdtemp(prefix="x6mem_")
+    org, p = _mk(tmp, [
+        _pref_card("我喜欢短句", t=1),
+        "坏行",
+        _pref_card("我讨厌短句", t=2),
+    ])
+    conflict = org.check_conflicts()["冲突"][0]
+    result = org.resolve_conflict(conflict, keep="new")
+    assert result["ok"] is True
+    assert result["删除"] == 1
+    lines = open(p, encoding="utf-8").read().splitlines()
+    assert "坏行" in lines
+    assert any("我讨厌短句" in ln for ln in lines)
+    assert not any("我喜欢短句" in ln for ln in lines)
+    assert not os.path.exists(p + ".tmp")
+
+
+def test_resolve_conflict_refuses_when_line_changed():
+    """写前要核对行内容；用户在别处改过这条就拒绝，避免误删别的记忆"""
+    tmp = tempfile.mkdtemp(prefix="x6mem_")
+    org, p = _mk(tmp, [
+        _pref_card("我喜欢短句", t=1),
+        _pref_card("我讨厌短句", t=2),
+    ])
+    conflict = org.check_conflicts()["冲突"][0]
+    lines = open(p, encoding="utf-8").read().splitlines()
+    lines[conflict["older_line"] - 1] = _pref_card("我喜欢长句", t=1)
+    with open(p, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    before = open(p, encoding="utf-8").read()
+    result = org.resolve_conflict(conflict, keep="new")
+    assert result["ok"] is False
+    assert "变了" in result["error"]
+    assert open(p, encoding="utf-8").read() == before

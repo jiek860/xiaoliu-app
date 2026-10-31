@@ -160,8 +160,9 @@ class UpdateDialog(QDialog):
         self.log_browser.setPlainText("点击「检查更新」查看新版本")
         layout.addWidget(self.log_browser, stretch=2)
 
-        # 更新历史
-        layout.addWidget(QLabel("更新历史（选中一条可回滚到那次更新之前）:"))
+        # 更新历史（回滚前会自动备份当前版本，回滚本身也能再退回去）
+        layout.addWidget(QLabel(
+            "更新历史（选中一条可回滚到那次更新之前；回滚前会自动备份当前版本）:"))
         self.history_list = QListWidget()
         self.history_list.setStyleSheet("font-size:12px;")
         layout.addWidget(self.history_list, stretch=1)
@@ -191,10 +192,14 @@ class UpdateDialog(QDialog):
             self._entries.append(h)
             bk = str(h.get("backup") or "")
             can_rb = bool(bk and os.path.isdir(bk))
+            skipped = int(h.get("skipped") or 0)
+            files_txt = "%d个文件" % int(h.get("files", 0) or 0)
+            if skipped:
+                files_txt += "（增量跳过%d）" % skipped
             item = QListWidgetItem(
-                "%s  %s → %s  (%d个文件)  %s" % (
+                "%s  %s → %s  (%s)  %s" % (
                     h.get("time", ""), h.get("from", ""), h.get("to", ""),
-                    h.get("files", 0),
+                    files_txt,
                     "可回滚" if can_rb else ("备份已清理" if bk else "无备份记录")
                 )
             )
@@ -292,10 +297,20 @@ class UpdateDialog(QDialog):
         self.btn_check.setEnabled(True)
         self.btn_update.setEnabled(True)
         if r.get("ok"):
+            skipped = int(r.get("跳过") or 0)
             self.log_browser.setPlainText(
-                "✅ 更新完成：%d 个文件\n备份目录: %s\n\n请重启程序以完全生效。\n"
+                "✅ 更新完成：%d 个文件%s\n备份目录: %s\n\n请重启程序以完全生效。\n"
                 "如果新版本有问题，在下方「更新历史」选中这一条，点「回滚」。"
-                % (r.get("更新数", 0), r.get("备份", "")))
+                "（回滚前会先备份当前版本，回滚错了还能再退回。）"
+                % (r.get("更新数", 0),
+                   ("（增量跳过 %d 个未变化文件）" % skipped) if skipped else "",
+                   r.get("备份", "")))
+            try:
+                self.lbl_ver.setText(
+                    "已更新到 v%s（重启后生效）；上一次版本可回滚"
+                    % str(r.get("版本", "")).lstrip("vV"))
+            except Exception as e:
+                _x6_swallowed(__name__, e, "update version label")
             self.btn_update.setVisible(False)
             self._load_history()
         else:
@@ -345,13 +360,28 @@ class UpdateDialog(QDialog):
     def _on_rollback_done(self, ok):
         self.btn_check.setEnabled(True)
         self.btn_update.setEnabled(True)
+        pre = ""
+        try:
+            updater = self._get_updater()
+            pre = str(getattr(updater, "last_rollback_backup", "") or "")
+        except Exception as e:
+            _x6_swallowed(__name__, e, "read last_rollback_backup")
         if ok:
-            self.log_browser.setPlainText(
-                "✅ 已回滚到所选更新之前。\n请重启程序让旧代码生效。")
+            text = "✅ 已回滚到所选更新之前。\n请重启程序让旧代码生效。"
+            if pre:
+                text += ("\n\n回滚前的状态已备份到：\n%s\n"
+                         "（万一回滚错了，可以再拿它恢复。）" % pre)
+            self.log_browser.setPlainText(text)
+            try:
+                self.lbl_ver.setText("已回滚（重启后生效）")
+            except Exception as e:
+                _x6_swallowed(__name__, e, "rollback version label")
         else:
-            self.log_browser.setPlainText(
-                "❌ 回滚失败：备份目录读不了或拷贝出错。\n"
-                "详情见 data/logs/app.log，必要时用 backups/ 目录里的备份手动还原。")
+            text = ("❌ 回滚失败：备份目录读不了、文件拷不进去，或恢复后的 .py 校验没通过。\n"
+                    "详情见 data/logs/app.log，必要时用 backups/ 目录里的备份手动还原。")
+            if pre:
+                text += "\n当前状态已先备份到：%s" % pre
+            self.log_browser.setPlainText(text)
         self._load_history()
 
     def run(self):

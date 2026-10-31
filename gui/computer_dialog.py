@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-"""电脑控制窗口 v3.0 - 标签页卡片式（仿设置窗口）"""
+"""电脑控制（手动）v3.0 - 标签页卡片式（仿设置窗口）
+
+拆成两个入口：
+* build_manual_control_tabs() —— 把「手动控制」四个标签页做成一个 QTabWidget，
+  供独立窗口（show_computer_dialog）和「电脑 Agent」里的子页复用。
+* show_computer_dialog() —— 独立窗口版（历史兼容入口，M4 后不再是注册表主入口）。
+"""
 import os
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QCheckBox, QMessageBox, QListWidget, QTextBrowser, QGroupBox, QTabWidget, QWidget
 
@@ -69,22 +75,30 @@ QTabBar::tab:selected {
 """
 
 
-def show_computer_dialog(parent, dlg, trunk, chat, set_dialog, kb_dialog):
-    """电脑控制窗口 - 标签页卡片式
-
-    控件预算：整窗只留「打开」这一个主按钮，其余（快捷应用、窗口操作、
-    系统操作、刷新日志）全部改成动作链接 —— 点一下照样执行，数量不再占控件位。
-    """
-    d, l = dlg("电脑控制", w=680, h=680)
-    d.setStyleSheet(BTN_STYLE + GROUP_STYLE + TAB_STYLE)
+def build_manual_control_tabs(trunk, chat=None, parent=None):
+    """构建「手动控制」四个标签页，返回 QTabWidget（复用给独立窗口 / 电脑 Agent 子页）。"""
     cc = trunk._load_lazy("computer_controller")
+    tabs = QTabWidget()
+    if parent is not None:
+        tabs.setParent(parent)
+
+    def _msg(title, text):
+        QMessageBox.information(parent or tabs, title, str(text))
+
+    def _warn(title, text):
+        QMessageBox.warning(parent or tabs, title, str(text))
+
+    def _push(text):
+        # 嵌进电脑 Agent 子页时没有 chat，静默丢弃（动作结果由弹窗反馈）。
+        if chat is not None:
+            chat.append(text)
 
     def _run(label, method, *args):
         """统一跑一个电脑操作，并把结果说人话（原来两处重复实现）"""
         try:
             r = trunk.call("computer_controller", method, *args)
         except Exception as e:
-            QMessageBox.warning(d, label, "执行失败: " + str(e)[:80])
+            _warn(label, "执行失败: " + str(e)[:80])
             return
         if isinstance(r, tuple):
             ok, txt = r
@@ -92,11 +106,7 @@ def show_computer_dialog(parent, dlg, trunk, chat, set_dialog, kb_dialog):
             ok, txt = True, "\n".join("%s: %s" % (k, v) for k, v in r.items())
         else:
             ok, txt = True, str(r)
-        QMessageBox.information(d, label, ("✅ " if ok else "❌ ") + str(txt))
-
-
-    # 标签页
-    tabs = QTabWidget()
+        _msg(label, ("✅ " if ok else "❌ ") + str(txt))
 
     # ===== 标签1: 状态与应用 =====
     tab1 = QWidget()
@@ -126,11 +136,11 @@ def show_computer_dialog(parent, dlg, trunk, chat, set_dialog, kb_dialog):
     def _open_app():
         name = app_input.text().strip()
         if not name:
-            QMessageBox.information(d, "提示", "先输入应用名")
+            _msg("提示", "先输入应用名")
             return
         r = trunk.call("computer_controller", "open_app", name)
         txt = r[1] if isinstance(r, tuple) else str(r)
-        QMessageBox.information(d, "启动应用", txt)
+        _msg("启动应用", txt)
     app_input.returnPressed.connect(_open_app)
     # 「打开」是唯一高频动作，但回车即可触发 → 用链接表达，整窗不再有常驻按钮
     l2.addWidget(make_action_links([("打开", _open_app)]))
@@ -149,10 +159,10 @@ def show_computer_dialog(parent, dlg, trunk, chat, set_dialog, kb_dialog):
             try:
                 r = trunk.call("computer_controller", "open_app", n)
             except Exception as e:
-                chat.append("🖥️ 启动失败: " + str(e)[:60])
+                _push("🖥️ 启动失败: " + str(e)[:60])
                 return
             txt = r[1] if isinstance(r, tuple) else str(r)
-            chat.append("🖥️ " + txt)
+            _push("🖥️ " + txt)
         return _go
 
     l2.addWidget(make_action_links(
@@ -183,11 +193,11 @@ def show_computer_dialog(parent, dlg, trunk, chat, set_dialog, kb_dialog):
         def _go():
             item = win_list.currentItem()
             if not item:
-                QMessageBox.information(d, "提示", "先在列表里选一个窗口")
+                _msg("提示", "先在列表里选一个窗口")
                 return
             r = trunk.call("computer_controller", method, item.text())
             txt = r[1] if isinstance(r, tuple) else str(r)
-            chat.append("🖥️ " + txt)
+            _push("🖥️ " + txt)
             _refresh_wins()
         return _go
     win_row = QHBoxLayout()
@@ -252,7 +262,17 @@ def show_computer_dialog(parent, dlg, trunk, chat, set_dialog, kb_dialog):
     l6.addWidget(box6)
     tabs.addTab(tab4, "📜 操作日志")
 
-    l.addWidget(tabs)
+    return tabs
 
+
+def show_computer_dialog(parent, dlg, trunk, chat, set_dialog, kb_dialog):
+    """电脑控制（手动）独立窗口 - 标签页卡片式
+
+    控件预算：整窗只留「打开」这一个主按钮，其余（快捷应用、窗口操作、
+    系统操作、刷新日志）全部改成动作链接 —— 点一下照样执行，数量不再占控件位。
+    """
+    d, l = dlg("电脑控制", w=680, h=680)
+    d.setStyleSheet(BTN_STYLE + GROUP_STYLE + TAB_STYLE)
+    l.addWidget(build_manual_control_tabs(trunk, chat, parent=d))
     d.show()
     return d

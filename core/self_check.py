@@ -20,6 +20,10 @@ import json
 import time
 from datetime import datetime
 
+# O5：首配/重配的真探测搬到 core/model_probe.py（本文件已到 600 行上限）。
+# 这里保留同名导出：core.self_check.probe_model_config 的老调用与测试打桩照旧可用。
+from core.model_probe import probe_model_config  # noqa: F401
+
 
 def warmup_ollama(trunk):
     """后台预热Ollama"""

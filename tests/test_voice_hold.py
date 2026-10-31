@@ -95,3 +95,16 @@ def test_pressed_while_recording_is_ignored():
     w._voice_recording = True
     w._voice_pressed()
     assert w.speech.calls == []
+
+
+def test_partial_preview_then_final_replaces_it():
+    """流式中间结果只做预览；最终结果以最后识别为准，不重复追加。"""
+    w = _Win()
+    w.input.setPlainText("前缀")
+    w._voice_recording = True
+    w._voice_base_text = "前缀"
+    w._on_voice_partial("你好")
+    assert w.input.toPlainText() == "前缀 你好"
+    w._on_voice_done("你好世界", "")
+    assert w.input.toPlainText() == "前缀 你好世界"
+    assert w._voice_base_text is None

@@ -13,11 +13,33 @@ except ImportError:
 
 class AgentLauncherMixin:
     def computer_agent_dialog(self):
-        """电脑 Agent 已并入工作台 AI 面板。
+        """独立「电脑 Agent」入口：跨应用计划 -> 确认 -> 执行/验证。
 
-        AgentOrchestrator 会根据目标自动路由到代码/电脑动作，不再单独开窗。
+        内置「🖥️ 手动控制」子页（原「电脑控制」独立窗口并入），
+        单实例复用：连点只把已有窗口前置，不叠窗。
         """
-        return self.open_workbench()
+        try:
+            from gui.computer_agent_dialog import ComputerAgentDialog
+
+            def _open():
+                return ComputerAgentDialog(
+                    self.trunk, self, chat=getattr(self, "chat", None))
+
+            # 主窗口走统一的非模态单例；单独使用本 Mixin 时退回对象缓存，
+            # 两条路径都保证连点不叠窗。
+            if hasattr(self, "_singleton_window"):
+                return self._singleton_window("computer_agent", _open)
+            d = getattr(self, "_computer_agent", None)
+            if d is None:
+                d = _open()
+                self._computer_agent = d
+            d.show()
+            d.raise_()
+            d.activateWindow()
+            return d
+        except Exception as e:
+            QMessageBox.warning(self, "电脑 Agent", "打不开：" + str(e)[:120])
+            return None
 
     def agent_journey_dialog(self, goal=None):
         """统一 Agent 入口：一个输入框自动路由到代码/电脑/对话。"""

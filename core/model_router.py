@@ -114,15 +114,32 @@ def route_model(*, local_model, cloud_model="", provider="", requirements=None,
         fallback.append(local_model)
     if chosen == local_model and cloud_model:
         fallback.append(cloud_model)
+    is_local = chosen == local_model
     return {
         "model": chosen,
-        "provider": "ollama" if chosen == local_model else cloud_provider,
+        "provider": "ollama" if is_local else cloud_provider,
         "reason": why,
         "fallback_reason": reason,
         "fallback_chain": fallback,
         "capabilities": caps,
         "strategy": route_strategy(chosen),
+        # 成本 / 延迟提示：路由结果要能直接说给用户听（设置页、状态灯都读这里）
+        "local": is_local,
+        "cost_hint": "本地免费" if is_local else "云端按量计费",
+        "latency_hint": ("本地常驻，首字通常 1 秒内" if is_local
+                         else "走网络，首字通常 1~3 秒"),
     }
+
+
+def route_lines(route, label=""):
+    """把一次路由结果压成一行可读提示（GUI 不重复拼文案）。"""
+    route = route or {}
+    text = "%s%s（%s，%s）" % (
+        (label + " → ") if label else "",
+        route.get("model") or "?",
+        route.get("cost_hint") or "",
+        route.get("latency_hint") or "")
+    return text
 
 
 def capability_report(provider, model, overrides=None):

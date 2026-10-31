@@ -7,6 +7,7 @@ except ImportError:
         return None
 
 import os, json, time, hashlib
+from html import escape
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QListWidgetItem, QTextBrowser, QLineEdit, QTabWidget, QWidget, QMessageBox, QInputDialog, QMenu
 from PyQt5.QtCore import Qt
 
@@ -139,6 +140,7 @@ class MemoryViewDialog(QDialog):
 
         # 标签页
         tabs = QTabWidget()
+        self.tabs = tabs
 
         # Tab1: 时间线
         tab1 = QWidget()
@@ -149,7 +151,16 @@ class MemoryViewDialog(QDialog):
         l1.addWidget(self.timeline)
         tabs.addTab(tab1, "📅 时间线")
 
-        # Tab2: 知识图谱
+        # Tab2: 待确认（冲突记忆，批次 O2）
+        self.conflict_tab = QWidget()
+        lc = QVBoxLayout(self.conflict_tab)
+        self.conflict_tb = QTextBrowser()
+        self.conflict_tb.setOpenLinks(False)
+        self.conflict_tb.anchorClicked.connect(self._on_conflict_link)
+        lc.addWidget(self.conflict_tb)
+        tabs.addTab(self.conflict_tab, "⚠️ 待确认")
+
+        # Tab3: 知识图谱
         tab2 = QWidget()
         l2 = QVBoxLayout(tab2)
         self.graph_tb = QTextBrowser()
@@ -157,7 +168,7 @@ class MemoryViewDialog(QDialog):
         l2.addWidget(self.graph_tb)
         tabs.addTab(tab2, "🕸️ 知识图谱")
 
-        # Tab3: 搜索
+        # Tab4: 搜索
         tab3 = QWidget()
         l3 = QVBoxLayout(tab3)
         row = QHBoxLayout()
@@ -177,15 +188,115 @@ class MemoryViewDialog(QDialog):
 
         layout.addWidget(tabs)
 
-        # 底部：只留「搜索」一个按钮，导出/关闭走链接（按钮预算只许降）
+        # 底部：只留「搜索」一个按钮，冲突/整理/导出/关闭走链接（按钮预算只许降）
         row = QHBoxLayout()
         row.addWidget(make_action_links([
+            ("检查冲突", self._show_conflicts),
+            ("整理记忆", self._organize),
             ("导出记忆", self._export),
             ("关闭", self.accept),
         ]))
         row.addStretch(1)
         row.addWidget(QLabel("Esc 关闭"))
         layout.addLayout(row)
+
+    def _organizer(self):
+        from core.memory_organizer import MemoryOrganizer
+        return MemoryOrganizer(self.trunk)
+
+    def _show_conflicts(self):
+        self._refresh_conflicts()
+        self.tabs.setCurrentWidget(self.conflict_tab)
+
+    def _refresh_conflicts(self):
+        """检测冲突并渲染「保留较新 / 保留较早」链接（不弹窗、不改文件）。"""
+        try:
+            result = self._organizer().check_conflicts() or {}
+        except Exception as e:
+            _x6_swallowed(__name__, e, "check_conflicts")
+            result = {"冲突数": 0,
+                      "错误": "检查冲突失败：%s" % str(e)[:60]}
+        self._conflicts = list(result.get("冲突") or [])
+        total = int(result.get("冲突数") or len(self._conflicts))
+        self.tabs.setTabText(self.tabs.indexOf(self.conflict_tab),
+                            "⚠️ 待确认（%d）" % total)
+        blocks = []
+        if not self._conflicts:
+            blocks.append("<p>没有需要确认的冲突。</p>"
+                          "<p>30 天前的记忆会自动归档到 data/archive，"
+                          "不会直接删掉。</p>")
+        else:
+            blocks.append("<p>同一件事记了两条不同结论。"
+                          "选一条保留，另一条会从记忆里删掉：</p>")
+        for index, conflict in enumerate(self._conflicts):
+            blocks.append(
+                "<p><b>%d.</b> %s<br>%s<br>"
+                "<a href=\"x6keep:%d:new\">保留较新</a> ｜ "
+                "<a href=\"x6keep:%d:old\">保留较早</a></p>"
+                % (index + 1, escape(str(conflict.get("fact1") or "")),
+                   escape(str(conflict.get("fact2") or "")), index, index))
+        if result.get("说明"):
+            blocks.append("<p>%s</p>" % escape(str(result["说明"])))
+        if result.get("错误"):
+            blocks.append("<p>%s</p>" % escape(str(result["错误"])))
+        self.conflict_tb.setHtml("".join(blocks))
+
+    def _on_conflict_link(self, url):
+        text = url.toString() if hasattr(url, "toString") else str(url)
+        if not text.startswith("x6keep:"):
+            return
+        try:
+            _tag, index, keep = text.split(":")
+            index = int(index)
+        except (TypeError, ValueError):
+            return
+        self._resolve_conflict(index, keep)
+
+    def _resolve_conflict(self, index, keep):
+        try:
+            conflict = self._conflicts[index]
+        except (IndexError, TypeError):
+            return
+        drop_line = conflict.get(
+            "older_line" if keep == "new" else "newer_line")
+        drop_fact = (conflict.get("fact1")
+                     if drop_line == conflict.get("line1")
+                     else conflict.get("fact2"))
+        label = "较早" if keep == "new" else "较新"
+        if QMessageBox.question(
+                self, "确认消解冲突",
+                "删除这条%s的记忆？\n\n%s" % (label, drop_fact),
+                QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        result = self._organizer().resolve_conflict(conflict, keep=keep)
+        if result.get("ok"):
+            self._refresh()
+            QMessageBox.information(self, "已处理", "冲突已消解，记忆列表已刷新。")
+        else:
+            QMessageBox.warning(
+                self, "没处理成", str(result.get("error") or "未知原因"))
+            self._refresh_conflicts()
+
+    def _organize(self):
+        """整理记忆：合并相似卡 + 归档 30 天前的（先确认再动文件）。"""
+        if QMessageBox.question(
+                self, "整理记忆",
+                "会合并相似记忆，并把 30 天前的移到 data/archive"
+                "（不会直接删除）。继续？",
+                QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        result = self._organizer().auto_organize() or {}
+        if result.get("状态"):
+            message = str(result["状态"])
+        else:
+            message = ("原始 %s · 保留 %s · 合并 %s · 归档 %s"
+                       % (result.get("原始", 0), result.get("保留", 0),
+                          result.get("合并", 0), result.get("归档", 0)))
+            if result.get("无法解析"):
+                message += ("\n有 %s 行没法解析，已原样保留。"
+                            % result["无法解析"])
+        QMessageBox.information(self, "整理完成", message)
+        self._refresh()
 
     def _load_cards(self):
         return load_cards(self.memory_path)
@@ -216,6 +327,7 @@ class MemoryViewDialog(QDialog):
             if text:
                 lines.append("• " + text)
         self.graph_tb.setPlainText("\n".join(lines[-100:]) if lines else "暂无记忆数据")
+        self._refresh_conflicts()
 
     def _context_menu(self, pos):
         menu = QMenu(self)

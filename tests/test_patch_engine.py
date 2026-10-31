@@ -217,3 +217,78 @@ def test_unified_diff_contains_change(tmp_path):
 def test_rollback_rejects_unreadable_manifest(tmp_path):
     with pytest.raises(PatchError):
         rollback(str(tmp_path / "nope.json"))
+
+
+# ---------------- 批次 O3：多文件重构按文件分组应用 ----------------
+def _two_file_patch():
+    return {"goal": "跨文件重构", "files": [
+        {"op": "update", "path": "a.py",
+         "hunks": [{"old": "x = 1", "new": "x = 2"}]},
+        {"op": "create", "path": "b.py", "content": "def helper():\n    return 1\n"},
+    ]}
+
+
+def test_group_by_file_keeps_order_and_filters(tmp_path):
+    from core.patch_engine import group_by_file
+
+    patch = _two_file_patch()
+    assert [rel for rel, _ in group_by_file(patch)] == ["a.py", "b.py"]
+    only = group_by_file(patch, selected_files=["b.py"])
+    assert [rel for rel, _ in only] == ["b.py"]
+    assert only[0][1]["files"][0]["path"] == "b.py"
+
+
+def test_grouped_apply_writes_every_file_once(tmp_path):
+    from core.patch_engine import apply_patch_grouped
+
+    _write(tmp_path, "a.py", "x = 1\n")
+    r = apply_patch_grouped(str(tmp_path), _two_file_patch())
+    assert r["ok"] is True, r
+    assert r["applied"] == ["a.py", "b.py"]
+    assert [f["ok"] for f in r["files"]] == [True, True]
+    assert r["manifests"] and os.path.isfile(r["backup_manifest"])
+    back = rollback(r["backup_manifest"])
+    assert back["ok"] is True
+    assert _read(tmp_path, "a.py") == "x = 1\n"
+    assert not os.path.exists(os.path.join(str(tmp_path), "b.py"))
+
+
+def test_grouped_apply_rolls_back_only_failed_file(tmp_path, monkeypatch):
+    """第二个文件落盘失败时只回滚它自己这一组，第一个文件保留。"""
+    import core.patch_engine as pe
+
+    _write(tmp_path, "a.py", "x = 1\n")
+    real = pe.apply_patch
+    calls = {"n": 0}
+
+    def flaky(root, patch, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise PatchError("第二个文件写入失败")
+        return real(root, patch, **kwargs)
+
+    monkeypatch.setattr(pe, "apply_patch", flaky)
+    r = pe.apply_patch_grouped(str(tmp_path), _two_file_patch())
+    assert r["ok"] is False
+    assert any("b.py" in e for e in r["errors"])
+    assert [f["ok"] for f in r["files"]] == [True, False]
+    assert _read(tmp_path, "a.py") == "x = 2\n", "第一个文件不该被回滚"
+    assert not os.path.exists(os.path.join(str(tmp_path), "b.py"))
+    # 合并清单仍能把已落盘的部分撤销。
+    rollback(r["backup_manifest"])
+    assert _read(tmp_path, "a.py") == "x = 1\n"
+
+
+def test_grouped_apply_blocks_whole_batch_before_write(tmp_path):
+    from core.patch_engine import apply_patch_grouped
+
+    _write(tmp_path, "a.py", "x = 1\n")
+    patch = {"files": [
+        {"op": "update", "path": "a.py",
+         "hunks": [{"old": "x = 1", "new": "x = 2"}]},
+        {"op": "create", "path": "bad.py", "content": "def f(:\n"},
+    ]}
+    with pytest.raises(PatchError):
+        apply_patch_grouped(str(tmp_path), patch)
+    assert _read(tmp_path, "a.py") == "x = 1\n"
+    assert not os.path.exists(os.path.join(str(tmp_path), "bad.py"))

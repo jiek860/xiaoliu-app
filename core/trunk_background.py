@@ -362,6 +362,9 @@ class TrunkBackgroundMixin:
                 try:
                     pers.sense_feeling(user_input)
                     pers.remember_event(user_input)
+                    # 批次 O2：用户说「叫我X」时把称呼落盘，人格卡 L4 会读回来
+                    if hasattr(pers, "learn_user_name"):
+                        pers.learn_user_name(user_input)
                 except Exception as e:
                     _x6_swallowed(__name__, e)
                     pass

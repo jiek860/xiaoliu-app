@@ -307,3 +307,58 @@ def test_onboarding_cloud_test_runs_off_thread_and_reports(
         lambda *a, **k: {"ok": True, "message": "云端连通"})
     wiz._test_cloud()
     qtbot.waitUntil(lambda: "✅" in wiz.lbl_cloud_test.text(), timeout=3000)
+
+
+def test_onboarding_save_result_really_probes_and_gives_next_step(
+        qtbot, tmp_path, monkeypatch):
+    """「保存并检测」要真探测（core.self_check），失败时给为什么 + 下一步。"""
+    from gui.onboarding_wizard import OnboardingWizard
+
+    monkeypatch.setattr(
+        "core.model_setup.probe_ollama",
+        lambda *a, **k: {"reachable": False, "models": [], "error": "offline-test"})
+    trunk = _WizTrunk(tmp_path)
+    wiz = OnboardingWizard(trunk)
+    qtbot.addWidget(wiz)
+    monkeypatch.setattr(wiz, "_refresh_local_status", lambda *a, **k: None)
+    seen = {}
+
+    def _probe(t, timeout=6):
+        seen["called"] = True
+        return {"ok": False,
+                "problems": ["云端连不上：Key 不对或已过期"],
+                "advice": "去服务商后台重新复制一份。\n国内直连可用的：智谱 GLM",
+                "detail": "401"}
+
+    monkeypatch.setattr("core.self_check.probe_model_config", _probe)
+    wiz.rb_cloud.setChecked(True)
+    wiz.ed_cloud_url.setText("https://api.deepseek.com/v1/chat/completions")
+    wiz.ed_cloud_model.setText("deepseek-chat")
+    wiz.ed_cloud_key.setText("sk-bad")
+    wiz._save_and_check()
+    assert seen.get("called") is True, "保存时必须真探测一次"
+    text = wiz.lbl_result.text()
+    assert "还差一点" in text and "云端连不上" in text
+    assert "国内直连" in text, "失败要给出可用的国内备选"
+    assert "#fef3c7" in wiz.lbl_result.styleSheet()
+
+
+def test_onboarding_result_when_probe_passes_says_ready(
+        qtbot, tmp_path, monkeypatch):
+    from gui.onboarding_wizard import OnboardingWizard
+
+    monkeypatch.setattr(
+        "core.model_setup.probe_ollama",
+        lambda *a, **k: {"reachable": False, "models": [], "error": "offline-test"})
+    trunk = _WizTrunk(tmp_path)
+    wiz = OnboardingWizard(trunk)
+    qtbot.addWidget(wiz)
+    monkeypatch.setattr(wiz, "_refresh_local_status", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "core.self_check.probe_model_config",
+        lambda *a, **k: {"ok": True, "problems": [],
+                         "advice": "云端连通（真发过一次最小请求），可以直接聊天了。",
+                         "detail": "模型：deepseek-chat"})
+    wiz._show_result(probe=True)
+    assert "✅" in wiz.lbl_result.text()
+    assert "deepseek-chat" in wiz.lbl_result.text()

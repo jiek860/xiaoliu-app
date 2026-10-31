@@ -20,9 +20,11 @@ except ImportError:
     def _x6_swallowed(component, error, context=""):
         return None
 
+# 失败恢复/事件聚合/预算调整拆到 core/task_recovery.py（本文件到 600 行上限）。
+from core.task_recovery import TaskRecoveryMixin
 
 
-class TaskRuntime:
+class TaskRuntime(TaskRecoveryMixin):
     def __init__(self, trunk=None):
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or os.path.dirname(
@@ -105,9 +107,14 @@ class TaskRuntime:
                                    "error": str(e)[:160]})
                 return False
 
-    def _emit(self, task, event, detail=""):
-        self.trace.record({"kind": event, "task_id": task.get("id"),
-                           "status": task.get("status"), "detail": detail})
+    def _emit(self, task, event, detail="", step_id=None):
+        rec = {"kind": event, "task_id": task.get("id"),
+               "status": task.get("status"), "detail": detail}
+        # 批次 O4：步骤级事件带上 step_id，任务中心才能在失败步骤处
+        # 把这一段时间线聚合出来（不再单独开 Trace 窗口）。
+        if step_id:
+            rec["step_id"] = step_id
+        self.trace.record(rec)
         # 统一活动注册表：任务中心、活动中心、聊天结果卡片都从这里取状态。
         try:
             from core.agent_harness import get_run_registry
@@ -200,6 +207,7 @@ class TaskRuntime:
                           "tool": s.get("tool", "") if isinstance(s, dict) else "",
                           "args": s.get("args", {}) if isinstance(s, dict) else {},
                           "requires_approval": False,
+                          "attempts": 0,
                           "started_at": 0, "finished_at": 0,
                           "result_preview": "", "error": ""})
         # planner 的依赖写的是步骤名；统一转换成 step_id。
@@ -210,6 +218,7 @@ class TaskRuntime:
             steps = [{"id": "step_1", "title": "分析目标",
                       "status": "pending", "agent": "", "tool": "",
                       "args": {}, "requires_approval": False,
+                      "attempts": 0,
                       "started_at": 0, "finished_at": 0,
                       "result_preview": "", "error": ""}]
         task["steps"] = steps
@@ -319,13 +328,15 @@ class TaskRuntime:
                 self._emit(task, "failed", task["error"])
                 return
             step["status"] = "running"
+            step["attempts"] = int(step.get("attempts", 0) or 0) + 1
             step["started_at"] = time.time()
             self.trace.record({"kind": "step_started",
                                "task_id": task_id,
                                "step_id": step.get("id"),
                                "detail": step.get("title", "")})
             self._save(task)
-            self._emit(task, "step_started", step.get("title", ""))
+            self._emit(task, "step_started", step.get("title", ""),
+                       step_id=step.get("id"))
             r = self._exec_step(task, step)
             step["finished_at"] = time.time()
             step["result_preview"] = str(r)[:500]
@@ -366,7 +377,10 @@ class TaskRuntime:
                 task["status"] = "failed"
                 task["error"] = step["error"]
                 self._save(task)
-                self._emit(task, "step_failed", step.get("title", ""))
+                # 失败事件的 detail 带上原因，任务中心聚合时不用再翻日志。
+                self._emit(task, "step_failed",
+                           "%s：%s" % (step.get("title", ""), step["error"]),
+                           step_id=step.get("id"))
                 return
             step["status"] = "done"
             task["checkpoint"] = {"last_done": step.get("id")}
@@ -374,7 +388,8 @@ class TaskRuntime:
                                "step_id": step.get("id"),
                                "detail": step.get("title", "")})
             self._save(task)
-            self._emit(task, "step_done", step.get("title", ""))
+            self._emit(task, "step_done", step.get("title", ""),
+                       step_id=step.get("id"))
 
         if self._cancel[task_id].is_set():
             task["status"] = "cancelled"
@@ -515,22 +530,21 @@ class TaskRuntime:
                 return self.resume(task_id)
         return {"ok": False, "错误": "步骤不存在"}
 
-    def increase_budget(self, task_id, *, seconds=120, steps=4, tokens=5000,
-                        tool_calls=10):
-        """任务超时 / 预算不足时，增加预算并保留已完成步骤。"""
+    def replan(self, task_id):
+        """换个做法：清空旧计划重新拆解，保留目标与已调整过的预算。"""
         task = self.get_task(task_id)
         if not task:
             return {"ok": False, "错误": "任务不存在"}
-        budget = task.setdefault("budget", {})
-        budget["max_seconds"] = int(budget.get("max_seconds", 300)) + int(seconds)
-        budget["max_steps"] = int(budget.get("max_steps", 8)) + int(steps)
-        budget["max_tokens"] = int(budget.get("max_tokens", 20000)) + int(tokens)
-        budget["max_tool_calls"] = int(
-            budget.get("max_tool_calls", 20)) + int(tool_calls)
+        if task.get("status") in ("running", "planning"):
+            return {"ok": False, "错误": "任务正在运行，先暂停或取消"}
+        task["steps"] = []
+        task["status"] = "pending"
+        task["error"] = ""
+        task["final"] = ""
+        task["checkpoint"] = {}
         self._save(task)
-        self._emit(task, "budget_increased",
-                   "seconds+%s steps+%s" % (seconds, steps))
-        return {"ok": True, "task_id": task_id, "budget": budget}
+        self._emit(task, "replan_requested", "重新拆解计划")
+        return {"ok": True, "task_id": task_id}
 
     def approve_step(self, task_id, step_id, approved=True, scope="once"):
         return {"ok": bool(approved), "task_id": task_id,

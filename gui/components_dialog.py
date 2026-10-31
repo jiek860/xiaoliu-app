@@ -89,6 +89,21 @@ def _installed(mod):
         return False
 
 
+def missing_optional_packages():
+    """还没装的可选组件：[(显示名, pip 规格), ...]
+
+    设置窗口「依赖」页只用这个摘要（逐行「安装」按钮留在这个窗口里，
+    设置页的按钮预算只有主操作那几个，不能被十几行安装按钮撑爆）。
+    """
+    out = []
+    for group, name, mod, spec, target, size in PACKAGES:
+        if group.startswith("核心依赖"):
+            continue
+        if not _installed(mod):
+            out.append((name, spec))
+    return out
+
+
 class ComponentsDialog(QDialog):
     def __init__(self, parent=None, base=None, install_component=None):
         super().__init__(parent)

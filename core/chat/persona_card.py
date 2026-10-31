@@ -172,8 +172,16 @@ class PersonaCard:
                 used.append("l3")
         rows = [str(x) for x in (prefs or []) if str(x).strip()][:3]
         template = str(layers["l4"].get("template") or "")
+        if not template and (user_name or rows):
+            template = "关于{name}：{prefs}。"
         if template and (user_name or rows):
-            parts.append(template.format(name=user_name or "你", prefs="；".join(rows)))
+            who = user_name or "你"
+            prefs_text = "；".join(rows)
+            if prefs_text:
+                parts.append(template.format(name=who, prefs=prefs_text))
+            else:
+                # 只知道称呼、还没有偏好时别渲染出「关于小王：。」这种半句
+                parts.append("关于%s：可以自然叫他，但不用每句都带。" % who)
             used.append("l4")
         text = "\n".join(parts)
         text = self._cap(text)

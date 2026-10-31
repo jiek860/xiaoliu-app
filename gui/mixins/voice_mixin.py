@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import QMessageBox, QApplication
 class _VoiceRelay(QObject):
     """把子线程的识别结果送回 GUI 线程（跨线程 emit 信号是安全的）"""
     done = pyqtSignal(str, str)          # (识别出的文字, 错误信息)
+    partial = pyqtSignal(str)            # 按住说话时的中间识别结果
 
 
 class VoiceMixin:
@@ -78,9 +79,15 @@ class VoiceMixin:
         if speech is None:
             return
         self._voice_recording = True
+        # 记录按下前的文字：流式中间结果是在它后面补，而不是整段替换
+        try:
+            self._voice_base_text = self.input.toPlainText()
+        except Exception as e:
+            _x6_swallowed(__name__, e, "voice base text")
+            self._voice_base_text = ""
         self.voice_btn.setText("🎙 录音中（松开发送）")
         QApplication.processEvents()
-        self._start_listen(speech, self.HOLD_MAX_SECONDS, ev)
+        self._start_listen(speech, self.HOLD_MAX_SECONDS, ev, streaming=True)
 
     def _voice_released(self):
         timer = getattr(self, "_voice_hold_timer", None)
@@ -103,7 +110,7 @@ class VoiceMixin:
             QMessageBox.information(self, "语音", "语音组件没初始化，重启程序再试")
         return speech
 
-    def _start_listen(self, speech, seconds, stop_event):
+    def _start_listen(self, speech, seconds, stop_event, streaming=False):
         # 中继对象以窗口为父、并把引用挂到 self 上 ——
         # 只写成局部变量的话，函数返回后它可能被 Python 回收，
         # 后台线程 emit 的信号就没人接了（settings_dialog 里踩过这个坑）。
@@ -111,13 +118,20 @@ class VoiceMixin:
         if relay is None:
             relay = _VoiceRelay(self)
             relay.done.connect(self._on_voice_done)
+            relay.partial.connect(self._on_voice_partial)
             self._voice_relay = relay
 
         def _do_listen():
             """子线程：只做识别，**不碰任何控件**"""
             text, err = "", ""
             try:
-                r = speech.listen_once(seconds, stop_event)
+                try:
+                    r = speech.listen_once(seconds, stop_event,
+                                           on_partial=relay.partial.emit
+                                           if streaming else None)
+                except TypeError:
+                    # 旧语音组件 / 桩对象不认 on_partial：退回不流式
+                    r = speech.listen_once(seconds, stop_event)
                 text = (r.get("文字") or "").strip()
                 if not text:
                     err = str(r.get("错误") or "没听清，再说一遍试试")
@@ -127,15 +141,35 @@ class VoiceMixin:
 
         threading.Thread(target=_do_listen, daemon=True).start()
 
+    def _on_voice_partial(self, text):
+        """按住说话时的中间结果：只更新预览，不重复追加。"""
+        if not getattr(self, "_voice_recording", False):
+            return
+        try:
+            base = getattr(self, "_voice_base_text", "") or ""
+            mid = str(text or "").strip()
+            if not mid:
+                return
+            sep = "" if (not base or base.endswith((" ", "\n", "\t"))) else " "
+            self.input.setPlainText(base + sep + mid)
+        except Exception as e:
+            _x6_swallowed(__name__, e, "voice partial render")
+
     def _on_voice_done(self, text, err):
         """在 GUI 线程里收尾（信号槽默认排队到接收者所在线程）"""
         try:
+            base = getattr(self, "_voice_base_text", None)
             if text:
-                cur = self.input.toPlainText()
-                # 与已有文字之间留一个空格，否则两句会粘在一起
-                if cur and not cur.endswith((" ", "\n", "\t")):
-                    cur += " "
-                self.input.setPlainText(cur + text)
+                if base is not None:
+                    sep = ("" if (not base or
+                                  base.endswith((" ", "\n", "\t"))) else " ")
+                    self.input.setPlainText(base + sep + text)
+                else:
+                    cur = self.input.toPlainText()
+                    # 与已有文字之间留一个空格，否则两句会粘在一起
+                    if cur and not cur.endswith((" ", "\n", "\t")):
+                        cur += " "
+                    self.input.setPlainText(cur + text)
                 self.input.setFocus()
             elif err:
                 QMessageBox.information(self, "语音", _voice_error_text(err))
@@ -143,6 +177,7 @@ class VoiceMixin:
             _x6_swallowed(__name__, e)
             pass
         finally:
+            self._voice_base_text = None
             self.voice_btn.setText("语音输入")
             self.voice_btn.setEnabled(True)
             self._voice_recording = False

@@ -70,9 +70,6 @@ class NavigationMixin:
             ("📚 知识库 / 资料", self.kb_dialog),
             ("🕒 历史记录", self.history_dialog),
             ("🧠 记忆", self.memory_view_dialog),
-            ("🔍 搜索聊天", self.search_dialog),
-            ("📊 数据统计", self.stats_dialog),
-            ("🕸 知识图谱", self.graph_dialog),
         )
         for label, fn in entries:
             a = menu.addAction(label)
@@ -94,7 +91,7 @@ class NavigationMixin:
         return action
 
     def _show_avatar_menu(self):
-        """头像菜单只保留 5 项高频入口。
+        """头像菜单只保留 4 项高频入口（登录已收进命令面板）。
 
         其余功能全部放进更多；两个菜单不重复。
         """
@@ -111,16 +108,13 @@ class NavigationMixin:
         mode_label = ("⚙ 切换模式：当前简单模式"
                       if getattr(self, "ui_mode_value", SIMPLE) == SIMPLE
                       else "⚙ 切换模式：当前高级模式")
-        # 头像菜单固定 5 项：切换模式 / 检查更新 / 设置 / 登录 / 帮助
+        # 头像菜单固定 4 项：切换模式 / 检查更新 / 设置 / 帮助
         self._add_menu_action(
             menu, seen_labels, seen_targets, mode_label, self._toggle_ui_mode)
         self._add_menu_action(
             menu, seen_labels, seen_targets, "🔄 检查更新", self.update_dialog)
         self._add_menu_action(
             menu, seen_labels, seen_targets, "⚙ 设置", self.set_dialog)
-        self._add_menu_action(
-            menu, seen_labels, seen_targets, "🔑 登录 / 切换账号",
-            self.show_login)
         self._add_menu_action(
             menu, seen_labels, seen_targets, "❓ 帮助", self.show_tutorial)
         menu.exec_(self.avatar_btn.mapToGlobal(

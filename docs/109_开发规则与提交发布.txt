@@ -277,7 +277,7 @@ git hook 目录：E:\xiaoliu\.githooks\（通过 core.hooksPath 生效）。
 
 ## 八、版本号与发版流程
 
-版本号权威来源：core/version.py 的 __version__（现在是 v25.4.0）。
+版本号权威来源：core/version.py 的 __version__（现在是 v25.5.0）。
 历史上 CHANGELOG 和 version.py 长期不同步，已有 check_version.py 兜着。
 
 发版步骤（要发布时才做，日常开发不做）：

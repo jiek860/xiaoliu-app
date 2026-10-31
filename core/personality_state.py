@@ -156,6 +156,22 @@ class PersonalityStateMixin:
     def set_user_name(self, name):
         self.data["user_name"] = name; self._save()
 
+    def learn_user_name(self, text):
+        """用户主动说「叫我X / 我叫X」时记住称呼（批次 O2 写侧）。
+
+        只认主动告知；落盘后人格卡 L4 通过 ``core.chat.user_profile`` 读回来。
+        """
+        try:
+            from core.chat.user_profile import name_from_text
+            name = name_from_text(text)
+        except Exception as e:
+            _x6_swallowed(__name__, e)
+            return ""
+        if name and name != self.data.get("user_name"):
+            self.set_user_name(name)
+            return name
+        return ""
+
     def learn_style(self, user_text):
         if len(user_text) < 10: self.data["user_style"] = "简短"
         elif len(user_text) > 50: self.data["user_style"] = "详细"

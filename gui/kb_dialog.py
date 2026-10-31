@@ -2,13 +2,13 @@
 """知识库窗口 - 搜索/分类列表/详情"""
 from PyQt5.QtWidgets import QLabel, QLineEdit, QTextBrowser, QListWidget, QTabWidget, QFileDialog, QMessageBox
 
-from gui.feedback_states import make_action_links
+from gui.graph_dialog import build_graph_view
 
 
 def show_kb_dialog(parent, dlg, trunk, safe_stop_workers):
     """知识库窗口"""
     d, l = dlg("知识库")
-    d.setFixedSize(600, 500)
+    d.setFixedSize(680, 560)
     l.addWidget(QLabel("🔍 搜索:"))
     s = QLineEdit()
     l.addWidget(s)
@@ -32,6 +32,7 @@ def show_kb_dialog(parent, dlg, trunk, safe_stop_workers):
         if "学习" in str(doc.get("text", "")) or doc.get("tag") == "学习":
             learnw.addItem(doc.get("text", "")[:60])
     tabs.addTab(learnw, "学习")
+    tabs.addTab(build_graph_view(trunk), "图谱")
     l.addWidget(tabs)
     def show_detail(item):
         kbres.setPlainText(item.text())
@@ -39,9 +40,5 @@ def show_kb_dialog(parent, dlg, trunk, safe_stop_workers):
     chatw.itemClicked.connect(show_detail)
     learnw.itemClicked.connect(show_detail)
     s.textChanged.connect(lambda t: (allw.clear(), [allw.addItem(doc.get("text", "")[:60]) for doc in (trunk.call("vector_store", "search", t, top_k=20) or []) if t in doc.get("text", "")]))
-    l.addWidget(QLabel("🧠 知识管理"))
-    l.addWidget(make_action_links([
-        ("知识图谱", lambda: kbres.setPlainText(str(trunk.call("knowledge_graph", "run")))),
-    ]))
     d.exec_()
     safe_stop_workers()

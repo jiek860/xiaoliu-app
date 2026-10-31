@@ -61,6 +61,16 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
     def _scroll_tab(title, build):
         return make_scroll_tab(title, build)
 
+    def _stats_text():
+        """本地统计概览：只读 data 目录里的三个计数，不上传。"""
+        try:
+            from core.stats_report import StatsReport
+            data = StatsReport(trunk).generate()
+        except Exception as e:
+            _x6_swallowed(__name__, e, "settings stats")
+            return "读取统计失败"
+        return " · ".join("%s %d" % (k, v) for k, v in data.items())
+
     # ================= 通用：模型配置 =================
     def build_model(lay):
         # 具体控件在 gui/settings_model_page.py（本文件接近 600 行上限）
@@ -217,6 +227,12 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         lay.addWidget(QLabel("\n 更新"))
         lay.addWidget(_open_link("", "检查更新",
                                 "检查新版本 / 回滚 / 更新历史"))
+        lay.addWidget(QLabel("\n 数据"))
+        stat_lab = QLabel(_stats_text())
+        stat_lab.setWordWrap(True)
+        stat_lab.setStyleSheet("color:#475569;font-size:12px;")
+        lay.addWidget(stat_lab)
+        lay.addWidget(_hint("统计只在本地读取，不上传。"))
 
     def build_help(lay):
         lay.addWidget(QLabel(" 帮助与安全"))
@@ -246,8 +262,6 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         lay.addWidget(_open_link("", "MCP",
                                 "服务器管理 / 预置服务器 / 配置参考",
                                 key="MCP市场"))
-        lay.addWidget(_open_link("", "可选组件",
-                                "语音识别 / 看图 / 浏览器自动化 / 一键安装"))
 
     def build_records(lay):
         lay.addWidget(QLabel(" 记录"))
@@ -255,10 +269,61 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
                                 "分页 / 搜索 / 导出全部聊天记录"))
         lay.addWidget(_open_link("", "日志", "运行日志 / 错误 / 操作记录",
                                 key="日志中心"))
-        lay.addWidget(_open_link("", "搜索聊天", "全局搜索所有会话"))
         lay.addWidget(_open_link("", "记忆可视化",
                                 "记忆时间线 / 图谱 / 搜索 / 编辑"))
-        lay.addWidget(_open_link("", "数据统计", "用量与数据统计报表"))
+
+    def build_data(lay):
+        lay.addWidget(QLabel(" 用量概览"))
+        lab = QLabel(_stats_text())
+        lab.setWordWrap(True)
+        lab.setStyleSheet("color:#475569;font-size:12px;")
+        lay.addWidget(lab)
+
+        def _refresh_stats():
+            lab.setText(_stats_text())
+        lay.addWidget(make_action_links([("刷新统计", _refresh_stats)]))
+        lay.addWidget(_hint(
+            "统计来自 data/chats.db、memory_cards.jsonl、calendar.json；"
+            "只在本地读取。"))
+
+    def build_deps(lay):
+        lay.addWidget(QLabel(" 可选组件"))
+        miss = QLabel("")
+        miss.setWordWrap(True)
+        miss.setStyleSheet("color:#475569;font-size:12px;")
+        lay.addWidget(miss)
+
+        def _refresh_deps():
+            try:
+                from gui.components_dialog import missing_optional_packages
+                items = missing_optional_packages()
+            except Exception as e:
+                _x6_swallowed(__name__, e, "settings deps")
+                miss.setText("读取依赖状态失败")
+                return
+            if not items:
+                miss.setText("可选组件都已就绪，不用再装。")
+            else:
+                names = "、".join(name for name, _spec in items[:8])
+                more = "" if len(items) <= 8 else " 等 %d 个" % len(items)
+                miss.setText("还没装%s：%s。点「打开依赖管理」按需安装。"
+                             % (more, names))
+
+        def _open_deps():
+            try:
+                from gui.components_dialog import show_components_dialog
+                show_components_dialog(d, base)
+            except Exception as e:
+                QMessageBox.warning(d, "可选组件", "打不开：" + str(e)[:100])
+
+        _refresh_deps()
+        lay.addWidget(make_action_links([
+            ("打开依赖管理", _open_deps),
+            ("重新检测", _refresh_deps),
+        ]))
+        lay.addWidget(_hint(
+            "核心依赖装进当前 Python；可选组件装进 optional_libs/，"
+            "不污染系统环境。"))
 
     def build_system(lay):
         lay.addWidget(QLabel(" 系统"))
@@ -296,6 +361,8 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         tabs.addTab(_scroll_tab("工具", build_tools), " 工具")
         tabs.addTab(_scroll_tab("扩展", build_extensions), " 扩展")
         tabs.addTab(_scroll_tab("记录", build_records), " 记录")
+        tabs.addTab(_scroll_tab("数据", build_data), " 数据")
+        tabs.addTab(_scroll_tab("依赖", build_deps), " 依赖")
         tabs.addTab(_scroll_tab("系统", build_system), " 系统")
         tabs.addTab(_scroll_tab("开发者", build_developer), " 开发者")
 

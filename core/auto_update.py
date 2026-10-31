@@ -29,6 +29,24 @@ except ImportError:
         return None
 
 
+# 问题收集/建议/补丁生成已拆到 core/auto_update_problem.py（本文件到 600 行上限）。
+# 这里保留同名导出，modules/installed/auto_updater.py 的导入路径不变。
+from core.auto_update_problem import AutoUpdateProblemMixin  # noqa: F401
+
+
+def _file_sha256(path):
+    """本地文件摘要；读不了返回空串（调用方据此退回"照常下载"）。"""
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception as e:
+        _x6_swallowed(__name__, e, "hash local file")
+        return ""
+
+
 # ══════════════════════════════════════════════════════════════
 # 1. 版本比较、自升级和签名策略（原 auto_update_policy.py）
 # ══════════════════════════════════════════════════════════════
@@ -66,146 +84,6 @@ class AutoUpdatePolicyMixin:
             self.trunk._log(msg)
         except Exception:
             print(msg)
-
-
-# ══════════════════════════════════════════════════════════════
-# 2. 问题收集、建议与性能分析（原 auto_update_problem.py）
-# ══════════════════════════════════════════════════════════════
-class AutoUpdateProblemMixin:
-    def collect_problems(self):
-        """错误库未修复错误 + 自我反思教训 → 问题清单"""
-        problems = []
-        # 错误库
-        try:
-            err = self.trunk.call("error_lib", "list") if self.trunk else {}
-            n = (err or {}).get("未修复", 0)
-            if n:
-                problems.append("错误库有 %d 个未修复错误" % n)
-        except Exception as e:
-            problems.append("读取错误库失败: " + str(e)[:40])
-        # 自我反思
-        try:
-            r = self.trunk.call("self_reflect", "get_history", 20) if self.trunk else None
-            if r and isinstance(r, dict):
-                lessons = r.get("历史", [])
-                if lessons:
-                    problems.append("自我反思记录了 %d 条历史" % len(lessons))
-        except Exception as e:
-            _x6_swallowed(__name__, e)
-            pass
-        return problems
-
-    def build_suggestion(self, problems):
-        """LLM 把问题转成具体更新建议"""
-        llm = self.trunk.modules.get("llm") if self.trunk else None
-        if not llm:
-            return {"建议": "无LLM，跳过建议生成", "目标模块": ""}
-        prompt = (
-            "你是程序架构师。程序有以下问题：\n" +
-            "\n".join(problems) +
-            "\n请给出1个最值得修的更新建议，格式严格：\n"
-            "目标模块:xxx.py（用中文文件名）\n"
-            "建议:一句话说明改什么\n"
-            "理由:为什么值得改"
-        )
-        try:
-            txt = llm.chat(prompt) or ""
-            mod = re.search(r"目标模块[:：]\s*([^\n]+)", txt)
-            sug = re.search(r"建议[:：]\s*([^\n]+)", txt)
-            # ⚠️ 解析不出目标模块时**必须返回空串**，不能返回 ".py"（2026-10-14 修）
-            #
-            # 原来写的是：
-            #     (mod.group(1).strip() if mod else "").strip(".py") + ".py"
-            # 模型没按格式回时 mod 是 None -> "" .strip(".py") -> ""
-            # -> 再 + ".py" -> **".py"**。
-            #
-            # 而调用方的守卫是 `if not target_file: return "LLM未给出目标模块"`
-            # —— `".py"` 是**真值**，守卫形同虚设。闭环会拿着一个
-            # 垃圾目标名继续往下走（打补丁写进 `.py`、再去部署），
-            # 直到最后报一句很难懂的错。
-            #
-            # 现在：拿不到就返回空串，让那道守卫真正生效。
-            _t = (mod.group(1).strip() if mod else "").strip()
-            if _t.endswith(".py"):
-                _t = _t[:-3].strip()
-            return {
-                "建议": sug.group(1).strip() if sug else txt[:80],
-                "目标模块": (_t + ".py") if _t else "",
-                "原始": txt[:200],
-            }
-        except Exception as e:
-            return {"建议": "LLM失败: " + str(e)[:40], "目标模块": ""}
-
-    def gen_patch(self, suggestion, target_file):
-        """调 agent_coder 生成模块新版代码（补丁），写入 patch_dir"""
-        llm = self.trunk.modules.get("llm") if self.trunk else None
-        if not llm:
-            return {"ok": False, "错误": "无LLM"}
-        target_path = self._find_module_file(target_file)
-        old_src = ""
-        if target_path and os.path.exists(target_path):
-            old_src = open(target_path, encoding="utf-8").read()[:2000]
-        prompt = (
-            "你是编程小匠。请重写模块文件 %s 的完整Python代码。\n"
-            "更新建议：%s\n"
-            "现有代码（供参考，前2000字）：\n%s\n"
-            "要求：\n"
-            "1. 保持类名不变，保持 __init__(self, trunk=None) 签名\n"
-            "2. 在原有功能基础上，只做建议里的改进，不要删掉已有方法\n"
-            "3. 输出完整可运行代码，不要省略号，不要解释，只输出代码"
-        ) % (target_file, suggestion, old_src)
-        try:
-            code = llm.chat(prompt) or ""
-            # 去掉可能的 ```python 围栏
-            code = re.sub(r"^```[a-zA-Z]*\s*", "", code.strip())
-            code = re.sub(r"\s*```$", "", code.strip())
-            patch_path = os.path.join(self.patch_dir, target_file)
-            with open(patch_path, "w", encoding="utf-8") as f:
-                f.write(code)
-            return {"ok": True, "补丁": patch_path, "代码长度": len(code)}
-        except Exception as e:
-            return {"ok": False, "错误": str(e)[:60]}
-
-    def run_health_checks(self):
-        """对全程序做语法+模块加载检查，返回 (通过数, 总数, 失败列表)"""
-        passed, total, fails = 0, 0, []
-        # 1. core 全部语法
-        core_dir = os.path.join(self.base, "core")
-        for f in sorted(os.listdir(core_dir)):
-            if f.endswith(".py") and not f.startswith("_"):
-                total += 1
-                try:
-                    py_compile.compile(os.path.join(core_dir, f), doraise=True)
-                    passed += 1
-                except Exception as e:
-                    fails.append("core\\%s: %s" % (f, str(e)[:50]))
-        # 2. modules/installed 全部语法
-        ins_dir = os.path.join(self.base, "modules", "installed")
-        if os.path.isdir(ins_dir):
-            for f in sorted(os.listdir(ins_dir)):
-                if f.endswith(".py") and not f.startswith("_"):
-                    total += 1
-                    try:
-                        py_compile.compile(os.path.join(ins_dir, f), doraise=True)
-                        passed += 1
-                    except Exception as e:
-                        fails.append("installed\\%s: %s" % (f, str(e)[:50]))
-        return passed, total, fails
-
-    def analyze_performance(self):
-        start = time.time()
-        try:
-            if self.trunk:
-                self.trunk.reply("测试")
-        except Exception as e:
-            _x6_swallowed(__name__, e)
-            pass
-        elapsed = time.time() - start
-        return {"响应时间": "%.2f秒" % elapsed,
-                "性能": "优秀" if elapsed < 1 else "一般" if elapsed < 3 else "较慢"}
-
-    def get_update_suggestions(self):
-        return {"建议": self.build_suggestion(self.collect_problems() or ["预防性优化"])}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -276,19 +154,30 @@ class AutoUpdatePatchMixin:
         except Exception:
             return False
 
-    def backup_current(self):
-        name = "backup_%s" % time.strftime("%Y%m%d_%H%M%S")
+    def backup_current(self, prefix="backup_", keep=5):
+        """把当前 core/ 与 modules/ 拷进 backups/<prefix><时间>/。
+
+        prefix 用来区分用途：更新前是 backup_，回滚前是 before_rollback_。
+        两者分开轮换，否则回滚时的自备份会把要回滚到的那个备份挤掉。
+        """
+        name = "%s%s" % (prefix, time.strftime("%Y%m%d_%H%M%S"))
         path = os.path.join(self.backup_dir, name)
+        if os.path.exists(path):
+            # 同一秒内连备份两次：加个后缀，绝不覆盖已有备份
+            path = "%s_%d" % (path, int(time.time() * 1000) % 1000)
         os.makedirs(path, exist_ok=True)
         for d in ("core", "modules"):
             src = os.path.join(self.base, d)
             if os.path.exists(src):
                 shutil.copytree(src, os.path.join(path, d), dirs_exist_ok=True)
-        # 只保留最近5个备份
-        olds = sorted(os.listdir(self.backup_dir))
-        while len(olds) > 5:
-            shutil.rmtree(os.path.join(self.backup_dir, olds[0]), ignore_errors=True)
-            olds = sorted(os.listdir(self.backup_dir))
+        # 只保留最近 keep 个同类备份
+        olds = sorted(x for x in os.listdir(self.backup_dir)
+                      if x.startswith(prefix))
+        while len(olds) > int(keep):
+            shutil.rmtree(os.path.join(self.backup_dir, olds[0]),
+                          ignore_errors=True)
+            olds = sorted(x for x in os.listdir(self.backup_dir)
+                          if x.startswith(prefix))
         return path
 
     def _find_module_file(self, target_file):
@@ -346,13 +235,24 @@ class AutoUpdatePatchMixin:
         回滚会把更新之后新装的插件、用户自己改过的文件一起抹掉，而且备份
         不存在时还返回 True（界面据此报"回滚成功"，实际什么都没恢复）。
         现在只覆盖备份里存在的文件，备份不存在直接返回 False。
+
+        回滚本身也要能退：先把当前状态备份成 before_rollback_*，
+        再逐个写回并**校验**（写不进去 / .py 编译不过都算失败），
+        这样"回滚了一半"不会被误报成成功。
         """
         try:
             src = os.path.abspath(str(backup_path or ""))
             if not src or not os.path.isdir(src):
                 self._log("回滚失败: 备份目录不存在 %s" % src)
                 return False
-            restored = 0
+            try:
+                pre = self.backup_current(prefix="before_rollback_")
+            except Exception as e:
+                # 备份当前状态失败就不动文件 —— 宁可回滚不了，也别制造不可逆
+                _x6_swallowed(__name__, e, "backup before rollback")
+                self._log("回滚失败: 无法备份当前状态（%s）" % str(e)[:60])
+                return False
+            restored, bad = 0, []
             for d in ("core", "modules"):
                 bk = os.path.join(src, d)
                 if not os.path.isdir(bk):
@@ -362,10 +262,30 @@ class AutoUpdatePatchMixin:
                         s = os.path.join(root, name)
                         rel = os.path.relpath(s, bk)
                         t = os.path.join(self.base, d, rel)
-                        os.makedirs(os.path.dirname(t), exist_ok=True)
-                        shutil.copy2(s, t)
-                        restored += 1
-            self._log("回滚完成: %s（%d 个文件）" % (src, restored))
+                        try:
+                            os.makedirs(os.path.dirname(t), exist_ok=True)
+                            shutil.copy2(s, t)
+                            if name.endswith(".py"):
+                                # 在内存里编译，不落 __pycache__：只验能不能加载
+                                with open(t, encoding="utf-8") as fh:
+                                    compile(fh.read(), t, "exec")
+                            restored += 1
+                        except Exception as e:
+                            _x6_swallowed(__name__, e, "verify restored file")
+                            bad.append("%s/%s" % (d, rel.replace(os.sep, "/")))
+                            if len(bad) >= 3:
+                                break
+                    if bad:
+                        break
+                if bad:
+                    break
+            self.last_rollback_backup = pre
+            if bad:
+                self._log("回滚校验失败: %s（当前状态已备份到 %s）"
+                          % ("、".join(bad), pre))
+                return False
+            self._log("回滚完成: %s（%d 个文件；回滚前状态已备份到 %s）"
+                      % (src, restored, pre))
             return True
         except Exception as e:
             self._log("回滚失败: %s" % str(e)[:80])
@@ -459,8 +379,8 @@ class AutoUpdateDownloadMixin:
     def download_and_install(self, manifest, progress_cb=None, confirm=True):
         """下载并安装更新包（manifest 必须验签通过）。
 
-        流程：再验签 → 下载到 staging 并逐个校验 sha256 → 确认 → 备份 → 替换 → 记历史，
-        任一文件失败则回滚已替换的文件。
+        流程：再验签 → 增量比对本地 sha256（已一致的不下载）→ 下载到 staging 并
+        逐个校验 sha256 → 确认 → 备份 → 替换 → 记历史，任一文件失败则回滚已替换的文件。
         """
         import urllib.request
         from core import release_sign
@@ -475,17 +395,33 @@ class AutoUpdateDownloadMixin:
         if not files:
             return {"ok": False, "错误": "更新包文件列表为空"}
 
+        # ① 增量比对：清单里给了 sha256 且本地文件已经一致，就不再下载/替换。
+        #    全量包也能这么跑 —— 结果就是"只动真正变化的文件"。
+        pending, skipped = [], 0
+        for f in files:
+            rel, url = f.get("path", ""), f.get("url", "")
+            if not rel or not url or self._safe_relpath(rel) is None:
+                return {"ok": False, "错误": "更新包条目非法: %r" % (rel,)}
+            want = str(f.get("sha256", "") or "").lower()
+            tp = self._safe_relpath(rel)
+            if want and tp and os.path.exists(tp) and _file_sha256(tp) == want:
+                skipped += 1
+                continue
+            pending.append(f)
+        if not pending:
+            self._log("增量更新: %d 个文件已是最新，无需下载" % skipped)
+            return {"ok": True, "更新数": 0, "跳过": skipped,
+                    "说明": "本地文件已与更新包一致（增量 sha256 校验通过），无需改动"}
+
         ver = str(manifest.get("version", "unknown"))
         stage = os.path.join(self.staging, "update_" + re.sub(r"[^\w.\-]", "_", ver))
         shutil.rmtree(stage, ignore_errors=True)
         os.makedirs(stage, exist_ok=True)
 
-        # ① 下载 + 逐文件校验 sha256
-        total = len(files)
-        for i, f in enumerate(files):
+        # ② 下载 + 逐文件校验 sha256（只下增量里真正变化的）
+        total = len(pending)
+        for i, f in enumerate(pending):
             rel, url = f.get("path", ""), f.get("url", "")
-            if not rel or not url or self._safe_relpath(rel) is None:
-                return {"ok": False, "错误": "更新包条目非法: %r" % (rel,)}
             if progress_cb:
                 progress_cb(i, total, rel)
             try:
@@ -507,16 +443,19 @@ class AutoUpdateDownloadMixin:
         if progress_cb:
             progress_cb(total, total, "下载完成")
 
-        # ② 用户确认
-        if confirm and not self.ask_confirm("将更新到 v%s，共 %d 个文件" % (ver, total)):
+        # ③ 用户确认（说清楚是增量：只动真正变化的文件）
+        ask = "将更新到 v%s，共 %d 个文件" % (ver, total)
+        if skipped:
+            ask += "（另有 %d 个文件已是最新，增量跳过）" % skipped
+        if confirm and not self.ask_confirm(ask):
             return {"ok": False, "错误": "用户取消", "取消": True}
 
-        # ③ 备份 + 替换（失败回滚）
+        # ④ 备份 + 替换（失败回滚）
         bk = self.backup_current()
         old_ver = get_version()
         replaced = []
         try:
-            for f in files:
+            for f in pending:
                 rel = f["path"]
                 sp = os.path.join(stage, rel.replace("/", os.sep))
                 tp = self._safe_relpath(rel)
@@ -538,7 +477,7 @@ class AutoUpdateDownloadMixin:
                     pass
             return {"ok": False, "错误": "替换失败已回滚: " + str(e)[:60], "备份": bk}
 
-        # ④ 记更新历史（对话框会读这个文件）
+        # ⑤ 记更新历史（对话框会读这个文件）
         try:
             hp = os.path.join(self.base, "updates", "update_history.jsonl")
             os.makedirs(os.path.dirname(hp), exist_ok=True)
@@ -546,7 +485,9 @@ class AutoUpdateDownloadMixin:
                 fh.write(json.dumps({
                     "time": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "from": old_ver, "to": ver,
-                    "files": len(replaced), "verified": bool(verified),
+                    "files": len(replaced), "skipped": skipped,
+                    "total": len(files), "incremental": True,
+                    "verified": bool(verified),
                     # 备份目录必须记下来：更新对话框要靠它提供「回滚到这次更新之前」
                     "backup": bk,
                 }, ensure_ascii=False) + "\n")
@@ -554,8 +495,10 @@ class AutoUpdateDownloadMixin:
             _x6_swallowed(__name__, e)
             pass
 
-        # ⑤ 热重载受影响的模块
+        # ⑥ 热重载受影响的模块
         self._reload_touched([rel for _, rel in replaced])
         shutil.rmtree(stage, ignore_errors=True)
-        self._log("更新完成: v%s -> v%s (%d 个文件)" % (old_ver, ver, len(replaced)))
-        return {"ok": True, "更新数": len(replaced), "备份": bk, "版本": ver}
+        self._log("更新完成: v%s -> v%s (%d 个文件，增量跳过 %d)"
+                  % (old_ver, ver, len(replaced), skipped))
+        return {"ok": True, "更新数": len(replaced), "跳过": skipped,
+                "备份": bk, "版本": ver}

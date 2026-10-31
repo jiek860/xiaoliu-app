@@ -493,6 +493,100 @@ def test_download_history_records_unsigned_state_honestly(tmp_path, monkeypatch,
     assert os.path.isdir(entry["backup"])
 
 
+def test_download_skips_unchanged_files_incrementally(tmp_path, monkeypatch, allow_net):
+    """增量：本地文件已经和目标 sha256 一致 -> 不下载、不替换、不花流量。"""
+    _stub_sign(monkeypatch, ok=False)
+    body = b"same = 1\n"
+    o = Obj(str(tmp_path))
+    o.trunk = FakeTrunk(tmp_path, config={"allow_unsigned_update": True})
+    os.makedirs(os.path.join(o.base, "core"), exist_ok=True)
+    open(os.path.join(o.base, "core", "a.py"), "wb").write(body)
+    m = _manifest("v99.2.0")
+    m["files"] = [{"path": "core/a.py", "url": "https://x/a.py",
+                   "sha256": hashlib.sha256(body).hexdigest()}]
+
+    def _no_network(*_a, **_k):
+        raise AssertionError("未变化的文件不该再下载")
+    monkeypatch.setattr(au, "safe_open_url", _no_network)
+
+    r = o.download_and_install(m, confirm=False)
+    assert r["ok"] is True, r
+    assert r["更新数"] == 0 and r["跳过"] == 1
+    assert open(os.path.join(o.base, "core", "a.py"), "rb").read() == body
+
+
+def test_download_only_fetches_changed_files(tmp_path, monkeypatch, allow_net):
+    """混合包：只下真正变了的那个，未变化的记在历史的 skipped 里。"""
+    _stub_sign(monkeypatch)
+    same, changed = b"same = 1\n", b"new = 2\n"
+    o = Obj(str(tmp_path))
+    o.trunk = FakeTrunk(tmp_path)
+    os.makedirs(os.path.join(o.base, "core"), exist_ok=True)
+    open(os.path.join(o.base, "core", "a.py"), "wb").write(same)
+    m = _manifest("v99.3.0")
+    m["files"] = [
+        {"path": "core/a.py", "url": "https://x/a.py",
+         "sha256": hashlib.sha256(same).hexdigest()},
+        {"path": "core/b.py", "url": "https://x/b.py",
+         "sha256": hashlib.sha256(changed).hexdigest()},
+    ]
+    fetched = []
+
+    class Resp:
+        def __init__(self, body):
+            self._body = body
+
+        def read(self):
+            return self._body
+
+    def _fake(req, timeout=30):
+        fetched.append(str(getattr(req, "full_url", req)))
+        return Resp(changed)
+    monkeypatch.setattr(au, "safe_open_url", _fake)
+
+    r = o.download_and_install(m, confirm=False)
+    assert r["ok"] is True and r["更新数"] == 1 and r["跳过"] == 1, r
+    assert len(fetched) == 1 and "a.py" not in fetched[0], fetched
+    assert open(os.path.join(o.base, "core", "a.py"), "rb").read() == same
+    assert open(os.path.join(o.base, "core", "b.py"), "rb").read() == changed
+    entry = json.loads(open(
+        os.path.join(o.base, "updates", "update_history.jsonl"),
+        encoding="utf-8").read().splitlines()[-1])
+    assert entry["skipped"] == 1 and entry["total"] == 2
+    assert entry["incremental"] is True
+
+
+def test_rollback_backs_up_current_state_before_restoring(tmp_path):
+    """回滚前先把当前状态备份成 before_rollback_*：回滚错了还能再退。"""
+    o = Obj(str(tmp_path))
+    o.trunk = FakeTrunk(tmp_path)
+    core = os.path.join(o.base, "core")
+    open(os.path.join(core, "a.py"), "w", encoding="utf-8").write("new = 2\n")
+    bk = os.path.join(o.base, "backups", "backup_x")
+    os.makedirs(os.path.join(bk, "core"), exist_ok=True)
+    open(os.path.join(bk, "core", "a.py"), "w", encoding="utf-8").write("old = 1\n")
+
+    assert o.rollback(bk) is True
+    pre = o.last_rollback_backup
+    assert pre and os.path.isdir(pre), pre
+    saved = open(os.path.join(pre, "core", "a.py"), encoding="utf-8").read()
+    assert saved == "new = 2\n", "回滚前的状态要被保住"
+    assert open(os.path.join(core, "a.py"), encoding="utf-8").read() == "old = 1\n"
+
+
+def test_rollback_verifies_restored_python(tmp_path):
+    """恢复出来的 .py 编译不过 -> 回滚算失败，不能报"已成功"。"""
+    o = Obj(str(tmp_path))
+    o.trunk = FakeTrunk(tmp_path)
+    bk = os.path.join(o.base, "backups", "backup_bad")
+    os.makedirs(os.path.join(bk, "core"), exist_ok=True)
+    open(os.path.join(bk, "core", "bad.py"), "w", encoding="utf-8").write("def f(:\n")
+
+    assert o.rollback(bk) is False
+    assert any("回滚校验失败" in x for x in o.trunk.logs), o.trunk.logs
+    assert os.path.isdir(o.last_rollback_backup)
+
+
 def test_download_rolls_back_when_replace_fails(tmp_path, monkeypatch, allow_net):
     _stub_sign(monkeypatch)
     body = b"new = 2\n"

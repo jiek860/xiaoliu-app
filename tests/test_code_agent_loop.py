@@ -180,6 +180,43 @@ def test_cancel_after_patch_generation_does_not_write_file(tmp_path):
         "取消后文件仍被修改了"
 
 
+def _multi_file_patch():
+    """批次 O3：一个目标 → 多个文件（改一个 + 新建一个）。"""
+    return {"goal": "复用 helper 并新建模块", "files": [
+        {"path": "m.py", "hunks": [{"old": "value = 1",
+                                    "new": "from helper import add\nvalue = add(1, 1)"}]},
+        {"op": "create", "path": "helper.py",
+         "content": "def add(a, b):\n    return a + b\n"},
+    ]}
+
+
+def test_multi_file_patch_is_applied_grouped_and_fully_rollbackable(tmp_path):
+    """跨文件重构批次：多文件一次性落盘，一键撤销能回到原状。"""
+    reset_run_registry()
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "m.py").write_text("value = 1\n", encoding="utf-8")
+    trunk = FakeTrunk(str(root), FakeLLM([_multi_file_patch()]),
+                      {"code_agent": {"two_role": False}})
+    agent = CodeAgent(
+        trunk, str(root),
+        test_commands=['"%s" -c "import helper; assert helper.add(1, 1) == 2"'
+                       % sys.executable])
+    events = []
+    agent.event_cb = lambda e, d=None: events.append((e, d or {}))
+    r = agent.run("把 value 改成复用 helper", approved_cb=lambda p: True)
+    assert r["ok"] is True, r
+    assert set(r["applied"]["applied"]) == {"m.py", "helper.py"}
+    assert [f["ok"] for f in r["applied"]["files"]] == [True, True]
+    assert (root / "helper.py").read_text(encoding="utf-8").startswith("def add")
+    assert any(e == "applied" and len(d.get("files") or []) == 2
+               for e, d in events)
+    rb = agent.rollback_all(r.get("backups") or [])
+    assert rb["ok"] is True
+    assert "value = 1" in (root / "m.py").read_text(encoding="utf-8")
+    assert not (root / "helper.py").exists()
+
+
 def test_parse_test_failures_extracts_file_and_test():
     from core.code_agent import CodeAgent
     out = ('FAILED tests/test_a.py::test_x - AssertionError: boom\n'

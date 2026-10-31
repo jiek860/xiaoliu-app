@@ -39,7 +39,7 @@ class SpeechController:
         self._tts_worker.done.connect(self.play)
         self._tts_worker.start()
 
-    def listen_once(self, seconds: int = 5, stop_event=None):
+    def listen_once(self, seconds: int = 5, stop_event=None, on_partial=None):
         """录一次音并返回 {文字, 错误}。
 
         返回键必须归一化：Voice.listen() 给的是 {ok, text, error}，
@@ -49,6 +49,7 @@ class SpeechController:
 
         ``stop_event``：按住说话松开时由 GUI set；老模块没有这个参数，
         TypeError 时退回固定时长，保证旧插件也能用。
+        ``on_partial``：流式中间结果回调；模块不支持时自动降级为不流式。
         """
         v = self.trunk.modules.get("voice") or self.trunk._load_lazy("voice")
         if not v:
@@ -56,7 +57,17 @@ class SpeechController:
                     "语音模块没加载起来。到「设置 → 扩展 → 功能扩展组件」里"
                     "装上「语音识别」，或检查 optional_libs 里的 faster-whisper"}
         try:
-            if stop_event is not None:
+            if on_partial is not None:
+                try:
+                    r = v.listen(seconds, stop_event=stop_event,
+                                 on_partial=on_partial)
+                except TypeError:
+                    # 老模块不认 on_partial：退回不流式
+                    try:
+                        r = v.listen(seconds, stop_event=stop_event)
+                    except TypeError:
+                        r = v.listen(seconds)
+            elif stop_event is not None:
                 try:
                     r = v.listen(seconds, stop_event=stop_event)
                 except TypeError:
