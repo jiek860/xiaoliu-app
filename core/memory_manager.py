@@ -54,16 +54,88 @@ class MemoryManager:
         now = time.time()
         return [r for r in self._load() if not self._expired(r, now)][-limit:]
 
+    @staticmethod
+    def _normalize(text):
+        return " ".join(str(text or "").lower().split())
+
+    @staticmethod
+    def _similar(a, b):
+        import difflib
+        return difflib.SequenceMatcher(None, a, b).ratio()
+
+    def _find_duplicate(self, rows, text, threshold=0.9, now=None):
+        """在已有记忆里找最相近的一条（B3 去重）。"""
+        norm = self._normalize(text)
+        best, best_score = None, 0.0
+        for r in rows:
+            if self._expired(r, now):
+                continue
+            other = self._normalize(r.get("text", ""))
+            score = 1.0 if norm == other else self._similar(norm, other)
+            if score > best_score:
+                best, best_score = r, score
+        if best is not None and best_score >= float(threshold):
+            return best
+        return None
+
     def add(self, text, *, source="", confidence=1.0, tags=None,
-            expires_at=None):
-        rec = {"id": "mem_" + uuid.uuid4().hex[:10], "text": str(text),
+            expires_at=None, dedup=True, dedup_threshold=0.9):
+        """加一条记忆；B3 默认先去重，命中则合并（加权）而不新增。"""
+        text = str(text)
+        rows = self._load()
+        if dedup:
+            dup = self._find_duplicate(rows, text, dedup_threshold)
+            if dup is not None:
+                dup["confidence"] = min(
+                    1.0, float(dup.get("confidence", 1.0)) + 0.1)
+                if source and not dup.get("source"):
+                    dup["source"] = str(source)
+                for t in (tags or []):
+                    if t not in (dup.get("tags") or []):
+                        dup.setdefault("tags", []).append(t)
+                dup["updated_at"] = time.time()
+                dup["last_seen"] = time.time()
+                self._save(rows)
+                return dict(dup, merged=True)
+        rec = {"id": "mem_" + uuid.uuid4().hex[:10], "text": text,
                "source": str(source), "confidence": float(confidence),
                "tags": list(tags or []), "created_at": time.time(),
+               "last_seen": time.time(), "status": "active",
                "expires_at": float(expires_at or 0)}
-        rows = self._load()
         rows.append(rec)
         self._save(rows)
         return rec
+
+    @staticmethod
+    def _decay_factor(rec, now=None, half_life_days=30):
+        last = float(rec.get("last_seen") or rec.get("updated_at")
+                     or rec.get("created_at") or 0)
+        if not last:
+            return 1.0
+        age = max(0.0, float(now if now is not None else time.time()) - last)
+        hl = max(1.0, float(half_life_days)) * 86400.0
+        return 0.5 ** (age / hl)
+
+    def effective_confidence(self, rec, now=None, half_life_days=30):
+        """随时间衰减后的有效置信度（不改存储值，只做展示/排序）。"""
+        base = float(rec.get("confidence") or 0)
+        return round(base * self._decay_factor(rec, now, half_life_days), 3)
+
+    def decay(self, half_life_days=30, now=None, verify_below=0.3):
+        """重算每条记忆的有效置信度与状态（active / verify）。"""
+        rows = self._load()
+        now = now or time.time()
+        changed = 0
+        for r in rows:
+            if self._expired(r, now):
+                continue
+            eff = self.effective_confidence(r, now, half_life_days)
+            r["effective_confidence"] = eff
+            r["status"] = "verify" if eff < float(verify_below) else "active"
+            changed += 1
+        if changed:
+            self._save(rows)
+        return {"ok": True, "updated": changed}
 
     def edit(self, memory_id, text=None, confidence=None, tags=None):
         rows = self._load()
