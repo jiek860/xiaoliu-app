@@ -225,6 +225,106 @@ def test_cloud_probe_respects_network_policy(monkeypatch):
     assert "白名单" in r["message"]
 
 
+# ── O5：首次/重新配置时的真探测（core/self_check.probe_model_config） ──
+
+def _probe_trunk(**cfg):
+    base = {"model_mode": "本地模型", "local_model": "", "ollama_url": DEAD}
+    base.update(cfg)
+    return FakeTrunk(base)
+
+
+def test_probe_model_config_cloud_success(monkeypatch):
+    from core import self_check
+    monkeypatch.setattr(self_check, "check_cloud",
+                        lambda *_a, **_k: {"ok": True, "model": "glm-4-flash"})
+    t = _probe_trunk(model_mode="云端模型",
+                     cloud_url="https://open.bigmodel.cn/api/paas/v4/chat/completions",
+                     cloud_key="k", cloud_model="glm-4-flash")
+    r = self_check.probe_model_config(t)
+    assert r["ok"] is True and r["problems"] == []
+    assert "云端" in r["advice"] and "glm-4-flash" in r["detail"]
+
+
+def test_probe_model_config_cloud_401_offers_domestic_providers(monkeypatch):
+    """Key 错了要当场说清，并给**国内直连**的备选，而不是只亮红灯。"""
+    from core import self_check
+    monkeypatch.setattr(
+        self_check, "check_cloud",
+        lambda *_a, **_k: {"ok": False, "error": "Key 不对或已过期"})
+    t = _probe_trunk(model_mode="云端模型",
+                     cloud_url="https://api.deepseek.com/chat/completions",
+                     cloud_key="bad", cloud_model="deepseek-chat")
+    r = self_check.probe_model_config(t)
+    assert r["ok"] is False
+    assert any("云端连不上" in p for p in r["problems"]), r
+    assert "国内直连" in r["advice"] and "智谱" in r["advice"]
+
+
+def test_probe_model_config_network_error_suggests_mirror(monkeypatch):
+    from core import self_check
+    monkeypatch.setattr(
+        self_check, "check_cloud",
+        lambda *_a, **_k: {"ok": False, "error": "network: timed out"})
+    t = _probe_trunk(model_mode="云端模型", cloud_url="https://x/v1/chat",
+                     cloud_key="k", cloud_model="m")
+    r = self_check.probe_model_config(t)
+    assert r["ok"] is False
+    assert "国内加速源" in r["advice"] or "国内直连" in r["advice"], r["advice"]
+
+
+def test_probe_model_config_local_warms_up_then_ready(monkeypatch):
+    """本地模式先预热 Ollama，再确认模型真的在。"""
+    from core import self_check
+    calls = []
+    monkeypatch.setattr(self_check, "warmup_ollama",
+                        lambda *_a, **_k: calls.append("warm"))
+    monkeypatch.setattr(self_check, "check_ollama",
+                        lambda *_a, **_k: {"ok": True,
+                                           "models": ["qwen2.5:3b", "llama3:8b"]})
+    t = _probe_trunk(local_model="qwen2.5:3b")
+    r = self_check.probe_model_config(t)
+    assert calls == ["warm"]
+    assert r["ok"] is True and "qwen2.5:3b" in r["detail"]
+
+
+def test_probe_model_config_local_missing_model_points_to_download(monkeypatch):
+    from core import self_check
+    monkeypatch.setattr(self_check, "warmup_ollama", lambda *_a, **_k: None)
+    monkeypatch.setattr(self_check, "check_ollama",
+                        lambda *_a, **_k: {"ok": True, "models": ["llama3:8b"]})
+    t = _probe_trunk(local_model="qwen2.5:3b")
+    r = self_check.probe_model_config(t)
+    assert r["ok"] is False
+    assert any("没有「qwen2.5:3b」" in p for p in r["problems"]), r
+    assert "下载模型" in r["advice"] and "llama3:8b" in r["advice"]
+
+
+def test_probe_model_config_local_offline_gives_domestic_source(monkeypatch):
+    from core import self_check
+    monkeypatch.setattr(self_check, "warmup_ollama", lambda *_a, **_k: None)
+    monkeypatch.setattr(self_check, "check_ollama",
+                        lambda *_a, **_k: {"ok": False,
+                                           "error": "Connection refused"})
+    t = _probe_trunk(local_model="qwen2.5:3b")
+    r = self_check.probe_model_config(t)
+    assert r["ok"] is False
+    assert any("本地 Ollama 连不上" in p for p in r["problems"]), r
+    assert "国内加速源" in r["advice"], r["advice"]
+
+
+def test_probe_model_config_never_raises(monkeypatch):
+    from core import self_check
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("探测炸了")
+    monkeypatch.setattr(self_check, "check_cloud", _boom)
+    t = _probe_trunk(model_mode="云端模型", cloud_url="u", cloud_key="k",
+                     cloud_model="m")
+    r = self_check.probe_model_config(t)
+    assert r["ok"] is False
+    assert any("探测时出错" in p for p in r["problems"]), r
+
+
 def test_cloud_probe_flags_non_chat_response(monkeypatch):
     monkeypatch.setattr("core.net_guard.get_net_guard",
                         lambda *_a, **_k: _AllowGuard())

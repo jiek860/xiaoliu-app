@@ -262,3 +262,108 @@ def test_created_event_emitted_with_step_plan(tmp_path):
     task = rt.plan(tid)
     assert task["status"] == "pending"
     assert task["steps"][0]["status"] == "pending"
+
+
+# ── O4：失败步骤的恢复建议 + trace 聚合 + 换方案 ──
+
+def _failed_plan(rt, error="命令返回失败", attempts=1):
+    """造一个「第一步失败」的任务，返回任务快照。"""
+    task = rt.plan(rt.create("失败任务")["id"])
+    step = task["steps"][0]
+    step["status"] = "failed"
+    step["error"] = error
+    step["attempts"] = attempts
+    task["status"] = "failed"
+    task["error"] = error
+    rt._save(task)
+    return task
+
+
+def test_recovery_suggestion_retries_generic_failure(tmp_path):
+    rt = _rt(tmp_path)
+    task = _failed_plan(rt, "命令返回失败")
+    r = rt.recovery_suggestion(task["id"])
+    assert r["ok"] is True
+    assert r["action"] == "retry_failed_step"
+    assert r["step_id"] == "step_1"
+    assert "命令返回失败" in r["why"]
+
+
+def test_recovery_suggestion_increases_budget_on_timeout(tmp_path):
+    rt = _rt(tmp_path)
+    task = _failed_plan(rt, "任务超时")
+    r = rt.recovery_suggestion(task["id"])
+    assert r["action"] == "increase_task_budget"
+
+
+def test_recovery_suggestion_replans_after_repeated_failure(tmp_path):
+    """同一步失败两次后，继续重试没有意义，应该换方案。"""
+    rt = _rt(tmp_path)
+    task = _failed_plan(rt, "构建失败", attempts=2)
+    r = rt.recovery_suggestion(task["id"])
+    assert r["action"] == "replan"
+    assert r["attempts"] == 2
+
+
+def test_recovery_suggestion_points_to_model_settings(tmp_path):
+    rt = _rt(tmp_path)
+    task = _failed_plan(rt, "LLM未加载")
+    r = rt.recovery_suggestion(task["id"])
+    assert r["action"] == "open_model_settings"
+
+
+def test_recovery_suggestion_asks_user_for_unclear_goal(tmp_path):
+    rt = _rt(tmp_path)
+    task = _failed_plan(rt, "目标不明确，需要用户补充说明")
+    r = rt.recovery_suggestion(task["id"])
+    assert r["action"] == "ask_user"
+
+
+def test_recovery_suggestion_missing_task(tmp_path):
+    rt = _rt(tmp_path)
+    assert rt.recovery_suggestion("task_nope")["ok"] is False
+
+
+def test_replan_clears_steps_and_emits_event(tmp_path):
+    rt = _rt(tmp_path)
+    task = _failed_plan(rt, "构建失败")
+    seen = []
+    rt.subscribe(lambda _t, event, _d: seen.append(event))
+    r = rt.replan(task["id"])
+    assert r["ok"] is True
+    after = rt.get_task(task["id"])
+    assert after["steps"] == []
+    assert after["status"] == "pending"
+    assert "replan_requested" in seen
+
+
+def test_replan_rejects_running_task(tmp_path):
+    rt = _rt(tmp_path)
+    tid = rt.create("正在跑")["id"]
+    task = rt.get_task(tid)
+    task["status"] = "running"
+    rt._save(task)
+    assert rt.replan(tid)["ok"] is False
+
+
+def test_events_filter_by_step_id(tmp_path):
+    rt = _rt(tmp_path)
+    tid = rt.create("两个步骤")["id"]
+    rt.trace.record({"kind": "step_started", "task_id": tid,
+                     "step_id": "step_1", "detail": "开始"})
+    rt.trace.record({"kind": "step_failed", "task_id": tid,
+                     "step_id": "step_1", "detail": "失败"})
+    rt.trace.record({"kind": "step_done", "task_id": tid,
+                     "step_id": "step_2", "detail": "完成"})
+    rows = rt.events(tid, step_id="step_1")
+    assert [r["kind"] for r in rows] == ["step_started", "step_failed"]
+    assert all(r["task_id"] == tid for r in rows)
+
+
+def test_failed_step_emits_trace_with_step_id(tmp_path):
+    rt = _rt(tmp_path, llm=FakeLLM(RuntimeError("模型挂了")))
+    r = rt.run_sync("会失败", timeout=10)
+    rows = rt.events(r["task_id"], step_id="step_1", limit=100)
+    assert [x for x in rows if x.get("kind") == "step_failed"]
+    task = rt.get_task(r["task_id"])
+    assert task["steps"][0]["attempts"] == 1

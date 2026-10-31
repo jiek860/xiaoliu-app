@@ -72,6 +72,7 @@ def build_model_page(d, trunk, parent, lay, hint):
             trunk.config["local_model"] = mm
             trunk.save_config()
             ollama_lbl.setText(" 已选择本地模型：%s" % mm)
+            _refresh_routes()
             pick.accept()
 
         lst.itemDoubleClicked.connect(_pick)
@@ -148,6 +149,43 @@ def build_model_page(d, trunk, parent, lay, hint):
     check_btn.customContextMenuRequested.connect(_show_trust_menu)
     ollama_lbl = QLabel(" 正在检测 Ollama")
     lay.addWidget(ollama_lbl)
+
+    # 路由预览：和真实聊天用的是同一份规则（core.model_router），
+    # 不再由设置页自己猜"短问走本地、长文走云端"。
+    route_lbl = QLabel("")
+    route_lbl.setWordWrap(True)
+    route_lbl.setStyleSheet("color:#475569;font-size:11px;")
+    lay.addWidget(route_lbl)
+
+    def _refresh_routes():
+        try:
+            from core.model_router import (TaskRequirements, route_lines,
+                                           route_model)
+            cfg = trunk.config
+            local_model = str(cfg.get("local_model") or "xiao6-7b")
+            cloud_model = str(cfg.get("cloud_model") or "")
+            provider = str(cfg.get("cloud_provider") or "openai")
+            llm = (getattr(trunk, "modules", {}) or {}).get("llm")
+            local_available = not bool(getattr(llm, "ollama_down", False))
+            short = route_model(
+                local_model=local_model, cloud_model=cloud_model,
+                provider=provider, local_available=local_available,
+                requirements=TaskRequirements(complexity="low"))
+            hard = route_model(
+                local_model=local_model, cloud_model=cloud_model,
+                provider=provider, local_available=local_available,
+                requirements=TaskRequirements(complexity="high",
+                                              min_context=32000))
+            lines = [route_lines(short, "短问"),
+                     route_lines(hard, "长文/难任务")]
+            if not cloud_model:
+                lines.append("云端模型还没配：本地扛不住时仍由本地尽力回答。")
+            route_lbl.setText("\n".join(lines))
+        except Exception as e:
+            _x6_swallowed(__name__, e, "route preview")
+
+    _refresh_routes()
+    mode_box.currentIndexChanged.connect(lambda _i: _refresh_routes())
 
     class _Probe(QObject):
         done = pyqtSignal(str)

@@ -8,6 +8,7 @@ import tempfile
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+from PyQt5.QtCore import Qt  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 _app = QApplication.instance() or QApplication([])
 
@@ -295,6 +296,48 @@ def test_diff_preview_only_does_not_modify_file(tmp_path):
         assert d.accepted is True
         assert d.selected_files == ["a.txt"]
         assert (root / "a.txt").read_text(encoding="utf-8") == "old\n"
+    finally:
+        d.close()
+
+
+def test_diff_dialog_accepts_create_only_patch(tmp_path):
+    """批次 O3：多文件重构里新建文件没有 hunk，勾了文件就能批准。"""
+    from gui.diff_dialog import DiffReviewDialog
+
+    root = tmp_path / "project"
+    root.mkdir()
+    patch = {"goal": "新建 helper",
+             "files": [{"op": "create", "path": "helper.py",
+                        "content": "def add(a, b):\n    return a + b\n"}]}
+    d = DiffReviewDialog(str(root), patch)
+    try:
+        d._apply()
+        assert d.accepted is True
+        assert d.selected_files == ["helper.py"]
+        assert d.selected_hunks == []
+        assert (root / "helper.py").read_text(encoding="utf-8").startswith("def add")
+    finally:
+        d.close()
+
+
+def test_diff_dialog_check_all_links_toggle_selection(tmp_path):
+    """全选 / 全不选链接：不新增按钮也能批量调整勾选。"""
+    from gui.diff_dialog import DiffReviewDialog
+
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "a.py").write_text("one\ntwo\n", encoding="utf-8")
+    patch = {"goal": "两条改动", "files": [
+        {"op": "update", "path": "a.py", "hunks": [
+            {"old": "one", "new": "ONE"},
+            {"old": "two", "new": "TWO"},
+        ]}]}
+    d = DiffReviewDialog(str(root), patch, apply_on_accept=False)
+    try:
+        d._check_all(Qt.Unchecked)
+        assert d._selection() == ([], [])
+        d._check_all(Qt.Checked)
+        assert d._selection() == (["a.py"], ["a.py:0", "a.py:1"])
     finally:
         d.close()
 

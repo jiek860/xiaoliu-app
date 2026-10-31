@@ -223,6 +223,29 @@ class MemoryPipeline(BaseModule):
             pass
         return []
 
+    # ⑤ 用户画像：称呼 + 语气偏好（批次 O2，人格卡 L4 读这个）
+    def user_prefs(self, limit=3):
+        """偏好命中进 prefs：记忆卡画像为主，向量库偏好句补齐。"""
+        result = {"name": "", "prefs": []}
+        try:
+            from core.chat.user_profile import collect
+            row = collect(self.trunk, base=self.base) or {}
+            result["name"] = str(row.get("name") or "")
+            result["prefs"] = list(row.get("prefs") or [])
+        except Exception as e:
+            _x6_swallowed(__name__, e, "user_profile")
+        try:
+            vs = (self.trunk.modules.get("vector_store")
+                  if self.trunk else None)
+            values = vs.prefs(limit) if vs and hasattr(vs, "prefs") else []
+            for value in values:
+                if value and value not in result["prefs"]:
+                    result["prefs"].append(value)
+        except Exception as e:
+            _x6_swallowed(__name__, e, "vector_prefs")
+        result["prefs"] = result["prefs"][:max(1, int(limit or 3))]
+        return result
+
     def run(self, user_text="", answer="", query=""):
         """一轮记忆闭环"""
         self._log("▶ 记忆闭环开始")

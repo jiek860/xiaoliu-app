@@ -245,7 +245,7 @@ def _build_sidebar(win):
     av.addWidget(win.sidebar_modules_box)
     sidebar.addWidget(win.sidebar_advanced_box)
 
-    # 登录 / 清空聊天（高级模式）
+    # 登录（高级模式）；清空聊天已收进聊天右键菜单/命令面板
     win.sidebar_bottom_advanced = QWidget()
     br = QHBoxLayout(win.sidebar_bottom_advanced)
     br.setContentsMargins(0, 0, 0, 0)
@@ -253,9 +253,6 @@ def _build_sidebar(win):
     win.login_btn_sb = _small_button("🔑 登录", "登录 / 切换账号")
     win.login_btn_sb.clicked.connect(win.show_login)
     br.addWidget(win.login_btn_sb)
-    win.clear_btn_sb = _small_button("🗑 清空", "清空聊天")
-    win.clear_btn_sb.clicked.connect(win._clear_chat)
-    br.addWidget(win.clear_btn_sb)
     sidebar.addWidget(win.sidebar_bottom_advanced)
 
     # 按内容最小高度撑开：按钮多时出现滚动条，而不是把下半截压没。

@@ -68,8 +68,9 @@ def test_advanced_keeps_all_original_capabilities():
 
 
 def test_avatar_menu_is_limited_to_five_high_frequency_actions():
-    # 头像菜单固定为：切换模式 / 检查更新 / 设置 / 登录 / 帮助
-    assert set(AVATAR_MENU_IDS) == {"update", "settings", "login", "tutorial"}
+    # 头像菜单折叠后为：切换模式 / 检查更新 / 设置 / 帮助（登录收进命令面板）
+    assert set(AVATAR_MENU_IDS) == {"update", "settings", "tutorial"}
+    assert len(AVATAR_MENU_IDS) <= 5
 
 
 def test_more_menu_covers_other_features_without_duplicates():
@@ -77,11 +78,16 @@ def test_more_menu_covers_other_features_without_duplicates():
     assert len(more_ids) == len(set(more_ids)), "更多菜单内部有重复入口"
     assert not (set(more_ids) & set(AVATAR_MENU_IDS)), \
         "头像和更多菜单重复了入口"
-    # 原来的低频能力必须仍在更多的分组里
+    # 折叠高频能力必须仍在更多的分组里
     for fid in ("task_center", "security_center", "plugin_market", "mcp",
-                "model_selector", "workbench", "memory", "logs",
-                "command_palette", "onboarding", "feedback"):
+                "model_selector", "workbench", "memory",
+                "command_palette", "onboarding"):
         assert fid in more_ids
+    # 已折叠进命令面板的低频入口，不应再出现在更多菜单
+    for fid in ("logs", "feedback", "system_check", "module_map",
+                "web_console", "skills", "calendar", "bot",
+                "knowledge_graph", "deep_research"):
+        assert fid not in more_ids
 
 
 def test_rendered_menus_have_no_duplicate_actions(monkeypatch):
@@ -131,9 +137,9 @@ def test_rendered_menus_have_no_duplicate_actions(monkeypatch):
 
     avatar_texts = [a.text().strip() for a in menus[0].actions()
                     if not a.isSeparator() and a.isEnabled()]
-    assert len(avatar_texts) == 5
+    assert len(avatar_texts) == 4
     assert any("切换模式" in t for t in avatar_texts)
-    for needle in ("检查更新", "设置", "登录 / 切换账号", "帮助"):
+    for needle in ("检查更新", "设置", "帮助"):
         assert any(needle in t for t in avatar_texts)
 
     more_texts = [a.text().strip() for a in menus[1].actions()
@@ -141,7 +147,7 @@ def test_rendered_menus_have_no_duplicate_actions(monkeypatch):
     assert len(more_texts) == len(set(more_texts)), "更多菜单渲染出重复按钮"
     assert not (set(more_texts) & set(avatar_texts)), "两个菜单渲染出重复按钮"
     for needle in ("任务中心", "安全中心", "插件市场", "MCP",
-                   "命令面板", "意见反馈"):
+                   "命令面板", "首次设置向导"):
         assert any(needle in t for t in more_texts)
 
 

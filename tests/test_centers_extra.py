@@ -8,6 +8,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
 from PyQt5.QtWidgets import QApplication, QMessageBox, QWidget  # noqa: E402
+from PyQt5.QtCore import QUrl  # noqa: E402
 
 _app = QApplication.instance() or QApplication([])
 
@@ -298,3 +299,158 @@ def test_security_center_export_failure_is_reported(monkeypatch):
         d.close()
     assert seen, "导出失败必须弹提示，不能假装成功"
     assert "只读文件系统" in str(seen[0])
+
+
+# ── O4：失败步骤标红 + 下一步链接 + trace 聚合 + 定时任务管理 ──
+
+class _FailedRT(_FakeRT):
+    """一个失败任务：带恢复建议、步骤事件和重试记录。"""
+
+    def __init__(self):
+        self.calls, self.replanned = [], 0
+        self.task = {
+            "id": "tf", "status": "failed", "goal": "修一下登录页",
+            "error": "构建失败", "budget": {"max_seconds": 60},
+            "steps": [{"id": "step_1", "status": "failed", "title": "跑测试",
+                       "error": "AssertionError: button not found",
+                       "attempts": 1, "result_preview": ""}],
+        }
+
+    def get_task(self, _task_id):
+        return dict(self.task)
+
+    def list_tasks(self):
+        return [dict(self.task)]
+
+    def recovery_suggestion(self, _task_id, step_id=None):
+        return {"ok": True, "why": "AssertionError: button not found",
+                "action": "retry_failed_step", "label": "重试这一步",
+                "step_id": step_id or "step_1"}
+
+    def events(self, task_id, step_id=None, limit=50):
+        return [
+            {"kind": "step_started", "task_id": task_id,
+             "step_id": step_id, "detail": "跑测试",
+             "time": "2026-10-31 10:00:00"},
+            {"kind": "step_failed", "task_id": task_id,
+             "step_id": step_id, "detail": "跑测试：AssertionError",
+             "time": "2026-10-31 10:00:01"},
+        ]
+
+    def retry_step(self, task_id, step_id):
+        self.calls.append((task_id, step_id))
+        return {"ok": True}
+
+    def replan(self, task_id):
+        self.replanned += 1
+        self.task["steps"] = []
+        self.task["status"] = "pending"
+        return {"ok": True, "task_id": task_id}
+
+    def plan_async(self, task_id, on_done=None):
+        self.task["steps"] = [
+            {"id": "step_1", "status": "pending", "title": "跑测试"}]
+        self.task["status"] = "pending"
+        if on_done:
+            on_done(task_id, True)
+
+    def start(self, _task_id):
+        return {"ok": True}
+
+    def unsubscribe(self, _cb):
+        return True
+
+
+class _Scheduler:
+    def __init__(self):
+        self.running = True
+        self.started = self.stopped = 0
+
+    def start(self):
+        self.running = True
+        self.started += 1
+
+    def stop(self):
+        self.running = False
+        self.stopped += 1
+
+
+class _Runner:
+    def __init__(self):
+        self.ran = []
+
+    def list_workflows(self):
+        return ["daily_digest"]
+
+    def load(self, name):
+        return {"name": name, "schedule": "0 8 * * *"}
+
+    def start_async(self, name):
+        self.ran.append(name)
+        return {"ok": True}
+
+
+class _SchedTrunk(_RTTrunk):
+    def __init__(self, rt):
+        super().__init__(rt)
+        self.modules = {"scheduler": _Scheduler(),
+                        "workflow_runner": _Runner()}
+
+
+def test_task_center_marks_failed_step_and_offers_next_actions():
+    rt = _FailedRT()
+    d = TaskCenterDialog(_RTTrunk(rt))
+    try:
+        text = d.detail.toPlainText()
+        assert "为什么失败" in text
+        assert "AssertionError: button not found" in text
+        assert "重试此步" in text and "换个做法" in text
+        assert "#b42318" in d.detail.toHtml(), "失败步骤必须标红"
+        assert not d.guide_box.isHidden(), "失败任务要给下一步引导"
+        assert "AssertionError" in d.guide_label.text()
+        d._on_anchor(QUrl("step-retry://step_1"))
+        assert rt.calls == [("tf", "step_1")]
+    finally:
+        d.done(0)
+
+
+def test_task_center_aggregates_trace_at_failed_step():
+    rt = _FailedRT()
+    d = TaskCenterDialog(_RTTrunk(rt))
+    try:
+        text = d.detail.toPlainText()
+        assert "失败经过" in text, "trace 事件要在失败步骤处聚合展示"
+        assert "step_failed" in text
+        assert "2026-10-31 10:00:01" in text
+        assert "trace-step_1" in d.detail.toHtml(), "要能跳到对应时间点"
+    finally:
+        d.done(0)
+
+
+def test_task_center_replan_link_rebuilds_plan():
+    rt = _FailedRT()
+    d = TaskCenterDialog(_RTTrunk(rt))
+    try:
+        d._on_anchor(QUrl("step-replan"))
+        assert rt.replanned == 1
+        assert "跑测试" in d.detail.toPlainText(), "换个做法后重新拆解出新计划"
+    finally:
+        d.done(0)
+
+
+def test_task_center_shows_and_stops_scheduled_jobs():
+    rt = _FailedRT()
+    trunk = _SchedTrunk(rt)
+    d = TaskCenterDialog(trunk)
+    try:
+        text = d.detail.toPlainText()
+        assert "定时任务" in text
+        assert "daily_digest" in text and "0 8 * * *" in text
+        assert "停用调度" in text
+        d._on_anchor(QUrl("schedule-stop"))
+        assert trunk.modules["scheduler"].stopped == 1
+        assert "已停用" in d.detail.toPlainText()
+        d._on_anchor(QUrl("schedule-run://daily_digest"))
+        assert trunk.modules["workflow_runner"].ran == ["daily_digest"]
+    finally:
+        d.done(0)

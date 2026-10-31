@@ -36,7 +36,9 @@ class OnboardingFinalMixin:
             return
         self._reload_llm_config()
         self._refresh_local_status()
-        self._show_result()
+        # 保存这一下是**真的连一次**（本地预热 Ollama / 云端发最小请求）：
+        # 配错当场说清原因和下一步，而不是等到第一次聊天才报"出了点问题"。
+        self._show_result(probe=True)
 
     def _reload_llm_config(self):
         """保存后热加载。
@@ -82,22 +84,54 @@ class OnboardingFinalMixin:
             return "local"
         return ""
 
-    def _show_result(self):
-        try:
-            r = model_setup.check(self.trunk)
-        except Exception as e:
-            self.lbl_result.setText("检测出错：" + str(e)[:100])
-            return
-        if r["ready"]:
-            self.lbl_result.setText("✅ 配置完成，可以正常聊天了。")
+    def _show_result(self, probe=False):
+        """显示配置结果。
+
+        probe=True（点「保存并检测」）时走 `core.self_check.probe_model_config`
+        真探测：本地预热 Ollama、云端真发一次最小请求。失败会给「下一步」，
+        包括可改用的国内直连服务商 / 国内加速下载源 —— 而不是只说"没配好"。
+        probe=False（翻页时）只看配置齐不齐，避免每次翻页都等网络。
+        """
+        if probe:
+            try:
+                from core import self_check
+                r = self_check.probe_model_config(self.trunk)
+            except Exception as e:
+                self.lbl_result.setText("检测出错：" + str(e)[:100])
+                return
+            ready = bool(r.get("ok"))
+            problems = list(r.get("problems") or [])
+            advice = str(r.get("advice") or "")
+            detail = str(r.get("detail") or "")
+        else:
+            try:
+                r = model_setup.check(self.trunk, probe=False)
+            except Exception as e:
+                self.lbl_result.setText("检测出错：" + str(e)[:100])
+                return
+            ready = bool(r.get("ready"))
+            problems = list(r.get("problems") or [])
+            advice = str(r.get("advice") or "")
+            detail = ""
+        if ready:
+            text = "✅ 配置完成，可以正常聊天了。"
+            if detail:
+                text += "\n" + detail
+            self.lbl_result.setText(text)
             self.lbl_result.setStyleSheet(
                 "padding:6px;border-radius:4px;background:#dcfce7;color:#166534;")
         else:
             self.lbl_result.setText(
-                "⚠️ 还差一点：\n· " + "\n· ".join(r["problems"])
-                + "\n\n" + r["advice"])
+                "⚠️ 还差一点：\n· " + "\n· ".join(problems)
+                + "\n\n" + advice)
             self.lbl_result.setStyleSheet(
                 "padding:6px;border-radius:4px;background:#fef3c7;color:#92400e;")
+        # 提示文字可能从一行变成多行，窗口高度跟着重算（同 _apply_local_status）。
+        try:
+            self.fit_to_content(grow=True)
+            self._fit_timer.start(0)
+        except Exception as e:  # 静默是故意的 - 尺寸算不出来不影响配置
+            _x6_swallowed(__name__, e, "fit onboarding after probe")
 
     def _on_page_changed(self, pid):
         if pid == 0:

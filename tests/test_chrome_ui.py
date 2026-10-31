@@ -103,7 +103,9 @@ def test_settings_left_category_is_synced(monkeypatch):
         nav = made[0].findChild(QListWidget, "settingsCategory")
         assert tabs is not None and nav is not None
         assert tabs.tabBar().isVisible() is False
-        assert nav.count() == tabs.count() == 7
+        # M6 合并后「统计 / 组件」并入设置页，页数由 7 变成 9；
+        # 左侧分类与右侧页签必须一一对应（少一个就会点错页）。
+        assert nav.count() == tabs.count() == 9
         nav.setCurrentRow(2)
         assert tabs.currentIndex() == 2
     finally:

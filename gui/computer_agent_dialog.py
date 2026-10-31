@@ -2,10 +2,16 @@
 """电脑 Agent 对话框：目标 -> LLM 跨应用计划 -> 确认 -> 执行/验证。"""
 from __future__ import annotations
 
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:
+    def _x6_swallowed(component, error, context=""):
+        return None
+
 from PyQt5.QtCore import QThread, pyqtSignal, QObject
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QPlainTextEdit, QMessageBox,
+    QPlainTextEdit, QMessageBox, QTabWidget, QWidget,
 )
 
 from core.action_schema import action_summary
@@ -54,9 +60,10 @@ class _RunWorker(QThread):
 
 
 class ComputerAgentDialog(QDialog):
-    def __init__(self, trunk, parent=None):
+    def __init__(self, trunk, parent=None, chat=None):
         super().__init__(parent)
         self.trunk = trunk
+        self.chat = chat
         self.agent = ComputerAgent(trunk)
         self.actions = []
         self._worker = None
@@ -70,7 +77,9 @@ class ComputerAgentDialog(QDialog):
         self._build()
 
     def _build(self):
-        lay = QVBoxLayout(self)
+        tabs = QTabWidget()
+        auto = QWidget()
+        lay = QVBoxLayout(auto)
         lay.addWidget(QLabel("目标："))
         self.goal = QLineEdit()
         self.goal.setPlaceholderText(
@@ -114,6 +123,17 @@ class ComputerAgentDialog(QDialog):
             "流程：观察屏幕 -> 单步规划 -> 执行 -> 验证 -> 重新观察/重规划。"
             "可暂停、人工接管、取消和一键撤销文件操作。")
         lay.addWidget(self.output)
+        tabs.addTab(auto, "🎯 自动 Agent")
+        # 「🖥️ 手动控制」子页：原「电脑控制」独立窗口并入电脑 Agent。
+        try:
+            from gui.computer_dialog import build_manual_control_tabs
+            tabs.addTab(
+                build_manual_control_tabs(self.trunk, self.chat, parent=self),
+                "🖥️ 手动控制")
+        except Exception as e:  # 静默是故意的 - 手动控制子页失败不阻塞主功能
+            _x6_swallowed(__name__, e, "computer-agent manual-control subpage")
+        outer = QVBoxLayout(self)
+        outer.addWidget(tabs)
 
     def _plan(self):
         goal = self.goal.text().strip()

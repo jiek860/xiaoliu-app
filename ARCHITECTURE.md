@@ -512,3 +512,25 @@ Feature("workbench", "工作台", "🧰", "工具", (ADVANCED,), 140,
 - **治理**：冻结守卫进入解冻期（`tools/freeze_baseline.json` `active=false`），
   预算上限见 `docs/106`；新增 `tools/audit_signals.py` 审计"有 emit 无 connect"。
 
+---
+
+## v25.5.0 增量架构（2026-10-31 / 入口治理 F/M/O）
+
+只做"入口收敛 + 顺序优化 + 超长文件拆分"，不动 Trunk 总线、不改能力注册数
+（`core/feature_registry.py` 仍 37 个入口，常驻按钮预算不升）：
+
+- **入口收敛（F 折叠）**：低频入口从侧栏移入命令面板（`Ctrl+K`）；
+  入口仍由 `core/feature_registry.py` 统一登记，命令面板兜底，**不删能力**。
+- **入口合并（M 合并）**：同一件事只留一个入口 —— 定时任务→任务中心、
+  权限中心→安全中心、语音对话→实时对话、电脑控制→电脑 Agent、
+  搜索→历史、知识图谱→知识库、统计/组件→设置。
+- **体验优化（O 优化）**：O1 路由提示/附件 OCR/语音中间结果；O2 人格偏好与
+  记忆冲突；O3 多文件重构按文件分组应用；O4 任务失败引导 + 调度可见 + trace
+  聚合；O5 首配真探测（`core/model_probe.py`）+ 增量更新与回滚自备份。
+- **拆分（对外导入路径全部保留）**：`core/self_check`→`core/model_probe`、
+  `core/auto_update`→`core/auto_update_problem`、
+  `core/task_runtime`→`core/task_recovery`、
+  `core/patch_engine`→`core/patch_backup`、
+  `gui/task_center_dialog`→`gui/task_center_view`。
+  拆分后生产文件全部 < 600 行（`tools/check_file_sizes.py`）。
+

@@ -22,6 +22,11 @@ import uuid
 
 from core.path_safety import is_within
 
+# 备份/清单合并/回滚拆到 core/patch_backup.py（本文件到 600 行上限）；
+# 这里保留同名导出，`from core.patch_engine import rollback` 等老调用不变。
+from core.patch_backup import (  # noqa: F401
+    _backup_file, _merge_manifests, _rollback_manifest, rollback)
+
 
 PROTECTED_PARTS = {
     ".git", "data", "backups", "staging", "libs", "optional_libs",
@@ -394,16 +399,6 @@ def unified_diff(root, patch, selected_files=None, selected_hunks=None):
     return "".join(out)
 
 
-def _backup_file(root, rel, p, backup_dir):
-    if not os.path.isfile(p):
-        return ""
-    safe_name = rel.replace("/", "__").replace("\\", "__")
-    bak = os.path.join(backup_dir, safe_name + ".bak")
-    os.makedirs(os.path.dirname(bak), exist_ok=True)
-    shutil.copy2(p, bak)
-    return bak
-
-
 def apply_patch(root, patch, *, selected_files=None, selected_hunks=None,
                 backup_base=None, require_clean=True):
     """应用 patch，返回 {ok, patch_id, applied, backup_manifest}。"""
@@ -503,46 +498,89 @@ def apply_patch(root, patch, *, selected_files=None, selected_hunks=None,
         raise
 
 
-def _rollback_manifest(manifest):
-    root = manifest.get("root") or ""
-    restored = []
-    for item in reversed(manifest.get("files") or []):
-        op = item.get("op") or "update"
-        try:
-            path = _safe_path(root, item.get("path"))
-            new_path = item.get("new_path") or ""
-            backup = item.get("backup") or ""
-            existed = bool(item.get("existed", True))
-            if op == "create" and not existed:
-                if os.path.isfile(path):
-                    os.remove(path)
-                restored.append(item.get("path"))
-            elif op == "rename" and new_path:
-                src = _safe_path(root, new_path)
-                if os.path.isfile(src):
-                    os.makedirs(os.path.dirname(path), exist_ok=True)
-                    os.replace(src, path)
-                elif backup and os.path.isfile(backup):
-                    shutil.copy2(backup, path)
-                restored.append(item.get("path"))
-            elif backup and os.path.isfile(backup):
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-                shutil.copy2(backup, path)
-                restored.append(item.get("path"))
-            elif op == "write" and not existed:
-                if os.path.isfile(path):
-                    os.remove(path)
-                restored.append(item.get("path"))
-        except Exception:  # 静默是故意的 - Agent 防御性回退，不阻塞主流程
+def group_by_file(patch, selected_files=None):
+    """把 patch 拆成「一个文件一组」的小批次，顺序与文件条目顺序一致。
+
+    跨文件重构常常是"一个目标 → 多个文件"：按文件分组后既能逐文件应用，
+    也能在某个文件失败时只回滚这一组，已经落盘的其它文件不回退。
+    同一路径的多条操作（先 create 再 update）仍留在同一组，保持顺序语义。
+    """
+    selected = set(_norm_rel(x) for x in (selected_files or []))
+    groups: list = []
+    index: dict = {}
+    for fp in (patch or {}).get("files") or []:
+        if not isinstance(fp, dict):
             continue
-    return restored
+        rel = _norm_rel(fp.get("path") or "")
+        new_rel = _norm_rel(fp.get("new_path") or fp.get("to") or "")
+        if selected and rel not in selected and new_rel not in selected:
+            continue
+        if rel not in index:
+            index[rel] = len(groups)
+            groups.append({"path": rel, "files": []})
+        groups[index[rel]]["files"].append(fp)
+    out = []
+    for group in groups:
+        sub = dict(patch or {})
+        sub["files"] = group["files"]
+        out.append((group["path"], sub))
+    return out
 
 
-def rollback(manifest_path):
-    try:
-        with open(manifest_path, encoding="utf-8") as f:
-            manifest = json.load(f)
-    except (OSError, ValueError) as e:
-        raise PatchError("读不了备份清单: " + str(e)) from e
-    restored = _rollback_manifest(manifest)
-    return {"ok": True, "restored": restored}
+def apply_patch_grouped(root, patch, *, selected_files=None,
+                        selected_hunks=None, backup_base=None,
+                        require_clean=True):
+    """按文件分组应用多文件 patch（批次 O3）。
+
+    与 apply_patch 的差别只在落盘粒度：
+    * 整批先预演一次，任何一处不合法都不落盘（和 apply_patch 一致）；
+    * 预演通过后按文件逐个落盘，每组有自己的备份清单；
+    * 某个文件失败时只回滚这一组，已成功的文件不动；
+    * 额外产出一份合并清单，`backup_manifest` 仍可一次撤销整批。
+    返回 {ok, patch_id, applied, files, manifests, backup_manifest, errors}。
+    """
+    root = os.path.abspath(root)
+    normalized = validate_patch(root, patch)
+    selected_files = set(_norm_rel(x) for x in (selected_files or []))
+    if require_clean:
+        dry = dry_run_patch(root, normalized,
+                            selected_files=selected_files or None,
+                            selected_hunks=selected_hunks)
+        if not dry.get("ok"):
+            raise PatchError("预演失败，未写入任何文件: " +
+                             "；".join(dry.get("errors") or []))
+    files, errors = [], []
+    applied, manifests = [], []
+    failed = False
+    for i, (rel, sub) in enumerate(group_by_file(normalized,
+                                                 selected_files or None)):
+        item = {"path": rel, "ok": False, "applied": [], "manifest": "",
+                "error": "", "skipped": False}
+        if failed:
+            item["skipped"] = True
+            item["error"] = "前一个文件失败，未应用"
+            files.append(item)
+            continue
+        # 每组独立 patch_id：备份目录互不覆盖，失败时只回滚自己这一组。
+        sub["patch_id"] = "%s_f%02d" % (normalized.get("patch_id", "patch"), i)
+        try:
+            r = apply_patch(root, sub, backup_base=backup_base,
+                            require_clean=False)
+        except Exception as e:
+            item["error"] = str(e)
+            errors.append("%s: %s" % (rel, e))
+            files.append(item)
+            failed = True
+            continue
+        item["ok"] = True
+        item["applied"] = list(r.get("applied") or [])
+        item["manifest"] = str(r.get("backup_manifest") or "")
+        applied.extend(item["applied"])
+        if item["manifest"]:
+            manifests.append(item["manifest"])
+        files.append(item)
+    backup_base = backup_base or os.path.join(root, "data", "patch_backups")
+    merged_path = _merge_manifests(backup_base, normalized, root, manifests)
+    return {"ok": not errors, "patch_id": normalized.get("patch_id", ""),
+            "applied": applied, "files": files, "manifests": manifests,
+            "backup_manifest": merged_path, "errors": errors}

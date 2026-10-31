@@ -9,8 +9,8 @@ import html
 from PyQt5.QtCore import QObject, QTimer, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QListWidget, QListWidgetItem, QTextEdit, QMessageBox, QSplitter, QWidget,
-    QFrame)
+    QListWidget, QListWidgetItem, QTextBrowser, QMessageBox, QSplitter,
+    QWidget, QFrame)
 
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -19,6 +19,9 @@ except ImportError:  # 独立导入时兜底
         return None
 
 from gui.feedback_states import make_action_links
+
+# 渲染/引导拆到 gui/task_center_view.py（本文件到 600 行上限）。
+from gui.task_center_view import TaskCenterViewMixin
 
 
 class _TaskBridge(QObject):
@@ -47,7 +50,7 @@ class TaskPlanRelay(QObject):
         self.rt.plan_async(task_id, self.planned.emit)
 
 
-class TaskCenterDialog(QDialog):
+class TaskCenterDialog(TaskCenterViewMixin, QDialog):
     def __init__(self, trunk, parent=None, task_id=None, goal=None,
                  auto_start=False, auto_plan=False):
         super().__init__(parent)
@@ -131,8 +134,12 @@ class TaskCenterDialog(QDialog):
         ll.addWidget(self.list)
         right = QWidget()
         rl = QVBoxLayout(right)
-        self.detail = QTextEdit()
-        self.detail.setReadOnly(True)
+        self.detail = QTextBrowser()
+        # 失败步骤里的「重试 / 换方案 / 补充说明 / 失败经过」都是富文本链接，
+        # 不占按钮位；点击后在本窗口内处理，不再单独弹窗。
+        self.detail.setOpenLinks(False)
+        self.detail.setOpenExternalLinks(False)
+        self.detail.anchorClicked.connect(self._on_anchor)
         rl.addWidget(self.detail, 1)
         btns = QHBoxLayout()
         self.action_buttons = {}
@@ -172,9 +179,7 @@ class TaskCenterDialog(QDialog):
             if t.get("id") == sel:
                 self.list.setCurrentItem(item)
         if not tasks:
-            self.detail.setPlainText(
-                "还没有任务。\n\n输入目标后点「新建任务」，"
-                "计划、步骤、确认和结果都会在这里显示。")
+            self.detail.setHtml(self._empty_html())
             self._update_guidance(None)
             return
         if sel:
@@ -291,78 +296,161 @@ class TaskCenterDialog(QDialog):
         if not t:
             return
         self._current = task_id
-        lines = ["目标：%s" % t.get("goal", ""),
-                 "状态：%s" % t.get("status", ""),
-                 "任务ID：%s" % t.get("id", ""),
-                 "耗时预算：%ss" % t.get("budget", {}).get("max_seconds", ""),
-                 "", "步骤："]
+        parts = [
+            "<div style='font-size:13px;color:#344054;'>目标：<b>%s</b></div>"
+            % html.escape(str(t.get("goal", ""))),
+            "<div style='font-size:12px;color:#667085;margin-top:2px;'>"
+            "状态：%s　任务ID：%s　耗时预算：%ss</div>"
+            % (html.escape(str(t.get("status", ""))),
+               html.escape(str(t.get("id", "")), quote=True),
+               html.escape(str(t.get("budget", {}).get("max_seconds", ""))))
+        ]
         if task_id in self._planning:
-            lines.insert(2, "正在后台拆解计划…界面可以继续操作，完成后会自动开始。")
-        for s in t.get("steps", []):
-            icon = {"done": "", "running": "", "failed": "",
-                    "paused": "", "pending": ""}.get(
-                        s.get("status"), "")
-            lines.append("%s %s  [%s] %s" % (
-                icon, s.get("id"), s.get("status"), s.get("title", "")))
-            if s.get("error"):
-                lines.append("   错误: " + str(s.get("error"))[:300])
-            if s.get("result_preview"):
-                lines.append("   结果: " + str(s.get("result_preview"))[:500])
+            parts.append(
+                "<div style='color:#175cd3;font-size:12px;'>"
+                "正在后台拆解计划…界面可以继续操作，完成后会自动开始。</div>")
+        parts.append("<div style='margin-top:10px;font-weight:700;'>步骤：</div>")
+        steps = t.get("steps") or []
+        if not steps:
+            parts.append(
+                "<div style='color:#667085;font-size:12px;'>"
+                "还没有计划，点击「开始」会自动拆解。</div>")
+        for s in steps:
+            parts.append(self._step_html(s))
         if t.get("final"):
-            lines += ["", "最终结果：", str(t["final"])[:4000]]
+            parts.append(
+                "<div style='margin-top:10px;font-weight:700;'>最终结果：</div>"
+                "<div style='font-size:12px;color:#344054;'>%s</div>"
+                % html.escape(str(t["final"])[:4000]).replace("\n", "<br>"))
         if t.get("error"):
-            lines += ["", "错误：", str(t["error"])[:1000]]
-        self.detail.setPlainText("\n".join(lines))
+            parts.append(
+                "<div style='margin-top:8px;color:#b42318;'>"
+                "<b>任务失败原因：</b>%s</div>"
+                % html.escape(str(t["error"])[:1000]))
+        parts.append(self._schedule_html())
+        self.detail.setHtml("".join(parts))
         self._update_guidance(t)
 
-    def _update_guidance(self, task):
-        if not task or task.get("status") not in (
-                "failed", "cancelled", "paused", "completed"):
-            self.guide_box.hide()
-            self._guide_action = ""
+    def _on_anchor(self, url):
+        """富文本链接统一入口：步骤动作 + 定时任务管理。"""
+        href = url.toString() if hasattr(url, "toString") else str(url)
+        scheme, _, rest = href.partition("://")
+        if scheme == "step-retry":
+            self._retry_step(rest)
+        elif scheme == "step-replan":
+            self._replan()
+        elif scheme == "step-ask":
+            self._ask_user()
+        elif scheme == "step-trace":
+            self.detail.scrollToAnchor("trace-" + rest)
+        elif scheme == "schedule-stop":
+            self._set_scheduler(False)
+        elif scheme == "schedule-start":
+            self._set_scheduler(True)
+        elif scheme == "schedule-interval":
+            self._change_schedule_interval()
+        elif scheme == "schedule-run":
+            self._run_scheduled(rest)
+
+    def _retry_step(self, step_id):
+        if not self._current or not step_id:
             return
-        if task.get("status") == "completed":
-            self.guide_box.hide()
+        if not hasattr(self.rt, "retry_step"):
+            self._retry()
             return
         try:
-            from gui.guidance import next_step_for_error
-            guide = next_step_for_error(task.get("error", "") or
-                                        task.get("status", ""))
-        except Exception:  # 静默是故意的
-            guide = {"title": "任务未完成", "message": "查看错误后重试。",
-                     "action": "retry_failed_step",
-                     "action_label": "重试失败步骤"}
-        self._guide_action = guide.get("action", "")
+            r = self.rt.retry_step(self._current, step_id)
+        except Exception as e:
+            QMessageBox.warning(self, "重试步骤", str(e)[:120])
+            return
+        if isinstance(r, dict) and not r.get("ok"):
+            QMessageBox.information(
+                self, "任务中心", str(r.get("错误", "重试失败")))
+            return
+        self._watch_in_parent()
+        self._refresh()
+
+    def _replan(self):
+        if not self._current:
+            return
+        try:
+            r = self.rt.replan(self._current) \
+                if hasattr(self.rt, "replan") else {"ok": True}
+        except Exception as e:
+            QMessageBox.warning(self, "换个做法", str(e)[:120])
+            return
+        if not r.get("ok"):
+            QMessageBox.warning(
+                self, "换个做法", str(r.get("错误", "无法重新拆解")))
+            return
+        self._plan_async(self._current, then_start=True)
+
+    def _ask_user(self):
+        t = self.rt.get_task(self._current) if self._current else None
+        goal = str((t or {}).get("goal", ""))
+        if goal:
+            self.goal.setText(goal)
+        self.goal.setFocus()
+        self.goal.selectAll()
+        self._guide_action = "replan"
         self.guide_label.setText(
-            "<b>%s</b>　%s" % (guide.get("title", ""),
-                               guide.get("message", "")))
-        self._set_guide_link(guide.get("action_label", "下一步"))
+            "<b>补充目标信息</b>　在目标框里说清范围/约束，再点「重新拆解」。")
+        self._set_guide_link("重新拆解")
         self.guide_box.show()
 
-    def _set_guide_link(self, text):
-        self.guide_btn.setText(
-            '<a href="go" style="color:#1976d2;font-weight:600;">%s</a>'
-            % html.escape(text or "下一步"))
-
-    def _run_guide_action(self):
-        action = self._guide_action
-        p = self.parent()
+    def _set_scheduler(self, enable):
+        sc = self._module("scheduler")
+        if sc is None:
+            QMessageBox.information(self, "定时任务", "没有安装调度模块")
+            return
         try:
-            if action == "retry_failed_step":
-                self._retry()
-            elif action == "increase_task_budget":
-                self._increase_budget()
-            elif action == "open_plugin_market" and p is not None:
-                p.plugin_dialog()
-            elif action in ("open_security_center",
-                            "open_security_network_events") and p is not None:
-                p.security_center_dialog()
-            elif action == "open_model_settings" and p is not None:
-                p.set_dialog()
+            sc.start() if enable else sc.stop()
+        except Exception as e:
+            QMessageBox.warning(self, "定时任务", str(e)[:120])
+            return
+        self._refresh()
+
+    def _change_schedule_interval(self):
+        sc = self._module("scheduler")
+        if sc is None:
+            QMessageBox.information(self, "定时任务", "没有安装调度模块")
+            return
+        engine = self._module("rules_engine")
+        try:
+            current = int(engine.get("定时.工作流间隔秒", 60)) \
+                if engine is not None and hasattr(engine, "get") else 60
+        except Exception:  # 静默是故意的 - 读不到就用默认值
+            current = 60
+        from PyQt5.QtWidgets import QInputDialog
+        value, ok = QInputDialog.getInt(
+            self, "定时任务", "工作流检查间隔（秒）", current, 10, 3600, 10)
+        if not ok:
+            return
+        try:
+            if engine is not None and hasattr(engine, "set"):
+                engine.set("定时.工作流间隔秒", int(value))
             else:
-                self._retry()
-        except Exception as e:  # 静默是故意的
-            QMessageBox.warning(self, "下一步", str(e)[:120])
+                QMessageBox.information(
+                    self, "定时任务", "当前环境没有规则引擎，间隔修改不会生效")
+                return
+        except Exception as e:
+            QMessageBox.warning(self, "定时任务", str(e)[:120])
+            return
+        self._refresh()
+
+    def _run_scheduled(self, name):
+        runner = self._module("workflow_runner")
+        if runner is None or not name:
+            return
+        try:
+            if hasattr(runner, "start_async"):
+                runner.start_async(name)
+            else:
+                runner.run(name)
+        except Exception as e:
+            QMessageBox.warning(self, "定时任务", "运行失败：" + str(e)[:100])
+            return
+        self._refresh()
 
     def _watch_in_parent(self):
         try:

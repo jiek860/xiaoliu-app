@@ -139,3 +139,29 @@ def test_install_is_idempotent():
     first = ext.install(win)
     assert first is not None
     assert ext.install(win) is first
+
+
+def test_document_text_reports_empty_file(tmp_path):
+    """空文件不再静默返回 ok：调用方要知道"没文字"而不是以为解析成功。"""
+    f = tmp_path / "empty.md"
+    f.write_text("   \n", encoding="utf-8")
+    r = ext.document_text(str(f))
+    assert r["ok"] is False and "没有可提取" in r["error"]
+
+
+def test_document_text_falls_back_to_cloud_ocr(tmp_path, monkeypatch):
+    """本地 OCR 依赖缺失时，走模块里的云端 OCR 兜底。"""
+    import sys
+    monkeypatch.setitem(sys.modules, "pytesseract", None)
+    png = tmp_path / "shot.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    class _Ocr:
+        def recognize(self, path):
+            return {"文字": "截图上的字"}
+
+    class _Trunk:
+        modules = {"image_ocr": _Ocr()}
+
+    r = ext.document_text(str(png), trunk=_Trunk())
+    assert r["ok"] is True and "截图上的字" in r["text"]

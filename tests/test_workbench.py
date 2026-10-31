@@ -1275,6 +1275,26 @@ def test_agent_event_appends_to_timeline(wb):
     assert "来自 dict 的步骤" in wb.ai_dock.timeline.toPlainText()
 
 
+def test_test_failed_event_shows_repair_progress(wb):
+    """批次 O3：测试失败要显示「自动回修中（N/上限)」，而不是停住不动。"""
+    wb.ai_dock.timeline.clear()
+    wb.ai_dock._on_event("test_failed", {"step": "测试未通过",
+                                         "round": 2, "max_rounds": 3})
+    text = wb.ai_dock.timeline.toPlainText()
+    assert "自动回修中（2/3）" in text
+
+
+def test_applied_event_lists_multi_file_results(wb):
+    """批次 O3：多文件落盘时逐个文件的结果可见。"""
+    wb.ai_dock.timeline.clear()
+    wb.ai_dock._on_event("applied", {
+        "applied": ["a.py", "b.py"], "backup_manifest": "",
+        "files": [{"path": "a.py", "ok": True, "error": ""},
+                  {"path": "b.py", "ok": True, "error": ""}]})
+    text = wb.ai_dock.timeline.toPlainText()
+    assert "多文件：2 个已落盘" in text
+
+
 def test_open_files_returns_list(wb):
     files = wb.editor_open_files()
     assert isinstance(files, list)

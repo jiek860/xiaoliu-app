@@ -39,9 +39,18 @@ class DiffReviewDialog(QDialog):
         self.goal = QLabel(self.patch.get("goal") or "待审批的文件修改")
         self.goal.setStyleSheet("font-size:15px;font-weight:700;")
         root.addWidget(self.goal)
-        hint = QLabel("勾选要应用的文件和 hunk；右侧预览会随选择变化。")
+        files = self.patch.get("files") or []
+        hunks = sum(len(fp.get("hunks") or []) for fp in files)
+        hint = QLabel("共 %d 个文件 / %d 个 hunk；勾选要应用的部分，"
+                      "右侧预览会随选择变化。" % (len(files), hunks))
         hint.setStyleSheet("color:#667085;font-size:12px;")
         root.addWidget(hint)
+        # 批次 O3：跨文件重构批次动辄十几个文件，给「全选 / 全不选」链接，
+        # 不额外占按钮位（链接走统一样式与键盘可达）。
+        root.addWidget(make_action_links([
+            ("全选", lambda: self._check_all(Qt.Checked)),
+            ("全不选", lambda: self._check_all(Qt.Unchecked)),
+        ]))
 
         split = QSplitter()
         left = QWidget()
@@ -102,6 +111,17 @@ class DiffReviewDialog(QDialog):
             self.tree.setCurrentItem(self.tree.topLevelItem(0))
         self._preview()
 
+    def _check_all(self, state):
+        """一键全选 / 全不选（含子 hunk），刷新预览。"""
+        self.tree.blockSignals(True)
+        for i in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(i)
+            item.setCheckState(0, state)
+            for j in range(item.childCount()):
+                item.child(j).setCheckState(0, state)
+        self.tree.blockSignals(False)
+        self._preview()
+
     def _selection(self):
         files, hunks = [], []
         for i in range(self.tree.topLevelItemCount()):
@@ -131,9 +151,11 @@ class DiffReviewDialog(QDialog):
 
     def _apply(self):
         files, hunks = self._selection()
-        if not files or not hunks:
-            QMessageBox.information(self, "修改审批", "至少勾选一个文件和一个 hunk")
+        if not files:
+            QMessageBox.information(self, "修改审批", "至少勾选一个文件")
             return
+        # 新建 / 删除 / 重命名没有 hunk，只要勾了文件就可以批准；
+        # 只有 update 需要 hunk，未勾任何 hunk 时这类文件不会产生改动。
         try:
             self.selected_files = files
             self.selected_hunks = hunks

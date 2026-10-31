@@ -497,6 +497,32 @@ class VectorStore:
         self.query_cache[query] = result
         return result
 
+    def prefs(self, limit=3):
+        """从已入库记忆里挑出偏好句（批次 O2）。
+
+        给用户画像/人格卡 L4 用。只读内存索引，**不调 ``_embed``** ——
+        构建人格提示时再打一次 Ollama 会把每轮回复拖慢好几秒。
+        """
+        seen, out = set(), []
+        for item in reversed(self.data):
+            text = str(item.get("text") or "").strip()
+            if text.startswith("偏好:"):
+                value = text[len("偏好:"):]
+            else:
+                match = re.search(r"(我喜欢|我讨厌|我不喜欢|我爱)([^，。；;]{1,20})",
+                                  text)
+                value = match.group(0) if match else ""
+            value = value.strip(" ，,。.；;")
+            if value.startswith("我"):
+                value = value[1:].strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            out.append(value[:24])
+            if len(out) >= max(1, int(limit or 3)):
+                break
+        return out
+
     def save(self):
         """SQLite自动提交，不需要手动save"""
         return True

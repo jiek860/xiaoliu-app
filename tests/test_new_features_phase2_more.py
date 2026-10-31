@@ -12,19 +12,20 @@ def test_browser_back_method():
 
 
 def test_feature_registry_has_skills():
-    """测试 feature_registry 里有技能管理入口"""
-    from core.feature_registry import _FEATURES, MORE_MENU_GROUPS
+    """测试 feature_registry 里有技能管理入口（折叠后只在命令面板）"""
+    from core.feature_registry import _FEATURES, MORE_MENU_GROUPS, FEATURES
     # 找有没有 skills 这个 feature
     skill_ids = [f.id for f in _FEATURES]
     assert "skills" in skill_ids, "FEATURES 里应该有 skills 入口"
+    assert FEATURES.get("skills") is not None, "技能管理能力应保留（命令面板可查）"
 
-    # 找 MORE_MENU_GROUPS 里有没有 skills
+    # 折叠后 skills 不应再出现在更多菜单（入口收进命令面板，能力不丢）
     found = False
     for group_name, ids in MORE_MENU_GROUPS:
         if "skills" in ids:
             found = True
             break
-    assert found, "MORE_MENU_GROUPS 里应该有 skills"
+    assert not found, "skills 已折叠进命令面板，不应再出现在更多菜单"
     print("✅ test_feature_registry_has_skills 通过")
 
 

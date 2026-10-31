@@ -30,8 +30,8 @@ from core.code_agent_policy import (
     resolve_max_rounds,
 )
 from core.patch_engine import (
-    PatchError, apply_patch, dry_run_patch, file_patch, rollback, sha256_file,
-    unified_diff, validate_patch,
+    PatchError, apply_patch, apply_patch_grouped, dry_run_patch, file_patch,
+    rollback, sha256_file, unified_diff, validate_patch,
 )
 from core.path_safety import safe_join
 from core.workspace_index import WorkspaceIndex
@@ -363,11 +363,13 @@ class CodeAgent(
                 dry = dry_run_patch(
                     self.root, patch, selected_files=selected_files,
                     selected_hunks=selected_hunks)
-                self._emit("dry_run", {"step": "修改预演完成",
-                                       "ok": dry.get("ok"),
-                                       "files": dry.get("files") or [],
-                                       "errors": dry.get("errors") or [],
-                                       "progress": 0.5})
+                self._emit("dry_run", {
+                    "step": "修改预演完成（%d 个文件）" % len(
+                        dry.get("files") or []),
+                    "ok": dry.get("ok"),
+                    "files": dry.get("files") or [],
+                    "errors": dry.get("errors") or [],
+                    "progress": 0.5})
                 if not dry.get("ok"):
                     err = "；".join(str(x) for x in (dry.get("errors") or []))
                     failed = _round_failed(
@@ -381,11 +383,25 @@ class CodeAgent(
                 # 预演/审批期间用户可能已经取消：落盘前最后确认一次，
                 # 避免"点了停止但文件还是被改了"。
                 self._check_control()
-                applied = apply_patch(
+                # 批次 O3：按文件分组落盘；某个文件失败只回滚它自己这一组。
+                applied = apply_patch_grouped(
                     self.root, patch, selected_files=selected_files,
                     selected_hunks=selected_hunks)
-                backups.append(applied.get("backup_manifest") or "")
-                self._last_backups.append(applied.get("backup_manifest"))
+                # 有合并清单就只记它（一次撤销整批）；合并失败才逐组记录。
+                merged = str(applied.get("backup_manifest") or "")
+                groups = [m for m in (applied.get("manifests") or []) if m]
+                for manifest in ([merged] if merged else groups):
+                    backups.append(manifest)
+                    self._last_backups.append(manifest)
+                if not applied.get("ok"):
+                    err = "；".join(
+                        str(x) for x in (applied.get("errors") or []))
+                    failed = _round_failed("多文件应用中断：" + (err or "未知错误"))
+                    if failed:
+                        return failed
+                    last_error = ("多文件应用中断：" + (err or "未知错误") +
+                                  "\n请先确认失败的文件，再重新给出完整的修改。")
+                    continue
                 applied_files = applied.get("applied") or []
                 if not applied_files:
                     msg = ("patch 没有产生任何实际改动（hunk 的 new 与 old 相同，"
@@ -398,8 +414,9 @@ class CodeAgent(
                     continue
                 previous_diff = patch_diff
                 self._emit("applied", {
-                    "step": "修改已应用",
+                    "step": "修改已应用（%d 个文件）" % len(applied_files),
                     "applied": applied_files,
+                    "files": applied.get("files") or [],
                     "backup_manifest": applied.get("backup_manifest") or "",
                     "progress": 0.55})
                 self.registry.update_run(run_id, current_step="运行测试",
@@ -468,9 +485,13 @@ class CodeAgent(
                             "max_rounds": max_rounds, "patch": patch,
                             "applied": applied, "tests": tests, "lint": lint,
                             "backups": backups, "git": git}
-                self._emit("test_failed", {"step": "测试失败，准备回修",
-                                           "output": last_error[:4000],
-                                           "progress": 0.85})
+                # 批次 O3：把「第几轮 / 上限」一并给界面，回修进度可见。
+                self._emit("test_failed", {
+                    "step": "测试失败 → 自动回修中（%d/%d）"
+                            % (round_no + 1, max_rounds),
+                    "round": round_no + 1, "max_rounds": max_rounds,
+                    "output": last_error[:4000],
+                    "progress": 0.85})
             self.registry.finish_run(run_id, "failed", last_error)
             self._emit("failed", {"step": "达到最大回修轮数",
                                   "error": last_error[:4000], "progress": 1.0})

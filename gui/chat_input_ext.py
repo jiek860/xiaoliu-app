@@ -42,10 +42,17 @@ def is_supported(path):
     return ext in SUPPORTED_EXTS or ext in IMAGE_EXTS
 
 
-def document_text(path, max_chars=MAX_DOC_CHARS):
-    """解析文档并压成可发送文本；失败返回 ``{"ok": False, "error": ...}``。"""
+def document_text(path, max_chars=MAX_DOC_CHARS, trunk=None):
+    """解析文档并压成可发送文本；失败返回 ``{"ok": False, "error": ...}``。
+
+    trunk 传进来时，图片/扫描件在本地 OCR 不可用（或没认出字）后
+    会走模块里的云端 OCR 兜底。
+    """
     from core.document_parser import parse
-    result = parse(path)
+    result = parse(path, trunk=trunk)
+    if not result.get("ok") and not result.get("skipped"):
+        # 文件刚复制完/被杀软占用时第一次常失败，重试一次再报错
+        result = parse(path, trunk=trunk)
     if not result.get("ok"):
         return {"ok": False, "text": "",
                 "error": str(result.get("error") or "解析失败")}
@@ -84,7 +91,7 @@ def insert_into_input(win, text):
 
 def attach_document(win, path):
     """读取文档并把内容放进输入框；返回是否成功。"""
-    result = document_text(path)
+    result = document_text(path, trunk=getattr(win, "trunk", None))
     if not result.get("ok"):
         _say(win, "⚠️ 读取失败：%s（%s）" % (
             os.path.basename(str(path)), result.get("error")))

@@ -149,6 +149,66 @@ def test_speech_listen_once_passes_stop_event_and_falls_back():
     assert sc.listen_once(1, stop_event=object())["文字"] == "旧接口"
 
 
+def test_speech_listen_once_forwards_partial_callback():
+    """按住说话时中间结果要能从语音模块一路传到 GUI。"""
+    from gui.speech import SpeechController
+
+    class _StreamingVoice:
+        def listen(self, seconds=5, stop_event=None, on_partial=None):
+            if on_partial:
+                on_partial("中间结果")
+            return {"ok": True, "text": "最终结果"}
+
+    got = []
+    sc = SpeechController(_SpeechTrunk(_StreamingVoice()), None)
+    r = sc.listen_once(1, on_partial=got.append)
+    assert got == ["中间结果"]
+    assert r["文字"] == "最终结果"
+
+
+def test_voice_listen_emits_partial_when_backend_cached(monkeypatch, tmp_path):
+    """模型已加载时，按住说话每约 2 秒回调一次中间结果。"""
+    import types
+
+    class _Stream:
+        def read(self, *a, **k):
+            return b"\x00\x00"
+
+        def stop_stream(self):
+            pass
+
+        def close(self):
+            pass
+
+    class _PA:
+        paInt16 = 8
+
+        def open(self, **kw):
+            return _Stream()
+
+        def get_sample_size(self, fmt):
+            return 2
+
+        def terminate(self):
+            pass
+
+    class _Backend:
+        def transcribe(self, audio, **kw):
+            return {"text": "中间", "segments": [], "language": "zh",
+                    "duration": 0.1}
+
+    fake = types.SimpleNamespace(PyAudio=_PA, paInt16=8)
+    monkeypatch.setitem(sys.modules, "pyaudio", fake)
+    v = _voice()
+    v.base = str(tmp_path)
+    v._backend = _Backend()
+    v._backend_kind = "faster-whisper"
+    got = []
+    r = v.listen(seconds=3, sample_rate=2048, on_partial=got.append)
+    assert r["ok"] is True and r["text"] == "中间"
+    assert got and all(x == "中间" for x in got)
+
+
 def test_voice_listen_stop_event_returns_no_audio(monkeypatch):
     """按住说话松手太快：没录到帧时给明确错误，而不是转写空音频。"""
     import threading

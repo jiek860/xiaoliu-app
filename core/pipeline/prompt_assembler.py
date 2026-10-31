@@ -134,12 +134,17 @@ class PromptAssembler:
                 style = self.trunk.rule("聊天.人格风格", "")
                 base = getattr(self.trunk, "base", ".") or "."
                 card = PersonaCard.load(base)
+                profile = self._user_profile()
+                user_name = str(config.get("user_name")
+                                or profile.get("name") or "")
+                prefs = config.get("user_prefs") or profile.get("prefs") or ()
                 built = card.build(style=style, state=state, plan=plan,
-                                   user_name=str(config.get("user_name") or ""),
-                                   prefs=config.get("user_prefs") or ())
+                                   user_name=user_name, prefs=prefs)
                 self.last_persona.update({
                     "style": built["style"], "version": built["version"],
                     "chars": built["chars"], "layers": built["layers"],
+                    "profile": {"name": bool(user_name),
+                                "prefs": len(list(prefs))},
                 })
                 if mode == "on" and not custom:
                     return built["text"] + (
@@ -149,6 +154,27 @@ class PromptAssembler:
         if custom:
             return custom + ("\n\n" + pers_hint if pers_hint else "")
         return pers_hint if pers_hint else "你是小6，住在用户电脑里的AI朋友。"
+
+    def _user_profile(self) -> dict:
+        """用户称呼/语气偏好（批次 O2）：设置 > 人格文件 > 记忆卡。
+
+        记忆闭环已经加载时优先问它（它还会把向量库里的偏好句补进来）；
+        用 ``modules.get`` 而不是 ``call``，避免为了拼人格去额外加载一个模块。
+        画像读不出来时返回空 dict，L4 就退回「不写用户信息」，
+        不能因为扫记忆卡出错让整轮回复没人格。
+        """
+        try:
+            ml = (getattr(self.trunk, "modules", {}) or {}).get("memory_loop")
+            if ml and hasattr(ml, "user_prefs"):
+                return ml.user_prefs() or {}
+        except Exception as e:
+            _x6_swallowed(__name__, e, "memory_loop_prefs")
+        try:
+            from core.chat.user_profile import collect
+            return collect(self.trunk)
+        except Exception as e:
+            _x6_swallowed(__name__, e, "user_profile")
+            return {}
 
     def _with_examples(self, few_shot, plan, state, gray=False):
         """批次 42.5：人格卡/规划器/灰度启用时，按 topic + act 补 2 组短示例。"""

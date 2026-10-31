@@ -457,6 +457,24 @@ class AgentDock(AgentDockServiceMixin, QWidget):
             self.wb.mark_diff_applied(data.get("backup_manifest") or "")
             # 批次 D10：刷新 tab；新建文件直接打开并定位到入口函数。
             self.after_applied(data.get("applied") or [])
+            # 批次 O3：跨文件重构按文件分组落盘，逐个显示结果。
+            files = data.get("files") or []
+            if len(files) > 1:
+                failed = [f for f in files if str(f.get("error") or "")]
+                self.timeline.appendPlainText(
+                    "  📁 多文件：%d 个已落盘%s" % (
+                        len(data.get("applied") or []),
+                        "，%d 个失败" % len(failed) if failed else ""))
+                for item in failed[:3]:
+                    self.timeline.appendPlainText(
+                        "  ✗ %s: %s" % (item.get("path"),
+                                        str(item.get("error") or "")[:120]))
+        elif event == "test_failed":
+            # 批次 O3：回修进度可见（测试失败 → 自动回修中 N/上限）。
+            rounds, limit = data.get("round"), data.get("max_rounds")
+            if rounds and limit and "回修" not in text:
+                self.timeline.appendPlainText(
+                    "↻ 测试失败 → 自动回修中（%s/%s）" % (rounds, limit))
         elif event == "done":
             # 普通对话分支只返回 answer，以前这里只显示"对话完成"，
             # 模型说了什么用户根本看不到。

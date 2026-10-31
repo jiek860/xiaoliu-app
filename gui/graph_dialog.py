@@ -1,14 +1,24 @@
 # -*- coding: utf-8 -*-
-"""知识图谱窗口 - 三元组浏览/搜索/统计"""
+"""知识图谱 - 三元组浏览/搜索/统计（GraphRAG 社区检索）
+
+拆成两个入口：
+* build_graph_view() —— 把图谱查看器做成一个 QWidget，供独立窗口
+  （show_graph_dialog）和「知识库」里的「图谱」标签复用。
+* show_graph_dialog() —— 独立窗口版（M5 后不再是注册表主入口，仍兼容历史调用）。
+"""
 import os, json, io
-from PyQt5.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QTextBrowser
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+                             QLineEdit, QTextBrowser)
 
 from gui.feedback_states import make_action_links
 
 
-def show_graph_dialog(parent, dlg, trunk):
-    """知识图谱窗口"""
-    d, l = dlg("🧠 知识图谱", w=780, h=620)
+def build_graph_view(trunk, parent=None):
+    """构建知识图谱查看器，返回 QWidget。"""
+    w = QWidget()
+    if parent is not None:
+        w.setParent(parent)
+    l = QVBoxLayout(w)
     top = QHBoxLayout()
     search = QLineEdit()
     search.setPlaceholderText("搜索 主体 / 关系 / 客体（输入后按回车）")
@@ -86,4 +96,11 @@ def show_graph_dialog(parent, dlg, trunk):
             res.setPlainText("读取失败: " + str(e)[:80])
     search.returnPressed.connect(lambda: load(search.text().strip()))
     load()
+    return w
+
+
+def show_graph_dialog(parent, dlg, trunk):
+    """知识图谱独立窗口（历史兼容入口）。"""
+    d, l = dlg("🧠 知识图谱", w=780, h=620)
+    l.addWidget(build_graph_view(trunk, parent=d))
     d.exec_()
