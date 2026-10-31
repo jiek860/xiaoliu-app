@@ -26,7 +26,7 @@ import time
 
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QTextEdit, QMessageBox)
+                             QPushButton, QTextEdit, QMessageBox, QComboBox)
 
 from core import log_digest
 from core.notifier import Notifier
@@ -94,6 +94,15 @@ class FeedbackDialog(QDialog):
         self.content_edit.setPlaceholderText(
             "请输入反馈内容（最多 %d 字）..." % MAX_CHARS)
         layout.addWidget(self.content_edit)
+
+        # D6（功能深化二期）：反馈分类打标，方便开发者归档
+        kind_row = QHBoxLayout()
+        kind_row.addWidget(QLabel("类型："))
+        self.kind_box = QComboBox()
+        self.kind_box.addItems(["问题反馈", "功能建议", "使用求助", "其他"])
+        kind_row.addWidget(self.kind_box)
+        kind_row.addStretch(1)
+        layout.addLayout(kind_row)
 
         self.tip = QLabel("")
         self.tip.setStyleSheet("color:#888;font-size:11px;")
@@ -180,8 +189,10 @@ class FeedbackDialog(QDialog):
         except Exception:
             __version__ = "?"
         name = (getattr(self.trunk, "config", {}) or {}).get("ai_name", "小6")
-        return ("【%s 反馈】\n%s\n\n版本: %s\n时间: %s"
-                % (name, content, __version__,
+        kind = self.kind_box.currentText() if hasattr(self, "kind_box") \
+            else "问题反馈"
+        return ("【%s 反馈·%s】\n%s\n\n版本: %s\n时间: %s"
+                % (name, kind, content, __version__,
                    time.strftime("%Y-%m-%d %H:%M:%S")))
 
     def _on_ok(self):

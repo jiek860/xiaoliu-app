@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """日志中心窗口 - 系统/错误/操作记录"""
 import os, subprocess
-from PyQt5.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTextBrowser, QTabWidget
+from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QTextBrowser,
+                             QTabWidget, QLineEdit, QComboBox)
 
 from gui.feedback_states import make_action_links
 
@@ -25,6 +26,17 @@ def show_log_dialog(parent, dlg, base, import_data):
     refresh_btn.setStyleSheet("padding:5px 14px;")
     head.addWidget(refresh_btn)
     l.addLayout(head)
+
+    # D2（功能深化二期）：关键词过滤 + 只看警告/错误
+    frow = QHBoxLayout()
+    filter_edit = QLineEdit()
+    filter_edit.setPlaceholderText("过滤关键词（留空=全部）")
+    filter_edit.setClearButtonEnabled(True)
+    frow.addWidget(filter_edit, stretch=2)
+    level_box = QComboBox()
+    level_box.addItems(["全部", "只看 警告/错误"])
+    frow.addWidget(level_box)
+    l.addLayout(frow)
 
     tabs = QTabWidget()
     l.addWidget(tabs, stretch=1)
@@ -61,6 +73,24 @@ def show_log_dialog(parent, dlg, base, import_data):
         except Exception as e:
             return "读取失败: " + str(e)[:80], 0
 
+    _ERR_TOKENS = ("error", "warn", "错误", "警告", "traceback",
+                   "exception", "critical")
+
+    def _filter_text(text):
+        """按关键词/级别过滤日志文本（D2）。"""
+        kw = filter_edit.text().strip().lower()
+        lines = text.splitlines()
+        out = []
+        for ln in lines:
+            low = ln.lower()
+            if kw and kw not in low:
+                continue
+            if level_box.currentIndex() == 1 \
+                    and not any(t in low for t in _ERR_TOKENS):
+                continue
+            out.append(ln)
+        return "\n".join(out)
+
     sys_tb = QTextBrowser()
     sys_tb.setReadOnly(True)
     sys_tb.setLineWrapMode(QTextBrowser.NoWrap)
@@ -80,14 +110,14 @@ def show_log_dialog(parent, dlg, base, import_data):
         try:
             sp = os.path.join(base, "data", "logs", "trunk.log")
             txt, n1 = _read_file(sp, 300)
-            sys_tb.setPlainText(txt)
+            sys_tb.setPlainText(_filter_text(txt))
 
             p1 = os.path.join(base, "data", "logs", "crashes.log")
             p2 = os.path.join(base, "data", "logs", "gui_crashes.log")
             t1, n2 = _read_file(p1, 120)
             t2, n3 = _read_file(p2, 120)
             err_tb.setPlainText("── crashes.log（%d 行）──\n%s\n\n── gui_crashes.log（%d 行）──\n%s"
-                                % (n2, t1, n3, t2))
+                                % (n2, _filter_text(t1), n3, _filter_text(t2)))
 
             # 操作记录读 chats.db 的 messages 表。
             # 原来读的是 data/chat_gui.jsonl —— 那是 v5 的聊天存储，现在
@@ -130,6 +160,8 @@ def show_log_dialog(parent, dlg, base, import_data):
             info.setText("读取失败: " + str(e)[:60])
 
     refresh_btn.clicked.connect(_refresh)
+    filter_edit.textChanged.connect(_refresh)
+    level_box.currentIndexChanged.connect(_refresh)
 
     bot = QHBoxLayout()
     def _clear():
