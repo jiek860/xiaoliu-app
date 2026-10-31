@@ -121,6 +121,36 @@ LOOP_LINKS = [
 ]
 
 
+def _runtime_stats():
+    """从 core.call_stats 取各模块运行态（调用次数/平均耗时/错误率）。
+
+    trunk.call() 每次真实调用都会记一笔；这里按模块聚合，星图据此把
+    「高频/慢/出错」画得出来。纯前端展示，取不到就返回空表（不影响画图）。
+    """
+    try:
+        from core import call_stats
+        rows = call_stats.stats().snapshot()
+    except Exception as e:
+        _x6_swallowed(__name__, e)
+        return {}
+    out = {}
+    for r in rows:
+        mod = str(r.get("key") or "").split(".")[0]
+        if not mod:
+            continue
+        agg = out.setdefault(mod, {"count": 0, "total_ms": 0.0, "errors": 0})
+        agg["count"] += int(r.get("count") or 0)
+        agg["total_ms"] += float(r.get("total_ms") or 0.0)
+        agg["errors"] += int(r.get("errors") or 0)
+    for agg in out.values():
+        agg["total_ms"] = round(agg["total_ms"], 2)
+        agg["avg_ms"] = (round(agg["total_ms"] / agg["count"], 2)
+                         if agg["count"] else 0.0)
+        agg["error_rate"] = (round(agg["errors"] / agg["count"], 3)
+                             if agg["count"] else 0.0)
+    return out
+
+
 def build(trunk):
     """算出 {modules, links}，不落盘"""
     # trunk 必须自己也是一个节点：它是星心。原来节点表只有模块，"trunk" 不在其中，
@@ -133,6 +163,7 @@ def build(trunk):
     _cn_of_lazy = {k: v[2] for k, v in trunk._lazy.items() if len(v) >= 3 and v[2]}
     all_names = (["trunk"] + list(trunk.modules.keys())
                  + [k for k in trunk._lazy.keys() if k not in trunk.modules])
+    runtime = _runtime_stats()
 
     modules = [{
         "name": n,
@@ -140,6 +171,10 @@ def build(trunk):
         "desc": DESCS.get(n, ""),
         "group": GROUPS.get(n, "其他"),
         "loaded": (n == "trunk" or n in trunk.modules),
+        # 运行态：本次启动以来被调用了多少次、平均耗时、错误率
+        "calls": int((runtime.get(n) or {}).get("count") or 0),
+        "avg_ms": float((runtime.get(n) or {}).get("avg_ms") or 0.0),
+        "error_rate": float((runtime.get(n) or {}).get("error_rate") or 0.0),
     } for n in all_names]
 
     # 星型：所有模块都连 trunk
@@ -164,7 +199,8 @@ def build(trunk):
     # 那只是分组着色的一种画法，不是程序里的连线，会严重误导人（实测真实
     # 跨模块调用只有 9 条）。所以改成只画"真的会互相调用"的边。
     calls = _real_calls(trunk, _valid)
-    return {"modules": modules, "links": _uniq, "calls": calls}
+    return {"modules": modules, "links": _uniq, "calls": calls,
+            "runtime": runtime}
 
 
 def _real_calls(trunk, valid):

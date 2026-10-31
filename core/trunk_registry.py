@@ -16,6 +16,11 @@ except ImportError:
     def _x6_swallowed(component, error, context=""):
         return None
 
+try:
+    from core import call_stats as _call_stats
+except Exception:
+    _call_stats = None
+
 
 class TrunkRegistryMixin:
     def _register_core(self):
@@ -225,6 +230,8 @@ class TrunkRegistryMixin:
             # 原来只说"这个功能还没装好，请联系开发者" —— 不说哪个功能，也不说下一步。
             # 末尾的「功能不可用」是稳定标记，_FAIL_MARKS 靠它识别失败回复。
             self._log("调用失败: %s 未加载" % name, "WARN")
+            if method != "__no__" and _call_stats is not None:
+                _call_stats.record(name, method, 0.0, error=True)
             return {"ok": False,
                     "error": "「%s」没装好（功能不可用）。"
                              "到 设置 → 扩展 → 插件市场 看看是否已安装" % self._disp(name)}
@@ -236,12 +243,18 @@ class TrunkRegistryMixin:
             # （WARN 还会 print 到控制台，一轮后台巡检能刷好几条）。
             if method != "__no__":
                 self._log("调用失败: %s 没有 %s 方法" % (name, method), "WARN")
+                if _call_stats is not None:
+                    _call_stats.record(name, method, 0.0, error=True)
             return {"ok": False,
                     "error": "「%s」没有「%s」这个功能（功能不可用，版本可能不一致）"
                              % (self._disp(name), method)}
+        t0 = time.time()
         try:
-            return fn(*args, **kwargs)
+            result = fn(*args, **kwargs)
         except Exception as e:
+            if _call_stats is not None:
+                _call_stats.record(name, method, (time.time() - t0) * 1000,
+                                   error=True)
             self._log("错误: %s.%s - %s" % (name, method, str(e)[:50]))
             # 翻译成人话 + 下一步（原来只扔一句原始异常，用户看不懂也不知道做什么）。
             # 技术细节仍然保留在括号里，排查时要用。
@@ -252,6 +265,9 @@ class TrunkRegistryMixin:
                 msg = "「%s」的「%s」出错了：%s" % (self._disp(name), method,
                                                    str(e)[:80])
             return {"ok": False, "error": msg, "技术细节": str(e)[:200]}
+        if _call_stats is not None:
+            _call_stats.record(name, method, (time.time() - t0) * 1000)
+        return result
 
     def get_task_runtime(self):
         """延迟创建统一任务运行时（所有任务入口共用同一个实例）。"""

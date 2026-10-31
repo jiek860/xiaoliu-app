@@ -37,6 +37,14 @@ class TraceViewDialog(QDialog):
         self.refresh_shortcut = QShortcut(QKeySequence("F5"), self)
         self.refresh_shortcut.activated.connect(self._load)
 
+        # 概要：事件总数 / 失败数 / 总耗时 / 最慢几条（D3 统计，纯展示不加按钮）
+        self.summary_label = QLabel("统计中...")
+        self.summary_label.setWordWrap(True)
+        self.summary_label.setStyleSheet(
+            "color:#344054;background:#f8fafc;border:1px solid #e4e7ec;"
+            "border-radius:6px;padding:6px 8px;font-size:12px;")
+        layout.addWidget(self.summary_label)
+
         # 分割器：左任务列表，右时间树
         splitter = QSplitter(Qt.Horizontal)
 
@@ -55,9 +63,10 @@ class TraceViewDialog(QDialog):
         right = QVBoxLayout()
         right.addWidget(QLabel("时间线"))
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["时间", "事件", "详情"])
+        self.tree.setHeaderLabels(["时间", "事件", "耗时", "详情"])
         self.tree.setColumnWidth(0, 120)
-        self.tree.setColumnWidth(1, 200)
+        self.tree.setColumnWidth(1, 180)
+        self.tree.setColumnWidth(2, 80)
         right.addWidget(self.tree)
         rw = QWidget()
         rw.setLayout(right)
@@ -76,21 +85,42 @@ class TraceViewDialog(QDialog):
             else:
                 self._events = []
             self._render_tasks()
+            self._update_summary()
         except Exception as e:
             QMessageBox.warning(self, "错误", str(e)[:100])
+
+    def _update_summary(self):
+        """顶部概要：总数/失败/总耗时/最慢 Top3（失败链路一眼可见）"""
+        try:
+            from core.trace_stats import summary as _summary
+            s = _summary(self._events, 3)
+        except Exception as e:
+            self.summary_label.setText("统计不可用：%s" % str(e)[:60])
+            return
+        slow = "、".join("%s %.0fms" % (x.get("component") or "?",
+                                        x.get("dur_ms") or 0)
+                        for x in s.get("slowest") or [])
+        text = ("📈 共 %d 事件 · 失败 %d · 总耗时 %.0fms"
+                % (s.get("count", 0), s.get("failures", 0), s.get("total_ms", 0)))
+        if slow:
+            text += "\n🐢 最慢: " + slow
+        self.summary_label.setText(text)
 
     def _render_tasks(self):
         """左列表：按 task_id 聚合"""
         self.task_list.clear()
         task_ids = []
+        counts = {}
         seen = set()
         for ev in self._events:
             tid = ev.get("task_id", "default")
+            counts[tid] = counts.get(tid, 0) + 1
             if tid not in seen:
                 seen.add(tid)
                 task_ids.append(tid)
         for tid in reversed(task_ids[-20:]):  # 最近 20 个
-            item = QListWidgetItem(tid[:20])
+            item = QListWidgetItem("%s (%d)" % (tid[:20], counts.get(tid, 0)))
+            item.setData(Qt.UserRole, tid)
             self.task_list.addItem(item)
         if self.task_list.count() > 0:
             self.task_list.setCurrentRow(0)
@@ -104,8 +134,14 @@ class TraceViewDialog(QDialog):
         item = self.task_list.currentItem()
         if not item:
             return
-        tid = item.text()
+        tid = item.data(Qt.UserRole) or item.text()
         kw = self.filter_input.text().strip().lower()
+
+        try:
+            from core.trace_stats import dur_ms as _dur_ms
+        except Exception:
+            def _dur_ms(_ev):
+                return 0.0
 
         for ev in self._events:
             if ev.get("task_id", "default") != tid:
@@ -115,11 +151,15 @@ class TraceViewDialog(QDialog):
                 if kw not in txt:
                     continue
             time = ev.get("time", "")
-            event = ev.get("event", ev.get("type", "?"))
+            # 真实事件（task_runtime）写的是 kind，回看窗口要能显示出来
+            event = ev.get("event") or ev.get("type") or ev.get("kind") or "?"
+            dur = _dur_ms(ev)
+            dur_text = ("%.0fms" % dur) if dur > 0 else "-"
             detail = str(ev.get("detail", ev.get("step", "")))[:100]
-            node = QTreeWidgetItem([time, event, detail])
-            # 失败标红
-            if "fail" in event.lower() or "error" in event.lower():
+            node = QTreeWidgetItem([time, event, dur_text, detail])
+            # 失败标红（ok=False 或事件名带 fail/error）
+            if (ev.get("ok") is False or "fail" in event.lower()
+                    or "error" in event.lower()):
                 node.setForeground(0, Qt.red)
                 node.setForeground(1, Qt.red)
             self.tree.addTopLevelItem(node)

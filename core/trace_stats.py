@@ -13,7 +13,7 @@
 """
 from __future__ import annotations
 
-_FAIL_STATUS = ("error", "fail", "failed", "失败", "错误")
+_FAIL_STATUS = ("error", "fail", "failed", "failure", "失败", "错误", "异常")
 
 
 def dur_ms(ev):
@@ -30,14 +30,21 @@ def dur_ms(ev):
 
 
 def _component(ev):
-    return str(ev.get("component") or ev.get("module") or ev.get("name") or "")
+    # 真实事件（core/task_runtime.py 写的）用的是 kind：step_started / step_failed…
+    # 没有 kind 时再退回 component/module/name/event，避免统计里全是 "unknown"。
+    return str(ev.get("component") or ev.get("module") or ev.get("name")
+               or ev.get("kind") or ev.get("event") or "")
 
 
 def _is_failure(ev):
     if ev.get("ok") is False:
         return True
     status = str(ev.get("status") or "").strip().lower()
-    return status in _FAIL_STATUS
+    if status in _FAIL_STATUS:
+        return True
+    # 步骤事件没有 ok 字段，失败只体现在 kind/event 名字上（step_failed）
+    kind = str(ev.get("kind") or ev.get("event") or "").strip().lower()
+    return any(k in kind for k in ("fail", "error", "失败", "错误", "异常"))
 
 
 def slowest(events, n=5):

@@ -56,3 +56,17 @@ def test_trace_span_records_duration(tmp_path):
     assert events[-1]["ok"] is True
     assert events[-1]["dur_ms"] >= 0
     assert tr.summary()["count"] >= 1
+
+
+def test_real_task_events_use_kind():
+    """真实事件（task_runtime 写的）只有 kind，没有 ok/component。"""
+    events = [
+        {"kind": "step_started", "task_id": "t", "status": "running"},
+        {"kind": "step_failed", "task_id": "t", "status": "failed"},
+        {"kind": "step_done", "task_id": "t", "status": "completed"},
+    ]
+    s = trace_stats.summary(events)
+    assert s["count"] == 3 and s["failures"] == 1
+    assert trace_stats.failures(events)[0]["kind"] == "step_failed"
+    slow = trace_stats.slowest([{"kind": "tool_call", "dur_ms": 80}], 1)
+    assert slow[0]["component"] == "tool_call"
