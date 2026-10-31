@@ -55,3 +55,38 @@ class Trace:
                 _x6_swallowed(__name__, e)
                 continue
         return out[-limit:]
+
+    def span(self, name, **meta):
+        """记录一段耗时的上下文管理器（D3）。
+
+        用法：``with trace.span("tool_call", tool="search"): ...``
+        结束时自动写入含 ``dur_ms`` 的事件，供 slowest/aggregate 分析。
+        """
+        import contextlib
+        import time as _time
+
+        @contextlib.contextmanager
+        def _cm():
+            start = _time.time()
+            err = False
+            try:
+                yield
+            except Exception:
+                err = True
+                raise
+            finally:
+                payload = dict(meta)
+                payload.update({"component": name,
+                                "dur_ms": (_time.time() - start) * 1000,
+                                "ok": not err})
+                self.record(payload)
+
+        return _cm()
+
+    def summary(self, limit=200, n=5):
+        from core.trace_stats import summary as _summary
+        return _summary(self.read(limit), n)
+
+    def slowest(self, n=5, limit=200):
+        from core.trace_stats import slowest as _slowest
+        return _slowest(self.read(limit), n)

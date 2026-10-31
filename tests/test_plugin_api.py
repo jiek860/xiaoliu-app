@@ -45,6 +45,8 @@ def test_internal_module_allowed_only_non_strict():
 
 
 def test_manifest_api_version():
+    assert manifest_api_version({"api_version": "2.0"})["ok"] is True
+    # v1 清单在 v2 宿主上仍可安装（向后兼容）
     assert manifest_api_version({"api_version": "1.0"})["ok"] is True
     assert manifest_api_version({})["legacy"] is True
     assert manifest_api_version({"api_version": "9.9"})["ok"] is False

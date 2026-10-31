@@ -1,11 +1,19 @@
 # -*- coding: utf-8 -*-
 """P0-1: 深度研究对话框 - 多跳联网研究，带引用报告"""
+import os
+from html import escape as _html_escape
+
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QTextEdit, QListWidget, QListWidgetItem,
-    QSplitter, QMessageBox
+    QSplitter, QMessageBox, QInputDialog, QFileDialog
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
+
+from gui.feedback_states import make_action_links
+
+# B4：追问前缀（第二轮起自动带上上一轮主题，延续检索上下文）
+_FOLLOWUPS = ("追问", "继续", "接着", "还有", "那")
 
 
 class _ResearchWorker(QThread):
@@ -38,6 +46,7 @@ class ResearchDialog(QDialog):
         self.setWindowTitle("🔬 深度研究")
         self.setMinimumSize(900, 600)
         self._worker = None
+        self._last_topic = ""
         self._build_ui()
 
     def _build_ui(self):
@@ -81,6 +90,12 @@ class ResearchDialog(QDialog):
         splitter.setSizes([650, 250])
         layout.addWidget(splitter, stretch=1)
 
+        # B4：导出报告（用链接，不加按钮，避免超按钮预算）
+        layout.addWidget(make_action_links([
+            ("📄 导出 Markdown", lambda: self._export("md")),
+            ("🌐 导出 HTML", lambda: self._export("html")),
+        ]))
+
     def _start(self):
         topic = self.input.text().strip()
         if not topic:
@@ -89,6 +104,17 @@ class ResearchDialog(QDialog):
         # 回车和「开始研究」是同一个入口，这里挡住重复触发
         if self._worker is not None and self._worker.isRunning():
             return
+        # B4：追问 -> 带上上一轮主题，延续检索上下文
+        if self._last_topic and topic.startswith(_FOLLOWUPS):
+            topic = (self._last_topic + " " + topic).strip()
+        # B4：主题太短 -> 先补一句背景（可跳过）
+        elif len(topic) <= 6:
+            extra, ok = QInputDialog.getText(
+                self, "补充背景", "主题比较简短，补充一点背景/具体要求？",
+                text=topic)
+            if ok and extra.strip():
+                topic = extra.strip()
+        self._last_topic = topic
         self.btn_start.setEnabled(False)
         self.report.setPlainText("研究中...（最多 60 秒）")
         self.ref_list.clear()
@@ -108,3 +134,29 @@ class ResearchDialog(QDialog):
     def _on_failed(self, msg):
         self.btn_start.setEnabled(True)
         self.report.setPlainText("研究失败: " + msg)
+
+    def _export(self, fmt):
+        """B4：把当前报告导出为 Markdown / HTML。"""
+        text = self.report.toPlainText().strip()
+        if not text:
+            QMessageBox.information(self, "提示", "还没有报告可导出")
+            return
+        ext = "md" if fmt == "md" else "html"
+        default = os.path.join(os.path.expanduser("~"), "Desktop",
+                               "研究报告." + ext)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出报告", default, "Markdown (*.md);;HTML (*.html)")
+        if not path:
+            return
+        try:
+            if fmt == "html":
+                body = ("<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                        "<title>研究报告</title></head><body><pre>%s</pre>"
+                        "</body></html>" % _html_escape(text))
+            else:
+                body = text
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(body)
+            QMessageBox.information(self, "成功", "已导出：" + path)
+        except Exception as e:
+            QMessageBox.warning(self, "导出失败", str(e)[:120])

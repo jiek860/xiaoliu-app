@@ -10,11 +10,17 @@ except ImportError:
     def _x6_swallowed(component, error, context=""):
         return None
 
+# A1：草稿/历史混入（已拆到独立文件，保持 chat_mixin 在 600 行以内）
+from gui.mixins.draft_mixin import DraftMixin  # noqa: E402
 
 
-class ChatMixin:
+
+class ChatMixin(DraftMixin):
     """聊天相关方法"""
+
     def send(self):
+        # A1：启动时恢复上次草稿（幂等）
+        self._ensure_draft_hooks()
         # [v2 修复] 加空输入提示 + 登录检查 + 异常保护
         text = self.input.toPlainText().strip()
         if not text:
@@ -53,7 +59,10 @@ class ChatMixin:
                 return
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
-        
+
+        # A1：记录输入历史 + 清草稿（确定要发了才记）
+        self._record_sent(text)
+
         # 90 分要求：模型没配好时先给一条可执行提示（每次会话一次），
         # 而不是让用户对着"没反应"发呆。提示不拦发送 —— 用户可能就是想
         # 先试试兜底回复，或已经在本机起了 Ollama。

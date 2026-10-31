@@ -192,7 +192,7 @@ CI              .github/workflows/compat-matrix.yml（2 个 Windows runner  3 �
 数据版本        data/_schema.json + core/data_schema.py
 数据迁移        core/data_migrations.py: v0 -> v1 -> v2，逐级执行
 迁移安全        先备份 -> 原子写 -> 坏行 .bad_lines -> 失败不覆盖
-插件 API        core/plugin_api.py: PLUGIN_API_VERSION = "1.0"
+插件 API        core/plugin_api.py: PLUGIN_API_VERSION = "2.0"（兼容 1.0）
 插件边界        manifest.api_version + AST 静态检查；私有 core 模块禁止
 ```
 

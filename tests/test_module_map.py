@@ -132,12 +132,15 @@ def test_self_calls_are_excluded(built):
 
 def test_build_shape_is_stable(built):
     """build() 的返回结构是对外契约（模块星图页面按它渲染）"""
-    assert set(built) == {"modules", "links", "calls"}, set(built)
+    assert set(built) == {"modules", "links", "calls", "runtime"}, set(built)
     assert isinstance(built["modules"], list) and built["modules"]
     assert isinstance(built["links"], list)
     assert isinstance(built["calls"], list)
+    # runtime 是运行态聚合（本次启动的调用次数/耗时/错误率），可为空表
+    assert isinstance(built["runtime"], dict)
     for m in built["modules"][:5]:
-        assert set(m) >= {"name", "cn", "desc", "group", "loaded"}, m
+        assert set(m) >= {"name", "cn", "desc", "group", "loaded",
+                          "calls", "avg_ms", "error_rate"}, m
 
 
 def test_every_module_is_a_node(built):

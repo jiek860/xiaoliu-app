@@ -25,6 +25,7 @@ body { margin:0; font-family:"Microsoft YaHei",sans-serif; background:#1a1a2e; c
   <h3 id="d-name"></h3>
   <div class="row" id="d-desc"></div>
   <div class="row" id="d-status"></div>
+  <div class="row" id="d-runtime"></div>
   <div class="row" id="d-links"></div>
 </div>
 <div id="status">加载中...</div>
@@ -52,10 +53,16 @@ function render(data) {
       emphasis: { lineStyle: { width: 3, color: '#8bc8ea' } },
       data: data.modules.map(m => ({
         name: m.name,
-        label: { formatter: m.cn || m.name },
-        symbolSize: m.loaded ? 38 : 22,
-        itemStyle: { color: groupColors[m.group] || '#888', borderColor: m.loaded?'#fff':'#555', borderWidth: m.loaded?2:1 },
-        cn: m.cn, desc: m.desc, group: m.group, loaded: m.loaded
+        label: { formatter: (m.cn || m.name) + ((m.calls || 0) >= 2 ? ' ×' + m.calls : '') },
+        // 调用越多点越大，一眼看出谁是热点模块
+        symbolSize: (m.loaded ? 38 : 22) + Math.min(22, Math.round(Math.log2((m.calls || 0) + 1) * 6)),
+        itemStyle: {
+          color: groupColors[m.group] || '#888',
+          borderColor: (m.error_rate > 0) ? '#ff6b6b' : (m.loaded ? '#fff' : '#555'),
+          borderWidth: (m.error_rate > 0 || m.loaded) ? 2 : 1
+        },
+        cn: m.cn, desc: m.desc, group: m.group, loaded: m.loaded,
+        calls: m.calls || 0, avg_ms: m.avg_ms || 0, error_rate: m.error_rate || 0
       })),
       links: [
         // 灰线 = 星型结构（每个模块都注册在躯干上）
@@ -68,7 +75,8 @@ function render(data) {
   }, true);
   document.getElementById('status').textContent =
     '最后刷新: ' + new Date().toLocaleTimeString() + ' | 模块: ' + data.modules.length +
-    ' | 星型连线: ' + data.links.length + ' | 橙线(真实调用): ' + calls.length;
+    ' | 星型连线: ' + data.links.length + ' | 橙线(真实调用): ' + calls.length +
+    ' | 运行期调用总数: ' + data.modules.reduce((s, m) => s + (m.calls || 0), 0);
 }
 
 chart.on('click', function(p) {
@@ -82,9 +90,18 @@ chart.on('click', function(p) {
   document.getElementById('d-name').textContent = (d.cn || d.name) + ' (' + d.name + ')';
   document.getElementById('d-desc').textContent = d.desc || '(无描述)';
   document.getElementById('d-status').textContent = (d.loaded ? '✅ 已加载' : '⏳ 懒加载') + ' | 分组: ' + d.group;
+  document.getElementById('d-runtime').textContent =
+    '运行态: 调用 ' + (d.calls || 0) + ' 次 | 平均 ' + (d.avg_ms || 0).toFixed(1) +
+    'ms | 错误率 ' + ((d.error_rate || 0) * 100).toFixed(1) + '%';
   document.getElementById('d-links').textContent = '连接: ' + cnConnected.join(', ');
   document.getElementById('detail').style.display = 'block';
 });
+
+function sigOf(data) {
+  // 运行态（调用次数/耗时/错误率）也算进签名：数据一变就重绘，不用等用户手动刷新
+  return JSON.stringify(data.modules.map(m =>
+    [m.name, m.loaded, m.calls || 0, m.avg_ms || 0, m.error_rate || 0]));
+}
 
 function refresh() {
   const old = document.getElementById('dynmap');
@@ -94,7 +111,7 @@ function refresh() {
   s.src = '../data/modules_map.js?t=' + Date.now();
   s.onload = function() {
     if (window.MODULE_DATA) {
-      const sig = JSON.stringify(window.MODULE_DATA.modules.map(m=>m.name+m.loaded));
+      const sig = sigOf(window.MODULE_DATA);
       if (sig !== lastSig) { render(window.MODULE_DATA); lastSig = sig; }
     }
   };
@@ -103,7 +120,7 @@ function refresh() {
 
 if (window.MODULE_DATA) {
   render(window.MODULE_DATA);
-  lastSig = JSON.stringify(window.MODULE_DATA.modules.map(m=>m.name+m.loaded));
+  lastSig = sigOf(window.MODULE_DATA);
 }
 refresh();
 setInterval(refresh, 3000);

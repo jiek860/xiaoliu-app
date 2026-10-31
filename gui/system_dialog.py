@@ -92,9 +92,33 @@ def show_system_dialog(self):
     box1 = QGroupBox("📊 状态总览")
     l1a = QVBoxLayout(box1)
     status_bar = QTextBrowser()
-    status_bar.setFixedHeight(60)
+    status_bar.setFixedHeight(110)
     status_bar.setReadOnly(True)
     l1a.addWidget(status_bar)
+
+    def _disk_check():
+        try:
+            import shutil as _shutil
+            free_gb = _shutil.disk_usage(self.trunk.base or ".").free / (1024 ** 3)
+        except Exception as e:
+            return {"ok": False, "hint": "读不到磁盘: %s" % str(e)[:40]}
+        return {"ok": free_gb > 1.0, "warn": free_gb < 3.0,
+                "hint": "剩余 %.1f GB" % free_gb}
+
+    def _trace_check():
+        # 只在 trace 已加载时统计：这里在 GUI 线程跑，不能触发懒加载
+        tr = (self.trunk.modules or {}).get("trace")
+        if tr is None:
+            return {"ok": True, "hint": "未启用（打开 Trace 回看后统计）"}
+        try:
+            s = tr.summary(limit=200, n=3)
+        except Exception as e:
+            return {"ok": False, "hint": "读不到 Trace: %s" % str(e)[:40]}
+        return {"ok": s.get("failures", 0) == 0,
+                "warn": 0 < s.get("failures", 0) <= 3,
+                "hint": "%d 事件 / 失败 %d" % (s.get("count", 0),
+                                              s.get("failures", 0))}
+
     def _refresh_status():
         try:
             n = len(self.trunk.modules) + len(self.trunk._lazy)
@@ -118,8 +142,32 @@ def show_system_dialog(self):
                 model_status = "%s 当前: %s → %s" % (dot_color, model_mode, model_name)
             except Exception:
                 model_status = "🟢 当前模型: 未知"
-            status_bar.setPlainText("📊 模块: %d | 未修复错误: %d | 状态: %s\n%s"
-                % (n, errs, "✅ 正常" if errs == 0 else "⚠ 有错误", model_status))
+            # 体检报告（D4）：把模块/错误库/模型/磁盘/Trace 聚合成一句话
+            health_line = ""
+            try:
+                from core.health_report import build_report
+                rep = build_report([
+                    ("模块", lambda: {"ok": n > 0, "hint": "共 %d 个" % n}),
+                    ("错误库", lambda: {"ok": errs == 0, "warn": errs <= 3,
+                                       "hint": "%d 条未修复" % errs}),
+                    ("模型", lambda: {"ok": True, "warn": "未知" in model_status,
+                                      "hint": model_status}),
+                    ("磁盘", _disk_check),
+                    ("Trace", _trace_check),
+                ])
+                icon = {"pass": "✅", "warn": "⚠", "fail": "❌"}.get(
+                    rep["overall"], "❔")
+                health_line = "\n🩺 体检: %s 通过 %d / 警告 %d / 失败 %d" % (
+                    icon, rep["pass"], rep["warn"], rep["fail"])
+                bad = [i["name"] + ("（" + i["hint"] + "）" if i.get("hint") else "")
+                       for i in rep["items"] if i["status"] != "pass"]
+                if bad:
+                    health_line += " | 需关注: " + "；".join(bad[:3])
+            except Exception as e:
+                _x6_swallowed(__name__, e, "health report")
+            status_bar.setPlainText("📊 模块: %d | 未修复错误: %d | 状态: %s\n%s%s"
+                % (n, errs, "✅ 正常" if errs == 0 else "⚠ 有错误", model_status,
+                   health_line))
         except Exception as e:
             _x6_swallowed(__name__, e)
             pass
@@ -162,6 +210,7 @@ def show_system_dialog(self):
                            % (str(e)[:60], p))
 
     l2.addWidget(make_action_links([
+        ("🩺 重新体检", _refresh_status),
         ("🗑 清空错误库（只清记录，不改代码）", _clear_errors),
         ("📖 使用说明（小白版）", _open_doc),
     ]))

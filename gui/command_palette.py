@@ -34,7 +34,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QLineEdit, QListWidget, QListWidgetItem,
                              QPushButton, QTextEdit, QMessageBox, QInputDialog,
-                             QFileDialog)
+                             QFileDialog, QMenu)
 
 from gui.workers import BgWorker
 from core.feature_registry import COMMAND_GROUPS, command_group_for
@@ -121,6 +121,10 @@ class CommandPalette(QDialog):
             "QListWidget{font-family:'Microsoft YaHei';font-size:13px;}")
         self.list_w.itemActivated.connect(lambda _i: self._run_selected())
         self.list_w.itemDoubleClicked.connect(lambda _i: self._run_selected())
+        # A4：右键给入口设置别名
+        self.list_w.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.list_w.customContextMenuRequested.connect(
+            lambda _p: self._alias_menu())
         root.addWidget(self.list_w, stretch=2)
 
         self.out = QTextEdit()
@@ -168,10 +172,20 @@ class CommandPalette(QDialog):
         self._filter("")
 
     def _matches(self, q):
-        """过滤：能力走注册表的同一套匹配（hints/滑窗），面板按名字"""
+        """过滤：能力走注册表的同一套匹配（hints/滑窗），面板按名字
+
+        A4（功能深化二期）：额外把「自定义别名」的命中纳入；排序叠加
+        使用频次/最近使用（core.palette_rank），高频入口自然上浮。
+        """
         q = (q or "").strip().lower()
+        base = getattr(self.trunk, "base", "") or ""
+        try:
+            from core import palette_rank
+            alias_ids = palette_rank.alias_hits(base, q) if q else []
+        except Exception:
+            alias_ids = []
         if not q:
-            return self._entries
+            return self._sort_with_usage(self._entries, base)
         try:
             from core import module_caps
             caps = {n: i for k, n, i in self._entries if k == "cap"}
@@ -181,20 +195,35 @@ class CommandPalette(QDialog):
             order = {}
         out = []
         for kind, label, info in self._entries:
+            hit_alias = ("%s:%s" % (kind, label)) in alias_ids
             if kind == "cap":
-                if label in order:
+                if label in order or hit_alias:
                     out.append((kind, label, info))
             else:
-                if q in label.lower() or q in str(info.get("desc", "")).lower():
+                if (q in label.lower()
+                        or q in str(info.get("desc", "")).lower()
+                        or hit_alias):
                     out.append((kind, label, info))
-        # 组顺序固定：常用  任务  资料  工具  安全  插件/MCP  开发；
-        # 同组内能力按匹配度、面板按名称补在后面。
-        out.sort(key=lambda e: (
+        return self._sort_with_usage(out, base, order)
+
+    def _sort_with_usage(self, entries, base, order=None):
+        """组顺序固定；同组内按匹配度、使用频次加权、名称。"""
+        order = order or {}
+        try:
+            from core import palette_rank
+            scores = {
+                "%s:%s" % (e[0], e[1]):
+                    palette_rank.score(base, "%s:%s" % (e[0], e[1]))
+                for e in entries
+            }
+        except Exception:
+            scores = {}
+        return sorted(entries, key=lambda e: (
             _group_rank(e[2].get("group", "工具")),
             0 if e[0] == "cap" else 1,
             order.get(e[1], 99),
+            -scores.get("%s:%s" % (e[0], e[1]), 0.0),
             e[1]))
-        return out
 
     def _filter(self, text=""):
         q = (text or "").strip()
@@ -225,6 +254,34 @@ class CommandPalette(QDialog):
                              "  ".join(groups)))
 
     # ---------------- 执行 ----------------
+    # ---------------- A4：自定义别名 ----------------
+    def _alias_menu(self):
+        if not self._current():
+            return
+        menu = QMenu(self)
+        act = menu.addAction("为该入口设置别名…")
+        act.triggered.connect(self._set_alias_for_current)
+        menu.exec_(self.list_w.mapToGlobal(self.list_w.pos()))
+
+    def _set_alias_for_current(self):
+        cur = self._current()
+        if not cur:
+            return
+        kind, label, _info = cur
+        alias, ok = QInputDialog.getText(self, "设置别名",
+                                         "给「%s」起个别名：" % label)
+        if not (ok and alias.strip()):
+            return
+        try:
+            from core import palette_rank
+            palette_rank.save_alias(getattr(self.trunk, "base", "") or "",
+                                    "%s:%s" % (kind, label), alias.strip())
+            self._filter(self.search.text())
+            self.out.setPlainText("已为 %s 保存别名：%s"
+                                  % (label, alias.strip()))
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "save palette alias")
+
     def _current(self):
         it = self.list_w.currentItem()
         return it.data(Qt.UserRole) if it else None
@@ -234,6 +291,13 @@ class CommandPalette(QDialog):
         if not cur:
             return
         kind, label, info = cur
+        # A4：记录使用频次（影响下次排序）
+        try:
+            from core import palette_rank
+            palette_rank.record_use(getattr(self.trunk, "base", "") or "",
+                                    "%s:%s" % (kind, label))
+        except Exception as e:  # 静默是故意的 - 统计不影响执行
+            _x6_swallowed(__name__, e, "record palette use")
         if kind == "panel":
             fn = info.get("fn")
             try:

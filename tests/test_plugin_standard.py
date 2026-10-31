@@ -32,7 +32,9 @@ def _manifest():
 
 
 def test_api_version_is_declared_and_supported():
-    assert PLUGIN_API_VERSION == "1.0"
+    assert PLUGIN_API_VERSION == "2.0"
+    # v1.0 仍兼容旧清单：升级期不能把已装插件判死
+    assert "2.0" in SUPPORTED_PLUGIN_API
     assert "1.0" in SUPPORTED_PLUGIN_API
 
 
