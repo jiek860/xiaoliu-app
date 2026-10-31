@@ -506,7 +506,8 @@ def group_by_file(patch, selected_files=None):
     同一路径的多条操作（先 create 再 update）仍留在同一组，保持顺序语义。
     """
     selected = set(_norm_rel(x) for x in (selected_files or []))
-    groups, index = [], {}
+    groups: list = []
+    index: dict = {}
     for fp in (patch or {}).get("files") or []:
         if not isinstance(fp, dict):
             continue

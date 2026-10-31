@@ -96,7 +96,7 @@ def missing_optional_packages():
     设置页的按钮预算只有主操作那几个，不能被十几行安装按钮撑爆）。
     """
     out = []
-    for group, name, mod, spec, target, size in PACKAGES:
+    for group, name, mod, spec, _target, _size in PACKAGES:
         if group.startswith("核心依赖"):
             continue
         if not _installed(mod):
