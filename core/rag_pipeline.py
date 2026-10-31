@@ -31,6 +31,26 @@ def _tokens(text):
     return words + zh + grams
 
 
+_FOLLOWUP_PREFIXES = ("它", "这个", "那个", "继续", "接着", "然后", "还有")
+
+
+def rewrite_query(query, history=None):
+    """轻量查询改写（B2）：把「它/这个/继续」这类追问补上上一轮话题。
+
+    只做确定性规则、不调模型：检索是高频路径，不能被一次网络请求拖住。
+    history 为最近用户消息（旧的在前、新的在后）。
+    """
+    q = str(query or "").strip()
+    if not q or not history:
+        return q
+    last = str(history[-1] or "").strip()
+    if not last or last == q:
+        return q
+    if q.startswith(_FOLLOWUP_PREFIXES):
+        return (last + " " + q).strip()
+    return q
+
+
 class KnowledgeBase:
     def __init__(self, base, namespace="default", vector_store=None):
         self.base = os.path.realpath(os.path.abspath(base))
@@ -191,6 +211,7 @@ class KnowledgeBase:
         results = []
         q_norm = str(query or "").lower().strip()
         q_terms = set(_tokens(query))
+        now = time.time()
         for cid, scores in fused.items():
             chunk = by_id.get(cid)
             if not chunk:
@@ -199,10 +220,17 @@ class KnowledgeBase:
             overlap = len(q_terms & set(_tokens(text)))
             phrase = 1.0 if q_norm and q_norm in text.lower() else 0.0
             final = scores["rrf"] * 100 + scores["lex"] + overlap * 0.01 + phrase
+            # B2：来源标注了有效期且已过期 -> 降权并在结果里标记
+            info = self._manifest.get(chunk.get("source")) or {}
+            exp = float(info.get("expires_at") or 0)
+            expired = bool(exp and exp <= now)
+            if expired:
+                final *= 0.5
             results.append({
                 "chunk_id": cid, "text": text, "source": chunk.get("source"),
                 "page": chunk.get("page"), "offset": chunk.get("offset", 0),
                 "score": round(final if rerank else scores["rrf"], 6),
+                "expired": expired,
                 "citation": self.citation(chunk), "metadata": chunk.get("metadata") or {},
             })
         results.sort(key=lambda x: x["score"], reverse=True)
@@ -226,8 +254,18 @@ class KnowledgeBase:
                 "chunks": len(self._chunks),
                 "manifest_files": len(self._manifest)}
 
+    def set_expiry(self, source, expires_at):
+        """给某个来源设置有效期（秒级时间戳，0=永不失效，B2）。"""
+        info = self._manifest.get(source)
+        if not info:
+            return {"ok": False, "error": "来源不存在"}
+        info["expires_at"] = float(expires_at or 0)
+        self._save()
+        return {"ok": True, "source": source,
+                "expires_at": info["expires_at"]}
+
     def sources(self):
-        """已索引来源清单（分块数 + 可访问角色），给管理界面列出用。
+        """已索引来源清单（分块数 + 可访问角色 + 有效期），给管理界面列出用。
 
         以前管理界面只统计"来源 N 个"，用户想删某个来源只能手打相对路径，
         打错一个字符就是"没有找到该来源"。
@@ -237,6 +275,7 @@ class KnowledgeBase:
             info = self._manifest.get(src) or {}
             out.append({"source": src,
                         "chunks": int(info.get("chunks") or 0),
+                        "expires_at": float(info.get("expires_at") or 0),
                         "acl_roles": [str(x) for x in (info.get("acl_roles") or [])]})
         return out
 
