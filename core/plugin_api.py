@@ -3,10 +3,17 @@
 
 插件 API 版本
 -------------
-* 当前版本：``PLUGIN_API_VERSION = "1.0"``。
+* 当前版本：``PLUGIN_API_VERSION = "2.0"``。
 * 清单（modules_repo/manifest.json）的每个条目必须写 ``api_version``。
-* 用户端只接受 ``SUPPORTED_PLUGIN_API`` 里的版本；旧清单缺字段时按
+* 用户端接受 ``SUPPORTED_PLUGIN_API`` 里的版本（2.0 与旧版 1.0）；旧清单缺字段时按
   legacy 兼容模式给出 warning，方便旧仓库平滑升级，但新发布必须写。
+
+v2.0 改了什么
+-------------
+* 清单必须声明结构化 ``capabilities``（filesystem / shell / network / model …），
+  运行时据此推导风险等级、决定是否隔离；
+* 来源依赖规则不变（第三方仍只能用 ``PUBLIC_CORE_MODULES``）；
+* v1.0 清单继续可装、可跑，但按 legacy 标记并在检查里提示升级。
 
 依赖边界
 --------
@@ -30,8 +37,9 @@ except ImportError:
 
 from core.plugin_capabilities import capability_summary, validate_capabilities
 
-PLUGIN_API_VERSION = "1.0"
-SUPPORTED_PLUGIN_API = {"1.0"}
+PLUGIN_API_VERSION = "2.0"
+# 2.0 是当前发布版本；1.0 保留只为旧清单/旧插件平滑升级，不是新发布选项。
+SUPPORTED_PLUGIN_API = {"1.0", "2.0"}
 
 # 第三方插件允许依赖的 core 公共模块；不在列表中视为内部实现。
 PUBLIC_CORE_MODULES = {

@@ -1183,7 +1183,7 @@ rec.play("my_task")                  # 回放走 trunk.modules["computer_control
 
 ```python
 from core.plugin_api import (
-    PLUGIN_API_VERSION,          # "1.0"
+    PLUGIN_API_VERSION,          # "2.0"
     PUBLIC_CORE_MODULES,
     manifest_api_version,
     validate_plugin_source,
@@ -1197,7 +1197,7 @@ from core.plugin_api import (
 {
   "name": "my_plugin",
   "file": "my_plugin.py",
-  "api_version": "1.0",
+  "api_version": "2.0",
   "first_party": false
 }
 ```
@@ -2773,7 +2773,7 @@ py -3 -m pytest tests/test_plugin_standard.py tests/test_plugin_standard_v21.py 
   "desc": "查询实时天气",
   "group": "联网检索",
   "version": "1.0",
-  "api_version": "1.0",
+  "api_version": "2.0",
   "first_party": true,
   "needs_model": false,
   "depends": [],
@@ -2790,10 +2790,11 @@ py -3 -m pytest tests/test_plugin_standard.py tests/test_plugin_standard_v21.py 
 API 版本常量：
 
 ```python
-PLUGIN_API_VERSION = "1.0"
-SUPPORTED_PLUGIN_API = {"1.0"}
+PLUGIN_API_VERSION = "2.0"
+SUPPORTED_PLUGIN_API = {"1.0", "2.0"}
 ```
 
+- 2.0 是新发布版本；1.0 保留给已装/旧仓库插件平滑升级（向后兼容）。
 - 不写 `api_version` → `legacy=True`，只给警告，但**新发布必须写**。
 - 写了不支持的版本 → 直接拒绝安装。
 - 版本号是硬比较，不做范围匹配。
@@ -2916,7 +2917,7 @@ Plugins run through a broker/worker boundary. They do not receive `trunk`,
   "file": "hello.py",
   "cls": "HelloPlugin",
   "version": "1.0.0",
-  "api_version": "1.0",
+  "api_version": "2.0",
   "first_party": false,
   "publisher": "example",
   "min_host_version": "25.0.0",

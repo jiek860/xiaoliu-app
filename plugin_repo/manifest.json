@@ -108,7 +108,7 @@
         }
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -301,7 +301,7 @@
         }
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -498,7 +498,7 @@
         }
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -546,7 +546,7 @@
     "version": "7.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -594,7 +594,7 @@
     "version": "1.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -665,7 +665,7 @@
         ]
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -713,7 +713,7 @@
     "version": "1.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -765,7 +765,7 @@
     "version": "1.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -867,7 +867,7 @@
         ]
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -915,7 +915,7 @@
     "version": "7.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -1017,7 +1017,7 @@
         }
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -1068,7 +1068,7 @@
       "action": "gui:computer_dialog"
     },
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -1153,7 +1153,7 @@
         }
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -1201,7 +1201,7 @@
     "version": "7.1.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -1257,7 +1257,7 @@
       "action": "list"
     },
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -1305,7 +1305,7 @@
     "version": "7.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -1353,7 +1353,7 @@
     "version": "7.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -1509,7 +1509,7 @@
         }
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -1557,7 +1557,7 @@
     "version": "16.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -1650,7 +1650,7 @@
         ]
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -1718,7 +1718,7 @@
         ]
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -1766,7 +1766,7 @@
     "version": "5.1.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -1883,7 +1883,7 @@
         ]
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2092,7 +2092,7 @@
         ]
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2187,7 +2187,7 @@
         ]
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2235,7 +2235,7 @@
     "version": "1.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2286,7 +2286,7 @@
     "version": "7.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2334,7 +2334,7 @@
     "version": "1.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2382,7 +2382,7 @@
     "version": "1.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2430,7 +2430,7 @@
     "version": "7.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2537,7 +2537,7 @@
         ]
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2585,7 +2585,7 @@
     "version": "1.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2633,7 +2633,7 @@
     "version": "1.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2681,7 +2681,7 @@
     "version": "1.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2729,7 +2729,7 @@
     "version": "10.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2777,7 +2777,7 @@
     "version": "7.1.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2825,7 +2825,7 @@
     "version": "1.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2873,7 +2873,7 @@
     "version": "10.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2921,7 +2921,7 @@
     "version": "1.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -2997,7 +2997,7 @@
         ]
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -3045,7 +3045,7 @@
     "version": "10.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -3168,7 +3168,7 @@
         ]
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -3216,7 +3216,7 @@
     "version": "10.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -3321,7 +3321,7 @@
         ]
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -3369,7 +3369,7 @@
     "version": "1.0.0",
     "button": null,
     "tools": [],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -3446,7 +3446,7 @@
         ]
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -3542,7 +3542,7 @@
         }
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {
@@ -3738,7 +3738,7 @@
         }
       }
     ],
-    "api_version": "1.0",
+    "api_version": "2.0",
     "first_party": true,
     "capabilities": {
       "network": {

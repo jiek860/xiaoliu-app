@@ -7,7 +7,7 @@ import time
 try:
     from core.plugin_api import PLUGIN_API_VERSION
 except ImportError:  # 独立加载 modules.base 时保持可用
-    PLUGIN_API_VERSION = "1.0"
+    PLUGIN_API_VERSION = "2.0"
 
 
 try:

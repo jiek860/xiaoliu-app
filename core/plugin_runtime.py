@@ -7,9 +7,8 @@
 * 依赖缺失 -> 先补装，不启动；
 * 高风险插件 -> 子进程沙箱（``mode="subprocess"``），否则主进程内（``mode="inproc"``）。
 
-注意：本模块不改插件 API 版本常量（``PLUGIN_API_VERSION`` 仍是 1.0）。
-"API v2" 需要同步改写 48 个清单与 ``modules.base``，属于独立迁移批次，
-不在这里悄悄改常量，以免破坏清单一致性与既有测试。
+插件 API 版本已由独立迁移批次升到 2.0（``core.plugin_api``，v1.0 清单仍兼容）。
+本模块只负责"依赖是否齐全 / 要不要隔离"的执行决策，不参与版本号判定。
 """
 from __future__ import annotations
 
