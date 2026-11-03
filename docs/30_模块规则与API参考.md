@@ -32,7 +32,7 @@
 > | 事实源 | 内容 | 现状 |
 > |---|---|---|
 > | `core/lazy_config.py` | 模块登记表 | **72 个模块** |
-> | `core/rules_engine.py` | 规则定义 | **75 条规则** |
+> | `core/rules_engine.py` | 规则定义 | **103 条规则** |
 > | `core/core_caps.py` | core 侧能力声明 | 19 条 |
 > | `core/module_caps.py` | 能力注册表（合并两来源） | 64 条能力 |
 > | `modules_repo/manifest.json` | 插件清单（RSA 签名） | 48 条 |
@@ -942,6 +942,40 @@ Feature("deep_research", "深度研究", "🔬", "资料", (ADVANCED,), 235,
   tools/check_plugin_repo.py
 ```
 
+### pre-commit / pre-push 两档门禁（2026-11-02 更新）
+
+`check.bat` 是给人看的 14 步清单；**真正拦住提交/推送的是 `.githooks` 里的两档**：
+
+| 档位 | 触发 | 项数 | 内容 |
+|---|---|---|---|
+| 快检 | `git commit` | 10 | 语法 / 版本号 / 按钮预算 / 工具预算 / 线程安全 / 静默失败棘轮 / **懒加载来源** / **数据路径棘轮** / **死代码棘轮** / **信号接线** |
+| 全套 | `git push` | 13 | 上面 10 项 + 结构契约（`check_shapes`，12 秒）+ 插件仓库一致性 + 全量 pytest |
+
+- 手动跑：`py -3 tools/pre_commit_check.py`（快检）、`py -3 tools/pre_commit_check.py --full`（全套）。
+  安装：`py -3 tools/pre_commit_check.py --install`（设 `core.hooksPath=.githooks`）。
+- **关键守卫（`REQUIRED`）**：`语法检查`、`版本号一致性`、`静默失败棘轮`、`懒加载来源`、`数据路径棘轮`、
+  `死代码棘轮`、`信号接线`。
+  这七项被从 `CHECKS` 里删掉时，脚本**自己判失败**——防止"门禁被优化没了还全绿"。
+  由 `tests/test_gate_guards.py` 钉住（13 项 / 两档 / pre-push 必须 `--full`）。
+- **懒加载来源**为什么算底线：`LAZY_MAP` 登记的文件丢了或落到错目录时，功能测试照样绿，
+  但用户点按钮就是「模块未安装」——见 `tools/check_lazy_sources.py`。
+- **数据路径棘轮**为什么算底线：还在手拼 `base/data` 的文件不跟 `X6_DATA_DIR` / 测试重定向走，
+  换目录或装到 Program Files 就读写错地方。2026-11-02 起点 190 处 / 130 文件，
+  迁到 104 处 / 78 文件后把基线钉住，只许降——见 `tools/check_data_paths.py`。
+- **死代码棘轮**（S4）：`tools/audit_dead_code.py` 只是报告（永远退出码 0），
+  所以另加 `tools/check_dead_code.py` 把"可疑死模块 / 零引用函数 / 完全重复实现"
+  钉成基线（S3 清完是 **0 / 0 / 0**，`KEEP` 里的 4 项不计）。跑测试看不出这类退化：
+  一个没人调用的函数加上去，用例照样全绿。
+- **信号接线**（S4）：`tools/check_signals.py` 用 AST 找 `名字 = pyqtSignal(...)`，
+  再全文搜 `名字.connect(`（**接在 tests 里也算**）。定义了却没人接 = 假接口，
+  会误导后来的人把逻辑挂到永不触发的回调上（`ChatStageStrip` 删掉的那两个信号就是这样）。
+  基线 0；确需留给外部接的登进该脚本的 `KEEP` 并写明消费者计划。
+- **大文件冻结**：`tools/file_size_baseline.json` 的 `known_frozen` 登记了 6 份 590+ 行文件
+  （`workflow_runner` / `code_agent` / `self_check` / `chat/memory_v2` / `patch_engine` / `build_ui`），
+  本轮**不拆**但只许降不许涨；`check_file_sizes.py` 会校验。
+- **模块表重生成**：`py -3 tools/gen_module_map.py --write` 重写 `docs/00` 的 3.1 core 表
+  （行数 / 测试 / 完整度 / 已接线 全是实测）。改了 core 模块后跑一遍，别手改那张表。
+
 
 ---
 
@@ -1297,8 +1331,10 @@ command_hash(command) -> str       sha256(cmd)[:16]
 trust_path(base) -> str            含旧路径迁移
 load_trusted(base) -> set[str]
 save_trusted(base, hashes) -> (ok, err)
-is_trusted(base, command) -> bool
 ```
+
+> `is_trusted(base, command)` 已于 2026-11-02 删除（全项目无人调用）：调用方一律
+> `load_trusted(base)` 拿哈希集合后自己判断，避免多一层"看起来像统一入口"的空壳。
 
 ### core/auth.py 新增
 
@@ -3610,3 +3646,43 @@ check_plugin_quality.py 初始报 142 条 warn、8 条 error。
 | `code.locate_failures` | `on`（新增） | off / shadow / on | `core/patch_protocol.py:locate_mode()` | 测试失败 → `文件:行 → 函数` 进回修提示 |
 
 说明：`code.verify_select`（影响面选测）仍保持默认 `off`；失败定位与它拆开，避免"少跑测试"与"给定位"绑在一起。
+
+## 加解密与配置读写的职责边界（2026-11-02）
+
+同一类能力以前各有两三套实现。下表是**唯一主链路**：新代码按这张表找入口，
+别再自己写一套；标"仅测试"的模块不要在业务里引用。
+
+### 加解密（谁负责什么）
+
+| 场景 | 唯一入口 | 说明 |
+|---|---|---|
+| 配置里的敏感字段（API Key / webhook 等） | `core/secret_store.py` `encrypt_config` / `decrypt_config` | Windows 走 DPAPI，其他平台走本机密钥；`core/config.py` 的 `save_config` / `load_config` 已接入 |
+| 产品内置默认凭据（飞书 webhook / secret） | `core/default_secrets.py` `decrypt_text` / `decrypt_tree` | 源码里只存 `x6enc:v1:` 密文，运行时解出明文 |
+| 记忆 / 数据导出包 | `core/memory_crypto.py` | 导出前加密、导入时解密 |
+| 授权码 / 发布签名 | `core/license_core.py` / `core/release_sign.py` | 只做签名验签，不参与普通数据落盘 |
+
+`core/crypto.py` **降级为"仅测试 / 历史兼容"**：只保留 `encrypt` / `decrypt`
+（AES-GCM v2 + 旧 XOR 读取兼容）与 `hash_password` / `verify_password`，供
+`tests/test_core.py`、`tests/test_crypto.py` 校验；生产链路 0 引用。
+2026-11-02 删掉 7 个无人调用的通用 helper（`generate_random_key` / `encrypt_file` /
+`decrypt_file` / `verify_checksum` / `generate_uuid` / `encode_base64` /
+`decode_base64`），连带只被它们使用的 `checksum` 也删了。
+
+### 配置读写（谁负责什么）
+
+| 模块 | 职责 | 边界 |
+|---|---|---|
+| `core/config.py` | **主入口**：`load_config` / `save_config` / `validate_config` | 读、写、校验、补默认值；`run.py::_validate_config()` 启动时调 `validate_config` |
+| `core/config_healer.py` | 修复**损坏/缺字段**的配置 | 只在自检发现异常时介入，不参与业务读值 |
+| `core/data_migrations.py` | 数据文件 schema **版本迁移** | 只改格式（v0→v1→v2），不解释配置语义 |
+
+`config.py` 里原来的 `export_config` / `import_config` / `reset_config` /
+`get_config_diff` / `load_memory` 五个 helper 全项目无人调用，2026-11-02 删除；
+用户侧的配置导入导出走 `Migration.import_zip` 与系统设置页。
+
+### 补丁生成
+
+`core/patch_utils.py`（difflib 差分）**仅供 `tools/make_patch.py` 生成离线 .diff**。
+工作台补丁主链路是 `core/patch_engine.py`（安全边界 / 落盘 / 回滚）+
+`core/hunk_edit.py`（hunk 归一化 / 定位 / 3-way / 逐 hunk 撤销）。
+`apply_file_patch`（写回文件）无人调用，2026-11-02 删除。

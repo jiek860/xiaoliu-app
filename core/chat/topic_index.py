@@ -113,7 +113,16 @@ def summary(items, limit=MAX_TOPICS):
 
 
 def topic_of(msg):
-    """单条消息的话题名（给回复动作「继续这个话题」用）。"""
+    """单条消息的话题名（给回复动作「继续这个话题」用）。
+
+    第 4 批改：先取"第一句人话"，取不到才退到最长关键词。
+    原来直接取"最长的 token"，在代码场景会抽成 ``password`` / ``username``
+    这种大写的英文标识符，指代消解就会得到「给「password」加个参数校验」；
+    第一句则稳定给出「已在 login.py」这类能看懂的话题名。
+    """
     text = _text(msg)
+    head = first_sentence(text)
+    if head:
+        return head
     names = keywords(text, limit=3)
-    return names[0] if names else first_sentence(text)
+    return names[0] if names else ""

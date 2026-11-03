@@ -13,6 +13,7 @@ except ImportError:
 
 import json
 import os
+from core.data_paths import data_path
 
 # 分组：决定星图上节点的颜色
 GROUPS = {
@@ -345,7 +346,7 @@ def _real_calls(trunk, valid):
 def export(trunk, path=None):
     """算好并写到 data/modules_map.js，返回写入路径"""
     out = build(trunk)
-    p = path or os.path.join(trunk.base, "data", "modules_map.js")
+    p = path or data_path(trunk, "modules_map.js")
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, "w", encoding="utf-8") as f:
         f.write("var MODULE_DATA = "

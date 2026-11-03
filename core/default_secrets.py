@@ -10,9 +10,12 @@
 
 新凭据请优先写入用户本机的 data/config.json（Windows 下由 DPAPI 加密），
 本文件仅保留产品默认值。
+
+轮换默认值：用本文件的 `_KEY` + AESGCM 重新生成 ``x6enc:v1:<base64(nonce+ct)>``
+即可（解密路径见 `decrypt_text`）。原来那个 `encrypt_text` helper 全项目无人
+调用，2026-11-02 删除，避免它被误当成"生产加密入口"。
 """
 import base64
-import os
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -34,14 +37,6 @@ def decrypt_text(value):
         return AESGCM(_KEY).decrypt(nonce, ciphertext, _AAD).decode("utf-8")
     except Exception:
         return value
-
-
-def encrypt_text(text):
-    if not isinstance(text, str) or not text:
-        return text
-    nonce = os.urandom(12)
-    ct = AESGCM(_KEY).encrypt(nonce, text.encode("utf-8"), _AAD)
-    return PREFIX + base64.urlsafe_b64encode(nonce + ct).decode("ascii")
 
 
 def decrypt_tree(obj):

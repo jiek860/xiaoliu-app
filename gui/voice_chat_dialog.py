@@ -46,6 +46,11 @@ class _VoiceSynth(QThread):
         self.trunk = trunk
         self.text = str(text or "")
 
+    def _voice(self):
+        """朗读音色：与「+ → 朗读音色」共用 config 里的 tts_voice。"""
+        cfg = getattr(self.trunk, "config", None)
+        return str((cfg or {}).get("tts_voice") or "") or None
+
     def run(self):
         path = ""
         try:
@@ -53,7 +58,8 @@ class _VoiceSynth(QThread):
             base = getattr(self.trunk, "base", "") or os.getcwd()
             tmp = os.path.join(base, "data", "plugin_data", "voice_chat")
             os.makedirs(tmp, exist_ok=True)
-            path = TTS(tmp).synthesize(self.text[:500], tag="voice") or ""
+            path = TTS(tmp, voice=self._voice()).synthesize(
+                self.text[:500], tag="voice") or ""
         except Exception as e:  # 静默是故意的 - 合成失败只降级成文字
             _x6_swallowed(__name__, e, "voice tts synth")
             path = ""

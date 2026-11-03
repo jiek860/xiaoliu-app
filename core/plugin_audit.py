@@ -26,6 +26,7 @@ import time
 from datetime import datetime, timezone
 
 from core.redaction import redact_mapping
+from core.data_paths import data_dir
 
 AUDIT_FILE = "plugin_audit.jsonl"
 RETENTION_DAYS = 90
@@ -42,7 +43,7 @@ class PluginAudit:
 
     def __init__(self, base, retention_days=RETENTION_DAYS):
         self.base = os.path.realpath(os.path.abspath(base))
-        self.dir = os.path.join(self.base, "data")
+        self.dir = data_dir(self)
         os.makedirs(self.dir, exist_ok=True)
         self.path = os.path.join(self.dir, AUDIT_FILE)
         self.retention_days = int(retention_days or RETENTION_DAYS)

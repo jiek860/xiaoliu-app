@@ -9,6 +9,7 @@ except ImportError:
 import os, time, json
 from core.safe import safe
 from modules.base import BaseModule
+from core.data_paths import data_path
 
 
 class MemoryPipeline(BaseModule):
@@ -27,12 +28,12 @@ class MemoryPipeline(BaseModule):
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         # v2.1: 插件持久化必须落在 data/plugin_data/<插件名>/ 内
-        _sdir = os.path.join(self.base, "data", "plugin_data", "memory_loop")
+        _sdir = data_path(self, "plugin_data", "memory_loop")
         os.makedirs(_sdir, exist_ok=True)
         self.state_path = os.path.join(_sdir, "memory_loop.json")
         self.episodic_path = os.path.join(_sdir, "episodic_memory.json")
-        for _old in (os.path.join(self.base, "data", "memory_loop.json"),
-                     os.path.join(self.base, "data", "episodic_memory.json")):
+        for _old in (data_path(self, "memory_loop.json"),
+                     data_path(self, "episodic_memory.json")):
             _new = os.path.join(_sdir, os.path.basename(_old))
             if not os.path.exists(_new) and os.path.exists(_old):
                 try: os.replace(_old, _new)

@@ -23,6 +23,20 @@ def test_short_greeting_is_one_sentence_ack():
     assert "展开成长篇" in plan["avoid"]
 
 
+def test_greeting_with_real_request_is_not_one_line_ack():
+    """「你好小6最近的烧烤店有…」不能压成一句客套（截图 21:19 那一轮）。
+
+    原来 intent=smalltalk 直接 act=ack / max_chars=60，提示词把回复按死在
+    "一句寒暄"里，于是后面一路反问「您希望我提供什么样的信息」。
+    """
+    plan = _plan("你好小6最近的烧烤店有「你好啊」",
+                 state=_state(intent="smalltalk", brevity="normal"))
+    assert plan["act"] == "answer"
+    assert plan["max_chars"] >= 220
+    assert any("真正问的事" in s for s in plan["must_include"])
+    assert "只寒暄不回答" in plan["avoid"]
+
+
 def test_vent_comforts_before_solving():
     plan = _plan("今天真的烦死了", state=_state(intent="vent", brevity="short"))
     assert plan["act"] == "comfort"

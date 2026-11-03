@@ -66,7 +66,3 @@ def save_trusted(base, hashes):
         return True, ""
     except OSError as e:
         return False, "写入信任文件失败: %s" % str(e)[:120]
-
-
-def is_trusted(base, command):
-    return command_hash(command) in load_trusted(base)

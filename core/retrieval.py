@@ -11,6 +11,7 @@ import math
 import os
 import re
 from collections import Counter
+from core.data_paths import data_path
 
 
 def _tokens(text):
@@ -27,7 +28,7 @@ class HybridRetriever:
         self.base = base or "."
         self.vector_store = vector_store
         self.docs = []
-        self.path = os.path.join(self.base, "data", "retrieval_index.json")
+        self.path = data_path(self, "retrieval_index.json")
         self._cache = None
         self._load()
 

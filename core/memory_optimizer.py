@@ -15,6 +15,9 @@ class MemoryOptimizer:
         self.trunk = trunk
         self._weak_modules = weakref.WeakValueDictionary()
         self._history_cache = []
+        self._thread = None
+        self._cleanup_count = 0
+        self._last_cleanup = 0.0
 
     def tune_gc(self):
         """调优GC参数，减少GC频率"""
@@ -33,10 +36,27 @@ class MemoryOptimizer:
             self._history_cache = self._history_cache[-200:]
         # 强制GC
         collected = gc.collect()
-        return {"ok": True, "回收对象": collected, "弱引用模块数": len(self._weak_modules)}
+        self._cleanup_count = getattr(self, "_cleanup_count", 0) + 1
+        self._last_cleanup = time.time()
+        return {"ok": True, "回收对象": collected,
+                "弱引用模块数": len(self._weak_modules),
+                "清理次数": self._cleanup_count}
+
+    def stats(self):
+        """清理状态：次数 / 上次时间 / 弱引用数 / 定期线程是否活着"""
+        t = getattr(self, "_thread", None)
+        return {"清理次数": getattr(self, "_cleanup_count", 0),
+                "上次清理": getattr(self, "_last_cleanup", 0.0),
+                "弱引用模块数": len(self._weak_modules),
+                "历史缓存条数": len(self._history_cache),
+                "定期线程存活": bool(t is not None and t.is_alive())}
 
     def start_periodic(self, interval=1800):
-        """启动定期清理线程，每30分钟清理一次"""
+        """启动定期清理线程，每 interval 秒清理一次（重复调用不会多开线程）"""
+        t = getattr(self, "_thread", None)
+        if t is not None and t.is_alive():
+            return {"ok": True, "间隔秒": interval, "状态": "已在运行"}
+
         def _loop():
             while True:
                 time.sleep(interval)
@@ -45,7 +65,9 @@ class MemoryOptimizer:
                 except Exception as e:
                     _x6_swallowed(__name__, e)
                     pass
-        threading.Thread(target=_loop, daemon=True, name="memory-cleanup").start()
+        self._thread = threading.Thread(target=_loop, daemon=True,
+                                        name="memory-cleanup")
+        self._thread.start()
         return {"ok": True, "间隔秒": interval, "状态": "已启动"}
 
     def run(self, *a):

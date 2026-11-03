@@ -22,6 +22,7 @@ from core.plugin_api import (PLUGIN_API_VERSION, manifest_api_version,
                              validate_plugin_manifest,
                              validate_plugin_source)
 from modules.support.plugin_market_online import PluginMarketOnlineMixin
+from core.data_paths import data_path
 
 
 def _icon_of(name):
@@ -75,7 +76,7 @@ class PluginMarket(PluginMarketOnlineMixin, BaseModule):
         self.base = trunk.base if trunk else os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.installed_dir = os.path.join(self.base, "modules", "installed")
         self.repo_dir = os.path.join(self.base, "modules_repo")
-        self.backup_dir = os.path.join(self.base, "data", "plugin_backups")
+        self.backup_dir = data_path(self, "plugin_backups")
         os.makedirs(self.backup_dir, exist_ok=True)
     # ---------- 扫描 ----------
     def _doc_of(self, file_path):

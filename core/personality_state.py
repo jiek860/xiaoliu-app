@@ -79,6 +79,7 @@ class PersonalityStateMixin:
 
         # 3. 你的情绪影响小6
         uf = self.data.get("last_user_feeling", "中性")
+        prev_mood = self.data.get("mood")
         if uf == "低落" and base == "活泼":
             self.data["mood"] = "轻松"
         elif uf == "开心" and base in ("轻松", "低落"):
@@ -89,6 +90,11 @@ class PersonalityStateMixin:
         # 4. energy
         if hours < 1: self.data["energy"] = min(100, self.data["energy"] + 5)
         elif hours > 24: self.data["energy"] = max(20, self.data["energy"] - 20)
+
+        # 情绪「变了」才记一条。同一段心情每轮都记，曲线全是重复点，
+        # 日报反而看不出哪天不一样。
+        if self.data["mood"] != prev_mood:
+            self.log_mood(self.data["mood"])
 
         if hours > 48:
             self._save()
@@ -220,12 +226,69 @@ class PersonalityStateMixin:
         return {"今天情绪变化": history[-10:]}
 
     def log_mood(self, mood):
-        """记录一次情绪"""
+        """记录一次情绪。
+
+        同时落两个地方：
+        ① ``personality.json`` 的 ``mood_history``（只有 HH:MM、最多 20 条，
+           给「今天情绪曲线」用）；
+        ② ``data/mood_history.json``（带 date、可跨天，给
+           :mod:`core.mood_report` 统计用）。
+
+        ⚠️ 2026-11-02 之前只写 ①，而 ``MoodReport`` 读的是另一个文件 ——
+        于是「情绪日报」这个能力**从来读不到任何数据**，永远回「暂无情绪记录」。
+        """
+        if not isinstance(mood, str) or not mood.strip():
+            return ""
+        mood = mood.strip()[:8]
         if "mood_history" not in self.data:
             self.data["mood_history"] = []
         self.data["mood_history"].append({"情绪": mood, "时间": time.strftime("%H:%M")})
         self.data["mood_history"] = self.data["mood_history"][-20:]
         self._save()
+        self._append_mood_log(mood)
+        return mood
+
+    def _mood_log_path(self):
+        """情绪日报的数据文件（与 personality.json 同目录）。
+
+        用 ``self.path`` 的目录而不是再拼 ``base/data``：测试里
+        ``_Pers(path)`` 只给 path、不给 base，这样两边都能跑。
+        """
+        folder = os.path.dirname(str(getattr(self, "path", "") or ""))
+        return os.path.join(folder, "mood_history.json") if folder else ""
+
+    def _append_mood_log(self, mood):
+        """把情绪写成「带日期」的一条；失败只记录，绝不影响聊天。"""
+        path = self._mood_log_path()
+        if not path:
+            return False
+        try:
+            rows = []
+            if os.path.exists(path):
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        data = json.load(f)
+                    if isinstance(data, list):
+                        rows = [r for r in data if isinstance(r, dict)]
+                except Exception as e:
+                    # 文件坏了：备份一份再从空开始，别把旧数据直接覆盖掉
+                    _x6_swallowed(__name__, e, "mood_history_read")
+                    try:
+                        os.replace(path, path + ".bad")
+                    except OSError:
+                        pass
+                    rows = []
+            rows.append({"date": datetime.now().strftime("%Y-%m-%d"),
+                         "time": time.strftime("%H:%M"), "情绪": mood})
+            rows = rows[-2000:]          # 上限：约 5 年的量，够用且不会无限涨
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(rows, f, ensure_ascii=False)
+            os.replace(tmp, path)
+            return True
+        except Exception as e:
+            _x6_swallowed(__name__, e, "mood_history_write")
+            return False
 
     def personality_growth(self):
         """性格成长：聊多了性格会慢慢变"""

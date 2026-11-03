@@ -18,6 +18,7 @@ import hashlib
 import os
 import sqlite3
 import time
+from core.data_paths import data_path
 
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -119,7 +120,7 @@ class CodeIndexV2:
     def __init__(self, base, root=None):
         self.base = str(base or ".")
         self.root = str(root or self.base)
-        self.path = os.path.join(self.base, "data", "code_index_v2.db")
+        self.path = data_path(self, "code_index_v2.db")
         self.ok = False
         self._init()
 

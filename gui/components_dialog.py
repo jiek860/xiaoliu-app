@@ -12,6 +12,7 @@
   - 核心依赖装进当前解释器
   - 可选组件装进项目的 optional_libs/（不污染系统 Python）
 """
+import html
 import importlib.util
 import os
 import webbrowser
@@ -38,7 +39,8 @@ PACKAGES = [
      "huggingface-hub<2", "optional", "5 MB"),
     ("语音识别", "pyaudio（麦克风）", "pyaudio", "pyaudio", "optional", "1 MB"),
     # ---- 语音合成 ----
-    ("语音合成", "edge-tts", "edge_tts", "edge-tts", "optional", "3 MB"),
+    # 锁 7.3.1：7.2.8 请求微软接口会稳定回 403/超时，朗读只剩系统朗读的音色
+    ("语音合成", "edge-tts 7.3.1", "edge_tts", "edge-tts==7.3.1", "optional", "3 MB"),
     # ---- 浏览器自动化 ----
     ("浏览器自动化", "playwright", "playwright", "playwright", "optional", "80 MB"),
     # ---- 看图 / 多模态 ----
@@ -80,6 +82,11 @@ MIRRORS = [
     ("魔搭社区（模型）", "https://modelscope.cn"),
     ("Ollama 模型库", "https://ollama.com/library"),
 ]
+
+
+def _esc(text):
+    """HTML 转义：名字里的 <、>、& 不能被当成标签。"""
+    return html.escape(str(text or ""), quote=False)
 
 
 def _installed(mod):
@@ -183,8 +190,12 @@ class ComponentsDialog(QDialog):
         w = QWidget()
         row = QHBoxLayout(w)
         row.setContentsMargins(0, 1, 0, 1)
-        row.addWidget(QLabel("%s  <span style='color:#94a3b8;font-size:11px;'>约 %s</span>"
-                             % (name, size)), 1)
+        # 名字里可能带 "<19" 这类字符（版本上限提示）：不转义的话 Qt 会把整行
+        # 当成纯文本，把后面 <span> 的标签原样显示出来（2026-11-01 实测）
+        lab = QLabel("%s  <span style='color:#94a3b8;font-size:11px;'>约 %s</span>"
+                     % (_esc(name), _esc(size)))
+        lab.setTextFormat(Qt.RichText)
+        row.addWidget(lab, 1)
         ok = _installed(mod)
         st = QLabel("已装" if ok else "未装")
         st.setStyleSheet("color:#16a34a;" if ok else "color:#94a3b8;")
@@ -205,7 +216,8 @@ class ComponentsDialog(QDialog):
         row = QHBoxLayout(w)
         row.setContentsMargins(0, 1, 0, 1)
         lab = QLabel("%s  <span style='color:#94a3b8;font-size:11px;'>%s</span>"
-                     % (name, desc))
+                     % (_esc(name), _esc(desc)))
+        lab.setTextFormat(Qt.RichText)
         lab.setWordWrap(True)
         row.addWidget(lab, 1)
         # 「打开下载页」是一次性跳转 → 链接，不占按钮位
@@ -219,7 +231,8 @@ class ComponentsDialog(QDialog):
         row = QHBoxLayout(w)
         row.setContentsMargins(0, 1, 0, 1)
         lab = QLabel("%s  <span style='color:#94a3b8;font-size:11px;'>%s</span>"
-                     % (name, url))
+                     % (_esc(name), _esc(url)))
+        lab.setTextFormat(Qt.RichText)
         lab.setWordWrap(True)
         row.addWidget(lab, 1)
         row.addWidget(make_action_links([

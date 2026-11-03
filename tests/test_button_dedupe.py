@@ -7,14 +7,14 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
 
-def test_more_menu_has_no_task_aliases_but_has_computer_agent():
+def test_more_menu_has_no_duplicate_or_computer_agent_button():
     from core.feature_registry import MORE_MENU_GROUPS
     ids = [fid for _g, group in MORE_MENU_GROUPS for fid in group]
     for fid in ("start_task", "scheduled_tasks"):
         assert fid not in ids, "更多菜单仍有重复入口: " + fid
     assert "task_center" in ids
     assert "workbench" in ids
-    assert "computer_agent" in ids
+    assert "computer_agent" not in ids
 
 
 def test_panel_registry_drops_duplicate_page_entries():

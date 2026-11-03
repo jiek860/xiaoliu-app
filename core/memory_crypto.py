@@ -12,6 +12,13 @@ import json
 import os
 import secrets
 
+try:
+    from core.data_paths import data_path
+except ImportError:
+    def data_path(target, *parts):
+        base = getattr(target, "base", None) or "."
+        return os.path.join(base, "data", *parts)
+
 _V2_MAGIC = b"X6MEM2"
 _V2_ITER = 200_000
 _V2_SALT = 16
@@ -28,7 +35,7 @@ class MemoryCrypto:
         """AES-GCM 加密导出记忆。"""
         cards = []
         bad_lines = []
-        p = os.path.join(self.base, "data", "memory_cards.jsonl")
+        p = data_path(self.trunk, "memory_cards.jsonl")
         if os.path.exists(p):
             with open(p, encoding="utf-8") as f:
                 for i, ln in enumerate(f, 1):
@@ -130,7 +137,7 @@ class MemoryCrypto:
         if not isinstance(cards, list):
             return {"ok": False, "错误": "解开的内容不是记忆卡列表"}
 
-        p = os.path.join(self.base, "data", "memory_cards.jsonl")
+        p = data_path(self.trunk, "memory_cards.jsonl")
         try:
             os.makedirs(os.path.dirname(p), exist_ok=True)
             with open(p, "a", encoding="utf-8") as f:

@@ -1,10 +1,18 @@
 # -*- coding: utf-8 -*-
 """配置管理 v2.0
-升级：配置校验、配置导出、配置导入、配置重置
+
+职责边界（三套"配置读写"的分工，见 docs/30「加解密与配置读写的职责边界」）
+--------------------------------------------------------------------------
+* **本文件**：配置读写主入口 —— `load_config` / `save_config` / `validate_config`
+  （敏感字段由 `core/secret_store` 加密，默认凭据由 `core/default_secrets` 解出）。
+* `core/config_healer.py`：启动时修复**损坏/缺字段**的配置（healer = 修，不读业务值）。
+* `core/data_migrations.py`：数据文件 schema 的版本迁移（migrate = 改格式，不碰配置语义）。
+
+历史：这里曾有 export/import/reset/diff 四个"配置管理"helper，全项目无人调用，
+统一配置管理走 `gui` 的导入导出（`Migration.import_zip` / 系统设置），2026-11-02 删除。
 """
 import os
 import json
-from datetime import datetime
 
 from core.secret_store import decrypt_config, encrypt_config
 from core.default_secrets import (
@@ -36,6 +44,16 @@ DEFAULTS = {
     "agent_max_steps": 10,
     "retrieval_top_k": 3,
     "simple_reply_max_len": 15,
+    # ===== 聊天参数（第 2 批：可配置上下文窗口与采样）=====
+    # 上下文窗口：实际生效值 = min(本项, 模型能力, 显存估算)，见 core/context_window.py
+    "llm_context_window": 8192,
+    # 上下文裁剪预算（token）与分渠道配额（system/persona/history/rag/tools）
+    "context_token_budget": 6000,
+    "llm_channel_shares": {},
+    # 采样参数覆盖：{"chat": {"temperature": 0.7}, "code": {...}, "default": {...}}
+    "llm_sampling": {},
+    # 固定随机种子（0 = 不固定；评测复现时设成非 0）
+    "llm_seed": 0,
     # ===== 超时参数 =====
     "llm_timeout": 60,
     "search_timeout": 10,
@@ -58,6 +76,8 @@ DEFAULTS = {
     "ui_mode_ever_switched": False,
     "show_advanced_entries": False,
     "shortcut_command_palette": "Ctrl+K",
+    # 工作台"AI 写到哪个文件夹"：空 = 程序目录（gui.workbench_workspace 读写）
+    "workbench_root": "",
     # ===== 功能开关 =====
     "联网": True,
     "工具调用": True,
@@ -88,6 +108,11 @@ DEFAULTS = {
     "auto_report_crash": True,
     # 闪退看门狗子进程（默认开；关了就没有"闪退当场补发"）
     "crash_watchdog": True,
+    # ===== 语音 =====
+    # 自动朗读回复（+ 菜单里的开关）与朗读音色（edge-tts 的 ShortName，
+    # 朗读 / 实时对话共用同一项；改了立刻生效）
+    "auto_tts": False,
+    "tts_voice": "zh-CN-XiaoxiaoNeural",
 }
 
 
@@ -150,15 +175,6 @@ def save_config(path, config):
     os.replace(_tmp, path)
 
 
-def load_memory(path):
-    if os.path.exists(path):
-        try:
-            return json.load(open(path, encoding="utf-8"))
-        except:
-            return {}
-    return {"last_topic": ""}
-
-
 def validate_config(cfg):
     """配置校验"""
     errors = []
@@ -171,41 +187,6 @@ def validate_config(cfg):
         if k in cfg and not isinstance(cfg[k], type(v)):
             errors.append(f"类型错误: {k} 应为 {type(v).__name__}")
     return {"有效": len(errors) == 0, "错误": errors}
-
-
-def export_config(cfg, out_path=None):
-    """导出配置"""
-    if out_path is None:
-        out_path = f"config_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
-    return out_path
-
-
-def import_config(path):
-    """导入配置"""
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return None
-
-
-def reset_config(path):
-    """重置配置为默认"""
-    save_config(path, DEFAULTS.copy())
-    return DEFAULTS.copy()
-
-
-def get_config_diff(cfg):
-    """获取与默认配置的差异"""
-    diff = {}
-    for k, v in DEFAULTS.items():
-        if k in cfg and cfg[k] != v:
-            diff[k] = {"默认": v, "当前": cfg[k]}
-    return diff
 
 
 

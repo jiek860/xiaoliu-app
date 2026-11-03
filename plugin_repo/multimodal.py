@@ -4,6 +4,7 @@ import os, time
 from core.safe import safe
 from core.plugin_errors import error_result as _error_result, is_error as _is_error
 from modules.base import BaseModule
+from core.data_paths import data_path
 
 
 def _err(message, code="PLUGIN_BAD_INPUT"):
@@ -39,7 +40,7 @@ class Multimodal(BaseModule):
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or "."
         # v2.1: 临时产物必须落在 data/plugin_data/<插件名>/ 内
-        self.sandbox = os.path.join(self.base, "data", "plugin_data", "multimodal")
+        self.sandbox = data_path(self, "plugin_data", "multimodal")
         os.makedirs(self.sandbox, exist_ok=True)
         self.history = []
         self.describe_count = 0

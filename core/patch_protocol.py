@@ -24,8 +24,8 @@ import json
 import os
 import time
 
-from core.patch_engine import (PROTECTED_PARTS, PatchError, sha256_text,
-                               validate_patch)
+from core.patch_engine import (PROTECTED_PARTS, PatchError, _materialize,
+                               sha256_text, validate_patch)
 
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -68,12 +68,35 @@ def auto_apply_enabled(trunk):
 
 
 def background_enabled(trunk):
-    """``code_agent.background``：工作台任务是否走后台线程，默认关。"""
+    """``code_agent.background``：工作台任务是否走后台线程，**默认开**。
+
+    为什么默认改成开
+    ----------------
+    同步执行时整条链路（LLM 请求 → 多轮补丁 → pytest 子进程）都压在 Qt 主线程上，
+    用户点"开始"后窗口直接"未响应"，几分钟内连取消都点不动。
+    后台线程只是把同一套 Agent 放到 QThread 里跑，事件仍然通过信号回 GUI 线程。
+
+    · 规则 ``code_agent.background``（rules.json）优先；
+    · 其次看 ``config.json`` 的 ``code_agent.background`` / ``code_agent_background``；
+    · 都没有 → 开。想回到同步版（会卡界面）：上面任一位置设 false 即可。
+    """
     try:
-        return bool(trunk.rule("code_agent.background", False))
+        value = trunk.rule("code_agent.background", None)
+        if value is not None:
+            return bool(value)
     except Exception as e:
         _x6_swallowed(__name__, e, "background switch")
-        return False
+    try:
+        cfg = getattr(trunk, "config", None) or {}
+        if isinstance(cfg, dict):
+            sec = cfg.get("code_agent")
+            if isinstance(sec, dict) and sec.get("background") is not None:
+                return bool(sec.get("background"))
+            if cfg.get("code_agent_background") is not None:
+                return bool(cfg.get("code_agent_background"))
+    except Exception as e:
+        _x6_swallowed(__name__, e, "background switch config")
+    return True
 
 
 def verify_mode(trunk):
@@ -133,6 +156,19 @@ def _is_config(rel):
     return name in CONFIG_NAMES or low.startswith(CONFIG_DIRS)
 
 
+def _hunk_lines(hunk):
+    """hunk 影响行数：片段形状按 old 行数；行号形状按 end-start+1。"""
+    old = str((hunk or {}).get("old") or "")
+    if old:
+        return len(old.splitlines())
+    try:
+        start = int(hunk.get("start", hunk.get("start_line")) or 0)
+        end = int(hunk.get("end") or start)
+    except (AttributeError, TypeError, ValueError):
+        return 1
+    return max(1, end - start + 1)
+
+
 def changed_lines(patch):
     """估算改动行数：hunk 新旧行数之和；create/write 取内容行数。"""
     total = 0
@@ -144,7 +180,7 @@ def changed_lines(patch):
         if op != "update":
             continue
         for hunk in fp.get("hunks") or []:
-            total += len(str(hunk.get("old") or "").splitlines())
+            total += _hunk_lines(hunk)
             total += len(str(hunk.get("new") or "").splitlines())
     return total
 
@@ -245,6 +281,9 @@ def _protocol_errors(root, patch):
             continue
         if op == "update":
             for i, hunk in enumerate(fp.get("hunks") or []):
+                # 第 6 批：行号形状由本地按文件内容切 old，不需要模型给原文
+                if "old" not in hunk and ("start" in hunk or "start_line" in hunk):
+                    continue
                 if not str(hunk.get("old") or "").strip():
                     errors.append("%s#%d hunk.old 为空" % (rel, i))
             warnings.extend(_anchor_warning(root, fp, rel))
@@ -277,6 +316,7 @@ def _render(root, patch):
         else:
             text = current(rel) or ""
             for hunk in fp.get("hunks") or []:
+                hunk = _materialize(hunk, text)
                 old = str(hunk.get("old") or "")
                 new = str(hunk.get("new") or "")
                 if old and text.count(old) == 1:
@@ -332,9 +372,9 @@ def _merge_anchors(normalized, raw):
 
 
 def review(root, patch, trunk=None):
-    """完整审查：旧校验 + v2 规则 + 语法 + 风险分级。
+    """完整审查：旧校验 + v2 规则 + 语法 + 风险分级 + 逐 hunk 定位预演。
 
-    返回 ``{ok, errors, warnings, normalized, risk, mode}``；
+    返回 ``{ok, errors, warnings, normalized, risk, mode, hunks, hunk_summary}``；
     ``validate_patch`` 抛出的 ``PatchError`` 原样向上传播（旧行为不变）。
     """
     normalized = _merge_anchors(validate_patch(root, patch), patch)
@@ -345,8 +385,32 @@ def review(root, patch, trunk=None):
     risk = classify_patch(root, normalized)
     if risk["level"] == "forbidden":
         errors.append("受保护路径，禁止修改：" + ", ".join(risk["files"]))
+    # 第 6 批 B1：逐 hunk 预演（定位分级），把"靠锚点落位"这类信息暴露出来，
+    # 界面据 hunk 行给"应用/跳过/撤销"。预演失败不改变 ok 判定（validate 已挡）。
+    try:
+        from core.hunk_edit import plan as hunk_plan
+        planned = hunk_plan(root, normalized)
+        warnings.extend(planned.get("warnings") or [])
+        hunk_rows = planned.get("hunks") or []
+        hunk_summary = _hunk_summary(hunk_rows)
+    except Exception as e:  # 静默是故意的 - 行级预演失败不阻断审查
+        _x6_swallowed(__name__, e, "hunk plan")
+        hunk_rows, hunk_summary = [], ""
     return {"ok": not errors, "errors": errors, "warnings": warnings,
-            "normalized": normalized, "risk": risk, "mode": mode(trunk)}
+            "normalized": normalized, "risk": risk, "mode": mode(trunk),
+            "hunks": hunk_rows, "hunk_summary": hunk_summary}
+
+
+def _hunk_summary(rows):
+    """一行中文：3 个 hunk 全部精确定位 / 1 个靠上下文锚点。"""
+    rows = list(rows or [])
+    if not rows:
+        return ""
+    exact = sum(1 for r in rows if r.get("status") == "exact")
+    other = len(rows) - exact
+    if other:
+        return "%d 个 hunk：%d 精确定位 · %d 靠模糊匹配" % (len(rows), exact, other)
+    return "%d 个 hunk 全部精确定位" % len(rows)
 
 
 def function_span(code, line_no):
@@ -410,3 +474,55 @@ def record_edit(root, entry):
 
 def text_hash(text):
     return sha256_text(str(text or ""))
+
+
+# 换模型的建议：写补丁要严格 JSON + 精确原文片段，小模型/视觉模型做不好。
+_MODEL_TIP = ("这通常不是代码问题，而是模型不适合写补丁；"
+              "换成代码模型（如 qwen2.5-coder / deepseek-coder / GLM-4）再试，"
+              "或把要求拆小、一次只改一个文件")
+
+
+def explain_patch_error(error):
+    """把 PatchError 的原文翻成"（原因, 下一步怎么做）"。
+
+    为什么需要这一层
+    ----------------
+    ``PatchError`` 的文本是给模型看的（"原文没找到（已尝试空白差异匹配）"），
+    直接甩到时间线上，用户只看到"本轮修改无效"反复刷屏，既不知道是模型输出
+    格式错了、还是目录选错了，也不知道该换模型还是该点「打开文件夹」。
+
+    纯函数：不读配置、不碰界面，方便单测。
+    """
+    text = str(error or "").strip()
+    low = text.lower()
+    if "合法 json" in low or "不是 patch" in low or "未返回有效 patch" in low \
+            or "未返回 patch" in low:
+        return ("模型这次没给出合法的补丁格式（不是 JSON，或缺少 files 字段）",
+                _MODEL_TIP)
+    if "路径越界" in text or "受保护路径" in text:
+        return ("模型想改的文件不在当前工作区里（被路径检查挡下了）",
+                "点顶部「📂 打开文件夹」把工作区切到目标文件夹；"
+                "或者让目标里的路径相对工作区写，别用绝对路径")
+    if "原文没找到" in text or "原文不唯一" in text:
+        return ("模型引用的原文片段和文件对不上（找不到，或出现了不止一次）",
+                "确认文件没被手动改过；新建文件请让它标注「新建」，"
+                "不要拿 update 改一个还不存在的文件")
+    if "不能 create" in text or "请使用 create" in text:
+        return ("文件已存在却被要求新建（或文件不存在却被要求修改）",
+                "让它改成「修改已有文件」，或者换一个文件名新建")
+    if "base_hash" in text or "已被修改" in text:
+        return ("文件在生成补丁之后又被改过（哈希对不上）",
+                "重新发一次任务，让它按当前文件内容重新生成补丁")
+    if "无需修改" in text:
+        return ("模型认为这个目标不需要改代码",
+                "把要求写具体一点：文件名、函数名、要加的功能和期望结果")
+    if "探索轮数超限" in text:
+        return ("探索阶段轮数用完（目标太大，没找到落点）",
+                "缩小目标：一次只做一个文件/一个函数；或直接说清文件名")
+    if "预演失败" in text or "校验失败" in text:
+        return ("补丁预演失败（有一个文件对不上，整批都没落盘）",
+                "让它分文件提交改动；先改一个文件，跑通再做下一个")
+    if "超时" in low:
+        return ("模型调用或命令执行超时",
+                "把任务拆小；本地模型可以换更小的量化版本")
+    return ("补丁没过校验", "把要求写得更具体（文件名 + 函数名 + 期望行为），或换代码模型再试")

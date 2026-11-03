@@ -10,6 +10,7 @@ except ImportError:
 import json, os, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from modules.base import BaseModule
+from core.data_paths import data_path
 
 class TaskPlanner(BaseModule):
 
@@ -27,9 +28,9 @@ class TaskPlanner(BaseModule):
         self.running = False
         self.tasks = {}  # {task_id: {goal, steps, results, status}}
         # v2.1: 插件持久化必须落在 data/plugin_data/<插件名>/ 内
-        self.task_dir = os.path.join(self.base, "data", "plugin_data", "task_planner", "tasks")
+        self.task_dir = data_path(self, "plugin_data", "task_planner", "tasks")
         os.makedirs(os.path.dirname(self.task_dir), exist_ok=True)
-        _old_tasks = os.path.join(self.base, "data", "tasks")
+        _old_tasks = data_path(self, "tasks")
         if not os.path.exists(self.task_dir) and os.path.isdir(_old_tasks):
             try: os.rename(_old_tasks, self.task_dir)
             except OSError:  # 静默是故意的：旧目录迁移失败不阻断主流程
@@ -70,7 +71,7 @@ class TaskPlanner(BaseModule):
                 if 2 < len(name) < 40:
                     steps.append({"name": name, "deps": deps})
             return steps if steps else [{"name":"分析","deps":[]},{"name":"执行","deps":["分析"]},{"name":"总结","deps":["执行"]}]
-        except:
+        except Exception:
             return [{"name":"分析","deps":[]},{"name":"执行","deps":["分析"]},{"name":"总结","deps":["执行"]}]
 
     def _route_step(self, step_name):
@@ -98,7 +99,7 @@ class TaskPlanner(BaseModule):
         # 兜底用LLM
         prompt = f"背景：{context}\n执行：{step['name']}\n结果："
         try: return llm.chat(prompt)
-        except: return f"{step['name']}失败"
+        except Exception: return f"{step['name']}失败"
 
     def _score_result(self, step, result):
         """LLM 给结果打分，兼容 0-1 与 0-10 两种输出"""
@@ -141,7 +142,7 @@ class TaskPlanner(BaseModule):
                     s = futures[fut]
                     try:
                         r = fut.result(timeout=60)
-                    except:
+                    except Exception:
                         r = f"{s['name']}超时"
                     score = self._score_result(s["name"], r)
                     results[s["name"]] = {"结果": r[:500], "分": score}
@@ -156,7 +157,7 @@ class TaskPlanner(BaseModule):
         llm = self.trunk.modules.get("llm")
         try:
             final = llm.chat(f"目标：{goal}\n各步结果：{str(results)[:800]}\n总结：")
-        except:
+        except Exception:
             final = "汇总失败"
         task["status"] = "完成"
         task["final"] = final

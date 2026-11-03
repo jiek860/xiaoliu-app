@@ -111,21 +111,29 @@ class TrunkRegistryMixin:
                 return None
             try:
                 import importlib.util
+                from core.lazy_config import source_of
                 mod_key = "core." + mod_file
                 installed_py = os.path.join(self.modules_dir, mod_file + ".py")
                 core_py = os.path.join(self.base, "core", mod_file + ".py")
-                if os.path.exists(installed_py):
+                # 按登记来源只查对应目录：core 内置模块与插件市场模块不再混在一起猜。
+                if source_of(name) == "core":
+                    if not os.path.exists(core_py):
+                        self._load_fail_count = getattr(self, "_load_fail_count", 0) + 1
+                        self._log("模块文件缺失: %s（应位于 core/%s.py，检查 LAZY_MAP 登记）"
+                                  % (name, mod_file), "WARN")
+                        return None
+                    mod = __import__(mod_key, fromlist=[cls_name])
+                    src = "core"
+                else:
+                    if not os.path.exists(installed_py):
+                        self._load_fail_count = getattr(self, "_load_fail_count", 0) + 1
+                        self._log("模块未安装: %s（请到插件市场下载安装）" % name)
+                        return None
                     spec = importlib.util.spec_from_file_location(mod_key, installed_py)
                     mod = importlib.util.module_from_spec(spec)
                     sys.modules[mod_key] = mod
                     spec.loader.exec_module(mod)
                     src = "插件市场"
-                elif os.path.exists(core_py):
-                    mod = __import__(mod_key, fromlist=[cls_name])
-                    src = "core"
-                else:
-                    self._log("模块未安装: %s（请到插件市场下载安装）" % name)
-                    return None
                 cls = getattr(mod, cls_name)
                 try:
                     instance = cls(self)
@@ -152,7 +160,9 @@ class TrunkRegistryMixin:
                     instance.llm = self.modules["llm"]
                 return instance
             except Exception as e:
-                self._log("加载%s失败: %s" % (name, str(e)[:60]))
+                # 加载失败计数：供自检/健康分读取，避免"模块坏了但没人知道"
+                self._load_fail_count = getattr(self, "_load_fail_count", 0) + 1
+                self._log("加载%s失败: %s" % (name, str(e)[:60]), "WARN")
                 return None
         return self.modules.get(name)
 

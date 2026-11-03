@@ -9,6 +9,7 @@ except ImportError:
 import os, json
 from datetime import datetime
 from modules.base import BaseModule
+from core.data_paths import data_path
 
 
 class Calendar(BaseModule):
@@ -52,7 +53,7 @@ class Calendar(BaseModule):
     def __init__(self, trunk=None):
         super().__init__(trunk)
         self.base = getattr(trunk, "base", None) or "."
-        self.path = os.path.join(self.base, "data", "calendar.json")
+        self.path = data_path(self, "calendar.json")
         self.events = self._load()
 
     def _load(self):

@@ -10,6 +10,7 @@ import os
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QCheckBox, QMessageBox, QListWidget, QTextBrowser, QGroupBox, QTabWidget, QWidget
 
 from gui.feedback_states import make_action_links
+from core.data_paths import data_path
 
 
 BTN_STYLE = """
@@ -249,7 +250,7 @@ def build_manual_control_tabs(trunk, chat=None, parent=None):
     l6a.addWidget(log_box)
     def _refresh_log():
         try:
-            p = os.path.join(trunk.base, "data", "logs", "computer_controller.log")
+            p = data_path(trunk, "logs", "computer_controller.log")
             if os.path.exists(p):
                 lines = [ln for ln in open(p, encoding="utf-8", errors="replace").readlines() if ln.strip()][-50:]
                 log_box.setPlainText("".join(lines))

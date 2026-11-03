@@ -77,6 +77,177 @@ class CodeContextMixin:
         self._repo_map_cache = "\n".join(lines)
         return self._repo_map_cache
 
+    # ---------- 第 8 批：符号地图 / 相关代码片段（B2 + 深度⑤⑥⑦） ----------
+    _RELATED_MAX_CHARS = 3000
+
+    def _rule(self, name, default):
+        """读规则（第 8 批的新参数都从这里出，没挂躯干就用默认值）。
+
+        有些测试躯干的 ``rule()`` 对未注册的规则返回 ``None``，
+        这里一律当成"没配"，回落默认值（否则 ``int(None)`` 会炸）。
+        """
+        trunk = getattr(self, "trunk", None)
+        if trunk is not None:
+            try:
+                value = trunk.rule(name, default)
+            # 静默是故意的 - 读不到规则就用默认值，不影响上下文构建
+            except Exception as e:
+                _x6_swallowed(__name__, e, "read context rule")
+            else:
+                if value is not None:
+                    return value
+        return default
+
+    def symbol_map(self, max_chars=None):
+        """按引用热度排序的符号地图（深度⑤）；索引不可用时退回目录地图。"""
+        chars = int(max_chars or self._rule("代码.仓库地图字数",
+                                            self._REPO_MAP_MAX_CHARS))
+        try:
+            index = getattr(self, "index", None)
+            if index is not None and index.data.get("symbols"):
+                text = index.repo_map(max_chars=chars)
+                if text:
+                    return text
+        # 静默是故意的 - 索引不可用就退回旧目录地图
+        except Exception as e:
+            _x6_swallowed(__name__, e, "symbol map from index")
+        return self.repo_map(max_chars=chars)
+
+    def related_snippets(self, symbol="", rel="", limit=3, lines=45,
+                         max_chars=None, query=""):
+        """组装"相关代码片段"（B2 基础），最后按 ``context_budget`` 裁剪。
+
+        四路来源：同文件/引用处符号（索引）、对应测试（深度⑥）、
+        语义召回（深度⑦，开关 ``代码.语义检索``）。每条片段都带来源说明，
+        模型能知道"为什么给我看这段"，不会把它当无关噪音。
+        """
+        limit_chars = int(max_chars or self._RELATED_MAX_CHARS)
+        limit = max(1, int(self._rule("代码.相关片段数", limit)))
+        index = getattr(self, "index", None)
+        root = getattr(self, "root", "") or ""
+        out = {"text": "", "files": [], "symbols": [], "truncated": False}
+        if index is None or not root:
+            return out
+        try:
+            if not index.data.get("files"):
+                index.rebuild()
+            elif not index.data.get("symbols"):
+                index.refresh()
+        # 静默是故意的 - 索引建不起来就只能给空片段，不阻塞 Agent
+        except Exception as e:
+            _x6_swallowed(__name__, e, "related snippets index")
+            return out
+        rel = str(rel or "").replace("\\", "/")
+        if not rel:
+            for item in (getattr(self, "open_files", None) or [])[:1]:
+                rel = os.path.relpath(item, root).replace("\\", "/") \
+                    if os.path.isabs(item) else str(item).replace("\\", "/")
+        rows = []
+        try:
+            rows = index.related_symbols(rel, symbol, limit=max(2, int(limit) + 2))
+        # 静默是故意的 - 相关符号查不出来时仍然可以给测试/语义片段
+        except Exception as e:
+            _x6_swallowed(__name__, e, "related symbols")
+        chunks, used, files = [], 0, []
+
+        def add(header, body):
+            nonlocal used
+            if not body:
+                return True
+            block = "\n--- %s ---\n%s" % (header, body)
+            if used + len(block) > limit_chars:
+                return False
+            chunks.append(block)
+            used += len(block)
+            return True
+
+        for row in rows[:max(1, int(limit))]:
+            path = safe_join(root, str(row.get("file") or "").replace("/", os.sep),
+                             must_exist=True)
+            if not path or not os.path.isfile(path):
+                continue
+            body = self._read_snippet(path, str(row.get("file") or ""),
+                                      max(1, int(row.get("line") or 1) - 3),
+                                      int(lines))
+            label = "%s %s（%s） %s:%s" % (
+                row.get("kind") or "符号", row.get("name") or "",
+                row.get("reason") or "", row.get("file") or "",
+                int(row.get("line") or 1))
+            if not add(label, body):
+                out["truncated"] = True
+                break
+            if row.get("file") not in files:
+                files.append(row.get("file"))
+        tests = []
+        try:
+            if rel and self._rule("代码.测试关联", True):
+                tests = index.tests_for(rel)[:2]
+        # 静默是故意的 - 没有测试关联不是错误
+        except Exception as e:
+            _x6_swallowed(__name__, e, "related tests")
+        for test in tests:
+            path = safe_join(root, str(test).replace("/", os.sep), must_exist=True)
+            if not path or not os.path.isfile(path):
+                continue
+            if not add("测试 %s（改了 %s 会跑它）" % (test, rel),
+                       self._read_snippet(path, test, 1, 30)):
+                out["truncated"] = True
+                break
+            if test not in files:
+                files.append(test)
+        if str(query or symbol or "").strip():
+            try:
+                from core.code.code_search import search_code
+                hits = search_code(getattr(self, "trunk", None),
+                                   str(query or symbol), limit=2)
+            # 静默是故意的 - 语义检索是加分项，失败就当没有
+            except Exception as e:
+                _x6_swallowed(__name__, e, "semantic snippets")
+                hits = []
+            for hit in hits:
+                if hit.get("file") in files:
+                    continue
+                path = safe_join(root, str(hit["file"]).replace("/", os.sep),
+                                 must_exist=True)
+                if not path or not os.path.isfile(path):
+                    continue
+                if not add("语义相近 %s:%s" % (hit["file"], hit["line"]),
+                           self._read_snippet(path, hit["file"],
+                                              max(1, int(hit["line"])), 30)):
+                    out["truncated"] = True
+                    break
+                files.append(hit["file"])
+        text = "".join(chunks).strip()
+        try:
+            from core.context_budget import fit_text
+            text = fit_text(text, max(32, limit_chars // 4))
+        # 静默是故意的 - 裁剪不可用就按原样返回
+        except Exception as e:
+            _x6_swallowed(__name__, e, "fit related snippets")
+        out.update({"text": text, "files": files, "symbols": rows[:limit]})
+        return out
+
+    def related_context(self, goal="", max_chars=None):
+        """从自然语言目标里猜一个符号，再把相关片段组装成一段上下文。"""
+        index = getattr(self, "index", None)
+        symbol, rel = "", ""
+        try:
+            for term in self._goal_terms(goal)[:6]:
+                found = index.find_symbols(term, 3) if index is not None else []
+                found = [s for s in found if s.get("file")]
+                if found:
+                    symbol = str(found[0].get("name") or "")
+                    rel = str(found[0].get("file") or "")
+                    break
+        # 静默是故意的 - 猜不到符号就退回"当前打开文件"
+        except Exception as e:
+            _x6_swallowed(__name__, e, "guess related symbol")
+        built = self.related_snippets(symbol=symbol, rel=rel,
+                                      max_chars=max_chars, query=goal)
+        built["symbol"] = symbol
+        built["file"] = rel
+        return built
+
     def _read_snippet(self, path, rel, start=1, limit=140):
         try:
             lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
@@ -158,10 +329,42 @@ class CodeContextMixin:
                 max_chars=max_chars,
                 rules=rules_summary(getattr(self, "root", "") or "."))
             built["mode"] = "on"
+            self._append_related(built, goal, max_chars)
             return built
         except Exception as e:
             _x6_swallowed(__name__, e, "context v2 build")
             return {}
+
+    def _append_related(self, built, goal, max_chars):
+        """在 v2 结果后面追加"相关代码片段"（第 8 批 B2），只用剩余预算。"""
+        try:
+            text = str(built.get("text") or "")
+            room = int(int(max_chars) * 0.75) - len(text)
+            if room <= 600:
+                return built
+            related = self.related_context(goal, max_chars=room)
+            body = str(related.get("text") or "")
+            if not body:
+                return built
+            block = "\n\n=== RELATED CODE（跨文件相关片段）===\n" + body
+            if len(block) > room:
+                return built
+            built["text"] = text + block
+            files = list(built.get("files") or [])
+            for rel in related.get("files") or []:
+                if rel and rel not in files:
+                    files.append(rel)
+            built["files"] = files
+            try:
+                from core.code.context_v2 import estimate_tokens
+                built["tokens"] = estimate_tokens(built["text"])
+            # 静默是故意的 - 估算是展示用，算不出来也不影响上下文内容
+            except Exception as e:
+                _x6_swallowed(__name__, e, "estimate related tokens")
+        # 静默是故意的 - 相关片段失败不影响 v2 主上下文
+        except Exception as e:
+            _x6_swallowed(__name__, e, "append related code")
+        return built
 
     def _build_context_legacy(self, goal, max_files=22, max_chars=24000):
         try:
@@ -203,7 +406,7 @@ class CodeContextMixin:
         # 命中文件太少 = 目标太含糊，先给一张仓库地图，避免模型盲猜路径。
         if len(files) < 6:
             head = ("=== REPO MAP（先看目录，再用 read_file/grep 精读，不要靠猜）===\n"
-                    + self.repo_map() + "\n\n")
+                    + self.symbol_map() + "\n\n")
             chunks.append(head)
             used += len(head)
         if self.selection.strip():
@@ -231,6 +434,23 @@ class CodeContextMixin:
                 break
             chunks.append(block)
             used += len(block)
+        # 第 8 批 B2：跨文件相关片段（符号/测试/语义），还有预算才加
+        try:
+            room = int(max_chars) - used
+            if room > 600:
+                related = self.related_context(goal, max_chars=room)
+                body = str(related.get("text") or "")
+                if body:
+                    block = ("\n\n=== RELATED CODE（跨文件相关片段）===\n" + body)
+                    if used + len(block) <= int(max_chars):
+                        chunks.append(block)
+                        used += len(block)
+                        for rel in related.get("files") or []:
+                            if rel not in files:
+                                files.append(rel)
+        # 静默是故意的 - 相关片段只是加分项，失败不影响主上下文
+        except Exception as e:
+            _x6_swallowed(__name__, e, "related code block")
         return {"files": files, "text": "".join(chunks),
                 "symbols": {"recent": self.index.find_symbols("", 30)}}
 
@@ -247,7 +467,9 @@ class CodeContextMixin:
             "3) 完成：{\"done\":true,\"message\":\"结果摘要\"}\n"
             "规则：路径必须相对工作区；不要动 .git/data/backups；"
             "update 的 old 必须从 FILE 内容原样复制（含缩进），且在本文件中唯一；"
-            "优先小改动；需要更多信息就先用工具。"
+            "也可以用行号写法 {\"start\":12,\"end\":14,\"new\":\"...\",\"context\":2}"
+            "（1 基闭区间，本地按内容切原文）；一个 hunk 只改一个函数/一个片段，"
+            "便于逐段应用与撤销；优先小改动；需要更多信息就先用工具。"
         )
         user = ("目标：\n%s\n\n已收集上下文：\n%s" % (goal, context.get("text", "")))
         if previous_diff:

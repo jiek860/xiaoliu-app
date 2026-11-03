@@ -14,8 +14,11 @@
       （实际踩到过：一条断言 live_count() 的用例被后台拉起的 MCP 连接搞挂）
 所以统一用下面的 fixture 造 Trunk。
 """
+import atexit
 import os
+import shutil
 import sys
+import tempfile
 import unittest.mock as mock
 
 import pytest
@@ -72,15 +75,64 @@ _BACKGROUND = (
 )
 
 
+_TMP_ROOT = tempfile.mkdtemp(prefix="x6_test_data_")
+atexit.register(shutil.rmtree, _TMP_ROOT, True)
+
+
+def _tmp_data_dir():
+    """每个 Trunk 一个独立空数据目录（用例之间看不到对方的记忆/影子日志）。"""
+    return tempfile.mkdtemp(prefix="trunk_", dir=_TMP_ROOT)
+
+
+def _redirect_data(t):
+    """把这个 Trunk 的所有落盘路径改到临时目录（**绝不碰用户真实 data/**）。
+
+    为什么必须做（2026-11-01 实测）
+    ------------------------------
+    `Trunk.__init__` 之后 `data_dir` 默认指向真实项目的 `data/`，而很多测试
+    会跑**真实管线**（意图 → 上下文 → 提示词 → 校验 → 记忆）。于是：
+
+        data/chat_shadow.jsonl    983 行里混进「我的猫叫豆豆」「第 1 轮提问」
+        data/memory.json          userA / userB / checker / 回归 测试用户键
+        data/errors_runtime.json  64 行「模拟模型故障」
+
+    真实对话随后读到这些垃圾（近期话题、记忆卡、失败库建议），回复被带偏 ——
+    线上那条「我并没有情感…我是一个AI机器人」就是这么冒出来的。
+    模块仍然从真实 `base` 加载（modules/installed 是代码，不是数据）。
+    """
+    t.data_dir = _tmp_data_dir()
+    t.log_dir = os.path.join(t.data_dir, "logs")
+    t.log_path = os.path.join(t.log_dir, "trunk.log")
+    t.memory_path = os.path.join(t.data_dir, "memory.json")
+    t.config_path = os.path.join(t.data_dir, "config.json")
+    t.memory = {}
+    try:
+        os.makedirs(t.log_dir, exist_ok=True)
+    except OSError:
+        pass
+    # ② 错误库还有一条独立写入路径（模块自己拼路径），双保险
+    _orig_call = t.call
+
+    def _call_no_errorlib(name, method, *a, **k):
+        if name == "error_lib":
+            return {"ok": True, "测试桩": "不写真实错误库"}
+        return _orig_call(name, method, *a, **k)
+    t.call = _call_no_errorlib
+    return t
+
+
 def make_trunk():
-    """造一个屏蔽了后台服务的 Trunk（模块注册、配置、pipeline 都是真的）"""
+    """造一个屏蔽了后台服务的 Trunk（模块注册、配置、pipeline 都是真的）
+
+    落盘全部改到临时目录，见 `_redirect_data`。
+    """
     from core.trunk import Trunk
     patchers = [mock.patch.object(Trunk, name, lambda self: None)
                 for name in _BACKGROUND]
     for p in patchers:
         p.start()
     try:
-        return Trunk()
+        return _redirect_data(Trunk())
     finally:
         for p in patchers:
             p.stop()

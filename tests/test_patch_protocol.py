@@ -11,8 +11,9 @@ from core import patch_protocol as pp  # noqa: E402
 
 
 class FakeTrunk:
-    def __init__(self, rules=None):
+    def __init__(self, rules=None, config=None):
         self.rules = rules or {}
+        self.config = config or {}
 
     def rule(self, name, default=None):
         return self.rules.get(name, default)
@@ -160,11 +161,23 @@ def test_record_edit_writes_jsonl(tmp_path):
     assert row["path"] == "m.py" and row["mode"] == "function"
 
 
-def test_switches_default_off():
+def test_switches_defaults():
+    """46.1 的开关默认值：自动应用仍关；后台执行改成默认开。
+
+    后台执行默认开的原因：同步跑会把 LLM + 多轮补丁 + pytest 全压在
+    Qt 主线程上，用户点"开始"后整个工作台"未响应"。
+    """
     trunk = FakeTrunk()
     assert pp.auto_apply_enabled(trunk) is False
-    assert pp.background_enabled(trunk) is False
+    assert pp.background_enabled(trunk) is True
     assert pp.verify_mode(trunk) == "off"
+    # 显式关掉 / 配置里关掉都还能生效（否则就成了死开关）
+    assert pp.background_enabled(
+        FakeTrunk({"code_agent.background": False})) is False
+    assert pp.background_enabled(
+        FakeTrunk(config={"code_agent": {"background": False}})) is False
+    assert pp.background_enabled(
+        FakeTrunk(config={"code_agent_background": False})) is False
 
 
 def test_locate_failures_default_on_and_lint_extra_default_shadow():
@@ -179,3 +192,45 @@ def test_locate_failures_default_on_and_lint_extra_default_shadow():
     assert pp.locate_mode(FakeTrunk({"code.locate_failures": "bogus"})) == "on"
     assert pp.lint_extra_mode(
         FakeTrunk({"code.lint_extra": "bogus"})) == "shadow"
+
+
+# ---------------------------------------------------------- 报错人话化
+def test_explain_patch_error_format_problem_suggests_model_switch():
+    """模型没给出合法补丁 = 该换代码模型，而不是"你代码写错了"。"""
+    why, tip = pp.explain_patch_error("模型未返回有效 patch：不是合法 JSON")
+    assert "格式" in why
+    assert "代码模型" in tip
+
+
+def test_explain_patch_error_path_guard_points_to_folder_picker():
+    why, tip = pp.explain_patch_error("路径越界: ../secret.py")
+    assert "工作区" in why
+    assert "打开文件夹" in tip
+    why2, _ = pp.explain_patch_error("受保护路径，禁止修改")
+    assert "工作区" in why2
+
+
+def test_explain_patch_error_anchor_mismatch():
+    why, tip = pp.explain_patch_error("原文没找到（已尝试空白差异匹配）")
+    assert "对不上" in why
+    assert "update" in tip or "新建" in tip
+    assert "出现" in pp.explain_patch_error("原文不唯一: x = 1")[0]
+
+
+def test_explain_patch_error_create_conflict_and_hash():
+    assert "新建" in pp.explain_patch_error("文件已存在，不能 create")[0]
+    assert "改过" in pp.explain_patch_error("base_hash 不匹配")[0]
+
+
+def test_explain_patch_error_timeout_and_fallback():
+    why, _ = pp.explain_patch_error("命令执行超时")
+    assert "超时" in why
+    why2, tip2 = pp.explain_patch_error("")
+    assert why2 and tip2
+
+
+def test_explain_patch_error_never_raises_on_garbage():
+    for bad in (None, 123, object()):
+        why, tip = pp.explain_patch_error(bad)
+        assert isinstance(why, str) and isinstance(tip, str)
+

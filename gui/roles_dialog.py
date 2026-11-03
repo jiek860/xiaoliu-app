@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QListWidget, QListWidgetItem, QTextEdit, QWidget, QMessageBox, QFileDialog,
 )
 
+from core.data_paths import data_path
 from gui.feedback_states import make_action_links
 
 
@@ -31,8 +32,11 @@ class RolesDialog(QDialog):
         self._load()
 
     def _path(self):
-        return os.path.join(getattr(self.trunk, "base", ".") or ".",
-                            "data", "group_roles.json")
+        # 与 modules/installed/group_chat.py 的 roles_file 是同一个文件；
+        # 走 data_paths 才能跟着 X6_DATA_DIR / 数据目录重定向走，
+        # 不再把 base/data 写死（装到 Program Files 时那目录不可写）。
+        target = self.trunk if self.trunk is not None else "."
+        return data_path(target, "group_roles.json")
 
     def _build_ui(self):
         layout = QVBoxLayout(self)

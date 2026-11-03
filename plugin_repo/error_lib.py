@@ -7,6 +7,7 @@ except ImportError:
         return None
 
 import os
+from core.data_paths import data_path
 from core.safe import safe
 from modules.base import BaseModule
 
@@ -135,9 +136,14 @@ class ErrorLibrary(BaseModule):
 
 
     # ========== 运行时错误记录 ==========
+    def _runtime_path(self):
+        """跟随 ``trunk.data_dir``（不是 base/data）：测试里的"模拟故障"
+        不该写进用户真实的 errors_runtime.json（见 core/data_paths.py）。"""
+        return os.path.join(data_path(self.trunk), "errors_runtime.json")
+
     def _load_runtime(self):
         import json, time
-        p = os.path.join(getattr(self.trunk, "base", "."), "data", "errors_runtime.json")
+        p = self._runtime_path()
         if os.path.exists(p):
             try:
                 return json.load(open(p, encoding="utf-8"))
@@ -148,8 +154,9 @@ class ErrorLibrary(BaseModule):
 
     def _save_runtime(self, lst):
         import json, time
-        p = os.path.join(getattr(self.trunk, "base", "."), "data", "errors_runtime.json")
+        p = self._runtime_path()
         try:
+            os.makedirs(os.path.dirname(p), exist_ok=True)
             json.dump(lst[-500:], open(p, "w", encoding="utf-8"),
                       ensure_ascii=False, indent=1)
         except Exception as e:

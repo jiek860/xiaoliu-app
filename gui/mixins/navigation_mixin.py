@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMenu, QMessageBox
@@ -16,9 +17,43 @@ except ImportError:
 
 
 class NavigationMixin:
+    def _consolidate_session(self):
+        """会话结束（新建对话前）把这段对话沉淀成长期记忆（第 4 批深度②）。
+
+        放在后台线程：记忆巩固是纯规则的文件读写，但也不该让"新建对话"
+        等它；任何失败都静默（记忆少写一条不该弹窗）。
+        真正的提炼逻辑在 `core.pipeline.memory_consolidation`（零模型调用），
+        `core/dream_system.DreamSystem.consolidate` 是同一能力给模块调用的入口。
+        """
+        try:
+            trunk = getattr(self, "trunk", None)
+            if trunk is None:
+                return
+            mem = getattr(trunk, "memory", {}) or {}
+            user = getattr(self.account, "username", "") or ""
+            pairs = mem.get(user) or mem.get("default") or []
+            rows = [{"role": "user", "content": str(p.get("u") or "")}
+                    for p in pairs[-40:] if isinstance(p, dict)]
+            if not rows:
+                return
+            base = getattr(trunk, "base", ".") or "."
+
+            def _work():
+                try:
+                    from core.pipeline.memory_consolidation import consolidate_session
+                    consolidate_session(rows, base=base)
+                except Exception as e:
+                    _x6_swallowed(__name__, e, "consolidate")
+
+            threading.Thread(target=_work, daemon=True,
+                             name="x6-memory-consolidate").start()
+        except Exception as e:
+            _x6_swallowed(__name__, e, "consolidate_session")
+
     def _new_session(self):
         try:
             self._save_draft_now()
+            self._consolidate_session()
             self.account.new_session()
             self._reload_chat_history()
             self._refresh_session_list()

@@ -8,6 +8,7 @@ import subprocess
 import time
 from datetime import datetime
 from core import command_policy
+from core.data_paths import data_path
 
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -21,7 +22,7 @@ class ComputerSystemToolsMixin:
         try:
             from PIL import ImageGrab
             if not save_path:
-                save_path = os.path.join(self.base, "data", "screenshot_%s.png" % datetime.now().strftime("%Y%m%d_%H%M%S"))
+                save_path = data_path(self, "screenshot_%s.png" % datetime.now().strftime("%Y%m%d_%H%M%S"))
             if window_title:
                 g, _, _ = self._win()
                 if not isinstance(g, Exception):
@@ -29,7 +30,7 @@ class ComputerSystemToolsMixin:
                     if hwnd:
                         try:
                             g.SetForegroundWindow(hwnd)
-                        except: pass  # 静默是故意的 - Agent 防御性回退，不阻塞主流程
+                        except Exception: pass  # 静默是故意的 - Agent 防御性回退，不阻塞主流程
                         time.sleep(0.3)
                         from win32gui import GetWindowRect
                         left, top, right, bottom = GetWindowRect(hwnd)
@@ -64,13 +65,13 @@ class ComputerSystemToolsMixin:
                 b = psutil.sensors_battery()
                 if b:
                     info["电池"] = "%d%%%s" % (b.percent, "（充电中）" if b.power_plugged else "（未充电）")
-            except: pass  # 静默是故意的 - Agent 防御性回退，不阻塞主流程
+            except Exception: pass  # 静默是故意的 - Agent 防御性回退，不阻塞主流程
         except Exception as e:
             info["错误"] = str(e)[:60]
         try:
             import platform
             info["系统"] = platform.system() + " " + platform.release()
-        except: pass  # 静默是故意的 - Agent 防御性回退，不阻塞主流程
+        except Exception: pass  # 静默是故意的 - Agent 防御性回退，不阻塞主流程
         return True, info
 
     def _audit_command(self, subject, command, decision, result, reason=""):
@@ -277,7 +278,7 @@ class ComputerSystemToolsMixin:
             with open(self.log_path, encoding="utf-8") as f:
                 lines = f.readlines()
             return {"最近操作": [l.strip()[:80] for l in lines[-count:]]}
-        except:
+        except Exception:
             return {"操作记录": "无"}
 
     def safety_check(self, action):

@@ -24,6 +24,7 @@ from core.trunk_memory import TrunkMemoryMixin
 from core.trunk_registry import TrunkRegistryMixin
 from core.trunk_background import TrunkBackgroundMixin
 from core.trunk_reply import TrunkReplyMixin
+from core.data_paths import data_dir
 
 
 
@@ -47,7 +48,7 @@ class Trunk(
         else:
             self.base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             self.res_base = self.base
-        self.data_dir = os.path.join(self.base, 'data')
+        self.data_dir = data_dir(self)
         self.log_dir = os.path.join(self.data_dir, 'logs')
         self.kb_dir = os.path.join(self.data_dir, 'knowledge_docs')
         for d in [self.log_dir, self.kb_dir]:

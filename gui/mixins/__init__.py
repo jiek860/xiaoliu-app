@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """JarvisWindow 的混入类集合"""
 from gui.mixins.chat_mixin          import ChatMixin
+from gui.mixins.stage_mixin         import StageMixin
+from gui.mixins.model_ready_mixin   import ModelReadyMixin
 from gui.mixins.dialog_mixin        import DialogMixin
 from gui.mixins.voice_mixin         import VoiceMixin
 from gui.mixins.system_mixin        import SystemMixin
@@ -10,6 +12,8 @@ from gui.mixins.history_draft_mixin import HistoryDraftMixin
 
 __all__ = [
     "ChatMixin",
+    "StageMixin",
+    "ModelReadyMixin",
     "DialogMixin",
     "VoiceMixin",
     "SystemMixin",

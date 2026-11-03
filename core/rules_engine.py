@@ -13,19 +13,33 @@ except ImportError:
         return None
 
 import os, json
+from core.data_paths import data_path
+
+
+# 规则默认值升级表：老版本写进 rules.json 的"值"如果**正好是老默认**，
+# 说明用户从没动过它 —— 直接迁到新默认。
+# 不迁移会怎样：改了默认值的老机器永远拿不到新值（2026-11-01 实测
+# "语音.首包上限ms" 改成 3000 后，data/rules/rules.json 仍是 1500，
+# 每句正常回复都首包超时降级到系统朗读 —— 用户切音色当然听不出变化）。
+_OLD_DEFAULTS = {
+    "语音.首包上限ms": (1500, 3000),
+}
 
 
 class RuleEngine:
     def __init__(self, trunk=None):
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.rules_dir = os.path.join(self.base, "data", "rules")
+        self.rules_dir = data_path(self, "rules")
         self.rules_path = os.path.join(self.rules_dir, "rules.json")
         os.makedirs(self.rules_dir, exist_ok=True)
         self.registry = {}   # rule_id -> 规则定义（组/类别/描述/默认/当前/来源）
         self._json_loaded = False
+        self._migrated = False
         self._load_json()
         self._register_all()
+        if self._migrated:
+            self._save_json()
 
     # ---------- 配置加载 ----------
     def _load_json(self):
@@ -70,6 +84,12 @@ class RuleEngine:
             elif not isinstance(jv, dict):
                 cur = jv
                 src = "json"
+        old = _OLD_DEFAULTS.get(rule_id)
+        if old and src == "json" and cur == old[0] and default != old[0]:
+            # 用户没改过（值就是老默认）→ 跟随新默认，并标记需要回写
+            cur = default
+            src = "迁移"
+            self._migrated = True
         self.registry[rule_id] = {
             "组": group, "类别": category, "描述": desc,
             "default": default, "当前": cur, "来源": src,
@@ -221,6 +241,66 @@ class RuleEngine:
         self.register("记忆卡.max_facts", B2, "参数", "每张卡最多带几条事实", 3)
         self.register("记忆卡.dup_threshold", B2, "参数", "Jaccard 去重阈值", 0.55)
         self.register("记忆卡.topic_words", B2, "参数", "话题切换共同词阈值", 3)
+        # ===== 记忆注入 / 重排（第 4 批 A2 + 深度④⑤，从"代码里的默认值"补录成规则）=====
+        self.register("记忆.注入", B2, "规则",
+                      "记忆是否注入上下文（总开关，关掉只看情景记忆）", True)
+        self.register("记忆.v2", B2, "规则",
+                      "记忆实现：off/shadow/on（on=记忆卡替代旧情景记忆）", "on")
+        self.register("记忆.注入张数", B2, "参数", "每次最多注入几张记忆卡", 3)
+        self.register("记忆.注入字数", B2, "参数", "每次注入记忆的总字数上限", 200)
+        self.register("记忆.去重小时", B2, "参数", "同一张卡多久内不重复注入(小时)", 24)
+        self.register("记忆.来源引用", B2, "规则",
+                      "注入的知识带（来源：记忆）并在回复里说明来源", True)
+        self.register("检索.rerank_top_k", B2, "参数",
+                      "三路知识重排后最多保留几条", 5)
+
+        # ===== 过程可见（第 5 批 A4 + 深度⑥⑦⑧）=====
+        self.register("聊天.过程可见", B2, "规则",
+                      "回复步骤是否可见：off/shadow/on（shadow 只记日志不显示）", "on")
+        self.register("聊天.单步取消", B2, "规则",
+                      "允许单独中止某一步（如只停模型生成，不整个退出）", True)
+        self.register("聊天.进度预估", B2, "规则",
+                      "步骤条是否显示预计剩余时间（按已完成步骤平均耗时估算）", True)
+
+        # ===== 编辑内核（第 6 批 B1 + 深度①~④）=====
+        self.register("code.行号hunk", B2, "规则",
+                      "允许模型用 start/end/context 行号形状写 hunk（本地按内容切原文）", True)
+        self.register("code.锚点定位", B2, "规则",
+                      "原文对不上时按上下文锚点模糊定位（用户手改过也能落）", True)
+        self.register("code.三方比对", B2, "规则",
+                      "应用前对比磁盘最新内容，冲突给保留我/用AI/手动合并三选一", True)
+        self.register("code.逐段撤销", B2, "规则",
+                      "每个 hunk 单独留快照，可只撤销其中一段", True)
+        self.register("code.改动范围", B2, "规则",
+                      "只允许改任务相关文件：off/ask/strict（越界二次审批）", "ask")
+
+        # ===== IDE 内核（第 7 批 B3/B4 + 深度④~⑥）=====
+        self.register("编辑.语言服务", B2, "规则",
+                      "按文件类型接语言服务（跳定义/引用/重命名/诊断），没装自动退回 jedi", True)
+        self.register("编辑.保存格式化", B2, "规则",
+                      "保存时自动格式化（black/ruff/prettier），off/on（默认 off：不静默重排用户文件）", "off")
+        self.register("编辑.格式化工具", B2, "规则",
+                      "优先用哪个格式化工具：auto/black/ruff/prettier/clang-format/gofmt", "auto")
+        self.register("编辑.格式先行", B2, "规则",
+                      "应用补丁前先格式化目标文件（定位失败自动回退，不留半成品）", True)
+
+        # ===== 上下文与诊断（第 8 批 B2/B5 + 深度⑤~⑩）=====
+        self.register("代码.相关片段数", B2, "参数",
+                      "上下文里最多带几段跨文件相关代码（相关符号/测试/语义）", 3)
+        self.register("代码.仓库地图字数", B2, "参数",
+                      "符号地图（按引用热度排序）压进上下文的最大字数", 2400)
+        # 默认关：代码片段进了同一个向量库，聊天记忆检索也会搜到它，
+        # 长片段会把上下文挤爆。明确打开后才入库 + 召回。
+        self.register("代码.语义检索", B2, "规则",
+                      "用向量库召回相关代码片段（默认关：会和记忆检索抢额度）", False)
+        self.register("代码.测试关联", B2, "规则",
+                      "改文件时自动带出对应测试文件（改名只对上文件名也算弱关联）", True)
+        self.register("编辑.LSP诊断优先", B2, "规则",
+                      "问题列表优先用语言服务的诊断，没装退回 ruff/ast", True)
+        self.register("编辑.实时检查", B2, "规则",
+                      "编辑停手后实时跑 ruff（未保存文本走 stdin）并标波浪线", True)
+        self.register("编辑.一键修复", B2, "规则",
+                      "问题行提供「让 AI 修这一行」入口（右键/问题页，不新增按钮）", True)
 
         # ===== E 组：自主规则（v2 自主版，来自 xiao6-qwen3-4b 训练配方） =====
         E = "E-自主规则"
@@ -258,7 +338,18 @@ class RuleEngine:
         self.register("语音.情绪", F, "规则",
                       "TTS 按心境调语速/音调 off/on", "on")
         self.register("语音.首包上限ms", F, "参数",
-                      "语音首包超过该毫秒数回退文本", 1500)
+                      "语音首包超过该毫秒数改用系统朗读（edge-tts 实测首包 1.0~1.8 秒）",
+                      3000)
+        self.register("语音.本地兜底", F, "规则",
+                      "在线语音失败时改用系统朗读 off/on（断网/403 也有声音）", "on")
+
+        # ===== G 组：代码 Agent 执行方式 =====
+        # 默认开：同步执行时 LLM + 多轮补丁 + pytest 全压在 Qt 主线程上，
+        # 用户一点"开始"整个工作台就"未响应"（Windows 会直接标灰）。
+        # 关掉 = 回到同步版（任务结束前界面点不动），只在排查线程问题时才建议关。
+        G = "G-代码Agent"
+        self.register("code_agent.background", G, "规则",
+                      "工作台代码任务走后台线程（关掉回同步执行，会卡界面）", True)
 
     def get_all_rules(self):
         """获取所有规则"""

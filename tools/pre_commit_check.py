@@ -6,20 +6,27 @@
 实测各守卫耗时（本机）：
     check_version   0.2 秒      check_buttons  0.2 秒
     check_tools     1.4 秒      check_threads  1.6 秒
-    compileall      ~2  秒      check_shapes  11.9 秒
+    check_signals   1.6 秒      compileall      ~2  秒
+    check_dead_code 6.4 秒      check_shapes  11.9 秒
     pytest          ~70 秒
 
 每次都跑全套的话，提交要等 90 秒 —— 那样的 hook 用户会想办法绕过去
 （--no-verify），等于没有。所以分两档：
 
-    pre-commit  只跑快检（约 5 秒）  —— 拦"明显不该提交的"
-    pre-push    跑全套（约 85 秒）  —— 拦"能跑但有问题的"
+    pre-commit  只跑快检（约 45 秒） —— 拦"明显不该提交的"
+    pre-push    跑全套（约 85 秒） —— 拦"能跑但有问题的"
 
 用法
 ----
-    py -3 tools\\pre_commit_check.py            # pre-commit 档（默认）
-    py -3 tools\\pre_commit_check.py --full     # pre-push 档（含 pytest）
+    py -3 tools\\pre_commit_check.py            # pre-commit 档（默认，10 项）
+    py -3 tools\\pre_commit_check.py --full     # pre-push 档（13 项，含 pytest）
     py -3 tools\\pre_commit_check.py --install  # 装 hook 到本仓库
+
+B7（2026-11-02）：`懒加载来源` 升为**关键守卫**（REQUIRED），和语法/版本/静默
+一起固定住 —— 这几项被删掉时本脚本直接失败，避免"门禁被优化没了还是全绿"。
+S4（2026-11-02）：新增 `死代码棘轮`（`check_dead_code.py`）与 `信号接线`
+（`check_signals.py`），同样进 REQUIRED —— 这两类退化（零引用函数长回来、
+假信号没人接）跑测试是看不出来的。
 """
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -49,12 +56,30 @@ CHECKS = [
     # 静默失败棘轮：存量冻结（357 处），新增要说明理由。
     # 放 pre-commit 是因为它只做 AST 扫描，很快（约 1 秒）。
     ("静默失败棘轮", [PY, "tools/check_silent.py"], False),
+    # 懒加载来源：核对 LAZY_MAP 每条登记的文件确实在对应目录（快，纯文件存在性）
+    # B7 起列为**关键守卫**：它一挂，说明有模块登记错位/文件丢了，
+    # 那种状态下跑测试也看不出"用户点按钮会加载失败"。见下面 REQUIRED。
+    ("懒加载来源", [PY, "tools/check_lazy_sources.py"], False),
+    # 数据路径棘轮（S2）：第一方代码里手拼 base/data 的处数只许降。
+    # 起点 190 处 / 130 文件，迁移完 85 处后基线 105 / 79；新增一处就拦下。
+    ("数据路径棘轮", [PY, "tools/check_data_paths.py"], False),
+    # 死代码棘轮（S4）：可疑死模块 / 零引用函数 / 完全重复实现 只许降（基线 0/0/0）。
+    # 6.4 秒（要 tokenize + ast 扫 790 个 .py），但仍比一次线上事故便宜。
+    ("死代码棘轮", [PY, "tools/check_dead_code.py"], False),
+    # 信号接线（S4）：pyqtSignal 定义了却全项目没人 .connect = 假接口。
+    # 1.6 秒（读一遍 core/gui/modules/tools/tests 的文本 + 对定义侧做 AST 解析）。
+    ("信号接线", [PY, "tools/check_signals.py"], False),
     ("结构契约", [PY, "tools/check_shapes.py"], True),      # 12 秒，放 pre-push
     # plugins_repo 是独立仓库、真的会推到 gitee，用户端拉它装插件。
     # 主仓库没有远程、没有 CI 兜着，所以"推送前"是唯一的关卡。
     ("插件仓库一致性", [PY, "tools/check_repo_sync.py"], True),
     ("提交前测试", [PY, "-m", "pytest", "tests/", "-q"], True),  # 70 秒
 ]
+
+# 关键守卫：这几项一旦被从 CHECKS 里删掉（或改了名字），本脚本直接判失败。
+# 理由：门禁最容易被"优化"掉，而删掉之后一切照旧显示绿色 —— 等于没有门禁。
+REQUIRED = ("语法检查", "版本号一致性", "静默失败棘轮", "懒加载来源",
+            "数据路径棘轮", "死代码棘轮", "信号接线")
 
 
 def run(cmd):
@@ -109,6 +134,12 @@ def main():
         return install_hooks()
 
     todo = [c for c in CHECKS if args.full or not c[2]]
+    missing = [k for k in REQUIRED if k not in {c[0] for c in CHECKS}]
+    if missing:
+        print("=" * 70)
+        print("[X] 关键守卫被删掉了：%s" % "、".join(missing))
+        print("    这几项是 B7 固定的底线（见 REQUIRED），不允许静默移除。")
+        return 1
     mode = "全套(pre-push)" if args.full else "快检(pre-commit)"
     print("=" * 70)
     print("提交前检查 · %s · 共 %d 项" % (mode, len(todo)))

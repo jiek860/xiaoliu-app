@@ -7,7 +7,6 @@ except ImportError:
         return None
 
 import os
-import zipfile
 import datetime
 from PyQt5.QtWidgets import QMessageBox, QFileDialog
 
@@ -37,17 +36,48 @@ class SystemMixin:
     # 留着只会让同一件事有两个真相（改了一份忘另一份）。
 
     def import_data(self):
+        """从日志中心「📂 导入数据」恢复迁移包。
+
+        以前直接把 zip 里的成员解到 ``self.base``（**程序根目录**）：照包里写的
+        路径落盘，一个 ``../core/evil.py`` 就能覆盖程序文件（zip slip），
+        而提示文案只说了"覆盖 data/"。现在统一走
+        ``core.migration.Migration``：先读包算清单，会覆盖才问，逐成员
+        ``safe_join``，越界成员单独报「拒绝」——同一个功能只留一份安全实现。
+        """
         try:
-            fn, _ = QFileDialog.getOpenFileName(self, "选择数据备份 zip", "", "Zip (*.zip)")
+            fn, _ = QFileDialog.getOpenFileName(
+                self, "选择数据备份 zip", "", "Zip (*.zip)")
             if not fn:
                 return
-            r = QMessageBox.question(self, "确认恢复",
-                                     "将覆盖当前 data/ 目录，继续？",
-                                     QMessageBox.Yes | QMessageBox.No)
-            if r != QMessageBox.Yes:
+            from core.migration import Migration
+            mg = Migration(getattr(self, "trunk", None) or self)
+
+            r = mg.import_zip(fn)
+            if r.get("需要确认"):
+                top = "、".join(str(x) for x in (r.get("将覆盖") or [])[:10])
+                q = QMessageBox.question(
+                    self, "确认覆盖",
+                    "这个包会盖掉当前这些文件：\n%s\n\n继续导入？" % top,
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                if q != QMessageBox.Yes:
+                    return
+                r = mg.import_zip(fn, overwrite=True)
+
+            if not r.get("ok"):
+                QMessageBox.warning(
+                    self, "恢复失败",
+                    str(r.get("error") or r.get("说明")
+                        or "包里没有可导入的文件")[:300])
                 return
-            with zipfile.ZipFile(fn) as z:
-                z.extractall(self.base)
-            QMessageBox.information(self, "完成", "数据已恢复，建议重启程序。")
+
+            lines = ["已恢复 %d 个文件。" % int(r.get("解压") or 0)]
+            if r.get("拒绝"):
+                lines.append("安全拦截 %d 个越界路径（未写入）：%s" % (
+                    len(r["拒绝"]), "、".join(map(str, r["拒绝"][:5]))))
+            if r.get("写入失败"):
+                lines.append("有 %d 个文件没写进去：%s" % (
+                    len(r["写入失败"]), "、".join(map(str, r["写入失败"][:5]))))
+            lines.append("建议重启程序。")
+            QMessageBox.information(self, "完成", "\n".join(lines))
         except Exception as e:
-            QMessageBox.warning(self, "恢复失败", str(e))
+            QMessageBox.warning(self, "恢复失败", str(e)[:300])

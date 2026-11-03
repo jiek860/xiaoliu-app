@@ -41,7 +41,7 @@ def main():
             time.sleep(60)
             try:
                 t._log("心跳正常")
-            except: pass
+            except Exception: pass
     except KeyboardInterrupt:
         print("\n=== 服务停止 ===")
         try:

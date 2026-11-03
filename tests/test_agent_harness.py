@@ -140,7 +140,11 @@ def test_four_worker_types_register_start_and_finish(tmp_path):
 
     class _TTS:
         def speak(self, text):
-            return True
+            # 必须是带 path 的 dict：没路径就没法播放，worker 会按失败处理
+            p = os.path.join(str(tmp_path), "ok.mp3")
+            with open(p, "wb") as f:
+                f.write(b"x")
+            return {"ok": True, "path": p}
 
     reset_run_registry()
     trunk = _worker_trunk(tmp_path, _TaskLoop(), _LearnLoop(), _TTS())

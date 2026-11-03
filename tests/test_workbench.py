@@ -1374,8 +1374,36 @@ def _install_fake_orch(monkeypatch):
     return _FakeOrch
 
 
+def _force_sync(monkeypatch, wb):
+    """这些用例验证「同步 orchestrator」路径，显式关掉后台执行。
+
+    后台执行默认是开的（见 core/patch_protocol.background_enabled），
+    想测同步路径只能临时把它关掉，否则 start() 会走 AgentService。
+    """
+    monkeypatch.setattr(wb.ai_dock, "_background_enabled", lambda: False)
+
+
+def test_background_is_default_on(wb):
+    """默认走后台：Agent 不再跑在 Qt 主线程里，工作台不会卡死。"""
+    assert wb.ai_dock._background_enabled() is True
+
+
+def test_start_uses_background_by_default(wb, monkeypatch):
+    """默认路径 = 后台任务（提交给 AgentService），而不是同步跑。"""
+    called = {}
+    monkeypatch.setattr(
+        wb.ai_dock, "_start_background",
+        lambda goal, open_files: called.update(goal=goal, files=open_files))
+    wb.ai_dock._running = False
+    wb.ai_dock.goal.setPlainText("写个倒计时脚本")
+    wb.ai_dock.start()
+    assert called.get("goal") == "写个倒计时脚本", called
+    assert "goal" in called
+
+
 def test_start_runs_orchestrator(wb, monkeypatch):
     fake = _install_fake_orch(monkeypatch)
+    _force_sync(monkeypatch, wb)
     wb.ai_dock.goal.setPlainText("给 main 加参数")
     wb.ai_dock.start()
     assert fake.instances, "应该创建了 orchestrator"
@@ -1387,6 +1415,7 @@ def test_start_runs_orchestrator(wb, monkeypatch):
 
 def test_start_reports_failure_result(wb, monkeypatch):
     fake = _install_fake_orch(monkeypatch)
+    _force_sync(monkeypatch, wb)
     monkeypatch.setattr(_FakeOrch, "run", lambda self, g, **k: {"ok": False, "error": "boom"})
     wb.ai_dock.goal.setPlainText("x")
     wb.ai_dock.start()
@@ -1416,6 +1445,7 @@ def test_on_done_releases_running_flag(wb):
 
 def test_start_handles_exception(wb, monkeypatch):
     _install_fake_orch(monkeypatch)
+    _force_sync(monkeypatch, wb)
 
     def boom(self, goal, **_k):
         raise RuntimeError("炸了")
@@ -1429,6 +1459,7 @@ def test_start_handles_exception(wb, monkeypatch):
 
 def test_pause_and_resume_cycle(wb, monkeypatch):
     _install_fake_orch(monkeypatch)
+    _force_sync(monkeypatch, wb)
     wb.ai_dock.goal.setPlainText("x")
     wb.ai_dock.start()
     orch = wb.ai_dock.orchestrator
@@ -1440,6 +1471,7 @@ def test_pause_and_resume_cycle(wb, monkeypatch):
 
 def test_cancel_marks_orchestrator(wb, monkeypatch):
     _install_fake_orch(monkeypatch)
+    _force_sync(monkeypatch, wb)
     wb.ai_dock.goal.setPlainText("x")
     wb.ai_dock.start()
     orch = wb.ai_dock.orchestrator
@@ -1449,6 +1481,7 @@ def test_cancel_marks_orchestrator(wb, monkeypatch):
 
 def test_open_with_agent_passes_files(wb, monkeypatch):
     fake = _install_fake_orch(monkeypatch)
+    _force_sync(monkeypatch, wb)
     import os as _os
     wb.open_path(_os.path.join(BASE, "run.py"))
     wb.ai_dock.open_with_agent.setChecked(True)
@@ -1463,6 +1496,45 @@ def test_approve_returns_bool(wb):
     # 审批回调必须返回布尔（失败时 fail-closed 为 False）
     r = wb.ai_dock._approve("code", "diff --git ...")
     assert r in (True, False)
+
+
+def test_patch_error_is_translated_and_counted(wb):
+    """补丁失败要在时间线给出原因，而不是只刷"本轮修改无效"。"""
+    dock = wb.ai_dock
+    dock.timeline.clear()
+    dock._patch_errors = 0
+    dock._handle_event("patch_error",
+                       {"error": "模型未返回有效 patch：不是合法 JSON"})
+    text = dock.timeline.toPlainText()
+    assert "原因" in text and "代码模型" in text
+    assert dock._patch_errors == 1
+
+
+def test_patch_error_counter_resets_on_new_run(wb):
+    dock = wb.ai_dock
+    dock._patch_errors = 5
+    dock._handle_event("run_start", {"step": "开始"})
+    assert dock._patch_errors == 0
+
+
+def test_fourth_patch_failure_hints_switch_model_or_folder(wb):
+    dock = wb.ai_dock
+    dock.timeline.clear()
+    dock._patch_errors = 3
+    dock._handle_event("patch_error", {"error": "原文没找到"})
+    text = dock.timeline.toPlainText()
+    assert "换代码模型" in text and "打开文件夹" in text
+
+
+def test_command_center_can_pick_workspace(wb, monkeypatch):
+    """命令中心也能换工作区（顶栏链接点不动时的第二条路）。"""
+    import gui.workbench_workspace as wws
+    hits = []
+    monkeypatch.setattr(wws, "open_folder_picker",
+                        lambda host: hits.append(host))
+    wb.command.setText("打开文件夹")
+    wb._run_command()
+    assert hits and hits[0] is wb
 
 
 def test_plan_event_and_approval(wb, monkeypatch):
@@ -1618,31 +1690,42 @@ def _pump_until(app, cond, timeout=20.0):
 
 
 def test_ruff_json_parser_and_command(monkeypatch):
-    """ruff JSON → (行, 列, 规则码, 描述)；没装 ruff 时退回 python -m ruff。"""
+    """ruff JSON → (行, 列, 规则码, 描述)；没装 ruff 时退回 python -m ruff。
+
+    第 8 批：这三个函数搬到了 ``core/code/lint.py``（widget 只剩接线），
+    所以命令拼装/解析在那边测；widget 仍 re-export 同名函数，旧导入路径不破。
+    """
+    from core.code import lint as cl
     from gui import code_editor_widget as cew
 
     sample = ('[{"code":"F401","message":"`os` imported but unused",'
               '"location":{"row":3,"column":8}}]')
-    assert cew.parse_ruff_json(sample) == [(3, 8, "F401", "`os` imported but unused")]
-    assert cew.parse_ruff_json("不是 JSON") is None
-    assert cew.parse_ruff_json('{"not": "a list"}') is None
+    assert cl.parse_ruff_json(sample) == [(3, 8, "F401", "`os` imported but unused")]
+    assert cl.parse_ruff_json("不是 JSON") is None
+    assert cl.parse_ruff_json('{"not": "a list"}') is None
 
-    monkeypatch.setattr(cew.shutil, "which", lambda _n: None)
-    cmd = cew.ruff_command("x.py")
-    assert cmd[:3] == [cew.sys.executable, "-m", "ruff"], cmd
+    monkeypatch.setattr(cl.shutil, "which", lambda _n: None)
+    cmd = cl.ruff_command("x.py")
+    assert cmd[:3] == [cl.sys.executable, "-m", "ruff"], cmd
     assert cmd[-2:] == ["--", "x.py"], cmd
+    assert cl.ruff_stdin_command("x.py")[-1] == "-"
 
-    monkeypatch.setattr(cew.shutil, "which", lambda _n: "C:/bin/ruff.exe")
-    assert cew.ruff_command("x.py")[0] == "C:/bin/ruff.exe"
+    monkeypatch.setattr(cl.shutil, "which", lambda _n: "C:/bin/ruff.exe")
+    assert cl.ruff_command("x.py")[0] == "C:/bin/ruff.exe"
+    # widget 里的同名符号还是同一条实现（不是复制了一份）
+    assert cew.parse_ruff_json is cl.parse_ruff_json
+    assert cew.ruff_command is cl.ruff_command
 
 
 def test_ast_problems_is_the_fallback():
-    from gui.code_editor_widget import ast_problems
+    from core.code.lint import ast_problems
+    from gui.code_editor_widget import ast_problems as widget_ast_problems
 
     rows = ast_problems("def broken(:\n")
     assert rows and rows[0][0] == 1 and rows[0][2] == "SyntaxError"
     assert rows[0][1] >= 1
     assert ast_problems("x = 1\n") == []
+    assert widget_ast_problems is ast_problems
 
 
 def test_static_check_fills_problem_list(app, tmp_path):

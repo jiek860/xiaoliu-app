@@ -41,7 +41,7 @@ class ChatStore:
             # 迁移老表：加 session_id 列
             try:
                 c.execute("SELECT session_id FROM messages LIMIT 1")
-            except:
+            except Exception:
                 c.execute("ALTER TABLE messages ADD COLUMN session_id TEXT DEFAULT 'default'")
             c.execute("CREATE INDEX IF NOT EXISTS idx_user_session ON messages(username, session_id, ts)")
             # 会话草稿：切换会话/重启程序后恢复未发送的输入

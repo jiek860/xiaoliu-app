@@ -21,11 +21,12 @@ import os
 
 from PyQt5.QtCore import QPoint, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QTextCharFormat
-from PyQt5.QtWidgets import (QListWidget, QListWidgetItem, QPlainTextEdit,
-                             QSplitter, QStackedWidget, QTabBar,
-                             QVBoxLayout, QWidget)
+from PyQt5.QtWidgets import (QListWidget, QListWidgetItem, QMenu,
+                             QPlainTextEdit, QSplitter, QStackedWidget,
+                             QTabBar, QVBoxLayout, QWidget)
 
 from gui.ide_terminal import TerminalMixin
+from gui.workbench_problems import SEVERITY_COLORS, row_severity
 
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -192,6 +193,7 @@ class BottomPanel(TerminalMixin, QWidget):
     """底部面板：输出（复用编辑器输出框） / 问题 / 终端 / 差异。"""
 
     jumpRequested = pyqtSignal(int)
+    fixRequested = pyqtSignal(int)      # 第 8 批：让 AI 修问题所在的那一行
 
     def __init__(self, output, root=".", parent=None):
         super().__init__(parent)
@@ -214,6 +216,8 @@ class BottomPanel(TerminalMixin, QWidget):
             "QListWidget::item{padding:3px 8px;}"
             "QListWidget::item:selected{background:#eef4ff;color:#1d4ed8;}")
         self.problems.itemDoubleClicked.connect(self._open_problem)
+        self.problems.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.problems.customContextMenuRequested.connect(self._problems_menu)
         self.stack.addWidget(self.problems)
         self.stack.addWidget(self._build_terminal())
         self.bar.addTab("差异")
@@ -254,6 +258,8 @@ class BottomPanel(TerminalMixin, QWidget):
                 text = "第 %d 行  %s" % (line, msg[:120])
             item = QListWidgetItem(text)
             item.setData(Qt.UserRole, line)
+            item.setForeground(QColor(
+                SEVERITY_COLORS[row_severity(code, msg)]))
             item.setToolTip("第 %d 行:%d  %s\n%s" % (line, col, code, msg))
             self.problems.addItem(item)
         self.bar.setTabText(1, "问题 %d" % len(items) if items else "问题")
@@ -262,6 +268,34 @@ class BottomPanel(TerminalMixin, QWidget):
         line = item.data(Qt.UserRole)
         if line is not None:
             self.jumpRequested.emit(int(line))
+
+    def _problems_menu(self, pos):
+        """问题条目右键：跳到该行 / 让 AI 修这一行（深度⑩）。"""
+        item = self.problems.itemAt(pos)
+        if item is None:
+            return
+        return self._problem_actions(item)
+
+    def _problem_actions(self, item):
+        """对某条问题给出「跳到该行 / 让 AI 修这一行」两个动作。"""
+        try:
+            line = int(item.data(Qt.UserRole) or 0)
+        except (TypeError, ValueError):
+            return None
+        if line <= 0:
+            return None
+        menu = QMenu(self)
+        act_fix = menu.addAction("🛠 让 AI 修这一行（第 %d 行）" % line)
+        act_jump = menu.addAction("↪ 跳到第 %d 行" % line)
+        act = menu.exec_(self.problems.mapToGlobal(
+            self.problems.visualItemRect(item).center()))
+        if act == act_fix:
+            self.fixRequested.emit(line)
+            return "fix"
+        if act == act_jump:
+            self.jumpRequested.emit(line)
+            return "jump"
+        return None
 
     # ---------------------------------------------------- 差异页
     def show_diff(self, rel, text):

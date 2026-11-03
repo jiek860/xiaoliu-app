@@ -265,13 +265,26 @@ class CodeCommandRunnerMixin:
                           if not x.get("advisory")),
                 "results": results, "skipped_modules": skipped}
 
-    def run_tests(self, commands=None, changed_files=None):
+    def run_tests(self, commands=None, changed_files=None, created_files=None):
         cmds = list(commands or self.test_commands or self.detect_test_commands())
+        picked = []
         if changed_files:
             # 批次 46.4：影响面选测（默认 off，关掉就是全量）。
             picked = self._verify_commands(changed_files)
             if picked:
                 cmds = picked
+        if created_files and not picked:
+            # 只新建了独立文件：跑全量 pytest 既验证不到它，又可能被无关
+            # 用例的失败拖进死循环（程序目录下一轮约 5 分钟）。改做编译检查。
+            # 同时改到已有文件时不能偷懒（仍有回归风险），继续走全量测试。
+            created = {str(p).replace("\\", "/") for p in created_files
+                       if str(p or "")}
+            changed = {str(p).replace("\\", "/") for p in (changed_files or [])
+                       if str(p or "")}
+            if created and (not changed or created == changed):
+                only = self._compile_scope(sorted(created))
+                if only:
+                    return only
         if not cmds:
             return {"ok": True, "results": [], "skipped": True,
                     "reason": "未发现测试命令；请配置或添加 pytest/npm/cargo/go 测试"}
@@ -288,6 +301,37 @@ class CodeCommandRunnerMixin:
                 "timed_out": r.get("timed_out", False),
             })
         return {"ok": all(x["ok"] for x in results), "results": results}
+
+    def _compile_scope(self, created_files):
+        """本次改动"全是新建的 Python 文件"时，用编译检查代替全量测试。
+
+        为什么这么做
+        -----------
+        工作台默认工作区是程序自己的目录，``pytest -q`` 一轮 5 分钟（还有
+        300 秒超时），新建一个独立小脚本根本不需要跑别人的几千条测试；
+        而且那些无关失败会被当成"这次代码写错了"反复回修。
+
+        ``py_compile`` 几十毫秒一个文件，能抓到缩进/语法这类真错误。
+        改到已有文件时这里返回空 dict，仍然走全量测试（不放松原有校验）。
+        """
+        created = [str(p or "") for p in (created_files or []) if str(p or "")]
+        if not created or not all(p.endswith(".py") for p in created):
+            return {}
+        results = []
+        for rel in created[:10]:
+            path = os.path.join(self.root, rel.replace("/", os.sep))
+            r = self._run_argv(
+                [sys.executable, "-m", "py_compile", path], timeout=30)
+            results.append({
+                "command": "py_compile " + rel,
+                "ok": r["ok"], "exit_code": r["exit_code"],
+                "output": (r.get("output") or "")[:4000],
+                "failures": [],
+                "duration": 0, "timed_out": False,
+            })
+        return {"ok": all(x["ok"] for x in results), "results": results,
+                "compile_only": True,
+                "reason": "新建文件：只做语法编译检查（跳过全量测试）"}
 
     def _verify_commands(self, changed_files):
         """按改动文件选 pytest 目标；任何失败都返回空 = 退回全量。"""
@@ -318,3 +362,17 @@ class CodeCommandRunnerMixin:
             seen.add(key)
             out.append(f)
         return out[:30]
+
+    # ----- 第 7 批 B4：格式化（逻辑在 core/code_format.py，这里是 Agent 侧门面）
+    def format_file(self, rel, line_range=None):
+        """格式化一个文件：先快照再写回，没装工具就返回原因（不抛异常）。"""
+        from core.code_format import format_file, format_preferred
+        return format_file(self.root, rel, line_range=line_range,
+                           preferred=format_preferred(
+                               getattr(self, "trunk", None)))
+
+    def format_targets(self, patch):
+        """深度⑤：应用补丁前先格式化目标文件（定位失败会自动回退格式）。"""
+        from core.code_format import format_patch_files
+        return format_patch_files(self.root, patch,
+                                  trunk=getattr(self, "trunk", None))

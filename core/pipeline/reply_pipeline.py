@@ -39,6 +39,86 @@ class ReplyPipeline:
             _x6_swallowed(__name__, e)
             pass
 
+    # ---------------- 过程可见（第 5 批 A4 + 深度⑥⑦⑧） ----------------
+    _STAGE_TOTAL = 6
+
+    def _stage_mode(self):
+        """过程可见开关：off / shadow / on（默认 on）。"""
+        try:
+            value = str(self.trunk.rule("聊天.过程可见", "on") or "on")
+        except Exception as e:
+            _x6_swallowed(__name__, e, "stage_mode")
+            return "on"
+        value = value.strip().lower()
+        return value if value in ("off", "shadow", "on") else "on"
+
+    def stage_on(self):
+        """是否广播步骤事件（shadow 也广播，只是界面按同一规则可只落日志）。"""
+        return self._stage_mode() != "off"
+
+    def _step_cancel_on(self):
+        """单步取消开关（深度⑦）：关掉就退化成只读步骤条，取消钩子不挂。"""
+        try:
+            return bool(self.trunk.rule("聊天.单步取消", True))
+        except Exception as e:
+            _x6_swallowed(__name__, e, "step_cancel_on")
+            return True
+
+    def _eta_on(self):
+        """进度 ETA 开关（深度⑧）。"""
+        try:
+            return bool(self.trunk.rule("聊天.进度预估", True))
+        except Exception as e:
+            _x6_swallowed(__name__, e, "eta_on")
+            return True
+
+    def emit_stage(self, stage, status="running", detail=""):
+        """广播一条步骤事件（不便成对开/关的场景用它，例如"快速通道命中"）。"""
+        if not self.stage_on():
+            return {}
+        try:
+            from core.pipeline import stage_bus
+            return stage_bus.stage(stage, status=status, detail=detail)
+        except Exception as e:
+            _x6_swallowed(__name__, e, "emit_stage")
+            return {}
+
+    def _begin_stage(self, name, detail="", on_cancel=None):
+        """开始一个可见步骤；关掉过程可见时返回 None，后续 _end_stage 自动空转。"""
+        if not self.stage_on():
+            return None
+        try:
+            from core.pipeline import stage_bus
+            hook = on_cancel if self._step_cancel_on() else None
+            return stage_bus.begin_step(name, detail=detail, on_cancel=hook)
+        except Exception as e:
+            _x6_swallowed(__name__, e, "begin_stage")
+            return None
+
+    def _end_stage(self, step, status="ok", detail=""):
+        """结束一个可见步骤（含耗时、进度、ETA）。"""
+        if step is None:
+            return {}
+        try:
+            from core.pipeline import stage_bus
+            return stage_bus.end_step(step, status=status, detail=detail)
+        except Exception as e:
+            _x6_swallowed(__name__, e, "end_stage")
+            return {}
+
+    def _skip_stage(self, step, reason="未执行"):
+        return self._end_stage(step, status="skipped", detail=reason)
+
+    def _stage_cancelled(self, step):
+        """这一步是不是被用户单独取消了（深度⑦）。"""
+        if step is None:
+            return False
+        try:
+            return bool(getattr(step, "cancelled", False))
+        except Exception as e:
+            _x6_swallowed(__name__, e, "stage_cancelled")
+            return False
+
     def run(self, user_input: str, on_token=None, cancel_token=None) -> str:
         t = self.trunk
         _t_start = time.time()
@@ -53,17 +133,27 @@ class ReplyPipeline:
             pass
         t._set_status("正在理解你的问题...")
         t._reply_n = getattr(t, "_reply_n", 0) + 1
+        if self.stage_on():
+            try:
+                from core.pipeline import stage_bus
+                stage_bus.begin_run(total=self._STAGE_TOTAL, eta=self._eta_on())
+            except Exception as e:
+                _x6_swallowed(__name__, e, "begin_run")
+        recv = self._begin_stage("接收消息", user_input[:60])
         self._record("接收消息", "ok", user_input[:60])
         state_summary = self._track_state(user_input)
+        self._end_stage(recv, "ok")
 
         # 电脑控制快速通道
         fast = self._try_computer_control(user_input)
         if fast is not None:
             self._record("电脑控制", "ok", "快速通道命中")
+            self.emit_stage("电脑控制", "ok", "快速通道命中")
             self._shadow(user_input, True, _t_start, None, fast,
                          fast="computer", state=state_summary)
             return fast
 
+        ctx_step = self._begin_stage("组装上下文")
         is_simple = self.ctx.is_simple(user_input)
         gray = self._gray_on(state_summary)
         planner_mode = self._planner_mode()
@@ -73,13 +163,17 @@ class ReplyPipeline:
         _t_ctx = time.time()
         context = self.ctx.build(user_input, is_simple)
         self._record("组装上下文", "ok", "简单=%s" % is_simple)
+        self._end_stage(ctx_step, "ok", "简单=%s · 上下文 %d 字"
+                        % (is_simple, len(str(context or ""))))
 
         t._set_status("正在思考...")
+        prompt_step = self._begin_stage("拼提示词")
         plan_for_prompt = plan if planner_mode in ("rule", "model") else None
         messages = self.pa.assemble(user_input, context, is_simple,
                                     plan=plan_for_prompt, state=state_summary,
                                     gray=gray)
         self._record("拼提示词", "ok")
+        self._end_stage(prompt_step, "ok", "%d 条消息" % len(messages or []))
 
         # 先把群聊角色回复发出去，让它和主回复的生成**并行**。
         # 原来角色回复是等主回复生成完再串着跑的（生成 12 秒 → 再等角色 11 秒），
@@ -92,22 +186,34 @@ class ReplyPipeline:
         except Exception:
             role_fut = None
 
+        # 模型生成是唯一的长步骤：单步取消（深度⑦）直接挂到取消令牌上，
+        # 点"取消这一步"= 停流式，跟按 Esc 走同一条路径。
+        hook = getattr(cancel_token, "cancel", None) if cancel_token is not None else None
+        gen_step = self._begin_stage("模型生成", on_cancel=hook)
         _t0 = time.time()
         answer = self.ld.dispatch(messages, on_token=on_token,
                                   cancel_token=cancel_token)
+        self._end_stage(gen_step, "ok" if answer else "fail",
+                        "%.1f秒 / %d 字" % (time.time() - _t0,
+                                            len(str(answer or ""))))
         self._record("模型生成", "ok" if answer else "fail",
                      "%.1f秒" % (time.time() - _t0))
 
-        # 用户已按 Esc：跳过记忆写入、群聊合并、代码沙盒验证等收尾工作，
-        # 否则"停止"之后还要再等十几秒后台动作才真正结束。
-        if cancel_token is not None and cancel_token.is_cancelled():
+        # 用户已按 Esc（或单独取消了"模型生成"这一步）：跳过记忆写入、
+        # 群聊合并、代码沙盒验证等收尾工作，否则"停止"之后还要再等十几秒
+        # 后台动作才真正结束。
+        stopped = self._stage_cancelled(gen_step) or \
+            (cancel_token is not None and cancel_token.is_cancelled())
+        if stopped:
             self._record("用户取消", "cancelled")
+            self.emit_stage("用户取消", "cancelled", "已停止生成")
             self._shadow(user_input, is_simple, _t_start, _t_ctx, answer,
                          cancelled=True, state=state_summary, plan=plan,
                          gray=gray)
             self._finish_chat(t)
             return answer or ""
 
+        tail_step = self._begin_stage("校验收尾")
         t.mem_add(user_input, answer)
         memory = self._remember(user_input)
         answer, critic = self._critique(user_input, answer, plan, gray=gray)
@@ -119,6 +225,9 @@ class ReplyPipeline:
                      persona=getattr(self.pa, "last_persona", {}), gray=gray,
                      memory=memory)
         self._record("收尾", "ok")
+        self._end_stage(tail_step, "ok", "记忆 %d 张 · 校验 %s"
+                        % (int((memory or {}).get("written") or 0),
+                           "通过" if (critic or {}).get("ok") else "有提示"))
 
         self._finish_chat(t)
         return answer
@@ -231,13 +340,35 @@ class ReplyPipeline:
         value = value.strip().lower()
         return value if value in ("off", "shadow", "on") else "shadow"
 
+    def _deai(self, answer):
+        """去 AI 腔（无条件执行，见 core/chat/deai.py）。
+
+        人格卡里的 banned 词只在 ``ResponseCritic`` 里替换，而
+        ``聊天.校验器`` 默认是 ``shadow``（只记录、不改文本）——
+        等于「作为一个AI…」「希望对你有所帮助」从来没被真的删掉。
+        这一道放在校验器之前、跟开关无关，on/shadow/off 都跑。
+        """
+        try:
+            from core.chat.deai import deai
+            result = deai(answer)
+            return (str(result.get("text") or answer or ""),
+                    list(result.get("hits") or []))
+        except Exception as e:
+            _x6_swallowed(__name__, e, "deai")
+            return answer, []
+
     def _critique(self, user_input, answer, plan, gray=False):
         """返回 (最终文本, 校验摘要)；shadow 只记录，on/灰度 才替换。"""
+        before = len(str(answer or ""))
+        answer, ai_hits = self._deai(answer)
         mode = self._critic_mode()
         if gray and mode == "shadow":
             mode = "on"
         if mode == "off":
-            return answer, {}
+            if not ai_hits:
+                return answer, {}
+            return answer, {"ok": True, "issues": ai_hits, "source": "deai",
+                            "before": before, "after": len(str(answer or ""))}
         try:
             from core.chat.critic import ResponseCritic
             result = ResponseCritic(self.trunk).check(
@@ -245,9 +376,9 @@ class ReplyPipeline:
             fixed = result.get("fixed_text") or answer
             summary = {
                 "ok": bool(result.get("ok")),
-                "issues": list(result.get("issues") or [])[:8],
+                "issues": (ai_hits + list(result.get("issues") or []))[:8],
                 "source": result.get("source", "rule"),
-                "before": len(str(answer or "")),
+                "before": before,
                 "after": len(str(fixed or "")),
             }
             return (fixed if mode == "on" else answer), summary
@@ -265,8 +396,9 @@ class ReplyPipeline:
             return {}
         try:
             from core.chat.memory_v2 import MemoryV2
+            from core.data_paths import data_dir
             base = getattr(self.trunk, "base", ".") or "."
-            store = MemoryV2(base)
+            store = MemoryV2(base, data_dir=data_dir(self.trunk))
             rounds = int(getattr(self.trunk, "_reply_n", 0) or 0)
             result = store.remember(
                 user_input, rounds=rounds, recent=self._recent_user_texts(),

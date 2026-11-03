@@ -49,8 +49,11 @@ PRESETS = {
     ],
 
     # 编程：只留工程向的，联网搜索和日常功能都收起
+    # 注意：这里只列**真实存在**的工具名/前缀（S4 删掉了 `mcp_run_code` ——
+    # 全项目没有任何工具叫这个名字，MCP 外部工具是由用户在 MCP 配置里登记的，
+    # 名字不固定，靠前缀猜只会白占一个候选位）。
     "编程": [
-        "fs_", "code_run", "shell", "browser", "mcp_run_code",
+        "fs_", "code_run", "shell", "browser",
         "task_plan", "deep_search",
     ],
 

@@ -10,29 +10,82 @@ from core.safe_http import open_url as safe_open_url
 import json
 import os
 import time
+from core.data_paths import data_path
 
 
 CATALOG = [
     {"name": "qwen2.5:3b", "context": 32768, "capabilities": ["chat", "tool"],
-     "vram_gb": 3, "cost": 0.0},
+     "vram_gb": 3, "cost": 0.0,
+     "recommended_params": {"chat": {"temperature": 0.7, "top_p": 0.95},
+                            "code": {"temperature": 0.3, "top_p": 0.9}}},
     {"name": "qwen2.5:7b", "context": 32768, "capabilities": ["chat", "tool"],
-     "vram_gb": 6, "cost": 0.0},
+     "vram_gb": 6, "cost": 0.0,
+     "recommended_params": {"chat": {"temperature": 0.7, "top_p": 0.95},
+                            "code": {"temperature": 0.3, "top_p": 0.9}}},
     {"name": "qwen2.5-coder:7b", "context": 32768,
-     "capabilities": ["code", "tool"], "vram_gb": 6, "cost": 0.0},
+     "capabilities": ["code", "tool"], "vram_gb": 6, "cost": 0.0,
+     "recommended_params": {"chat": {"temperature": 0.6, "top_p": 0.9},
+                            "code": {"temperature": 0.2, "top_p": 0.9}}},
     {"name": "qwen3-vl:8b", "context": 32768,
-     "capabilities": ["chat", "vision", "tool"], "vram_gb": 8, "cost": 0.0},
+     "capabilities": ["chat", "vision", "tool"], "vram_gb": 8, "cost": 0.0,
+     "recommended_params": {"chat": {"temperature": 0.7, "top_p": 0.95}}},
     {"name": "glm-4-flash", "context": 128000, "capabilities": ["chat", "tool"],
-     "vram_gb": 0, "cost": 0.001},
+     "vram_gb": 0, "cost": 0.001,
+     "recommended_params": {"chat": {"temperature": 0.6, "top_p": 0.9},
+                            "code": {"temperature": 0.3, "top_p": 0.9}}},
     {"name": "deepseek-chat", "context": 64000,
-     "capabilities": ["chat", "code", "tool"], "vram_gb": 0, "cost": 0.001},
+     "capabilities": ["chat", "code", "tool"], "vram_gb": 0, "cost": 0.001,
+     "recommended_params": {"chat": {"temperature": 0.7, "top_p": 0.95},
+                            "code": {"temperature": 0.2, "top_p": 0.9}}},
 ]
+
+
+def _spec_for(model, catalog=None):
+    """按模型名找目录条目（精确 → 量化tag → 去 tag → 包含）。
+
+    ⚠️ 去 tag 比较必须排在"包含"之前**且**必须在全名包含之后：
+    ``qwen2.5:7b-q4_K_M`` 去 tag 后是 ``qwen2.5``，直接用去 tag 比较会
+    撞上目录第一条 ``qwen2.5:3b``，把 7B 当成 3B（窗口/参数都会错档）。
+    """
+    items = catalog if catalog is not None else CATALOG
+    name = str(model or "").strip().lower()
+    if not name:
+        return {}
+    for item in items:
+        if name == str(item.get("name", "")).strip().lower():
+            return dict(item)
+    # 量化后缀：qwen2.5:7b-q4_K_M → 目录里的 qwen2.5:7b
+    hits = [item for item in items
+            if str(item.get("name", "")).strip().lower() in name]
+    if hits:
+        best = max(hits, key=lambda i: len(str(i.get("name", ""))))
+        return dict(best)
+    base = name.split(":")[0]
+    for item in items:
+        if base == str(item.get("name", "")).strip().lower().split(":")[0]:
+            return dict(item)
+    for item in items:
+        n = str(item.get("name", "")).strip().lower()
+        if n and (n in name or name in n):
+            return dict(item)
+    return {}
+
+
+def recommended_params(model, scene="chat", catalog=None):
+    """该模型在该场景下的推荐采样参数（没有就返回空 dict）。"""
+    spec = _spec_for(model, catalog)
+    rec = spec.get("recommended_params")
+    if not isinstance(rec, dict):
+        return {}
+    bucket = rec.get(scene) or rec.get("default") or {}
+    return dict(bucket) if isinstance(bucket, dict) else {}
 
 
 class ModelRegistry:
     def __init__(self, trunk=None):
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or "."
-        self.path = os.path.join(self.base, "data", "model_registry.json")
+        self.path = data_path(self, "model_registry.json")
         self.items = self._load()
 
     def _load(self):

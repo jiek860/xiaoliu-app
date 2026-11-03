@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import time
+from core.data_paths import data_path
 
 
 class ComputerFileToolsMixin:
@@ -230,7 +231,7 @@ class ComputerFileToolsMixin:
             return {"ok": False, "错误": "原文出现 %d 次，不唯一；请多带几行上下文让它唯一" % n}
         # 备份
         try:
-            bdir = os.path.join(self.base, "data", "backups")
+            bdir = data_path(self, "backups")
             os.makedirs(bdir, exist_ok=True)
             bp = os.path.join(bdir, "%s.%s.bak"
                               % (os.path.basename(p), time.strftime("%Y%m%d_%H%M%S")))

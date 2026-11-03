@@ -92,7 +92,18 @@ def pick(base=".", topic="", act="", limit=2):
 # ================================================================
 # 失败库 / 建议晋升（48.1 / 48.2）
 # ================================================================
-def _data_path(base, name):
+def _data_path(base, name, data_dir=None):
+    """失败库/候选/审计文件路径。
+
+    ``data_dir`` 给了就**写在那儿**（``reply_pipeline`` / ``self_reflect`` 传
+    ``core.data_paths.data_dir(trunk)``）；没给才退回 ``base/data``。
+    为什么多这一层：原来只认 ``base/data``，而测试把 ``trunk.data_dir``
+    改到临时目录时 ``base`` 仍指向真实项目 —— 失败条目就写进了用户真实的
+    ``data/chat_failures.jsonl``，之后又被当成"待修目标"喂回提示词
+    （见 ``core/data_paths.py`` 的实测记录）。
+    """
+    if data_dir:
+        return os.path.join(str(data_dir), name)
     return os.path.join(str(base or "."), "data", name)
 
 
@@ -152,13 +163,13 @@ def save_json(path, data):
         _x6_swallowed(__name__, exc, "save_json")
 
 
-def failure_rows(base):
-    return read_jsonl(_data_path(base, FAIL_FILE))
+def failure_rows(base, data_dir=None):
+    return read_jsonl(_data_path(base, FAIL_FILE, data_dir))
 
 
 def record_failure(base, user_input, ai_response, *, dims=None, issues=None,
                    suggestion="", category="", shadow=False, source="规则",
-                   enabled=True, keep=FAIL_KEEP):
+                   enabled=True, keep=FAIL_KEEP, data_dir=None):
     """低分样本入库：脱敏、同类去重、保留最近 N 条。"""
     if not enabled:
         return None
@@ -171,13 +182,13 @@ def record_failure(base, user_input, ai_response, *, dims=None, issues=None,
         _norm(user)[:60], _norm(answer)[:40], category)
     ).encode("utf-8", "replace"), usedforsecurity=False).hexdigest()[:12]
     now = int(time.time())
-    rows = failure_rows(base)
+    rows = failure_rows(base, data_dir)
     for row in rows:
         if row.get("签名") == sig and row.get("状态") == "open" \
                 and now - int(row.get("ts") or 0) <= FAIL_TTL_DAYS * 86400:
             row["seen"] = int(row.get("seen") or 1) + 1
             row["ts"] = now
-            write_jsonl(_data_path(base, FAIL_FILE), rows)
+            write_jsonl(_data_path(base, FAIL_FILE, data_dir), rows)
             return row.get("id")
     fid = "f_%d_%s" % (now, sig[:6])
     row = {
@@ -188,7 +199,8 @@ def record_failure(base, user_input, ai_response, *, dims=None, issues=None,
         "来源": source, "复查": 0, "复现": 0, "签名": sig,
     }
     rows.append(row)
-    write_jsonl(_data_path(base, FAIL_FILE), rows[-int(keep or FAIL_KEEP):])
+    write_jsonl(_data_path(base, FAIL_FILE, data_dir),
+                rows[-int(keep or FAIL_KEEP):])
     return fid
 
 

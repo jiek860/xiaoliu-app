@@ -68,6 +68,8 @@ class AgentDock(AgentDockServiceMixin, QWidget):
         # 批次 D8：多轮澄清的挂起状态（目标片段 + 已问轮次）
         self._pending_clarify_goal = ""
         self._clarify_round = 0
+        # 连续补丁失败次数：到 4 次在时间线提示"选目录/换模型"（见 _show_patch_error）
+        self._patch_errors = 0
         self._build()
 
     def _build(self):
@@ -444,6 +446,8 @@ class AgentDock(AgentDockServiceMixin, QWidget):
         text = str(event or "")
         if isinstance(data, dict):
             text = str(data.get("step") or text)
+        if event in ("run_start", "job_start"):
+            self._patch_errors = 0          # 新任务重新计数补丁失败次数
         self.timeline.appendPlainText("· " + text[:300])
         data = data if isinstance(data, dict) else {}
         if event == "plan" and isinstance(data.get("plan"), dict):
@@ -475,12 +479,36 @@ class AgentDock(AgentDockServiceMixin, QWidget):
             if rounds and limit and "回修" not in text:
                 self.timeline.appendPlainText(
                     "↻ 测试失败 → 自动回修中（%s/%s）" % (rounds, limit))
+        elif event == "patch_error":
+            self._show_patch_error(data)
         elif event == "done":
             # 普通对话分支只返回 answer，以前这里只显示"对话完成"，
             # 模型说了什么用户根本看不到。
             answer = str(data.get("result") or "").strip()
             if answer:
                 self.timeline.appendPlainText("📄 回答：\n" + answer[:4000])
+
+    def _show_patch_error(self, data):
+        """把"本轮修改无效"翻成用户能看懂的原因 + 下一步怎么做。
+
+        以前这里只打一行"本轮修改无效，准备重修"，反复刷屏，用户分不清是
+        模型输出格式坏了、目录选错了，还是该换模型 —— 见
+        ``core.patch_protocol.explain_patch_error``。
+        """
+        try:
+            from core.patch_protocol import explain_patch_error
+            why, tip = explain_patch_error(data.get("error") or "")
+        except Exception as e:  # 静默是故意的 - 翻译失败就只保留原始日志
+            _x6_swallowed(__name__, e, "explain patch error")
+            return
+        self.timeline.appendPlainText("  ✗ 原因：" + why)
+        self.timeline.appendPlainText("  💡 " + tip)
+        self._patch_errors = int(getattr(self, "_patch_errors", 0)) + 1
+        if self._patch_errors and self._patch_errors % 4 == 0:
+            self.timeline.appendPlainText(
+                "  ⚠ 已连续 %d 次没生成出可用补丁：先确认工作区选对了"
+                "（右上「📂 打开文件夹」），再考虑换代码模型。"
+                % self._patch_errors)
 
     def _show_inline_diff(self, patch):
         """在编辑器里展示内联 diff；应用后用 backup manifest 撤销。"""

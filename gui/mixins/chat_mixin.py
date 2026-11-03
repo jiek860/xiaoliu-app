@@ -12,10 +12,12 @@ except ImportError:
 
 # A1：草稿/历史混入（已拆到独立文件，保持 chat_mixin 在 600 行以内）
 from gui.mixins.draft_mixin import DraftMixin  # noqa: E402
+# 第 5 批 A4：过程可见步骤条（同样拆独立文件，控制本文件行数）
+from gui.mixins.stage_mixin import StageMixin  # noqa: E402
+from gui.mixins.model_ready_mixin import ModelReadyMixin  # noqa: E402
 
 
-
-class ChatMixin(DraftMixin):
+class ChatMixin(DraftMixin, StageMixin, ModelReadyMixin):
     """聊天相关方法"""
 
     def send(self):
@@ -160,6 +162,7 @@ class ChatMixin(DraftMixin):
             self.worker = StreamWorker(self.trunk, text, force_chat=force_chat)
             self.worker.token.connect(self._on_token)
             self.worker.done.connect(self._on_reply)
+            self._stage_attach(self.worker)
             self.worker.start()
             try:
                 self.trunk._log("[GUI] 发送消息: %s" % text[:30])
@@ -241,9 +244,11 @@ class ChatMixin(DraftMixin):
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
         # 断开信号，避免后台线程跑完后把完整结果盖到"已停止"的界面上。
-        for sig, slot in ((w.token, self._on_token), (w.done, self._on_reply)):
+        for sig, slot in ((w.token, self._on_token), (w.done, self._on_reply),
+                          (getattr(w, "stage", None), self._on_stage)):
             try:
-                sig.disconnect(slot)
+                if sig is not None:
+                    sig.disconnect(slot)
             except Exception as e:  # 静默是故意的
                 _x6_swallowed(__name__, e, "best-effort fallback")
         self._stop_requested = True
@@ -280,6 +285,7 @@ class ChatMixin(DraftMixin):
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
         self.worker = None
+        self._stage_finish()
         try:
             self.input.setFocus()
         except Exception as e:  # 静默是故意的
@@ -290,6 +296,7 @@ class ChatMixin(DraftMixin):
         if getattr(self, "_stop_requested", False):
             self._stop_requested = False
             return
+        self._stage_finish()
         self._stream_buf = []
         self._stream_rendered_once = False
         try:
@@ -317,9 +324,9 @@ class ChatMixin(DraftMixin):
                 d6 = dict(segs).get("小6")
                 if d6:
                     tts = d6
-            # 只有自动朗读开关开着才播报
+            # 只有自动朗读开关开着才播报（开关真实值在 config，不在内存属性里）
             if tts.strip() and self.trunk.config.get("auto_tts", False):
-                self.speech.speak_async(tts.strip())
+                self.speech.speak_async(tts.strip(), on_error=self._tts_failed)
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "best-effort fallback")
         
@@ -361,6 +368,28 @@ class ChatMixin(DraftMixin):
         # （改之前只留一句让用户自己复制命令的文字，很多人到这就放弃了，
         #   那个功能就白做了）
         self._maybe_offer_install(a)
+
+    def _tts_failed(self, reason):
+        """朗读失败要说话：同一句原因 10 分钟内只提示一次，不刷屏。"""
+        text = "🔇 朗读失败：" + str(reason or "原因未知")[:120]
+        now = time.time()
+        last = getattr(self, "_tts_error_last", None)
+        if last and last[0] == text and now - last[1] < 600:
+            return False
+        self._tts_error_last = (text, now)
+        try:
+            from core.logger import get_logger
+            get_logger().error("自动朗读失败: " + str(reason)[:200])
+        # 静默是故意的 - 日志失败不影响下面给用户的提示
+        except Exception as e:
+            _x6_swallowed(__name__, e, "log tts failure")
+        try:
+            self.chat.append(text + "（回复文字不受影响；"
+                             "可在「设置 → 扩展 → 功能扩展组件」检查语音合成）")
+        # 静默是故意的 - 聊天区不可用时只保留日志
+        except Exception as e:
+            _x6_swallowed(__name__, e, "show tts failure")
+        return True
 
     def _maybe_offer_install(self, reply_text):
         """回复里提示了"缺某个组件"时，问用户要不要现在就装
@@ -405,61 +434,7 @@ class ChatMixin(DraftMixin):
             _x6_swallowed(__name__, e, "best-effort fallback")
 
     # ---------------- 90 分兜底：模型没配好 / 回复失败 ----------------
-    _FAIL_REPLY_MARKS = ("回复时出了点问题", "（无回复）", "功能不可用",
-                         "Pipeline 不可用", "服务不可用")
-
-    def _reply_failed(self, a):
-        """这条回复是"没成功"还是"模型说的话"。
-
-        程序兜底是短句占位（见 StreamWorker / trunk.reply 的错误分支），
-        真回复一般不会这么短，也不会正好命中这些话。
-        """
-        t = str(a or "").strip()
-        if not t:
-            return True
-        return len(t) <= 200 and any(m in t for m in self._FAIL_REPLY_MARKS)
-
-    def _model_ready(self):
-        """配置层面能不能聊（不发网络探测）。检查本身失败时按"能聊"处理。"""
-        try:
-            from core import model_setup
-            return bool(model_setup.check(self.trunk, probe=False).get("ready"))
-        except Exception as e:  # 静默是故意的
-            _x6_swallowed(__name__, e, "best-effort fallback")
-            return True
-
-    def _append_chat_card(self, title, message, action, label):
-        card = getattr(self.chat, "append_guidance_card", None)
-        if callable(card):
-            card(title, message, action, label)
-
-    def _hint_model_not_ready_once(self):
-        """每次会话只提醒一次，别再让用户"发了没反应"却不知道为什么。"""
-        if getattr(self, "_model_hint_shown", False) or self._model_ready():
-            return
-        self._model_hint_shown = True
-        self._append_chat_card(
-            "模型还没配好",
-            "现在发出去可能没人回。先花一分钟配一个模型，"
-            "或在本机启动 Ollama 再试。",
-            "guidance://open_model_settings", "去配置模型")
-
-    def _after_reply_guidance(self, a):
-        """失败回复只给**一个**下一步，不叠提示。"""
-        try:
-            if self._reply_failed(a):
-                self._append_chat_card(
-                    "这次没有回复成功",
-                    "已经记进日志。可以直接重试；连续失败就到"
-                    "「设置 → 模型」检查 Key / 地址 / 本地服务。",
-                    "chat-retry://", "重试这条")
-            elif not self._model_ready():
-                self._append_chat_card(
-                    "模型还没配好",
-                    "刚才那句是程序兜底回复，不是模型回答。配好模型就能正常聊。",
-                    "guidance://open_model_settings", "去配置模型")
-        except Exception as e:  # 静默是故意的
-            _x6_swallowed(__name__, e, "best-effort fallback")
+    # 第 5 批：这段拆到 gui/mixins/model_ready_mixin.py，本文件行数留给步骤条接线
 
     # ---------------- 对话编辑 / 重新生成 / 分支 ----------------
     def _last_exchange(self):

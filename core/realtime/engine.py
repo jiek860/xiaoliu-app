@@ -8,7 +8,7 @@ except ImportError:
 
 import time, queue, tempfile, threading, shutil
 try: import numpy as np
-except: np = None
+except Exception: np = None
 from .bus import EventBus
 from .metrics import Metrics
 from .vad import make_vad
@@ -34,9 +34,13 @@ def _ih(pkg):
 class RealtimeEngine:
     def __init__(self, trunk, on_event=None, sample_rate=16000, frame_ms=30,
                  vad_mult=3.0, start_frames=5, end_frames=15,
-                 tts_voice="zh-CN-XiaoxiaoNeural", speak_boost=1.5,
+                 tts_voice=None, speak_boost=1.5,
                  asr_model="base", device_index=-1, idle_stop_sec=0, emit_volume=True):
         self.trunk = trunk
+        # 音色：显式参数优先，其次 config["tts_voice"]，最后用默认（晓晓）
+        if not tts_voice:
+            cfg = getattr(trunk, "config", None)
+            tts_voice = str((cfg or {}).get("tts_voice") or "")
         self.sr = sample_rate
         self.frame_size = int(sample_rate * frame_ms / 1000)
         self.speak_boost = speak_boost

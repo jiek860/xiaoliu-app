@@ -1,0 +1,22 @@
+{
+  "chat": {
+    "metrics": {
+      "citation_accuracy": 1.0,
+      "memory_hit_rate": 1.0,
+      "pass_rate": 1.0,
+      "referent_accuracy": 1.0,
+      "style_pass_rate": 1.0
+    },
+    "passed": 10,
+    "total": 10
+  },
+  "code": {
+    "metrics": {
+      "code_pass_rate": 1.0,
+      "pass_rate": 1.0
+    },
+    "passed": 5,
+    "total": 5
+  },
+  "updated_at": "2026-11-01 15:32:07"
+}

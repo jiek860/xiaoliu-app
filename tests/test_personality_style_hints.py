@@ -53,12 +53,6 @@ class Host(PersonalityStyleHintsMixin):
         return ""
 
 
-@pytest.fixture(autouse=True)
-def _clear_caches():
-    PersonalityStyleHintsMixin._bible_cache.clear()
-    PersonalityStyleHintsMixin._hint_cache.clear()
-
-
 def test_mood_hint_uses_mood_text(tmp_path):
     h = Host(tmp_path, mood="开心")
     assert "【你现在的心情：开心】" in h.mood_hint()
@@ -107,6 +101,11 @@ def test_get_tone_requires_close_relation(tmp_path):
     assert Host(tmp_path, relation_stage=3).get_tone("今天天气不错") is None
 
 
+def test_get_tone_accepts_none(tmp_path):
+    """None 入参不能崩：旧调用方可能不传文本，re.search(None) 会抛 TypeError"""
+    assert Host(tmp_path, relation_stage=3).get_tone(None) is None
+
+
 def test_short_reply_hint(tmp_path):
     h = Host(tmp_path)
     assert "别展开" in h.short_reply_hint("在吗")
@@ -144,23 +143,6 @@ def test_full_hint_handles_none(tmp_path):
 def test_full_hint_includes_custom_persona(tmp_path):
     h = Host(tmp_path, trunk=FakeTrunk("嘴硬心软，重庆口音"))
     assert "【你的核心性格】嘴硬心软" in h.full_hint("你好")
-
-
-def test_bible_hint_has_constitution_and_cache(tmp_path):
-    h = Host(tmp_path)
-    out = h.bible_hint("今天天气怎么样")
-    assert "小6人格宪法" in out
-    assert h._hint_cache["今天天气怎么样"] == out
-
-
-def test_bible_hint_loads_category_file(tmp_path):
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    (data_dir / "emotion_bible.md").write_text("难过时要先陪着",
-                                               encoding="utf-8")
-    h = Host(tmp_path)
-    out = h.bible_hint("我有点难过")
-    assert "按需加载·分类圣经" in out and "难过时要先陪着" in out
 
 
 def test_emoji_hint_mentions_mood(tmp_path):
@@ -201,6 +183,13 @@ def test_sense_feeling_tags_emotion(tmp_path):
 def test_few_shot_examples_shape():
     rows = PersonalityStyleHintsMixin.few_shot_examples()
     assert rows and all(set(r) == {"u", "a"} for r in rows)
+
+
+def test_few_shot_examples_carry_concrete_detail():
+    # 2026-11-01：例子必须"带细节"，否则模型只会学成空话
+    rows = PersonalityStyleHintsMixin.few_shot_examples()
+    assert len(rows) >= 7
+    assert any("80%" in r["a"] or "20 分钟" in r["a"] for r in rows)
 
 
 def test_proactive_lines_once_per_day(tmp_path, monkeypatch):

@@ -51,6 +51,8 @@ class StreamWorker(QThread):
     """聊天流式回复"""
     token = pyqtSignal(str)
     done = pyqtSignal(str)
+    # 过程可见（第 5 批 A4）：core 广播的步骤/工具事件转发到 GUI 线程
+    stage = pyqtSignal(str, object)
 
     def __init__(self, trunk, msg, force_chat=False):
         super().__init__()
@@ -73,9 +75,25 @@ class StreamWorker(QThread):
         if not self._cancel.is_cancelled():
             self.token.emit(text)
 
+    def _relay_stage(self, event, payload):
+        """把 core 的步骤事件搬到 GUI 线程（第 5 批 A4）。"""
+        if self._cancel.is_cancelled() and str(event) != "stage":
+            return
+        try:
+            self.stage.emit(str(event), payload if isinstance(payload, dict) else {})
+        except Exception as e:  # 静默是故意的 - 窗口关了就没人收
+            _x6_swallowed(__name__, e, "stage relay")
+
     def run(self):
         rid = _reg_start("chat", "聊天回复：%s" % str(self.msg)[:40],
                          _log_path(self.trunk))
+        try:
+            from core.pipeline import stage_bus
+            stage_bus.subscribe(self._relay_stage)
+            self._stage_subscribed = True
+        except Exception as e:  # 静默是故意的 - 过程可见坏了不影响回复
+            _x6_swallowed(__name__, e, "stage subscribe")
+            self._stage_subscribed = False
         try:
             self.trunk._log("[Worker] 开始处理: %s" % str(self.msg)[:30])
         except Exception as e:
@@ -121,6 +139,19 @@ class StreamWorker(QThread):
             except Exception as e:
                 _x6_swallowed(__name__, e)
                 pass
+        finally:
+            self._release_stage()
+
+    def _release_stage(self):
+        """回复结束必须退订事件总线，否则事件会打到已销毁的 worker。"""
+        if not getattr(self, "_stage_subscribed", False):
+            return
+        try:
+            from core.pipeline import stage_bus
+            stage_bus.unsubscribe(self._relay_stage)
+        except Exception as e:  # 静默是故意的
+            _x6_swallowed(__name__, e, "stage unsubscribe")
+        self._stage_subscribed = False
 
 
 class TaskWorker(QThread):
@@ -186,8 +217,10 @@ class TTSWorker(QThread):
     以前 `done` 声明了却从来没 emit —— SpeechController 把它接到播放器上，
     于是聊天里的"朗读回复"开关打开后**一直没声音**（用户以为坏了）。
     现在合成成功就把音频路径发回去，由 GUI 线程播放（可停、不会弹播放器）。
+    合成失败时额外发 ``failed``，界面能说清"为什么没声音"，而不是静默。
     """
     done = pyqtSignal(str)
+    failed = pyqtSignal(str)
 
     def __init__(self, trunk, text, autoplay=False):
         super().__init__()
@@ -198,21 +231,29 @@ class TTSWorker(QThread):
 
     def run(self):
         rid = _reg_start("tts", "语音合成", _log_path(self.trunk))
-        path = ""
+        path, error = "", ""
         try:
             tts = self.trunk._load_lazy("tts")
-            if tts:
-                r = self._speak(tts)
-                if isinstance(r, dict):
-                    if r.get("ok") is False:
-                        raise RuntimeError(str(r.get("error") or "语音合成失败"))
-                    path = str(r.get("path") or "")
+            if not tts:
+                raise RuntimeError("语音合成模块没加载起来（设置 → 扩展 → 功能扩展组件）")
+            r = self._speak(tts)
+            if isinstance(r, dict):
+                if r.get("ok") is False:
+                    raise RuntimeError(str(r.get("error") or "语音合成失败"))
+                path = str(r.get("path") or "")
+            if not path:
+                # 老版插件只 os.startfile、不回路径：调用方拿不到音频就没声音
+                raise RuntimeError(
+                    "语音模块没返回音频文件（旧版插件？请更新语音合成模块）")
             _reg_finish(rid, "completed")
         except Exception as e:
-            _reg_finish(rid, "failed", str(e)[:200])
+            error = str(e)[:200]
+            _reg_finish(rid, "failed", error)
             path = ""
         try:
             self.done.emit(path)
+            if error:
+                self.failed.emit(error)
         except Exception as e:  # 静默是故意的 - 窗口已关闭时没人接收
             _x6_swallowed(__name__, e, "tts done signal")
 

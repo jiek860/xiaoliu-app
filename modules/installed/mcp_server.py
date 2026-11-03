@@ -36,6 +36,7 @@ import urllib.parse
 
 from core.safe import safe
 from modules.base import BaseModule
+from core.data_paths import data_path
 
 
 def _is_loopback_host(host):
@@ -90,10 +91,10 @@ class MCPServer(BaseModule):
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or "."
         # v2.1: 插件持久化必须落在 data/plugin_data/<插件名>/ 内
-        _sdir = os.path.join(self.base, "data", "plugin_data", "mcp_server")
+        _sdir = data_path(self, "plugin_data", "mcp_server")
         os.makedirs(_sdir, exist_ok=True)
         self.path = os.path.join(_sdir, "mcp_tools.json")
-        _legacy = os.path.join(self.base, "data", "mcp_tools.json")
+        _legacy = data_path(self, "mcp_tools.json")
         if not os.path.exists(self.path) and os.path.exists(_legacy):
             try: os.replace(_legacy, self.path)
             except OSError:  # 静默是故意的：旧数据迁移失败不阻断主流程

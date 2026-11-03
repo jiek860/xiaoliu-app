@@ -13,6 +13,8 @@ from PyQt5.QtCore import Qt
 
 from gui.feedback_states import make_action_links
 from gui.chat_growth_panel import GrowthPanel
+from gui.dream_panel import DreamPanel
+from core.data_paths import data_path
 
 
 def load_cards(path):
@@ -131,7 +133,7 @@ class MemoryViewDialog(QDialog):
         self.setWindowTitle("记忆可视化")
         self.setMinimumSize(860, 640)
         self.base = getattr(trunk, "base", None) or "."
-        self.memory_path = os.path.join(self.base, "data", "memory_cards.jsonl")
+        self.memory_path = data_path(self, "memory_cards.jsonl")
         self._build_ui()
         self._refresh()
 
@@ -185,6 +187,10 @@ class MemoryViewDialog(QDialog):
 
         self.growth = GrowthPanel(self.trunk, self)
         tabs.addTab(self.growth, "🌱 成长")
+
+        # 「梦境」标签：dream_system 原来在界面上完全没有入口
+        self.dreams = DreamPanel(self.trunk, self)
+        tabs.addTab(self.dreams, "🌙 梦境")
 
         layout.addWidget(tabs)
 

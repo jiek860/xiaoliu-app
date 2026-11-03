@@ -323,7 +323,7 @@ def test_pipeline_backoff_grows_and_caps(trunk):
 
     assert trunk._pipeline_fail_count == 5, "连续失败应当累计"
     assert all(b >= a for a, b in zip(seen, seen[1:])), "冷却时间应当单调不减: %s" % seen
-    assert seen[0] == 60, "首次失败后冷却 60s: %s" % seen
+    assert 60 <= seen[0] <= 62, "首次失败后冷却 60s（含失败处理开销）: %s" % seen
     assert max(seen) <= 1800, "冷却不应超过上限 30 分钟: %s" % seen
 
 

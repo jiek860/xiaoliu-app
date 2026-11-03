@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 """差分更新 v1.0 - 纯Python实现（difflib文本差分）
 适合py文件更新，不需要第三方库
+
+⚠️ 仅供 `tools/make_patch.py` 生成/校验 unified diff（离线工具）。
+工作台的补丁主链路是 `core/patch_engine.py` + `core/hunk_edit.py`
+（安全边界、落盘、回滚、3-way、逐 hunk 撤销都在那边），新代码不要接这里。
 """
 import difflib
 
@@ -81,18 +85,6 @@ def make_file_patch(old_path, new_path):
     with open(new_path, 'r', encoding='utf-8') as f:
         new_text = f.read()
     return make_patch(old_text, new_text)
-
-
-def apply_file_patch(old_path, patch_text, output_path=None):
-    """把补丁应用到旧文件"""
-    with open(old_path, 'r', encoding='utf-8') as f:
-        old_text = f.read()
-    new_text = apply_patch(old_text, patch_text)
-    if output_path is None:
-        output_path = old_path
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(new_text)
-    return output_path
 
 
 # 测试

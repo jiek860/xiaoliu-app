@@ -3,14 +3,21 @@
 import os, json, time, re
 from datetime import datetime
 
+try:
+    from core.data_paths import data_path
+except ImportError:
+    def data_path(target, *parts):
+        base = getattr(target, "base", None) or "."
+        return os.path.join(base, "data", *parts)
+
 
 class MemoryOrganizer:
     """自动去重/合并/归档/冲突检测"""
     def __init__(self, trunk=None):
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or "."
-        self.cards_path = os.path.join(self.base, "data", "memory_cards.jsonl")
-        self.archive_dir = os.path.join(self.base, "data", "archive")
+        self.cards_path = data_path(trunk, "memory_cards.jsonl")
+        self.archive_dir = data_path(trunk, "archive")
         os.makedirs(self.archive_dir, exist_ok=True)
 
     def auto_organize(self):

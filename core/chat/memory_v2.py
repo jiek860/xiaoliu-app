@@ -11,8 +11,9 @@
 排序权重按 docs/102 §2.9：
     0.45 相关度 + 0.25 重要度 + 0.20 时新性（半衰期 60 天）+ 0.10 话题匹配
 
-默认开关 ``记忆.v2`` = ``shadow``：只记录「本来会注入/写入什么」，不改上下文；
-``on`` 才真正替换与写入；``off`` 完全走旧入口。任何异常都回落旧入口。
+默认开关 ``记忆.v2`` = ``on``（第 4 批 A2 起）：注入/写入都走新入口；
+``shadow`` 只记录「本来会注入/写入什么」，不改上下文；``off`` 完全走旧入口。
+任何异常都回落旧入口。
 """
 import hashlib
 import json
@@ -54,6 +55,20 @@ _TOPIC_WORDS = {
 _LINE_PREFIX = "【记忆】"
 _LINE_BODY = 56
 _CARD_LOCK = threading.Lock()
+
+# 分层记忆（第 4 批深度①）：工作/情景/语义。工作=临时上下文（近期才有用）；
+# 情景=有时间的经历/承诺；语义=长期稳定的事实/偏好。memory_manager 按层存与召回。
+LAYERS = ("work", "episodic", "semantic")
+_LONG_TERM = re.compile(r"(住在|老家|生日|习惯|平时|每天|一直在|我的工作|职业|家人|朋友)")
+
+
+def infer_layer(text, ctype=""):
+    """由卡片类型/文本推断分层；认不出按"工作记忆"（短期）处理。"""
+    if ctype in ("event", "commitment"):
+        return "episodic"
+    if ctype in ("preference", "relationship"):
+        return "semantic"
+    return "semantic" if _LONG_TERM.search(str(text or "")) else "work"
 
 _STRONG_PAT = re.compile(
     r"(我喜欢|我爱|我讨厌|我不喜欢|记住|别忘了|提醒我|以后|下次|"
@@ -299,12 +314,14 @@ def extract_cards(text, *, now=None, strong_only=False):
 
 
 def summarize_cards(texts, *, now=None):
-    """每 5 轮写一张摘要卡：只保留最近几轮的原话，不做模型总结。"""
+    """每 5 轮写一张摘要卡（只留原话不调模型）；这种卡只在近期有用 → 工作记忆层。"""
     now = float(now or time.time())
     joined = "；".join(clean(t) for t in (texts or []) if clean(t))[:120]
     if not joined:
         return []
     card = make_card("近几轮聊到：" + joined, now=now)
+    if card:
+        card["layer"] = "work"
     return [card] if card else []
 
 
@@ -377,6 +394,8 @@ def normalize(raw, *, now=None, index=0):
         topic = str(raw.get("topic") or infer_topic(text))
         if topic:
             card["topic"] = topic
+        layer = str(raw.get("layer") or "")
+        card["layer"] = layer if layer in LAYERS else infer_layer(text, ctype)
         if raw.get("follow_up"):
             card["follow_up"] = clean(raw["follow_up"])
         if raw.get("due"):
@@ -472,10 +491,12 @@ def recently_injected(state, cid, now, hours):
 
 
 class MemoryV2:
-    def __init__(self, base="."):
+    def __init__(self, base=".", data_dir=None):
+        """``data_dir`` 不给时用 ``base/data``；测试会把它挪到临时目录（见 core/data_paths.py）。"""
         self.base = str(base or ".")
-        self.path = os.path.join(self.base, "data", "memory_cards.jsonl")
-        self.state_path = os.path.join(self.base, "data", "memory_v2_state.json")
+        self.data_dir = str(data_dir or os.path.join(self.base, "data"))
+        self.path = os.path.join(self.data_dir, "memory_cards.jsonl")
+        self.state_path = os.path.join(self.data_dir, "memory_v2_state.json")
 
     def recall(self, query, *, topic="", limit=DEFAULT_LIMIT,
                max_chars=DEFAULT_CHARS, hours=DEFAULT_HOURS, now=None):

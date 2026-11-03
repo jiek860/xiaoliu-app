@@ -18,10 +18,35 @@ BASELINE = os.path.join(BASE, "tools", "file_size_baseline.json")
 ROOTS = ("core", "gui", "modules/installed")
 
 
-def load_policy():
+def load_baseline():
     with open(BASELINE, encoding="utf-8-sig") as f:
-        d = json.load(f)
+        return json.load(f)
+
+
+def load_policy():
+    d = load_baseline()
     return d.get("policy") or {}, d.get("per_file_budgets") or {}
+
+
+def check_known_frozen(rows):
+    """B7：已知冻结的大文件只许降不许涨（登记见 baseline.known_frozen）
+
+    这几份是决定「本轮不拆」的，光写着"不拆"没有约束力 —— 下一次有人图省事
+    往里加 20 行，警告线还是 500，照样绿灯。所以把当天行数当上限钉住。
+    """
+    frozen = (load_baseline().get("known_frozen") or {}).get("files") or []
+    actual = dict(rows)
+    problems = []
+    for item in frozen:
+        rel = str(item.get("path") or "")
+        cap = int(item.get("lines") or 0)
+        n = actual.get(rel)
+        if n is None:
+            continue                     # 文件被删/改名（更好，不算违约）
+        if n > cap:
+            problems.append("%s 冻结在 %d 行，现在 %d 行（只许降，要加代码先拆）"
+                            % (rel, cap, n))
+    return problems
 
 
 def scan():
@@ -75,6 +100,7 @@ def main():
     default_max = int(policy.get("default_max_lines", 600))
     rows = scan()
     errors, warnings, blocked = evaluate(rows, policy, budgets)
+    frozen_problems = check_known_frozen(rows)
     print("默认新文件上限：%d 行；警告线：%d 行；冻结线：%d 行" % (
         default_max, int(policy.get("warn_lines", 500)),
         int(policy.get("block_new_code_lines", 800))))
@@ -94,6 +120,11 @@ def main():
         print("\n[ERROR] 超过预算：")
         for n, rel, cap, why in errors:
             print("  %5d / %5d  %s  (%s)" % (n, cap, rel, why))
+        return 1
+    if frozen_problems:
+        print("\n[ERROR] 已知冻结文件长回去了：")
+        for p in frozen_problems:
+            print("  " + p)
         return 1
     print("\n文件长度守卫通过（警告不阻塞开发，但 >600 新文件或预算上涨会失败）。")
     return 0

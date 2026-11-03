@@ -19,6 +19,39 @@ except ImportError:
 import time
 
 
+def _deai(text):
+    """去 AI 腔（兜底链路也要跑，理由见 core/chat/deai.py）。"""
+    try:
+        from core.chat.deai import deai
+        return deai(text)["text"]
+    except Exception as e:
+        _x6_swallowed(__name__, e, "deai")
+        return text
+
+
+def _tone_hint():
+    """说话要求段（与人格来源无关，理由见 core/personality_style_hints.TONE_HINT）。"""
+    try:
+        from core.personality_style_hints import TONE_HINT
+        return TONE_HINT
+    except Exception as e:
+        _x6_swallowed(__name__, e, "tone_hint")
+        return ""
+
+
+def _chat_composed(llm, messages):
+    """非流式兜底：提示词已经拼好，别再让客户端注入小6人格。
+
+    与 `LLMDispatcher._fallback_chat` 同一个理由：`LLMClient._try_local` 在
+    ``inject_persona=True`` 时会删掉调用方**所有** system 消息，只留一句通用人格，
+    人格卡 / 上下文 / 说话要求都会丢。老接口（测试桩）只收 messages 时按原样调。
+    """
+    try:
+        return llm.chat(messages, inject_persona=False)
+    except TypeError:
+        return llm.chat(messages)
+
+
 def run(trunk, user_input, on_token=None, cancel_token=None):
     trunk._set_status("💭 正在理解你的问题...")
     # 轮次计数（反思降频用）
@@ -82,7 +115,8 @@ def run(trunk, user_input, on_token=None, cancel_token=None):
                 tk = trunk.rule("检索.top_k", trunk.config.get("retrieval_top_k", 3))
                 rs = vs.search(user_input, top_k=tk)
                 return "\n".join([r.get("text", "")[:100] for r in rs]) if rs else ""
-        except Exception:
+        except Exception as e:
+            _x6_swallowed(__name__, e, "vector recall")
             return ""
 
     def _ctx_m():
@@ -187,11 +221,18 @@ def run(trunk, user_input, on_token=None, cancel_token=None):
     else:
         persona = pers_hint if pers_hint else "你是小6，住在用户电脑里的AI朋友。"
     messages = [{"role": "system", "content": persona}]
+    tone = _tone_hint()
+    if tone:
+        messages.append({"role": "system", "content": tone})
     skill_prompt = str(getattr(trunk, "_active_skill_prompt", "") or "")
     if skill_prompt:
         messages.append({"role": "system", "content": skill_prompt[:2000]})
     if context:
-        messages.append({"role": "system", "content": "相关知识: " + context})
+        # 第 4 批：context 可能已经是 "相关知识：① …（来源：…）"，别重复加标题
+        _ctx_text = str(context).lstrip()
+        messages.append({"role": "system",
+                         "content": _ctx_text if _ctx_text.startswith("相关知识")
+                         else "相关知识: " + _ctx_text})
     # P1-4: 自我反思教训注入——上次低分反思的真实教训直接影响本次 prompt
     try:
         refl = trunk.modules.get("self_reflect")
@@ -221,17 +262,19 @@ def run(trunk, user_input, on_token=None, cancel_token=None):
         if cancel_token is not None and cancel_token.is_cancelled():
             return answer or ""
         if not answer or str(answer).startswith(("（模型错误", "本地模型错误")):
-            answer = llm.chat(messages)
+            answer = _chat_composed(llm, messages)
             if on_token and answer:
                 on_token(str(answer))
     else:
-        answer = llm.chat(messages)
+        answer = _chat_composed(llm, messages)
     # 取消：跳过记忆、群聊合并、代码沙盒验证与后台闭环，立即收工
     if cancel_token is not None and cancel_token.is_cancelled():
         trunk._chat_in_progress = False
         trunk._chat_active_until = time.time() + getattr(trunk, "_CHAT_ACTIVE_SEC", 25)
         return answer or ""
-    # 5. 存记忆
+    # 5. 去 AI 腔（「作为一个AI…」「希望对你有所帮助」这类，无条件清）
+    answer = _deai(answer)
+    # 6. 存记忆
     trunk.mem_add(user_input, answer)
     # 5.5 群聊（懒加载：装了子智能体就一起答，没装就跳过）
     try:

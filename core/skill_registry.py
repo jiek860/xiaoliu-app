@@ -12,6 +12,7 @@
 - delete(name)：删除
 """
 import json, os
+from core.data_paths import data_path
 
 
 class SkillRegistry:
@@ -19,15 +20,13 @@ class SkillRegistry:
         self.trunk = trunk
         self.base = getattr(trunk, "base", ".")
         # 启用/禁用状态存在这里
-        self.state_file = os.path.join(self.base, "data", "skill_registry.json")
+        self.state_file = data_path(self, "skill_registry.json")
         self._state = self._load_state()
 
         # 两种来源的目录
-        self.zip_skill_dir = os.path.join(self.base, "data", "skills")
-        self.captured_dir = os.path.join(
-            self.base, "data", "plugin_data", "skill_capture", "skills")
-        self.pending_dir = os.path.join(
-            self.base, "data", "plugin_data", "skill_capture", "skills_pending")
+        self.zip_skill_dir = data_path(self, "skills")
+        self.captured_dir = data_path(self, "plugin_data", "skill_capture", "skills")
+        self.pending_dir = data_path(self, "plugin_data", "skill_capture", "skills_pending")
 
     def _load_state(self):
         try:

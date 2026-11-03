@@ -9,6 +9,7 @@ except ImportError:
 import os
 import json
 from datetime import datetime
+from core.data_paths import data_path
 
 # 当前协议版本
 PRIVACY_VERSION = "3.2"
@@ -21,7 +22,7 @@ class Agreement:
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or \
             os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.path = os.path.join(self.base, "data", "agreement.json")
+        self.path = data_path(self, "agreement.json")
         self.docs_dir = os.path.join(self.base, "docs")
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         os.makedirs(self.docs_dir, exist_ok=True)

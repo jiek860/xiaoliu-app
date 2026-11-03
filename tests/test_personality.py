@@ -81,7 +81,7 @@ HINTS = [
     ("report_hint", False), ("learn_user_style_hint", False),
     ("holiday_hint", False), ("gift_hint", True),
     ("short_reply_hint", True), ("repeat_hint", True),
-    ("bible_hint", True), ("roast_hint", True), ("comfort_hint", True),
+    ("roast_hint", True), ("comfort_hint", True),
     ("full_hint", True),
 ]
 

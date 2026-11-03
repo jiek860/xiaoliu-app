@@ -1,0 +1,8 @@
+{
+  "dead_modules": 0,
+  "dead_defs": 0,
+  "duplicates": 0,
+  "kept": 4,
+  "updated": "2026-11-02",
+  "why": "可疑死代码基线（棘轮）：清理后只许降。新增一项就会让门禁失败，确认要保留的登 KEEP。由 tools/audit_dead_code.py 的静态近似口径产出。"
+}

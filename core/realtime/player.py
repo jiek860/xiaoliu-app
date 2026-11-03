@@ -54,7 +54,7 @@ class Player:
                 _x6_swallowed(__name__, e)
             while not self._q.empty():
                 try: self._q.get_nowait()
-                except: break
+                except Exception: break
 
     def play(self, gen, path):
         self._q.put((gen, path))

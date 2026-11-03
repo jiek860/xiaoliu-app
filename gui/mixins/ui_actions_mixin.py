@@ -14,6 +14,22 @@ except ImportError:
         return None
 
 
+# 常用中文音色（edge-tts 的 ShortName）。写在模块级不可变元组，
+# 供「+ → 朗读音色」子菜单和提示文本共用，不引入网络依赖。
+_TTS_VOICES = (
+    ("zh-CN-XiaoxiaoNeural", "晓晓（女·温柔）"),
+    ("zh-CN-XiaoyiNeural", "晓伊（女·活泼）"),
+    ("zh-CN-YunxiNeural", "云希（男·少年）"),
+    ("zh-CN-YunjianNeural", "云健（男·有力）"),
+    ("zh-CN-YunxiaNeural", "云夏（男·稚气）"),
+    ("zh-CN-YunyangNeural", "云扬（男·播报）"),
+    ("zh-CN-liaoning-XiaobeiNeural", "晓北（女·东北）"),
+    ("zh-CN-shaanxi-XiaoniNeural", "晓妮（女·陕西）"),
+    ("zh-HK-HiuMaanNeural", "曉曼（女·粤语）"),
+    ("zh-TW-HsiaoChenNeural", "曉臻（女·台湾）"),
+)
+
+
 class UIActionsMixin:
     def open_web_console(self):
         """启动本地 Web 控制台并展示带 token 的访问地址。"""
@@ -119,7 +135,16 @@ class UIActionsMixin:
         a_editor = menu.addAction("送工作台")
         a_shot = menu.addAction("区域截图")
         a_export = menu.addAction("导出聊天记录")
-        a_tts = menu.addAction("自动朗读开关")
+        a_tts = menu.addAction("自动朗读（当前：%s）" % (
+            "开" if self._auto_tts_enabled() else "关"))
+        voice_menu = menu.addMenu("🔊 朗读音色（当前：%s）" % self._tts_voice_label())
+        for vid, label in _TTS_VOICES:
+            act = voice_menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(vid == self._tts_voice())
+            act.triggered.connect(
+                lambda _checked=False, v=vid, lb=label: self.set_tts_voice(v, lb))
+        a_preview = voice_menu.addAction("▶ 试听当前音色")
         a_ocr = menu.addAction("截图识字")
         action = menu.exec_(self.plus_btn.mapToGlobal(
             self.plus_btn.rect().bottomLeft()))
@@ -134,12 +159,134 @@ class UIActionsMixin:
         elif action == a_export:
             self._do_export()
         elif action == a_tts:
-            self._auto_tts = not getattr(self, "_auto_tts", False)
-            QMessageBox.information(
-                self, "自动朗读", "自动朗读已" + (
-                    "开启" if self._auto_tts else "关闭"))
+            self.toggle_auto_tts()
+        elif action == a_preview:
+            self.preview_tts_voice()
         elif action == a_ocr:
             self.chat.append("（截图识字功能开发中）")
+
+    # ---------------------------------------------------------- 自动朗读
+    def _auto_tts_enabled(self):
+        """当前是否开着自动朗读（**以配置为准**，内存属性只是缓存）。"""
+        trunk = getattr(self, "trunk", None)
+        cfg = getattr(trunk, "config", None) if trunk is not None else None
+        if isinstance(cfg, dict):
+            return bool(cfg.get("auto_tts", False))
+        return bool(getattr(self, "_auto_tts", False))
+
+    def toggle_auto_tts(self):
+        """切「自动朗读」开关，并**写进 config**。
+
+        原来的坑：这里只翻了一个内存属性 ``_auto_tts``，
+        而 ``chat_mixin`` 判断的是 ``trunk.config["auto_tts"]`` ——
+        菜单提示"已开启"，回复却永远不会朗读（用户以为语音坏了）。
+        """
+        trunk = getattr(self, "trunk", None)
+        cfg = getattr(trunk, "config", None) if trunk is not None else None
+        if not isinstance(cfg, dict):
+            QMessageBox.warning(self, "自动朗读", "配置还没加载好，稍后再试")
+            return False
+        enabled = not bool(cfg.get("auto_tts", False))
+        cfg["auto_tts"] = enabled
+        self._auto_tts = enabled          # 兼容旧代码里读这个属性
+        saved = True
+        save = getattr(trunk, "save_config", None)
+        if callable(save):
+            try:
+                save()
+            # 静默是故意的 - 存盘失败也要把开关状态告诉用户，不装作成功
+            except Exception as e:
+                _x6_swallowed(__name__, e, "save auto_tts")
+                saved = False
+        tip = "自动朗读已" + ("开启" if enabled else "关闭")
+        if enabled:
+            tip += ("\n下一条回复会自动读出来。\n"
+                    "没有声音：到「设置 → 扩展 → 功能扩展组件」检查语音合成"
+                    "（edge-tts）是否装好，并确认系统音量/播放设备。")
+        if not saved:
+            tip += "\n（写入配置失败，重启后会恢复原样）"
+        QMessageBox.information(self, "自动朗读", tip)
+        return enabled
+
+    # ---------------------------------------------------------- 朗读音色
+    def _tts_voice(self):
+        """当前朗读音色（**以配置为准**，与实时语音对话共用一项）。"""
+        trunk = getattr(self, "trunk", None)
+        cfg = getattr(trunk, "config", None) if trunk is not None else None
+        if isinstance(cfg, dict):
+            name = str(cfg.get("tts_voice") or "").strip()
+            if name:
+                return name
+        return _TTS_VOICES[0][0]
+
+    def _tts_voice_label(self):
+        """给菜单显示的中文名；配置里是自己填的陌生名字就直接显示名字。"""
+        cur = self._tts_voice()
+        for vid, label in _TTS_VOICES:
+            if vid == cur:
+                return label
+        return cur
+
+    def set_tts_voice(self, voice, label=""):
+        """切「朗读音色」——写进 config 并落盘，朗读和实时对话立刻生效。
+
+        为什么写配置而不是改模块属性：朗读走插件模块 ``modules/installed/tts``、
+        实时对话走 ``core/realtime``，它们各自实例化，只有共享配置才收得住。
+        """
+        trunk = getattr(self, "trunk", None)
+        cfg = getattr(trunk, "config", None) if trunk is not None else None
+        if not isinstance(cfg, dict):
+            QMessageBox.warning(self, "朗读音色", "配置还没加载好，稍后再试")
+            return False
+        voice = str(voice or "").strip()
+        if not voice:
+            return False
+        cfg["tts_voice"] = voice
+        saved = True
+        save = getattr(trunk, "save_config", None)
+        if callable(save):
+            try:
+                save()
+            # 静默是故意的 - 存盘失败也要告诉用户，不装作成功
+            except Exception as e:
+                _x6_swallowed(__name__, e, "save tts_voice")
+                saved = False
+        tip = "朗读音色已切换为：%s" % (label or voice)
+        tip += ("\n「自动朗读」和「🎧 实时对话」都用这个音色，下一条就生效。\n"
+                "如果在线语音连不上，程序会改用系统朗读 —— 系统里通常只有一个"
+                "中文音色，只能听出音调差别（男声会自动降调）。")
+        if not saved:
+            tip += "\n（写入配置失败，重启后会恢复原样）"
+        QMessageBox.information(self, "朗读音色", tip)
+        return True
+
+    def preview_tts_voice(self):
+        """试听当前音色：念一句带标点的短句，方便判断"是不是真人感"。
+
+        为什么要试听：音色切了到底生没生效，靠"下一条回复"验证太慢；
+        直接给一句话立刻出声，还能顺带验证在线/兜底走的是哪条路。
+        """
+        speech = getattr(self, "speech", None)
+        if speech is None or not hasattr(speech, "speak_async"):
+            QMessageBox.warning(self, "试听", "语音播放还没准备好，稍后再试")
+            return False
+        sample = ("你好，我是%s。现在用「%s」的声音说话，"
+                  "语速和停顿会尽量自然一点，你听听看。" % (
+                      getattr(self, "ai_name", "") or "小6",
+                      self._tts_voice_label()))
+        chat = getattr(self, "chat", None)
+        if chat is not None and hasattr(chat, "append"):
+            chat.append("▶ 正在试听音色：%s" % self._tts_voice_label())
+        try:
+            on_error = getattr(self, "_tts_failed", None)
+            speech.speak_async(sample, on_error=on_error if callable(on_error) else None)
+        # 静默是故意的 - 试听只是辅助，失败也要回一句原因
+        except Exception as e:
+            _x6_swallowed(__name__, e, "preview tts voice")
+            if chat is not None and hasattr(chat, "append"):
+                chat.append("🔇 试听失败：%s" % str(e)[:80])
+            return False
+        return True
 
     def upload_image(self, path=None):
         """发图片：选图片（或直接用传入路径）→ 描述图片 → 描述加到输入框"""

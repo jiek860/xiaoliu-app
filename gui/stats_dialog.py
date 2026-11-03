@@ -1,14 +1,26 @@
 # -*- coding: utf-8 -*-
-"""v26-6.2: 数据统计报表 完整版（GUI对话框）"""
-import os, json
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QTextBrowser, QComboBox)
+"""v26-6.2: 数据统计报表（GUI 对话框）
+
+数值全部来自 ``core.stats_report.StatsReport``，这里只负责展示与导出 ——
+原来本文件自己又写了一套 ``SELECT COUNT(*)``，两套口径迟早对不上
+（事实也确实对不上：能力表里的「日历事件」和这里曾经都不区分
+「真的 0 条」和「读失败」）。
+"""
+try:
+    from core.diagnostics import swallowed as _x6_swallowed
+except ImportError:      # pragma: no cover
+    def _x6_swallowed(component, error, context=""):
+        return None
+
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, \
+    QTextBrowser, QComboBox
 
 from gui.feedback_states import make_action_links
 
 
 class StatsDialog(QDialog):
     """数据统计报表对话框"""
+
     def __init__(self, trunk, parent=None):
         super().__init__(parent)
         self.trunk = trunk
@@ -23,6 +35,7 @@ class StatsDialog(QDialog):
         top.addWidget(QLabel("时间范围:"))
         self.period = QComboBox()
         self.period.addItems(["今天", "本周", "本月", "全部"])
+        self.period.setCurrentText("全部")
         self.period.currentIndexChanged.connect(self._refresh)
         top.addWidget(self.period)
         top.addStretch(1)
@@ -33,63 +46,38 @@ class StatsDialog(QDialog):
         layout.addWidget(self.tb)
 
     def _refresh(self):
-        period = self.period.currentText()
-        data = self._collect(period)
-        md = self._render_md(data)
-        self.tb.setMarkdown(md)
+        self.tb.setMarkdown(self._render_md(self._collect()))
 
-    def _collect(self, period):
-        d = {
-            "聊天消息": self._count_chats(),
-            "记忆卡": self._count_cards(),
-            "日历事件": self._count_calendar(),
-        }
-        return d
-
-    def _count_chats(self):
+    def _collect(self):
+        """结构化统计；读失败时 StatsReport 会标 status=失败（不再是 0）"""
         try:
-            import sqlite3
-            db = os.path.join(self.trunk.base, "data", "chats.db")
-            if not os.path.exists(db):
-                return 0
-            c = sqlite3.connect(db)
-            n = c.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
-            c.close()
-            return n
-        except Exception:
-            return 0
-
-    def _count_cards(self):
-        p = os.path.join(self.trunk.base, "data", "memory_cards.jsonl")
-        if not os.path.exists(p):
-            return 0
-        return len(open(p, encoding="utf-8").readlines())
-
-    def _count_calendar(self):
-        p = os.path.join(self.trunk.base, "data", "calendar.json")
-        if not os.path.exists(p):
-            return 0
-        try:
-            return len(json.load(open(p, encoding="utf-8")))
-        except Exception:
-            return 0
+            from core.stats_report import StatsReport
+            return StatsReport(self.trunk).generate(self.period.currentText())
+        except Exception as e:
+            _x6_swallowed(__name__, e, "stats collect")
+            return {"ok": False, "范围": self.period.currentText(),
+                    "统计": {}, "合计": 0,
+                    "说明": "统计模块不可用：%s" % str(e)[:80]}
 
     def _render_md(self, data):
-        lines = ["# 小6使用统计\n"]
-        lines.append("**时间范围：** %s\n" % self.period.currentText())
-        lines.append("## 使用量\n")
-        lines.append("- 💬 聊天消息：%d 条" % data["聊天消息"])
-        lines.append("- 🧠 记忆卡：%d 条" % data["记忆卡"])
-        lines.append("- 📅 日历事件：%d 个" % data["日历事件"])
-        lines.append("\n## 性能\n")
-        lines.append("- 启动时间：约2-3秒")
-        lines.append("- 内存占用：约200-300MB")
-        return "\n".join(lines)
+        try:
+            from core.stats_report import StatsReport
+            return StatsReport(self.trunk).to_markdown(
+                self.period.currentText())
+        except Exception as e:
+            _x6_swallowed(__name__, e, "stats render")
+            return "# 小6使用统计\n\n统计模块不可用：%s\n" % str(e)[:80]
 
     def _export_md(self):
         from PyQt5.QtWidgets import QFileDialog, QMessageBox
-        path, _ = QFileDialog.getSaveFileName(self, "导出", "stats.md", "Markdown (*.md)")
+        path, _ = QFileDialog.getSaveFileName(self, "导出", "stats.md",
+                                              "Markdown (*.md)")
         if not path:
             return
-        open(path, "w", encoding="utf-8").write(self.tb.toMarkdown())
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(self.tb.toMarkdown())
+        except Exception as e:
+            QMessageBox.warning(self, "导出失败", "写入失败：%s" % str(e)[:80])
+            return
         QMessageBox.information(self, "成功", "已导出: " + path)

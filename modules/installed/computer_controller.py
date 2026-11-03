@@ -37,6 +37,7 @@ from core.computer_app_tools import ComputerAppToolsMixin
 from core.computer_input_tools import ComputerInputToolsMixin
 from core.computer_system_tools import ComputerSystemToolsMixin
 from core.computer_command_parser import ComputerCommandParserMixin
+from core.data_paths import data_path
 
 
 class ComputerController(
@@ -64,7 +65,7 @@ class ComputerController(
         # v16修复: 插件装到 modules/installed 后 __file__ 上推两级会错位到 modules/，
         # 导致白名单根目录与日志路径错位；优先用躯干的项目根
         self.base = getattr(trunk, "base", None) or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        self.log_dir = os.path.join(self.base, "data", "logs")
+        self.log_dir = data_path(self, "logs")
         os.makedirs(self.log_dir, exist_ok=True)
         self.log_path = os.path.join(self.log_dir, "computer_controller.log")
         self.whitelist = [
@@ -111,7 +112,7 @@ class ComputerController(
                 "✓" if ok else "✗", action, str(detail)[:120], "成功" if ok else "失败", extra)
             with open(self.log_path, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
-        except: pass  # 静默是故意的 - Agent 防御性回退，不阻塞主流程
+        except Exception: pass  # 静默是故意的 - Agent 防御性回退，不阻塞主流程
 
     def _enabled(self):
         """电脑控制总开关（聊天触发开关，GUI面板不受影响）"""
@@ -151,7 +152,7 @@ class ComputerController(
             return None
         p = os.path.expanduser(p)
         if not os.path.isabs(p):
-            p = os.path.join(self.base, "data", p)
+            p = data_path(self, p)
         p = os.path.abspath(p)
         return p if self._check_path(p) else None
 

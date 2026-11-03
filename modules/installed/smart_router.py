@@ -9,6 +9,7 @@ except ImportError:
 
 import re, json, os
 from modules.base import BaseModule
+from core.data_paths import data_path
 
 class SmartRouter(BaseModule):
 
@@ -30,10 +31,10 @@ class SmartRouter(BaseModule):
         self.cache = {}  # {问题: 路由结果}
         self.weights = {}  # {意图: 权重，反馈学习}
         # v2.1: 插件持久化必须落在 data/plugin_data/<插件名>/ 内
-        _sdir = os.path.join(self.base, "data", "plugin_data", "smart_router")
+        _sdir = data_path(self, "plugin_data", "smart_router")
         os.makedirs(_sdir, exist_ok=True)
         self.cache_path = os.path.join(_sdir, "router_cache.json")
-        _legacy = os.path.join(self.base, "data", "router_cache.json")
+        _legacy = data_path(self, "router_cache.json")
         if not os.path.exists(self.cache_path) and os.path.exists(_legacy):
             try: os.replace(_legacy, self.cache_path)
             except OSError:  # 静默是故意的：旧数据迁移失败不阻断主流程

@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, Tuple
+from typing import Dict, Tuple
 
 SIMPLE = "simple"
 ADVANCED = "advanced"
@@ -157,7 +157,7 @@ MORE_MENU_GROUPS = (
     )),
     ("工具", (
         "model_selector", "workbench",
-        "realtime_chat", "computer_agent",
+        "realtime_chat",
     )),
     ("安全", (
         "security_center",
@@ -221,12 +221,3 @@ def feature_by_label(label: str):
 def command_group_for(label: str, default: str = "工具") -> str:
     f = feature_by_label(label)
     return f.group if f else default
-
-
-def command_groups(features: Iterable[Feature] = None) -> Dict[str, list]:
-    out = {g: [] for g in COMMAND_GROUPS}
-    for f in (features if features is not None else FEATURES.values()):
-        out.setdefault(f.group, []).append(f)
-    for v in out.values():
-        v.sort(key=lambda x: x.order)
-    return out

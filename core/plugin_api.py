@@ -92,12 +92,6 @@ _FIRST_PARTY_INTEGRATION = (
 )
 
 
-def _module_of(node):
-    if isinstance(node, ast.ImportFrom) and node.module:
-        return node.module
-    return ""
-
-
 def _is_forbidden(module):
     return any(module == p or module.startswith(p)
                for p in FORBIDDEN_CORE_PREFIXES)

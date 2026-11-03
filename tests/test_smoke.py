@@ -59,22 +59,19 @@ def test_all_py_compile():
 
 
 def test_lazy_map_resolvable():
-    """懒加载登记的模块都能在 modules/installed 或 core 里找到，且类名对得上"""
+    """懒加载登记的模块能在其登记来源（core / modules/installed）找到，且类名对得上"""
     import ast
-    from core.lazy_config import LAZY_MAP
+    from core.lazy_config import LAZY_MAP, source_of
     inst = os.path.join(BASE, "modules", "installed")
     cored = os.path.join(BASE, "core")
     missing = []
     for key, val in LAZY_MAP.items():
         fname, cls = val[0], val[1]
-        hit = None
-        for d in (inst, cored):
-            p = os.path.join(d, fname + ".py")
-            if os.path.exists(p):
-                hit = p
-                break
-        if not hit:
-            missing.append("%s -> 找不到 %s.py" % (key, fname))
+        # 按登记来源只认一个目录：core 模块去 core/，插件去 modules/installed/
+        d = cored if source_of(key) == "core" else inst
+        hit = os.path.join(d, fname + ".py")
+        if not os.path.exists(hit):
+            missing.append("%s -> 来源 %s 下找不到 %s.py" % (key, source_of(key), fname))
             continue
         try:
             tree = ast.parse(open(hit, "rb").read())

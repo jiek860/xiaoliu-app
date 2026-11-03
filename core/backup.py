@@ -9,6 +9,7 @@ import os, shutil, secrets, hashlib, stat, tempfile, threading, time
 from datetime import datetime
 from core.logger import get_logger
 from core.path_safety import safe_name, safe_join
+from core.data_paths import data_dir
 
 _ENC_MAGIC = b"X6BAK2"
 _ENC_ITER = 200_000
@@ -119,7 +120,7 @@ class Backup:
                     name = cand
                     break
         path = os.path.join(self.backup_dir, name)
-        data_src = os.path.join(self.base, r"data")
+        data_src = data_dir(self)
         if not os.path.exists(data_src):
             return {"成功": False, "错误": "data目录不存在"}
         last_backup = self._last_backup_path()
@@ -308,7 +309,7 @@ class Backup:
             return {"成功": False, "错误": "未配置备份密码，请在设置里先设置backup_password"}
         name = "导出_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".zip"
         dest = os.path.join(dest_dir, name)
-        data_src = os.path.join(self.base, "data")
+        data_src = data_dir(self)
         if not os.path.exists(data_src):
             return {"成功": False, "错误": "data 目录不存在"}
 
@@ -412,7 +413,7 @@ class Backup:
         path = safe_join(self.backup_dir, name)
         if not name or not path or not os.path.isdir(path):
             return {"成功": False, "错误": "备份不存在或名称非法"}
-        data_dst = os.path.join(self.base, "data")
+        data_dst = data_dir(self)
         os.makedirs(data_dst, exist_ok=True)
         try:
             shutil.copytree(path, data_dst, dirs_exist_ok=True)

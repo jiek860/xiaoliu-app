@@ -165,9 +165,3 @@ class ErrorCardWidget(QFrame):
         visible = not self.detail.isVisible()
         self.detail.setVisible(visible)
         self._set_detail_link("收起技术细节" if visible else "技术细节")
-
-
-def show_error_message(parent, error, action=None):
-    card = ErrorCardWidget(error, action=action, parent=parent)
-    card.show()
-    return card

@@ -17,6 +17,7 @@ from gui.mixins import (
 # 这里原来粘了一份一模一样的副本，两边都得改 —— 正是"改了一个忘另一个"的经典坑。
 # 而且那份副本里的 padding:10px 会让 32px 高的按钮只剩 10px 放字（见 module_tools_dialog）。
 from gui.style import STYLE
+from core.data_paths import data_path
 
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -214,7 +215,7 @@ class JarvisWindow(
         # 9. 自动登录
         _auto_user = None
         try:
-            cache = os.path.join(self.base, "data", "login_cache.json")
+            cache = data_path(self, "login_cache.json")
             if os.path.exists(cache):
                 c = json.load(open(cache, encoding="utf-8"))
                 r = self.trunk.call("auth", "login", c.get("u", ""))

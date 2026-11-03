@@ -98,16 +98,37 @@ LAZY_MAP = {
 }
 
 
-def get_module_list():
-    return list(LAZY_MAP.keys())
+# ===== 来源登记（2026-11-02，B0）=====
+# 一个 LAZY_MAP 条目到底属于「插件市场插件」还是「core 内置模块」，
+# 以前只能靠「modules/installed/<file>.py 是否存在」去猜 —— 猜错会带来两个误导：
+#   ① 插件市场的安装/卸载/签名流程对 core 模块无效；
+#   ② core 模块文件丢了，日志只说「模块未安装，请到插件市场下载」，把人指错方向。
+# 现在显式登记来源，_load_lazy 按来源只查对应目录，不再双路径乱猜。
+CORE_ONLY_KEYS = frozenset({
+    "crash_export", "migration", "sensitive_detector",
+    "mood_report", "growth_report", "action_recorder", "tool_call_logger",
+    "agent_flow", "local_fallback", "personality_market", "dream_system",
+    "memory_archiver", "plugin_signer", "gpu_detector",
+    "model_vote", "group_debate", "browser_session", "memory_organizer",
+    "memory_crypto", "memory_optimizer", "startup_optimizer",
+    "data_cleaner", "stats_report",
+})
+
+# 同一文件对应多个 key 的语义别名（允许，不是重复登记）：
+#   stt（语音识别）/ voice（语音模块）共用 voice.py；
+#   module_map 用 stt 做分组说明，check_modules/check_shapes 也把它俩一并跳过。
+SAME_FILE_ALIASES = {"stt": "voice"}
 
 
-def get_module_info(name):
-    if name not in LAZY_MAP:
-        return None
-    mod_file, cls_name, cn = LAZY_MAP[name]
-    return {"模块": name, "文件": mod_file, "类": cls_name, "中文名": cn}
+def source_of(key):
+    """返回模块的真实来源：'core'（内核内置）或 'installed'（插件市场）"""
+    return "core" if key in CORE_ONLY_KEYS else "installed"
 
 
-def count_modules():
-    return len(LAZY_MAP)
+def modules_by_source(src):
+    """按来源筛出登记条目，便于调试与守卫核对"""
+    return {k: v for k, v in LAZY_MAP.items() if source_of(k) == src}
+
+
+LAZY_CORE = modules_by_source("core")
+LAZY_PLUGIN = modules_by_source("installed")

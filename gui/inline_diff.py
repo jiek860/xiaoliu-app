@@ -19,8 +19,8 @@ import os
 import re
 
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QPlainTextEdit, QVBoxLayout,
-                             QWidget)
+from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QPlainTextEdit, QTextBrowser,
+                             QVBoxLayout, QWidget)
 
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -30,6 +30,8 @@ except ImportError:
 
 
 _HUNK = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+_APPLY_LINK = ('<a href="apply" style="color:#1976d2;text-decoration:none;">'
+               '✓ 应用全部修改</a>')
 
 
 class InlineDiffView(QWidget):
@@ -37,18 +39,29 @@ class InlineDiffView(QWidget):
     applyRequested = pyqtSignal()
     undoRequested = pyqtSignal()
 
-    def __init__(self, root, patch, on_apply=None, on_undo=None, parent=None):
+    def __init__(self, root, patch, on_apply=None, on_undo=None, parent=None,
+                 format_first=False):
         super().__init__(parent)
         self.root = os.path.abspath(root)
         self.patch = patch or {}
         self.on_apply = on_apply
         self.on_undo = on_undo
+        self.format_first = bool(format_first)   # 深度⑤：先格式化再落 hunk
         self.manifest = ""
         self._applied = False
         self._targets = {}
         self._last_key = None
+        self._skipped = set()
+        self._force = set()
+        self._applied_keys = set()
+        self._hunk_manifests = {}
+        self._plan = {}
+        self._conflicts = {}
+        self._base = {}
         self._build()
+        self._base = self._base_snapshot()
         self._fill()
+        self._refresh_hunks()
 
     # ---------------------------------------------------------- UI
     def _build(self):
@@ -62,6 +75,14 @@ class InlineDiffView(QWidget):
             "点击/双击 diff 行可跳转到源文件；应用与撤销在底部。")
         self.hint.setStyleSheet("padding:2px 10px;color:#667085;font-size:11px;")
         lay.addWidget(self.hint)
+        # 逐 hunk 清单（第 6 批）：用富文本链接做"应用/跳过/撤销"，不加按钮。
+        self.hunk_panel = QTextBrowser()
+        self.hunk_panel.setOpenLinks(False)
+        self.hunk_panel.setMaximumHeight(132)
+        self.hunk_panel.setStyleSheet(
+            "background:#fbfcfe;border-top:1px solid #e4e7ec;font-size:12px;")
+        self.hunk_panel.anchorClicked.connect(self._on_anchor)
+        lay.addWidget(self.hunk_panel)
         self.diff = QPlainTextEdit()
         self.diff.setReadOnly(True)
         self.diff.setStyleSheet(
@@ -71,9 +92,7 @@ class InlineDiffView(QWidget):
         lay.addWidget(self.diff, 1)
         foot = QHBoxLayout()
         foot.setContentsMargins(10, 6, 10, 6)
-        self.apply_link = QLabel(
-            '<a href="apply" style="color:#1976d2;text-decoration:none;">'
-            '✓ 应用全部修改</a>')
+        self.apply_link = QLabel(_APPLY_LINK)
         self.apply_link.linkActivated.connect(self._apply)
         self.undo_link = QLabel(
             '<a href="undo" style="color:#b42318;text-decoration:none;">'
@@ -136,6 +155,203 @@ class InlineDiffView(QWidget):
         self._last_key = target
         self.jumpRequested.emit(target[0], int(target[1]))
 
+    # ---------------------------------------------------------- 逐 hunk
+    def _path(self, rel):
+        return os.path.join(self.root, str(rel or "").replace("/", os.sep))
+
+    def _base_snapshot(self):
+        """记录"预览生成时"的文件内容，用于 3-way 冲突比对（深度②）。"""
+        snap = {}
+        for fp in (self.patch or {}).get("files") or []:
+            if str(fp.get("op") or "update") != "update":
+                continue
+            rel = str(fp.get("path") or "").replace("\\", "/")
+            try:
+                p = self._path(rel)
+                if os.path.isfile(p):
+                    with open(p, encoding="utf-8", errors="replace") as f:
+                        snap[rel] = f.read()
+            except OSError as e:  # 静默是故意的 - 快照失败只影响冲突提示
+                _x6_swallowed(__name__, e, "hunk base snapshot")
+        return snap
+
+    def _selected(self):
+        """没跳过任何 hunk 时返回 None（=全选），否则只应用未跳过的那几段。"""
+        if not self._skipped:
+            return None
+        try:
+            from core.hunk_edit import all_hunk_keys
+            keys = set(all_hunk_keys(self.patch))
+        except Exception as e:  # 静默是故意的 - 拿不到 key 就退回全选
+            _x6_swallowed(__name__, e, "hunk selected keys")
+            return None
+        return (keys | set(self._force)) - set(self._skipped)
+
+    def _refresh_hunks(self):
+        """重新算逐 hunk 定位/冲突状态，刷新富文本清单（不加按钮）。"""
+        try:
+            from core.hunk_edit import all_hunk_keys, conflict_report, plan
+            self._plan = plan(self.root, self.patch,
+                              selected_hunks=self._selected())
+            self._conflicts = {row["key"]: row for row in conflict_report(
+                self.root, self.patch, self._base)}
+            self._keys = all_hunk_keys(self.patch)
+        except Exception as e:  # 静默是故意的 - 清单坏了不影响 diff 预览
+            _x6_swallowed(__name__, e, "refresh hunk panel")
+            self._plan, self._conflicts, self._keys = {}, {}, []
+        self.hunk_panel.setHtml(self._hunk_html(
+            list((self._plan or {}).get("hunks") or [])))
+
+    def _hunk_html(self, rows):
+        if not rows:
+            return ('<div style="padding:6px 10px;color:#98a2b3;">'
+                    '没有行级修改（整文件操作请在底部应用）</div>')
+        out = ['<div style="padding:6px 10px;line-height:150%;">']
+        marks = "①②③④⑤⑥⑦⑧⑨⑩"
+        for i, row in enumerate(rows):
+            key = str(row.get("key") or "")
+            rel = key.rsplit(":", 1)[0]
+            mark = marks[i] if i < len(marks) else str(i + 1)
+            status = str(row.get("status") or "")
+            color = "#12b76a" if status == "exact" else "#b54708"
+            if status in ("duplicate", "missing"):
+                color = "#b42318"
+            head = "%s <b>%s</b> 第 %d 行 · <span style=\"color:%s;\">%s</span>" % (
+                mark, rel, int(row.get("line") or 0), color,
+                self._status_text(status))
+            links = []
+            if key in self._applied_keys:
+                links.append('<a href="undohunk://%s" style="color:#b42318;">撤销这一段</a>' % key)
+            elif key in self._skipped:
+                links.append('<a href="applyhunk://%s" style="color:#1976d2;">恢复应用</a>' % key)
+            else:
+                links.append('<a href="applyhunk://%s" style="color:#1976d2;">应用</a>' % key)
+                links.append('<a href="skiphunk://%s" style="color:#667085;">跳过</a>' % key)
+            if key in self._conflicts:
+                links.append('<a href="minehunk://%s" style="color:#b42318;">保留我的</a>' % key)
+                links.append('<a href="aihunk://%s" style="color:#1976d2;">用 AI 的</a>' % key)
+                links.append('<a href="manualhunk://%s" style="color:#7a5af8;">手动合并</a>' % key)
+            out.append("<div>%s · %s</div>" % (head, " · ".join(links)))
+        out.append("</div>")
+        return "".join(out)
+
+    @staticmethod
+    def _status_text(status):
+        try:
+            from core.hunk_edit import explain_status
+            return explain_status(status)
+        except Exception:  # 静默是故意的 - 状态文案缺失退回原文
+            return str(status or "未知")
+
+    def _on_anchor(self, url):
+        """QTextBrowser 用 anchorClicked(QUrl)；转成字符串再走同一条链接逻辑。"""
+        self._on_hunk_link(url.toString() if hasattr(url, "toString") else str(url))
+
+    def _on_hunk_link(self, url):
+        act, _, key = str(url or "").partition("://")
+        if not key:
+            return
+        rel, _, idx = key.rpartition(":")
+        if act in ("applyhunk", "aihunk"):
+            if act == "aihunk":
+                self._conflicts.pop(key, None)
+            self._apply_one(key, force=act == "aihunk")
+            return
+        self._skipped.add(key)
+        self._force.discard(key)
+        if act == "skiphunk":
+            self.status.setText("已跳过 %s（应用全部时不会包含它）" % key)
+        elif act == "minehunk":
+            self.status.setText("保留你的改动：%s 不应用 AI 版本" % key)
+        elif act == "manualhunk":
+            self.jumpRequested.emit(rel, max(1, int(self._line_of(key))))
+            self.status.setText("请在该行手动合并，已跳过 %s" % key)
+        elif act == "undohunk":
+            self._skipped.discard(key)
+            self._undo_one(key)
+            return
+        self._refresh_hunks()
+
+    def _line_of(self, key):
+        for row in (self._plan or {}).get("hunks") or []:
+            if str(row.get("key")) == key:
+                return int(row.get("line") or 0)
+        return 0
+
+    def _apply_one(self, key, force=False):
+        try:
+            from core.hunk_edit import apply_hunks
+            r = apply_hunks(self.root, self.patch, selected_hunks={key},
+                            base_texts=self._base,
+                            conflict_policy="ai" if force else "ask")
+        except Exception as e:  # 静默是故意的 - 失败原因显示在预览条
+            self.status.setText("应用失败: " + str(e)[:200])
+            return
+        rows = [h for h in (r.get("hunks") or []) if h.get("key") == key]
+        row = rows[0] if rows else {}
+        if row.get("error"):
+            self.status.setText("应用失败: " + str(row["error"])[:200])
+            return
+        manifest = str(r.get("manifest") or "")
+        if manifest:
+            self._hunk_manifests[key] = manifest
+            self.manifest = manifest
+        self._applied_keys.add(key)
+        self._skipped.discard(key)
+        self._applied = True
+        self.apply_link.setText("✓ 已应用")
+        self.status.setText("已应用 %s" % key)
+        self._after_change()
+
+    def _apply_all_hunks(self):
+        try:
+            from core.hunk_edit import apply_hunks
+            r = apply_hunks(self.root, self.patch, selected_hunks=self._selected(),
+                            base_texts=self._base, conflict_policy="ask",
+                            format_first=self.format_first)
+        except Exception as e:  # 静默是故意的 - 失败原因显示在预览条
+            self.status.setText("应用失败: " + str(e)[:200])
+            return
+        if not r.get("ok"):
+            self.status.setText("应用失败: " + "；".join(
+                str(x) for x in (r.get("errors") or []))[:200])
+            return
+        self.manifest = str(r.get("manifest") or "")
+        self._applied = True
+        if not r.get("applied"):
+            self.status.setText("已跳过全部修改，文件未改动")
+            self.apply_link.setText("✓ 已应用")
+            self._after_change()
+            return
+        self.apply_link.setText("✓ 已应用")
+        fmt = r.get("format") or {}
+        note = ""
+        if fmt.get("formatted"):
+            note = "（已先格式化 %s）" % "、".join(fmt["formatted"])
+        self.status.setText("已应用: %s%s" % (", ".join(r.get("applied") or []),
+                                            note))
+        self._after_change()
+
+    def _undo_one(self, key):
+        manifest = self._hunk_manifests.get(key) or self.manifest
+        rel, _, idx = key.rpartition(":")
+        try:
+            from core.hunk_edit import undo_hunk
+            r = undo_hunk(manifest, rel, int(idx))
+        except Exception as e:  # 静默是故意的 - 失败原因显示在预览条
+            self.status.setText("撤销失败: " + str(e)[:200])
+            return
+        if not r.get("ok"):
+            self.status.setText("撤销失败: " + str(r.get("error") or "")[:200])
+            return
+        self._applied_keys.discard(key)
+        self.status.setText("已撤销 %s" % key)
+        self._after_change()
+
+    def _after_change(self):
+        self._fill()
+        self._refresh_hunks()
+
     # ---------------------------------------------------------- 动作
     def _apply(self, *_):
         if self._applied:
@@ -149,6 +365,9 @@ class InlineDiffView(QWidget):
                 self.status.setText("已应用（外部流程）")
             except Exception as e:  # 静默是故意的 - 外部回调失败要显示
                 self.status.setText("应用失败: " + str(e)[:160])
+            return
+        if self._skipped or self._hunk_manifests:
+            self._apply_all_hunks()   # 有跳过/逐段应用过，按 hunk 粒度落盘
             return
         try:
             from core.patch_engine import apply_patch
@@ -170,6 +389,26 @@ class InlineDiffView(QWidget):
                 self._applied = False
             except Exception as e:  # 静默是故意的
                 self.status.setText("撤销失败: " + str(e)[:160])
+            return
+        if self._hunk_manifests:
+            restored = []
+            try:
+                from core.hunk_edit import undo_hunk
+                # 逐段应用留下的是"每个 hunk 应用前"的快照：倒序撤销才能回到原样。
+                for key in reversed(list(self._hunk_manifests)):
+                    rel, _, idx = key.rpartition(":")
+                    r = undo_hunk(self._hunk_manifests[key], rel, int(idx))
+                    restored.extend(r.get("restored") or [])
+            except Exception as e:  # 静默是故意的 - 撤销失败要显示原因
+                self.status.setText("撤销失败: " + str(e)[:200])
+                return
+            self._hunk_manifests.clear()
+            self._applied_keys.clear()
+            self._applied = False
+            self.manifest = ""
+            self.apply_link.setText(_APPLY_LINK)
+            self.status.setText("已撤销: %s" % restored)
+            self._after_change()
             return
         if not self.manifest:
             self.status.setText("没有可撤销的修改")

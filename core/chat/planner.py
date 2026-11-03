@@ -37,6 +37,14 @@ _SENTENCES = {"one": 1, "brief": 2, "open": 4}
 _CHARS = {"ack": 60, "tease": 80, "clarify": 80, "remind": 70, "comfort": 100,
           "refuse": 120, "answer": 220, "answer_with_action": 220}
 
+# 「寒暄 + 真有事」：实测「你好小6最近的烧烤店有…」被判成 smalltalk，
+# 于是 act=ack、max_chars=60 —— 提示词直接把回复压成一句客套话，
+# 后来还反问"您希望我提供什么样的信息"（截图 21:19–22:18 那一串）。
+# 只要句子里有"要动手/要查"的信号，就不能只当寒暄。
+_REQUEST_WORDS = ("查", "搜", "找", "看看", "帮我", "帮忙", "附近", "周围",
+                  "最近", "哪", "多少钱", "价格", "推荐", "买", "订", "点",
+                  "店", "外卖", "怎么", "为什么", "是什么", "能不能", "有没有")
+
 
 def _blank_plan(source="rule"):
     return {"act": "answer", "length": "brief", "tone": _TONES["answer"],
@@ -122,6 +130,11 @@ class ResponsePlanner:
         if intent == "play":
             return _plan("tease", "one", must=["接住玩笑"], avoid=["冷笑话解释"])
         if intent == "smalltalk":
+            # 寒暄里夹着真请求（"你好，最近的烧烤店有…"）不能只回一句客套
+            if any(w in text for w in _REQUEST_WORDS):
+                return _plan("answer", "brief",
+                             must=["先接一句寒暄", "然后回答他真正问的事"],
+                             avoid=["只寒暄不回答", "反问一堆无关信息"])
             return _plan("ack", "one", must=["回应对方"], avoid=["展开成长篇"])
         if self._repeated(recent):
             return _plan("remind", "one", must=["提一句这个聊过了"],

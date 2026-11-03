@@ -23,6 +23,7 @@ from datetime import datetime
 # O5：首配/重配的真探测搬到 core/model_probe.py（本文件已到 600 行上限）。
 # 这里保留同名导出：core.self_check.probe_model_config 的老调用与测试打桩照旧可用。
 from core.model_probe import probe_model_config  # noqa: F401
+from core.data_paths import data_path
 
 
 def warmup_ollama(trunk):
@@ -483,7 +484,7 @@ def deep_check(trunk):
     except Exception as e:
         _x6_swallowed(__name__, e)
     try:
-        logf=os.path.join(trunk.base,"data","logs","app.log"); leak=0
+        logf=data_path(trunk, "logs", "app.log"); leak=0
         if os.path.exists(logf):
             for line in open(logf,encoding="utf-8",errors="ignore"):
                 if "sk-" in line or "api_key" in line.lower(): leak+=1
@@ -506,7 +507,7 @@ def deep_check(trunk):
     try:
         # 聊天记录在 chats.db 的 messages 表（SQLite），
         # 旧的 chat_history.jsonl 早已不用，所以这里一直显示 0 条。
-        cf = os.path.join(trunk.base, "data", "chats.db")
+        cf = data_path(trunk, "chats.db")
         n = 0
         if os.path.exists(cf):
             import sqlite3
