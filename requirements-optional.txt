@@ -16,7 +16,7 @@
 # ===== 电脑控制（截图/鼠标/键盘/剪贴板/窗口管理）=====
 Pillow>=13.0.0,<14
 pyautogui>=0.9.54
-pyperclip>=1.8.2
+pyperclip>=1.11.0
 pywin32>=312; sys_platform == "win32"
 
 # ===== 语音合成 TTS（让小6说话）=====
