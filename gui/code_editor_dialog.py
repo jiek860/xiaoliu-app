@@ -41,6 +41,7 @@ from gui.code_editor_widget import (
 )
 from gui.code_editor_ai import CodeEditorAIMixin
 from gui.code_editor_runner import CodeEditorRunnerMixin
+from gui.editor_save import EditorSaveMixin
 from gui.ide_editor_shell import BottomPanel, EditorTabs
 from gui.ide_explorer import ExplorerMenuMixin, GitFileModel
 from gui.workbench_problems import ProblemsHub
@@ -50,7 +51,7 @@ from gui.editor_tab_menu import install as install_tab_menu
 
 
 class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
-                       ExplorerMenuMixin, QMainWindow):
+                       EditorSaveMixin, ExplorerMenuMixin, QMainWindow):
     askAssistantRequested = pyqtSignal(str)  # 发回小6聊天框
     statusMessage = pyqtSignal(str)          # 工作台底部状态栏复用
     cursorMoved = pyqtSignal(int, int)       # 当前行/列（1-based）
@@ -216,6 +217,8 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
             "font-size:12px;border:none;")
         self.bottom = BottomPanel(self.output, root=self.root)
         self.bottom.jumpRequested.connect(self._jump_to_line)
+        # 第 8 批（深度⑩）：问题页右键「让 AI 修这一行」转发给当前编辑器
+        self.bottom.fixRequested.connect(self._fix_problem_line)
         self.bottom.setMaximumHeight(240)
         rv.addWidget(self.bottom, stretch=1)
         # 问题实时汇总：各标签 problemsChanged -> 250ms 节流 -> 问题页 + 状态栏
@@ -326,6 +329,14 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
             w.setTextCursor(QTextCursor(block))
             w.centerCursor()
             w.setFocus()
+
+    def _fix_problem_line(self, line):
+        """问题页右键 → 让 AI 修这一行（先跳到该行，再交给编辑器）。"""
+        w = self._current_edit()
+        if w is None:
+            return False
+        self._jump_to_line(line)
+        return w.fix_line_request(int(line))
 
     def toggle_split(self):
         """分屏：右侧视图和当前文件共享同一个 QTextDocument。"""
@@ -491,8 +502,15 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
     def show_diff_preview(self, root, patch, on_apply=None, on_undo=None):
         """在编辑器里打开内联 diff 预览 tab，返回 InlineDiffView。"""
         from gui.inline_diff import InlineDiffView
+        try:
+            from core.code_format import format_first_enabled
+            fmt_first = format_first_enabled(getattr(self, "trunk", None))
+        # 静默是故意的 - 读不到开关就当不格式化
+        except Exception as e:
+            _x6_swallowed(__name__, e, "format first switch")
+            fmt_first = False
         view = InlineDiffView(root, patch, on_apply=on_apply,
-                              on_undo=on_undo)
+                              on_undo=on_undo, format_first=fmt_first)
         view.jumpRequested.connect(self.open_path_at)
         # 内联 diff 的"应用/撤销"原来只发信号没人接：接上后自动重载被改文件
         view.applyRequested.connect(
@@ -536,56 +554,6 @@ class CodeEditorDialog(CodeEditorAIMixin, CodeEditorRunnerMixin,
                     return
                 self.tabs.setCurrentIndex(i)
                 return
-
-    def save_file(self):
-        w = self._current_edit()
-        if w: self._save_w(w)
-
-    def _reload_patch_files(self, patch):
-        """内联 diff 应用/撤销后重载受影响文件（等写盘完成再读）。"""
-        root = getattr(self, "root", None) or os.getcwd()
-        changes = (patch or {}).get("changes") or {}
-        if not isinstance(changes, dict):
-            return
-        for rel in changes:
-            path = rel if os.path.isabs(str(rel)) else os.path.join(root,
-                                                                  str(rel))
-            self.reload_path(path)
-
-    def _save_w(self, w):
-        path = w.filepath
-        if not path:
-            path, _ = QFileDialog.getSaveFileName(self, "保存", "untitled.py", "Python (*.py)")
-            if not path: return
-        try:
-            open(path, "w", encoding="utf-8").write(w.toPlainText())
-            w.filepath = path
-            w._dirty = False
-            w.document().setModified(False)
-            self._update_breadcrumb()
-            try:
-                if hasattr(self.trunk, "get_workspace_index"):
-                    self.trunk.get_workspace_index().update_file(path)
-            except Exception as e:  # 静默是故意的
-                _x6_swallowed(__name__, e, "best-effort fallback")
-            self.refresh_git_marks()
-            self._status("已保存: " + path, 3000)
-        except Exception as e:
-            QMessageBox.warning(self, "保存失败", str(e))
-
-    def save_as(self):
-        w = self._current_edit()
-        if not w: return
-        path, _ = QFileDialog.getSaveFileName(self, "另存为", "untitled.py", "Python (*.py)")
-        if path:
-            try:
-                open(path, "w", encoding="utf-8").write(w.toPlainText())
-                w.filepath = path; w._dirty = False
-                w.document().setModified(False)
-                self._update_breadcrumb()
-                self._status("已另存: " + path, 3000)
-            except Exception as e:
-                QMessageBox.warning(self, "另存失败", str(e))
 
     def set_code(self, code, title="未命名"):
         """聊天框把 AI 给的代码送进来：新起一个 tab"""

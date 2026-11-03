@@ -1,0 +1,114 @@
+[
+  {
+    "id": "mem_001",
+    "kind": "retrieval",
+    "desc": "用户偏好：记得常喝的咖啡",
+    "query": "我平时喝什么咖啡",
+    "top_k": 3,
+    "corpus": [
+      {"id": "m_coffee", "text": "用户的习惯：每天早上喝一杯美式咖啡，不加糖不加奶。", "source": "记忆"},
+      {"id": "kb_noise", "text": "知识库：Ollama 安装说明与本地模型下载步骤。", "source": "知识库"}
+    ],
+    "expect": {"must_include": ["美式"], "source": "记忆"}
+  },
+  {
+    "id": "mem_002",
+    "kind": "retrieval",
+    "desc": "用户事实：记得猫的名字",
+    "query": "我家猫叫什么来着",
+    "top_k": 3,
+    "corpus": [
+      {"id": "m_cat", "text": "用户的猫叫团子，三岁，是一只橘猫。", "source": "记忆"},
+      {"id": "kb_dog", "text": "知识库：常见犬种介绍与喂养建议。", "source": "知识库"}
+    ],
+    "expect": {"must_include": ["团子"], "source": "记忆"}
+  },
+  {
+    "id": "mem_003",
+    "kind": "retrieval",
+    "desc": "知识库引用：项目启动命令",
+    "query": "这个项目怎么启动",
+    "top_k": 3,
+    "corpus": [
+      {"id": "kb_start", "text": "项目启动方式：双击 启动PyQt.bat，或在命令行运行 py -3 run.py。", "source": "知识库"},
+      {"id": "m_overtime", "text": "记忆：用户昨天加班到很晚，说有点累。", "source": "记忆"}
+    ],
+    "expect": {"must_include": ["启动PyQt.bat"], "source": "知识库"}
+  },
+  {
+    "id": "mem_004",
+    "kind": "retrieval",
+    "desc": "无关问题不硬凑（宁缺毋滥）",
+    "query": "珠穆朗玛峰有多高",
+    "top_k": 3,
+    "corpus": [
+      {"id": "kb_start", "text": "项目启动方式：双击 启动PyQt.bat。", "source": "知识库"},
+      {"id": "m_coffee", "text": "用户的习惯：每天早上喝一杯美式咖啡。", "source": "记忆"}
+    ],
+    "expect": {"empty": true}
+  },
+  {
+    "id": "mem_005",
+    "kind": "retrieval",
+    "desc": "多事实召回：作息时间两条都要",
+    "query": "我几点上班几点下班",
+    "top_k": 3,
+    "corpus": [
+      {"id": "m_work", "text": "用户的上班时间：早上九点打卡。", "source": "记忆"},
+      {"id": "m_off", "text": "用户的下班时间：晚上六点离开公司。", "source": "记忆"},
+      {"id": "kb_noise", "text": "知识库：公司请假流程说明。", "source": "知识库"}
+    ],
+    "expect": {"must_include": ["九点", "六点"]}
+  },
+  {
+    "id": "ref_001",
+    "kind": "referent",
+    "desc": "指代消解：它 → 上一轮的文件",
+    "messages": [
+      {"role": "user", "content": "帮我在 login.py 里加个登录函数"},
+      {"role": "assistant", "content": "已在 login.py 里加了 login(username, password) 函数"}
+    ],
+    "input": "给它加个参数校验",
+    "expect": {"changed": true, "topic_contains": "login"}
+  },
+  {
+    "id": "ref_002",
+    "kind": "referent",
+    "desc": "指代消解：继续 → 接上一轮话题",
+    "messages": [
+      {"role": "user", "content": "我在写一个贪吃蛇游戏"},
+      {"role": "assistant", "content": "贪吃蛇吃到食物要加分，才会越玩越有成就感"}
+    ],
+    "input": "继续",
+    "expect": {"changed": true, "topic_contains": "吃"}
+  },
+  {
+    "id": "ref_003",
+    "kind": "referent",
+    "desc": "没有历史时不编造指代对象",
+    "messages": [],
+    "input": "在吗",
+    "expect": {"changed": false}
+  },
+  {
+    "id": "ref_004",
+    "kind": "referent",
+    "desc": "序数指代：第三个方案",
+    "messages": [
+      {"role": "user", "content": "方案A：用 SQLite 存聊天记录"},
+      {"role": "user", "content": "方案B：用 JSON 文件存"},
+      {"role": "user", "content": "方案C：用 PostgreSQL 数据库"}
+    ],
+    "input": "第三个方案具体怎么做",
+    "expect": {"changed": true, "topic_contains": "方案C"}
+  },
+  {
+    "id": "reply_001",
+    "kind": "reply",
+    "desc": "回复风格：不安慰说教、长度可控",
+    "answer": "我在呢。今天写得挺拼的，要不要先歇十分钟？",
+    "expect": {"max_sentences": 2, "max_chars": 40,
+               "must_not": ["作为AI", "你应该"],
+               "must_include_any": ["我在", "歇"]}
+  }
+]

@@ -160,7 +160,7 @@ class Logger:
                     kept.append(l)
                 else:
                     removed += 1
-            except:
+            except Exception:
                 kept.append(l)
         with open(self.log_path, "w", encoding="utf-8") as f:
             f.writelines(kept)

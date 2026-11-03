@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QLineEdit, QTextBrowser)
 
 from gui.feedback_states import make_action_links
+from core.data_paths import data_path
 
 
 def build_graph_view(trunk, parent=None):
@@ -77,7 +78,7 @@ def build_graph_view(trunk, parent=None):
     ]))
     rag_row.addStretch(1)
 
-    gpath = os.path.join(trunk.base, "data", "graph.json")
+    gpath = data_path(trunk, "graph.json")
     def load(kw=""):
         try:
             data = json.load(io.open(gpath, encoding="utf-8"))

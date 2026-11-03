@@ -22,6 +22,10 @@ import uuid
 
 from core.path_safety import is_within
 
+# 第 6 批：行号形状的 hunk（{"start","end","new","context"}）在这里统一切原文。
+# hunk_edit 只在调用时才取 patch_engine，所以模块级导入不会循环。
+from core.hunk_edit import try_materialize as _materialize
+
 # 备份/清单合并/回滚拆到 core/patch_backup.py（本文件到 600 行上限）；
 # 这里保留同名导出，`from core.patch_engine import rollback` 等老调用不变。
 from core.patch_backup import (  # noqa: F401
@@ -235,11 +239,15 @@ def validate_patch(root, patch):
         checked = []
         simulated = current
         for i, h in enumerate(hunks):
-            if not isinstance(h, dict) or "old" not in h or "new" not in h:
+            if not isinstance(h, dict):
                 raise PatchError("hunk 格式错误: %s#%d" % (rel, i))
+            if "old" not in h:
+                # 第 6 批：行号形状 {"start","end","new","context"} 本地切原文
+                h = _materialize(h, simulated)
             old = str(h.get("old") or "")
-            if not old:
-                raise PatchError("hunk.old 不能为空: %s#%d" % (rel, i))
+            if not old or "new" not in h:
+                raise PatchError("hunk 需要 old（或 start/end）与 new: %s#%d"
+                                 % (rel, i))
             try:
                 simulated, _how = _replace_hunk(
                     simulated, old, str(h.get("new") or ""))
@@ -308,7 +316,9 @@ def _preview_text(root, fp, selected_hunks, virtual: dict[str, str | None]):
         key = "%s:%d" % (rel, hi)
         if selected_hunks is not None and key not in selected_hunks:
             continue
-        body, _how = _replace_hunk(body, h["old"], h["new"])
+        h = _materialize(h, body)
+        body, _how = _replace_hunk(body, str(h.get("old") or ""),
+                                   str(h.get("new") or ""))
     virtual[rel] = body
     return body
 
@@ -386,6 +396,7 @@ def unified_diff(root, patch, selected_files=None, selected_hunks=None):
             for hi, h in enumerate(fp.get("hunks") or []):
                 if selected_hunks is not None and "%s:%d" % (rel, hi) not in selected_hunks:
                     continue
+                h = _materialize(h, old_text)
                 try:
                     new_text, _how = _replace_hunk(
                         new_text, str(h.get("old") or ""), str(h.get("new") or ""))

@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 """安全装饰器 - 统一错误处理，替代重复的 try/except
-升级：safe_return / safe_log / safe_retry / safe_timeout / safe_validate
+对外只有三个：`safe`（吞异常返回 None）、`safe_log`（记日志后重抛）、
+`last_error`（查"刚才这次 None 是真没结果还是出错了"）。
+
+2026-11-02 删掉了零引用的 6 个装饰器（safe_return / safe_retry / safe_timeout /
+safe_validate / safe_async / safe_chain）和一个从不递增的计数器 get_safe_count：
+它们看着像"通用工具箱"，实际全项目没有一处使用，留着只会让人误以为有统一重试/超时。
+真需要重试的调用点自己写循环（见 core/llm_client.py 的重试），不要指望装饰器魔法。
 
 关于"静默的 None"
 -----------------
@@ -77,22 +83,6 @@ def safe(func):
     return wrapper
 
 
-def safe_return(default=None):
-    """装饰器：出错不崩，返回默认值"""
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                _record(func, e)
-                get_logger().warn("[安全] %s 出错，返回默认值 %s: %s" % (func.__name__, default, str(e)[:60]))
-                get_logger().debug(traceback.format_exc())
-                return default
-        return wrapper
-    return decorator
-
-
 def safe_log(func):
     """装饰器：出错打日志+堆栈，但不吞异常（重新抛出）
     内部函数默认用这个，让异常冒泡，问题不被掩盖
@@ -106,89 +96,6 @@ def safe_log(func):
             get_logger().debug(traceback.format_exc())
             raise
     return wrapper
-
-
-def safe_retry(times=3, delay=1):
-    """装饰器：失败自动重试 N 次"""
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_err = None
-            for i in range(times):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_err = e
-                    get_logger().warn("[安全] %s 第 %d/%d 次失败: %s" % (func.__name__, i+1, times, str(e)[:60]))
-                    if i < times - 1:
-                        time.sleep(delay)
-            get_logger().error("[安全] %s 重试 %d 次仍失败: %s" % (func.__name__, times, str(last_err)[:80]))
-            return None
-        return wrapper
-    return decorator
-
-
-def safe_timeout(seconds=10):
-    """BUG-21: 超时自动断开（用ThreadPoolExecutor实现，Windows可用）"""
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                fut = ex.submit(func, *args, **kwargs)
-                try:
-                    return fut.result(timeout=seconds)
-                except concurrent.futures.TimeoutError:
-                    get_logger().error("[安全] %s 超时 %ds" % (func.__name__, seconds))
-                    return None
-        return wrapper
-    return decorator
-
-
-def safe_validate(validator):
-    """装饰器：参数校验"""
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                validator(*args, **kwargs)
-            except Exception as e:
-                get_logger().warn("[安全] %s 参数校验失败: %s" % (func.__name__, str(e)[:60]))
-                return None
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
-
-
-def safe_async(func):
-    """异步版本装饰器"""
-    @functools.wraps(func)
-    async def wrapper(*args, **kwargs):
-        try:
-            return await func(*args, **kwargs)
-        except Exception as e:
-            get_logger().error("[安全] %s 出错: %s" % (func.__name__, str(e)[:80]))
-            get_logger().debug(traceback.format_exc())
-            return None
-    return wrapper
-
-
-def safe_chain(*decorators):
-    """装饰器链：组合多个装饰器"""
-    def decorator(func):
-        for d in reversed(decorators):
-            func = d(func)
-        return func
-    return decorator
-
-
-# 统计：被装饰的函数数
-_SAFE_COUNT = 0
-
-
-def get_safe_count():
-    """返回被safe装饰的函数数"""
-    return _SAFE_COUNT
 
 
 def atomic_write_json(path, obj, indent=2, ensure_ascii=False):

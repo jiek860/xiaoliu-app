@@ -25,5 +25,22 @@
       "budget": 220,
       "category": "facade"
     }
+  },
+  "known_frozen": {
+    "_说明": "B7（2026-11-02）决定：这几份 590+ 行的大文件**本轮不拆**（拆分要动主链路，风险大于收益），在这里登记为“已知冻结”——只许降不许涨；谁要在这几处加代码，先拆再说。行数是登记当天实测。",
+    "files": [
+      {"path": "modules/installed/workflow_runner.py", "lines": 599,
+       "why": "工作流执行主循环，一拆就要动 run/steps 的状态机"},
+      {"path": "core/code_agent.py", "lines": 599,
+       "why": "代码 Agent 主循环（探索→patch→审批→测试→回修），拆分点已抽过两轮"},
+      {"path": "core/self_check.py", "lines": 598,
+       "why": "自检项集中登记，拆开只是把同一张表分到两个文件"},
+      {"path": "core/chat/memory_v2.py", "lines": 598,
+       "why": "记忆 v2 读写与迁移在同一处，拆开容易出现双份真相"},
+      {"path": "core/patch_engine.py", "lines": 597,
+       "why": "patch 解析/应用/回滚耦合，拆分要先补 golden 用例"},
+      {"path": "gui/build_ui.py", "lines": 595,
+       "why": "界面装配顺序敏感，且按钮预算棘轮盯着这里（不新增控件）"}
+    ]
   }
 }

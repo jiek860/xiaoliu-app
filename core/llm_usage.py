@@ -34,8 +34,12 @@ class LLMUsageMixin:
     def _fit_messages(self, messages):
         try:
             from core.context_budget import trim_messages
-            limit = int((self.config or {}).get("context_token_budget", 6000))
-            return trim_messages(messages, max_tokens=limit)
+            cfg = self.config or {}
+            limit = int(cfg.get("context_token_budget", 6000))
+            shares = cfg.get("llm_channel_shares")
+            if not isinstance(shares, dict) or not shares:
+                shares = None
+            return trim_messages(messages, max_tokens=limit, shares=shares)
         except Exception:
             return messages
 

@@ -62,7 +62,53 @@ def hint_for(text):
     return hint[:MAX_HINT_LEN]
 
 
-def lines_for(text):
-    """输出 -> 可直接贴进结果框的提示行（无提示时为空列表）。"""
+def lines_for(text, root=""):
+    """输出 -> 可直接贴进结果框的提示行（无提示、无位置时为空列表）。
+
+    第一行永远是 ``💡 `` 开头的可执行建议；后面是 ``📍 file:line`` 定位，
+    问题页/控制台都能直接拿去做跳转（第 8 批 B5）。
+    """
+    out = []
     hint = hint_for(text)
-    return ["💡 " + hint] if hint else []
+    if hint:
+        out.append("💡 " + hint)
+    for item in locations(text, root)[:3]:
+        label = "📍 %s:%d" % (item.get("file"), int(item.get("line") or 0))
+        if item.get("symbol"):
+            label += "（%s）" % item["symbol"]
+        out.append(label)
+    return out
+
+
+def locations(text, root=""):
+    """输出里出现过的 ``文件:行``（带函数名，去重，最多 20 条）。"""
+    from core.code.verify import locate_failures
+    out, seen = [], set()
+    for item in locate_failures(text, None, root or None) or []:
+        key = (str(item.get("file") or ""), int(item.get("line") or 0))
+        if not key[0] or key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
+def problems_from_text(text, rel="", root=""):
+    """运行/编译输出 -> 问题页能用的 4 元组 ``(行, 列, 规则码, 描述)``。
+
+    ``rel`` 为空时收全部位置；否则只要属于这个文件的那几条，
+    避免"跑一个文件，问题页里冒出依赖库的报错"。
+    """
+    rows = []
+    for item in locations(text, root):
+        name = str(item.get("file") or "")
+        if rel and _norm(name) != _norm(rel):
+            continue
+        symbol = str(item.get("symbol") or "")
+        desc = ("在 %s 里出错" % symbol) if symbol else "运行时报错"
+        rows.append((int(item.get("line") or 0) or 1, 1, "运行", desc))
+    return rows
+
+
+def _norm(value):
+    return str(value or "").replace("\\", "/").strip().lstrip("./")

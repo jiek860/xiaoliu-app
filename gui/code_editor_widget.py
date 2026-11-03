@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import ast
 import builtins
-import json
 import keyword
 import os
 import re
-import shutil
-import sys
 
 from PyQt5.QtCore import Qt, QRect, QTimer, QProcess, pyqtSignal
-from PyQt5.QtGui import QFont, QTextCharFormat, QColor, QTextCursor, QPainter
-from PyQt5.QtWidgets import QPlainTextEdit, QCompleter, QTextEdit
+from PyQt5.QtGui import QFont, QColor, QTextCursor, QPainter
+from PyQt5.QtWidgets import QPlainTextEdit, QCompleter
 
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -25,54 +22,20 @@ except ImportError:
 # 这里 re-export 保持旧导入路径（from gui.code_editor_widget import _PyHighlighter）
 from core.code.completion import (complete_words, indexed_words, jedi_enabled,
                                   project_root, same_dir_words)
+# 第 8 批：静态检查的纯逻辑搬到 core/code/lint.py，这里 re-export 保旧路径
+from core.code import lint as code_lint
+from core.code.lint import (ast_problems, parse_ruff_json,  # noqa: F401
+                            ruff_command)
 from gui.editor_parts import (  # noqa: F401,E402
     _LineNumberArea, _MiniMap, _PyHighlighter)
+from gui.editor_fix import FixLineMixin       # 第 8 批：一键修这一行（mixin）
+from gui.editor_lint import LintEditorMixin   # 第 8 批：诊断合并 + 波浪线
+from gui.editor_lsp import LspEditorMixin     # 第 7 批：语言服务交互（mixin）
 
 
 _RUFF_TIMEOUT_MS = 5000
 _COMPLETE_DELAY_MS = 80          # 批次 47.2：键入后 80ms 再算候选
 _MAX_COMPLETION_WORDS = 300
-
-
-def ruff_command(path):
-    """ruff 检查命令；没装 ruff 时退回 `python -m ruff`（失败会走 ast 兜底）。"""
-    exe = shutil.which("ruff")
-    base = [exe] if exe else [sys.executable, "-m", "ruff"]
-    return base + ["check", "--output-format=json", "--quiet", "--", str(path)]
-
-
-def parse_ruff_json(text):
-    """ruff JSON → [(line, col, code, msg)]；不是合法 JSON 返回 None（走兜底）。"""
-    try:
-        data = json.loads(text or "")
-    except (TypeError, ValueError):
-        return None
-    if not isinstance(data, list):
-        return None
-    rows = []
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        loc = item.get("location") or {}
-        try:
-            rows.append((int(loc.get("row") or 1),
-                         int(loc.get("column") or 1),
-                         str(item.get("code") or ""),
-                         str(item.get("message") or "")))
-        except (TypeError, ValueError):
-            continue
-    return rows
-
-
-def ast_problems(code):
-    """兜底：没跑成 ruff 时只报语法错误（与实时下划线同源）。"""
-    try:
-        ast.parse(code or "")
-    except SyntaxError as ex:
-        return [(int(ex.lineno or 1), int(ex.offset or 1), "SyntaxError",
-                 str(ex.msg or "语法错误"))]
-    return []
-
 
 # ---------------------------------------------------------------- 补全候选
 _JS_EXT = (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")
@@ -141,7 +104,8 @@ def local_symbols(code, path=""):
     return python_symbols(code)
 
 
-class CodeEditWidget(QPlainTextEdit):
+class CodeEditWidget(FixLineMixin, LintEditorMixin, LspEditorMixin,
+                     QPlainTextEdit):
     askAssistantRequested = pyqtSignal(str)  # 把选中/全部代码发回聊天框
     syntaxErrorChanged = pyqtSignal(int)     # 当前文件问题数（ruff 或 ast）
     problemsChanged = pyqtSignal(list)       # [(行, 列, 规则码, 描述)]
@@ -188,6 +152,8 @@ class CodeEditWidget(QPlainTextEdit):
         self._dirty = False
         self._syntax_errors = 0
         self.document().modificationChanged.connect(self._on_modified)
+        self._lsp_init()             # 第 7 批：F12 跳定义 / Shift+F12 引用 / F2 重命名
+        self._lint_init()            # 第 8 批：LSP 诊断优先 + 实时 ruff + 波浪线
 
     def _on_modified(self, flag): self._dirty = bool(flag)
 
@@ -432,35 +398,20 @@ class CodeEditWidget(QPlainTextEdit):
             return
         super().wheelEvent(e)
 
-    # ----- 实时语法检查 -----
+    # ----- 实时检查 -----
     def _check_syntax(self):
-        """实时语法检查；非 Python 文件不拿 ast 误判。
+        """快速通道：LSP 诊断优先，没服务就 ast（ruff 走 editor_lint 慢通道）。
 
-        编辑中只做 ast（零成本）；ruff 结果只描述**已保存**的文件内容，
-        所以一旦有未保存改动就退回 ast，避免"问题页 12 条、状态栏 0 条"。
+        编辑中只做零成本的两件事：读语言服务已经算好的诊断 + ast 解析。
+        ``ruff`` 同步跑要几百毫秒，所以放在 ``LintEditorMixin`` 里停手 1.2 秒
+        才触发（深度⑨），并且把**未保存**的文本走 stdin 送进去。
         """
-        extra = []
         if self._filepath and not str(self._filepath).lower().endswith(
                 (".py", ".pyw")):
             self.setExtraSelections([])
             self._set_problems([])
             return
-        problems = ast_problems(self.toPlainText())
-        if problems:
-            fmt = QTextCharFormat()
-            fmt.setUnderlineColor(QColor("#e51400"))
-            fmt.setUnderlineStyle(QTextCharFormat.WaveUnderline)
-            block = self.document().findBlockByNumber(
-                max(0, problems[0][0] - 1))
-            if block.isValid():
-                sel = QTextEdit.ExtraSelection()
-                sel.cursor = QTextCursor(block)
-                sel.format = fmt
-                extra.append(sel)
-        self.setExtraSelections(extra)
-        if self.is_dirty():
-            self._problems = []
-        self._set_problems(self._problems or problems)
+        self._apply_problems(self.lint_rows(live=False))
 
     # ----- 静态检查（ruff 优先，ast 兜底） -----
     def check_problems(self):
@@ -496,13 +447,14 @@ class CodeEditWidget(QPlainTextEdit):
             # 没装 ruff / 参数不被识别：退回 ast，不把 stderr 当成问题列表
             _x6_swallowed(__name__, err, "ruff unavailable")
             rows = self._ast_from_path()
-        self._set_problems(rows)
+        self._apply_problems(
+            code_lint.merge_problems(self.lsp_problem_rows(), rows))
 
     def _on_ruff_error(self, proc):
         if proc is not self._ruff_proc:
             return
         self._ruff_proc = None
-        self._set_problems(self._ast_from_path())
+        self._apply_problems(self._ast_from_path())
 
     def _on_ruff_timeout(self, proc):
         if proc is not self._ruff_proc:
@@ -512,7 +464,7 @@ class CodeEditWidget(QPlainTextEdit):
         except Exception as e:  # 静默是故意的
             _x6_swallowed(__name__, e, "kill slow ruff")
         self._ruff_proc = None
-        self._set_problems(self._ast_from_path())
+        self._apply_problems(self._ast_from_path())
 
     def _ast_from_path(self):
         try:
@@ -534,6 +486,12 @@ class CodeEditWidget(QPlainTextEdit):
         self.problemsChanged.emit(list(rows))
         return rows
 
+    def _apply_problems(self, items):
+        """写问题列表并同步波浪线（静态检查与实时检查都走这里）。"""
+        rows = self._set_problems(items)
+        self.underline_problems(rows)
+        return rows
+
     # ----- 右键菜单 -----
     def contextMenuEvent(self, e):
         m = self.createStandardContextMenu()
@@ -552,6 +510,8 @@ class CodeEditWidget(QPlainTextEdit):
         act_comment = m.addAction("💬 注释/取消注释")
         act_run = m.addAction("▶ 运行此文件")
         act_agent = m.addAction(" 交给工作台 AI（当前文件/选区）")
+        self._lsp_add_menu(m)        # 第 7 批：跳定义/引用/重命名/符号信息/格式化
+        self._fix_add_menu(m)        # 第 8 批：🛠 让 AI 修这一行（不新增按钮）
         act = m.exec_(e.globalPos())
         if act == act_ask:
             txt = self.textCursor().selectedText() or self.toPlainText()

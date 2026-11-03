@@ -9,6 +9,7 @@ except ImportError:
 import os, time, json
 from core.safe import safe
 from modules.base import BaseModule
+from core.data_paths import data_path
 
 
 class GroupChatPipeline(BaseModule):
@@ -51,7 +52,7 @@ class GroupChatPipeline(BaseModule):
         super().__init__(trunk)
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or "."
-        self.state_path = os.path.join(self.base, "data", "group_loop.json")
+        self.state_path = data_path(self, "group_loop.json")
         self.state = self._load()
 
     # 状态文件里必须存在的键。老版本写下的文件可能缺字段

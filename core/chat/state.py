@@ -13,6 +13,7 @@ import json
 import os
 import threading
 import time
+from core.data_paths import data_path
 
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -182,7 +183,7 @@ class DialogueState:
 
     def __init__(self, base=".", data=None, path=""):
         self.base = str(base or ".")
-        self.path = path or os.path.join(self.base, "data", "chat_state.json")
+        self.path = path or data_path(self, "chat_state.json")
         self.data = _sanitize(data or _blank())
 
     @classmethod

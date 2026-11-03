@@ -9,6 +9,7 @@ except ImportError:
 import os, time, json
 import sys
 from modules.base import BaseModule
+from core.data_paths import data_path
 
 
 class TaskPipeline(BaseModule):
@@ -51,10 +52,10 @@ class TaskPipeline(BaseModule):
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         # v2.1: 插件持久化必须落在 data/plugin_data/<插件名>/ 内
-        _sdir = os.path.join(self.base, "data", "plugin_data", "task_loop")
+        _sdir = data_path(self, "plugin_data", "task_loop")
         os.makedirs(_sdir, exist_ok=True)
         self.state_path = os.path.join(_sdir, "task_loop.json")
-        _legacy = os.path.join(self.base, "data", "task_loop.json")
+        _legacy = data_path(self, "task_loop.json")
         if not os.path.exists(self.state_path) and os.path.exists(_legacy):
             try: os.replace(_legacy, self.state_path)
             except OSError:  # 静默是故意的：旧数据迁移失败不阻断主流程
@@ -168,7 +169,7 @@ class TaskPipeline(BaseModule):
             import re
             m = re.findall(r"0\.\d+", txt or "")
             return float(m[0]) if m else 0.7
-        except:
+        except Exception:
             return 0.7
 
     def record(self, goal, results, score):

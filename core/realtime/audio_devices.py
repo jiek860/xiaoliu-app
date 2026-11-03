@@ -8,11 +8,11 @@ except ImportError:
 
 def list_input_devices():
     try: import pyaudio
-    except: return []
+    except Exception: return []
     pa = pyaudio.PyAudio(); out = []
     try:
         default = pa.get_default_input_device_info().get("index")
-    except: default = None
+    except Exception: default = None
     for i in range(pa.get_device_count()):
         try:
             info = pa.get_device_info_by_index(i)
@@ -25,9 +25,3 @@ def list_input_devices():
             _x6_swallowed(__name__, e)
     pa.terminate()
     return out
-
-def describe_device(idx):
-    if idx < 0: return "系统默认"
-    for d in list_input_devices():
-        if d["index"] == idx: return d["name"]
-    return "系统默认"

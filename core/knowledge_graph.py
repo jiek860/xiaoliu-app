@@ -9,6 +9,7 @@ except ImportError:
 import json, os, re
 from datetime import datetime
 from collections import deque
+from core.data_paths import data_path
 
 SYNONYMS = {
     "gpt": "大语言模型", "chatgpt": "大语言模型", "llm": "大语言模型",
@@ -27,7 +28,7 @@ class KnowledgeGraph:
     def __init__(self, trunk=None):
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.path = os.path.join(self.base, "data", "graph.json")
+        self.path = data_path(self, "graph.json")
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         self.data = {"三元组": []}
         # P1-2: 批量写盘标记，30秒最多写一次
@@ -94,7 +95,7 @@ class KnowledgeGraph:
                         self.add(s, p, o)
                         extracted.append((s, p, o))
             return extracted
-        except:
+        except Exception:
             return []
 
     def query(self, entity):

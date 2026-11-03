@@ -19,6 +19,7 @@ import re
 import sqlite3
 import threading
 import requests
+from core.data_paths import data_path
 
 
 class VectorStore:
@@ -67,7 +68,7 @@ class VectorStore:
         try:
             import chromadb
             self._chroma_client = chromadb.PersistentClient(
-                path=os.path.join(self.base, "data", "chroma"))
+                path=data_path(self, "chroma"))
             self._collection = self._chroma_client.get_or_create_collection("memories")
             self._use_chroma = True
             if trunk:

@@ -26,9 +26,9 @@ except ImportError:  # pragma: no cover
 _SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv",
               "modules_repo", "dist", "build", ".pytest_cache"}
 
-_COMMANDS = ("新建文件", "打开文件", "保存", "另存为", "运行当前文件",
-             "搜索工作区", "源代码管理", "资源管理器", "输出", "终端",
-             "插件市场", "AI 面板", "分屏", "minimap", "全屏")
+_COMMANDS = ("新建文件", "打开文件", "打开文件夹", "保存", "另存为",
+             "运行当前文件", "搜索工作区", "源代码管理", "资源管理器",
+             "输出", "终端", "插件市场", "AI 面板", "分屏", "minimap", "全屏")
 
 
 def find_file(root, needle):
@@ -66,11 +66,17 @@ class CommandCenterMixin:
         self.command.setFocus()
         self.command.selectAll()
 
+    def _pick_workspace_folder(self):
+        """换工作区目录：AI 写代码写到哪个文件夹（同顶栏「📂 打开文件夹」）。"""
+        from gui.workbench_workspace import open_folder_picker
+        return open_folder_picker(self)
+
     def _command_items(self):
         ed = self._editor
         return [
             ("新建文件", lambda: ed and ed.new_tab()),
             ("打开文件", lambda: ed and ed.open_file()),
+            ("打开文件夹", self._pick_workspace_folder),
             ("保存", lambda: ed and ed.save_file()),
             ("另存为", lambda: ed and ed.save_as()),
             ("运行当前文件", lambda: ed and ed.run_current()),

@@ -15,13 +15,21 @@ class SpeechController:
         self.parent = parent_widget
         self._audio_player = None
         self._tts_worker = None
+        self._workers = []           # 只保住引用：QThread 被 GC 会带着播放一起没了
 
-    def play(self, path):
+    def play(self, path, on_error=None):
+        """播放合成好的音频；失败返回 False，并把原因交给 ``on_error``。"""
+        if not path or not os.path.exists(path):
+            self._report(on_error, "没有拿到音频文件（语音合成可能失败了）")
+            return False
         try:
-            if not path or not os.path.exists(path):
-                return
             from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
             from PyQt5.QtCore import QUrl
+        # 静默是故意的 - 没 QtMultimedia 就退回系统播放器，至少能出声
+        except Exception as e:
+            _x6_swallowed(__name__, e, "import QtMultimedia")
+            return self._startfile(path, on_error)
+        try:
             if self._audio_player is None:
                 self._audio_player = QMediaPlayer(self.parent)
             self._audio_player.stop()
@@ -29,15 +37,49 @@ class SpeechController:
                 QMediaContent(QUrl.fromLocalFile(os.path.abspath(path)))
             )
             self._audio_player.play()
+            return True
+        # 静默是故意的 - 播放器起不来时退回系统播放器，不让用户"点了没反应"
         except Exception as e:
-            _x6_swallowed(__name__, e)
-            pass
+            _x6_swallowed(__name__, e, "play tts audio")
+            return self._startfile(path, on_error)
 
-    def speak_async(self, text):
+    def _startfile(self, path, on_error=None):
+        """兜底播放：用系统默认播放器打开（可能弹窗，但至少有声音）。"""
+        try:
+            os.startfile(os.path.abspath(path))     # noqa: S606 - 只播自己合成的音频
+            return True
+        # 静默是故意的 - 兜底也失败就必须告诉用户为什么没声音
+        except Exception as e:
+            _x6_swallowed(__name__, e, "startfile tts audio")
+            self._report(on_error, "播放失败：%s" % str(e)[:80])
+            return False
+
+    @staticmethod
+    def _report(on_error, message):
+        if callable(on_error):
+            try:
+                on_error(str(message))
+            except Exception as e:  # 静默是故意的 - 提示失败不能再抛一次
+                _x6_swallowed(__name__, e, "tts error callback")
+
+    def speak_async(self, text, on_error=None):
+        """后台合成 → 回到 GUI 线程播放；失败把原因回调出去。"""
         from gui.workers import TTSWorker
-        self._tts_worker = TTSWorker(self.trunk, text)
-        self._tts_worker.done.connect(self.play)
-        self._tts_worker.start()
+        worker = TTSWorker(self.trunk, text)
+        worker.done.connect(lambda p: self.play(p, on_error))
+        if callable(on_error):
+            worker.failed.connect(on_error)
+        worker.finished.connect(lambda: self._forget(worker))
+        self._workers.append(worker)
+        self._tts_worker = worker
+        worker.start()
+        return worker
+
+    def _forget(self, worker):
+        try:
+            self._workers.remove(worker)
+        except ValueError as e:  # 静默是故意的 - 已经移除过就算了
+            _x6_swallowed(__name__, e, "forget tts worker")
 
     def listen_once(self, seconds: int = 5, stop_event=None, on_partial=None):
         """录一次音并返回 {文字, 错误}。

@@ -46,11 +46,10 @@ def make_open_link(dialog, commands, icon, name, desc, key=None):
         return lab
 
     def _go():
-        try:
-            dialog.close()
-        except Exception as e:
-            from core.diagnostics import swallowed
-            swallowed(__name__, e)
+        # 打开新功能时不要先关掉当前页（比如设置窗口）。
+        # 以前这里有一句 dialog.close()：点任何一个入口都会把设置页关掉，
+        # 关掉新窗口后用户发现"前面的页面也没了"，像是关一个全关了。
+        # 现在的行为：新窗口叠在上面；关掉它只关它自己，原来的页面还在。
         try:
             fn()
         except Exception as e:

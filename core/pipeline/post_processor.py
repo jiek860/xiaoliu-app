@@ -2,6 +2,7 @@
 """回复后处理：群聊合并 + 代码沙盒验证 + 触发后台闭环"""
 import re
 import threading
+import time
 
 
 class PostProcessor:
@@ -47,6 +48,9 @@ class PostProcessor:
             blocks = re.findall(r"```python\s*\n(.*?)```", str(answer), re.S)
             if not blocks:
                 return answer
+            # 第 5 批深度⑥：沙盒运行也是一次"工具调用"，广播出去让界面可见
+            self._tool_call("code_runner", {"代码行数": blocks[0].count("\n") + 1})
+            _t = time.time()
             res = cr.run(blocks[0][:2000], timeout=8)
             # 兼容两种返回契约：新版有 "成功"，旧版只有 returncode。
             ok = res.get("成功")
@@ -63,12 +67,30 @@ class PostProcessor:
                 v = "通过（仅定义未调用，未产生输出）"
             else:
                 v = "运行成功" if ok else "运行失败"
+            self._tool_result("code_runner", bool(ok),
+                              "%s%s" % (out[:120], err[:80]),
+                              int((time.time() - _t) * 1000))
             answer += "\n\n（沙盒验证%s：%s%s）" % (
                 v, out[:120], err[:80])
             self.trunk._log(f"代码沙盒验证: {v}")
         except Exception as e:
             self.trunk._log(f"代码验证失败: {e}")
         return answer
+
+    # ---- 工具事件（第 5 批深度⑥）：失败静默，绝不影响回复 ----
+    def _tool_call(self, tool, args=None, step=None):
+        try:
+            from core.pipeline import stage_bus
+            stage_bus.tool_call(tool, args=args, step=step)
+        except Exception:  # 静默是故意的 - 过程可见坏了不影响回复
+            pass
+
+    def _tool_result(self, tool, ok, result="", ms=None, step=None):
+        try:
+            from core.pipeline import stage_bus
+            stage_bus.tool_result(tool, ok=ok, result=result, ms=ms, step=step)
+        except Exception:  # 静默是故意的 - 过程可见坏了不影响回复
+            pass
 
     def kick_off_background(self, user_input: str, answer: str):
         threading.Thread(

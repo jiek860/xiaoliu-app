@@ -1,0 +1,8 @@
+{
+  "unconnected": 0,
+  "connected": 91,
+  "defined": 91,
+  "kept": 0,
+  "updated": "2026-11-02",
+  "why": "pyqtSignal 里「定义了但全项目没有 .connect」的个数；只许降。接在 tests/ 里也算接线。新增信号必须有人接，否则门禁失败。"
+}

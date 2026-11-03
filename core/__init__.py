@@ -42,35 +42,11 @@ CORE_MODULES = [
 ]
 
 
-def get_core_modules():
-    """返回所有核心模块名"""
-    return CORE_MODULES.copy()
-
-
 def get_version():
     """返回版本号"""
     return __version__
 
 
-def get_module_count():
-    """返回核心模块数"""
-    return len(CORE_MODULES)
-
-
 def list_modules():
     """列出所有核心模块"""
     return {name: "核心模块" for name in CORE_MODULES}
-
-
-def search_module(keyword):
-    """搜索核心模块"""
-    found = []
-    for name in CORE_MODULES:
-        if keyword in name:
-            found.append(name)
-    return found
-
-
-def is_core_module(name):
-    """检查是否是核心模块"""
-    return name in CORE_MODULES

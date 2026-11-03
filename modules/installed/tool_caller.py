@@ -138,7 +138,7 @@ class ToolCaller(BaseModule):
                 if isinstance(c, dict) and c.get("tool") in self.tools:
                     valid.append(c)
             return valid[:3]
-        except:
+        except Exception:
             return []
 
     def _dispatch(self, info, args, query, tool_name="", provenance=None):

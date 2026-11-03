@@ -8,6 +8,7 @@ except ImportError:
 
 import os, json, time
 from modules.base import BaseModule
+from core.data_paths import data_path
 
 
 class Notes(BaseModule):
@@ -54,10 +55,10 @@ class Notes(BaseModule):
         super().__init__(trunk)
         self.base = getattr(trunk, "base", None) or "."
         # v2.1: 插件持久化必须落在 data/plugin_data/<插件名>/ 内
-        _dir = os.path.join(self.base, "data", "plugin_data", "notes")
+        _dir = data_path(self, "plugin_data", "notes")
         os.makedirs(_dir, exist_ok=True)
         self.path = os.path.join(_dir, "notes.json")
-        _legacy = os.path.join(self.base, "data", "notes.json")
+        _legacy = data_path(self, "notes.json")
         if not os.path.exists(self.path) and os.path.exists(_legacy):
             try: os.replace(_legacy, self.path)
             except OSError:  # 静默是故意的：旧数据迁移失败不阻断主流程

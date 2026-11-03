@@ -21,6 +21,7 @@ from collections import Counter
 
 from core.document_parser import chunk_text, parse
 from core.path_safety import safe_name
+from core.data_paths import data_path
 
 
 def _tokens(text):
@@ -55,7 +56,7 @@ class KnowledgeBase:
     def __init__(self, base, namespace="default", vector_store=None):
         self.base = os.path.realpath(os.path.abspath(base))
         self.namespace = safe_name(namespace or "default", "default")
-        self.dir = os.path.join(self.base, "data", "rag", self.namespace)
+        self.dir = data_path(self, "rag", self.namespace)
         os.makedirs(self.dir, exist_ok=True)
         self.index_path = os.path.join(self.dir, "chunks.json")
         self.manifest_path = os.path.join(self.dir, "manifest.json")

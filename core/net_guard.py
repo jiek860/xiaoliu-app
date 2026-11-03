@@ -21,6 +21,7 @@ import urllib.request
 import uuid
 
 from core.audit_log import AuditLog
+from core.data_paths import data_path
 
 _DEFAULT_ALLOW = {
     "open.bigmodel.cn", "api.deepseek.com", "dashscope.aliyuncs.com",
@@ -39,7 +40,7 @@ class NetGuard:
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or os.path.dirname(
             os.path.dirname(os.path.abspath(__file__)))
-        self.dir = os.path.join(self.base, "data", "security")
+        self.dir = data_path(self, "security")
         os.makedirs(self.dir, exist_ok=True)
         self.rules_path = os.path.join(self.dir, "network_rules.json")
         self.events_path = os.path.join(self.dir, "network_events.jsonl")

@@ -8,6 +8,7 @@ import time
 
 from core.path_safety import safe_join, safe_name
 from core.redaction import redact_mapping
+from core.data_paths import data_path
 
 ROLES = ("owner", "admin", "editor", "viewer", "auditor")
 ROLE_PERMISSIONS = {
@@ -29,7 +30,7 @@ def has_permission(role, permission):
 class TeamStore:
     def __init__(self, base):
         self.base = os.path.realpath(os.path.abspath(base))
-        self.dir = os.path.join(self.base, "data", "team")
+        self.dir = data_path(self, "team")
         os.makedirs(self.dir, exist_ok=True)
         self.users_path = os.path.join(self.dir, "users.json")
         self.config_path = os.path.join(self.dir, "central_config.json")
@@ -114,7 +115,7 @@ class TeamStore:
         uid = safe_name(user_id, default="", max_len=80)
         if not uid:
             return None
-        root = os.path.join(self.base, "data", "users", uid)
+        root = data_path(self, "users", uid)
         os.makedirs(root, exist_ok=True)
         return root
 

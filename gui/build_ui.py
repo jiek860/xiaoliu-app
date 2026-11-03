@@ -349,6 +349,13 @@ def _build_chat(win):
     win.chat.setReadOnly(True)
     win.chat.setOpenLinks(False)
     right.addWidget(win.chat, 1)
+    # 第 5 批 A4：过程可见步骤条（默认隐藏，一回话才出现；不是按钮，不动按钮预算）
+    try:
+        from gui.chat_stage_strip import ChatStageStrip
+        win.stage_strip = ChatStageStrip(win, trunk=getattr(win, "trunk", None))
+        right.addWidget(win.stage_strip)
+    except Exception:  # 静默是故意的 - 步骤条坏了聊天照常可用
+        win.stage_strip = None
 
     try:
         fs = int(win.trunk.config.get("font_size", "16px").replace("px", ""))

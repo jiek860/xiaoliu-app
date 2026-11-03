@@ -121,6 +121,29 @@ def test_run_pyqt_blocking_mode_skips_boot_controller(monkeypatch):
     assert "boot_started" not in calls
 
 
+def test_run_pyqt_installs_chinese_translator(monkeypatch):
+    """Qt 自带对话框的按钮/标签要是英文（Look in / Choose / Cancel），
+    用户看到就是"全是英文"——启动时必须装中文语言包。"""
+    import gui.app_pyqt as ap
+    import gui.workbench_workspace as ww
+
+    calls = {}
+    _patch(monkeypatch, calls)
+    monkeypatch.setattr("core.font_bootstrap.ensure_fonts",
+                        lambda _a: {"ok": True, "after": 1, "reason": ""})
+    monkeypatch.setattr(ap, "_resolve_startup", lambda s: None)
+    monkeypatch.setattr(ww, "install_chinese_translator",
+                        lambda: calls.__setitem__("translator", True))
+    monkeypatch.delenv("X6_BLOCKING_BOOT", raising=False)
+
+    try:
+        ap.run_pyqt()
+    except SystemExit:
+        pass
+
+    assert calls.get("translator") is True, "run_pyqt 必须装中文语言包"
+
+
 def test_run_pyqt_tolerates_font_failure(monkeypatch):
     import gui.app_pyqt as ap
 

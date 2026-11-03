@@ -4,6 +4,7 @@ import os
 import re
 
 from core.path_safety import safe_name
+from core.data_paths import data_path
 
 
 class Workspace:
@@ -11,7 +12,7 @@ class Workspace:
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or "."
         self.id = safe_name(workspace_id, default="default", max_len=40)
-        self.root = os.path.join(self.base, "data", "workspaces", self.id)
+        self.root = data_path(self, "workspaces", self.id)
         os.makedirs(self.root, exist_ok=True)
 
     def path(self, *parts):

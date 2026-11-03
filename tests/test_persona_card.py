@@ -34,7 +34,7 @@ class FakeTrunk:
 
 def test_real_card_loads():
     card = PersonaCard.load(".")
-    assert card.version == "2026-10-29"
+    assert card.version == "2026-11-01"
     assert card.style_names() == ["松弛", "毒舌", "温和", "专业", "口语化"]
 
 
@@ -124,6 +124,20 @@ def test_banned_pairs_from_file():
     assert ("作为AI", "我") in card.banned_pairs()
 
 
+def test_l1_asks_for_concrete_detail():
+    # 2026-11-01：人格要"说人话 + 具体细节"，不能只写"像熟人"
+    built = PersonaCard.load(".").build()
+    assert "具体细节" in built["text"]
+    assert "客服腔" in built["text"]
+
+
+def test_banned_covers_ai_tone_variants():
+    words = PersonaCard.load(".").banned_words()
+    assert "作为一个AI" in words
+    assert "很高兴为您服务" in words
+    assert "总的来说，" in words
+
+
 def test_assembler_shadow_records_but_keeps_old_persona():
     trunk = FakeTrunk(rules={"聊天.人格卡": "shadow"})
     pa = PromptAssembler(trunk)
@@ -187,6 +201,39 @@ def test_custom_persona_wins_over_card_on():
                       rules={"聊天.人格卡": "on"})
     messages = PromptAssembler(trunk).assemble("你好", "", True)
     assert messages[0]["content"].startswith("你是自定义助手。")
+
+
+# ---------------- 说话要求段（2026-11-01） ----------------
+# 实测坑：配了 ai_persona 时人格卡的 L1/L2（"说人话、要具体细节"）整段被跳过，
+# 宪法 ㉓㉔ 原在 bible_hint() 里、却没有生产调用方；B2 已删除该函数，规则并入 TONE_HINT。
+def _has_tone(messages):
+    return any("说人话" in m["content"] and "别 AI 腔" in m["content"]
+               for m in messages)
+
+
+def test_tone_hint_injected_with_custom_persona():
+    trunk = FakeTrunk(config={"ai_persona": "你是自定义助手。"})
+    messages = PromptAssembler(trunk).assemble("接口报 403", "", False)
+    assert messages[0]["content"].startswith("你是自定义助手。")
+    assert _has_tone(messages)
+
+
+def test_tone_hint_injected_when_card_off():
+    messages = PromptAssembler(FakeTrunk(rules={"聊天.人格卡": "off"})) \
+        .assemble("你好", "", True)
+    assert _has_tone(messages)
+
+
+def test_tone_hint_injected_in_simple_fast_reply():
+    messages = PromptAssembler(FakeTrunk()).assemble("嗯", "", True)
+    assert _has_tone(messages)
+
+
+def test_tone_hint_asks_for_detail_and_no_ai_tone():
+    from core.personality_style_hints import TONE_HINT
+    assert "版本号" in TONE_HINT and "多少 MB" in TONE_HINT
+    assert "作为一个AI" in TONE_HINT
+    assert "因人而异" in TONE_HINT
 
 
 def test_critic_uses_card_banned_words(tmp_path):

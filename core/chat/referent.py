@@ -63,8 +63,20 @@ def _ordered_entity(items, noun, number):
 
 
 def last_topic(messages):
-    """最近一条消息的话题词（优先助手回复里的关键词）。"""
-    for msg in reversed(list(messages or [])):
+    """最近一条消息的话题词。
+
+    第 4 批改：**优先用户原话**。助手那句常常是"好的，已经给你写好了"，
+    拿它当指代对象会得到「继续（接续话题：好的，已经给你写好了）」这种废话；
+    用户原话（"我在写一个贪吃蛇游戏"）才是指代真正指向的东西。
+    用户消息都取不到话题时，才退回任意一条。
+    """
+    rows = list(messages or [])
+    for msg in reversed(rows):
+        if topic_index._role(msg) in ("u", "user", "human"):
+            topic = topic_index.topic_of(msg)
+            if topic:
+                return topic
+    for msg in reversed(rows):
         topic = topic_index.topic_of(msg)
         if topic:
             return topic

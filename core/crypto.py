@@ -1,6 +1,19 @@
 # -*- coding: utf-8 -*-
 """数据加密 v2.1 - 动态本地密钥 + 兼容旧XOR
-修复：去掉硬编码死密钥，首次运行自动生成随机密钥存在本地
+
+⚠️ 仅测试 / 历史兼容，**不在生产链路**
+--------------------------------------
+生产里的加解密各有主入口（见 docs/30「加解密与配置读写的职责边界」）：
+
+* 配置里的敏感字段（API Key 等）→ `core/secret_store`（Windows DPAPI / 本机密钥）
+* 记忆/数据导出包 → `core/memory_crypto`
+* 授权码 / 发布签名密钥库 → `core/license_core` / `core/release_sign`
+
+本文件保留 `encrypt` / `decrypt`（AES-GCM + 旧 XOR 兼容）与
+`hash_password` / `verify_password` / `checksum`，因为 `tests/test_core.py`、
+`tests/test_crypto.py` 仍在校验它们；**新代码不要再用这个模块**。
+2026-11-02 已删除 7 个零引用的通用 helper（generate_random_key / encrypt_file /
+decrypt_file / verify_checksum / generate_uuid / encode_base64 / decode_base64）。
 """
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -107,73 +120,5 @@ def verify_password(password, stored):
     try:
         salt, h = stored.split("$")
         return hash_password(password, salt) == stored
-    except:
+    except Exception:
         return False
-
-
-def generate_random_key(length=32):
-    """生成随机密钥"""
-    return secrets.token_hex(length)
-
-
-def encrypt_file(path, out_path=None):
-    """AES-GCM 加密文件；失败时抛异常，不再静默写 XOR。"""
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    key = _get_key()
-    if out_path is None:
-        out_path = path + ".enc"
-    with open(path, "rb") as f:
-        data = f.read()
-    nonce = secrets.token_bytes(12)
-    ct = AESGCM(key).encrypt(nonce, data, _MAGIC)
-    with open(out_path, "wb") as f:
-        f.write(_MAGIC + nonce + ct)
-    return out_path
-
-
-def decrypt_file(path, out_path=None):
-    """解密文件：支持 AES-GCM v2 与旧 XOR 文件。"""
-    key = _get_key()
-    if out_path is None:
-        out_path = path.replace(".enc", "")
-    with open(path, "rb") as f:
-        data = f.read()
-    if data.startswith(_MAGIC):
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-        nonce = data[len(_MAGIC):len(_MAGIC) + 12]
-        ct = data[len(_MAGIC) + 12:]
-        out = AESGCM(key).decrypt(nonce, ct, _MAGIC)
-    else:
-        out = bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
-    with open(out_path, "wb") as f:
-        f.write(out)
-    return out_path
-
-
-def checksum(data):
-    """计算校验和：SHA256"""
-    if isinstance(data, str):
-        data = data.encode()
-    return hashlib.sha256(data).hexdigest()
-
-
-def verify_checksum(data, expected):
-    """验证校验和"""
-    return checksum(data) == expected
-
-
-def generate_uuid():
-    """生成唯一ID"""
-    return secrets.token_hex(16)
-
-
-def encode_base64(data):
-    """Base64编码"""
-    if isinstance(data, str):
-        data = data.encode("utf-8")
-    return base64.b64encode(data).decode("ascii")
-
-
-def decode_base64(s):
-    """Base64解码"""
-    return base64.b64decode(s).decode("utf-8")

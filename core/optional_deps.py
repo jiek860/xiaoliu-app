@@ -49,6 +49,9 @@ FEATURES = {
     "图像理解": ["opencv-python"],
     "浏览器自动化": ["playwright"],
     "代码补全": ["jedi"],
+    # 第 7 批：工作台 IDE 能力。不装也不影响启动，只是跳转/引用/保存格式化用不了。
+    "语言服务": ["python-lsp-server"],
+    "代码格式化": ["black"],
     "界面组件": ["uiautomation", "comtypes"],
     "知识库文档解析": ["pypdf", "python-docx", "openpyxl", "python-pptx"],
     # 终端真 PTY（ConPTY）：装了能跑 python REPL / Tab 补全 / 颜色，
@@ -66,6 +69,7 @@ _IMPORT_NAME = {
     "huggingface-hub": "huggingface_hub",
     "python-docx": "docx",
     "python-pptx": "pptx",
+    "python-lsp-server": "pylsp",
     "pywinpty": "winpty",
 }
 

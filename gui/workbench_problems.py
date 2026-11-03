@@ -38,6 +38,29 @@ def aggregate_text(path, own, files, total):
         int(own or 0), int(total), int(files))
 
 
+# 问题页配色：错误红、警告橙（VS Code 的问题面板也是这两档）
+SEVERITY_COLORS = {"error": "#cf222e", "warn": "#9a6700"}
+_WARN_CODES = ("W", "C", "R", "I", "B", "N", "D")
+
+
+def row_severity(code, message=""):
+    """问题行严重度：``error`` / ``warn``（决定问题页颜色）。
+
+    约定（第 8 批）：
+      * ``LSP·...``：语言服务的诊断，警告的描述以 ``⚠ `` 开头；
+      * ``SyntaxError`` 以及 ruff 的 ``E/F`` 系列是错误；
+      * ``W/C/R/I/B/N/D`` 系列是警告/建议。
+    """
+    text = str(code or "")
+    if text.startswith("LSP"):
+        return "warn" if str(message or "").startswith("⚠") else "error"
+    if text.startswith("SyntaxError") or text.startswith(("E", "F", "运行")):
+        return "error"
+    if text.startswith(_WARN_CODES):
+        return "warn"
+    return "error"
+
+
 class _Binder(QObject):
     """挂在编辑器下的短命对象：控件销毁时连接自动失效。"""
 

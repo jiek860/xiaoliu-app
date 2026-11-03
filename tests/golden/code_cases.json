@@ -1,0 +1,77 @@
+[
+  {
+    "id": "code_001",
+    "fixture": "tests/fixtures/code/calc",
+    "goal": "修复空列表除零，空列表返回 0",
+    "patch": {
+      "goal": "空列表返回 0",
+      "files": [{
+        "op": "update", "path": "calc.py",
+        "hunks": [{
+          "old": "def average(nums):\n    return sum(nums) / len(nums)\n",
+          "new": "def average(nums):\n    if not nums:\n        return 0\n    return sum(nums) / len(nums)\n"
+        }]
+      }]
+    }
+  },
+  {
+    "id": "code_002",
+    "fixture": "tests/fixtures/code/snake",
+    "goal": "吃到食物后分数也要增加",
+    "patch": {
+      "goal": "吃食物加分",
+      "files": [{
+        "op": "update", "path": "game.py",
+        "hunks": [{
+          "old": "    def eat(self):\n        self.length += 1\n",
+          "new": "    def eat(self):\n        self.length += 1\n        self.score += 10\n"
+        }]
+      }]
+    }
+  },
+  {
+    "id": "code_003",
+    "fixture": "tests/fixtures/code/pyqt_form",
+    "goal": "提交时调用 handler 回调",
+    "patch": {
+      "goal": "补上回调调用",
+      "files": [{
+        "op": "update", "path": "form.py",
+        "hunks": [{
+          "old": "    def submit(self):\n        self.saved += 1\n",
+          "new": "    def submit(self):\n        if self.handler is not None:\n            self.handler()\n        self.saved += 1\n"
+        }]
+      }]
+    }
+  },
+  {
+    "id": "code_004",
+    "fixture": "tests/fixtures/code/import_cycle",
+    "goal": "用延迟导入修复循环依赖，保持 API 不变",
+    "patch": {
+      "goal": "延迟导入",
+      "files": [{
+        "op": "update", "path": "b.py",
+        "hunks": [{
+          "old": "from a import VALUE\n\n\ndef helper():\n    return VALUE + 1\n",
+          "new": "def helper():\n    from a import VALUE\n    return VALUE + 1\n"
+        }]
+      }]
+    }
+  },
+  {
+    "id": "code_005",
+    "fixture": "tests/fixtures/code/unicode_path",
+    "goal": "统一写入编码为 UTF-8",
+    "patch": {
+      "goal": "UTF-8 写入",
+      "files": [{
+        "op": "update", "path": "io_util.py",
+        "hunks": [{
+          "old": "def write_text(path, text):\n    with open(path, \"w\", encoding=\"gbk\") as fp:\n",
+          "new": "def write_text(path, text):\n    with open(path, \"w\", encoding=\"utf-8\") as fp:\n"
+        }]
+      }]
+    }
+  }
+]

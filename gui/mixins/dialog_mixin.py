@@ -240,6 +240,18 @@ class DialogMixin(BackgroundTaskMixin):
         """记忆可视化：时间线 / 图谱 / 搜索 / 编辑"""
         return self._open_simple_dialog("memory_view_dialog", "MemoryViewDialog")
 
+    def roles_dialog(self):
+        """群聊角色管理：人设 / 触发关键词 / 导入导出
+
+        真实问题（2026-11-02 体检）：`gui/roles_dialog.py` 写好了、类也完整，
+        `core/feature_registry.py` 也登记了 `"roles"`，但这层没有对应方法 ——
+        `navigation_mixin._show_more_menu()` 用 `getattr(self, action)` 拿到
+        `None` 后 `callable()` 判假，于是「群聊角色」在菜单里**静默消失**
+        （不是报错，是看不到）。改完这条入口从命令面板「群聊角色」可用。
+        """
+        return self._open_simple_dialog(
+            "roles_dialog", "RolesDialog", modal=False)
+
     def stats_dialog(self):
         """数据统计报表"""
         return self._open_simple_dialog("stats_dialog", "StatsDialog")

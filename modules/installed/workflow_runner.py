@@ -17,6 +17,7 @@ import threading
 import time
 
 from modules.base import BaseModule
+from core.data_paths import data_path
 
 try:
     from core.plugin_errors import make_error
@@ -27,7 +28,6 @@ class WorkflowCancelled(Exception):
     """工作流被 stop() 取消。"""
 class WorkflowError(Exception):
     """单步执行失败。"""
-
 class WorkflowRunner(BaseModule):
     """轻量 YAML 工作流执行器。"""
 
@@ -110,7 +110,7 @@ class WorkflowRunner(BaseModule):
         super().__init__(trunk)
         self.base = getattr(trunk, "base", None) or os.path.dirname(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        self.workflow_dir = os.path.join(self.base, "data", "workflows")
+        self.workflow_dir = data_path(self, "workflows")
         self._running = False
         self._thread = None
         self._cancel = threading.Event()

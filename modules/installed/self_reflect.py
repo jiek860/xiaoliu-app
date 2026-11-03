@@ -34,6 +34,7 @@ from core.safe import safe
 from core.chat.critic import (parse_model_json, rubric_dims, rubric_issues,
                               rubric_total)
 from core.chat import fewshot
+from core.data_paths import data_path
 from modules.base import BaseModule
 
 _DIM_KEYS = ("准确", "贴合", "人格", "有用", "长度")
@@ -54,11 +55,14 @@ class ReflectEngine(BaseModule):
         super().__init__(trunk)
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or "."
+        # 跟随 trunk.data_dir（不是 base/data）：测试/自检把数据目录改到
+        # 临时目录时，反思历史不该再写进用户的真数据（见 core/data_paths.py）。
+        self.data_dir = data_path(trunk if trunk is not None else self.base)
         # v2.1: 插件持久化必须落在 data/plugin_data/<插件名>/ 内
-        _sdir = os.path.join(self.base, "data", "plugin_data", "self_reflect")
+        _sdir = os.path.join(self.data_dir, "plugin_data", "self_reflect")
         os.makedirs(_sdir, exist_ok=True)
         self.history_path = os.path.join(_sdir, "reflect_history.json")
-        _legacy = os.path.join(self.base, "data", "reflect_history.json")
+        _legacy = os.path.join(self.data_dir, "reflect_history.json")
         if not os.path.exists(self.history_path) and os.path.exists(_legacy):
             try: os.replace(_legacy, self.history_path)
             except OSError:  # 静默是故意的：旧数据迁移失败不阻断主流程
@@ -269,7 +273,8 @@ class ReflectEngine(BaseModule):
             self.base, entry.get("用户", ""), entry.get("回答", ""),
             dims=dims, issues=issues, suggestion=entry.get("建议", ""),
             category=category, shadow=bool(entry.get("影子")),
-            source=entry.get("来源", "规则"), enabled=self._fail_enabled())
+            source=entry.get("来源", "规则"), enabled=self._fail_enabled(),
+            data_dir=self.data_dir)
 
     @safe
     def record_failure(self, user_input, ai_response, dims=None, issues=None,
@@ -277,11 +282,11 @@ class ReflectEngine(BaseModule):
         return fewshot.record_failure(
             self.base, user_input, ai_response, dims=dims, issues=issues,
             suggestion=suggestion, category=category, shadow=shadow,
-            source=source, enabled=self._fail_enabled())
+            source=source, enabled=self._fail_enabled(), data_dir=self.data_dir)
 
     @safe
     def failures(self, status="open", category="", limit=20):
-        rows = fewshot.failure_rows(self.base)
+        rows = fewshot.failure_rows(self.base, self.data_dir)
         if status:
             rows = [r for r in rows if r.get("状态") == status]
         if category:
@@ -307,7 +312,7 @@ class ReflectEngine(BaseModule):
         recent = [h for h in self.history
                   if now - int(h.get("ts") or now) <= 7 * 86400]
         scored = [h for h in recent if isinstance(h.get("分数"), (int, float))]
-        fails = [r for r in fewshot.failure_rows(self.base)
+        fails = [r for r in fewshot.failure_rows(self.base, self.data_dir)
                  if now - int(r.get("ts") or now) <= 7 * 86400]
         cats = {}
         for row in fails:
@@ -465,7 +470,8 @@ class ReflectEngine(BaseModule):
 
     @safe
     def clear_failures(self):
-        fewshot.write_jsonl(fewshot._data_path(self.base, fewshot.FAIL_FILE), [])
+        fewshot.write_jsonl(
+            fewshot._data_path(self.base, fewshot.FAIL_FILE, self.data_dir), [])
         return {"ok": True}
 
     def run(self, *args):

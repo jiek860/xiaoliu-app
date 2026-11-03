@@ -59,9 +59,29 @@ class CodeEditorRunnerMixin:
             from core.code import run_parse, error_hints
             self.output.appendPlainText("📌 " + run_parse.summary(text, code,
                                                                  getattr(self, "root", None)))
-            for row in error_hints.lines_for(text):
+            for row in error_hints.lines_for(text, getattr(self, "root", "")):
                 self.output.appendPlainText(row)
             self.output.appendPlainText("<<< " + run_parse.exit_text(code))
         except Exception as e:  # 静默是故意的 - 解析失败不影响运行结果
             _x6_swallowed(__name__, e, "run summary")
             self.output.appendPlainText("<<< 退出码: %d" % code)
+        self._publish_failures(text, code)
+
+    def _publish_failures(self, text, code):
+        """第 8 批 B5：失败位置进「问题」页，双击就能跳到出错的那一行。"""
+        bottom = getattr(self, "bottom", None)
+        if bottom is None or int(code or 0) == 0:
+            return []
+        try:
+            from core.code import error_hints
+            rows = error_hints.problems_from_text(
+                text, "", getattr(self, "root", ""))
+        # 静默是故意的 - 解析不出位置就保持原来的问题列表
+        except Exception as e:
+            _x6_swallowed(__name__, e, "publish failures")
+            return []
+        if not rows:
+            return []
+        bottom.set_problems(rows)
+        bottom.select(1)
+        return rows

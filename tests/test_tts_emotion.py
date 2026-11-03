@@ -42,18 +42,21 @@ def test_mood_from_personality(tmp_path):
     assert params["rate"].startswith("-")
 
 
-def test_first_packet_timeout_falls_back(engine, monkeypatch):
+def test_first_packet_timeout_falls_back(tmp_path, monkeypatch):
+    """首包超时回退文本。这里关掉本地兜底，才能断言"确实没合成出来"。"""
+    engine = tts_mod.TTS(FakeTrunk(tmp_path, rules={"语音.本地兜底": "off"}))
+
     async def slow(*a, **k):
         raise tts_mod._FirstPacketTimeout()
     monkeypatch.setattr(engine, "_speak_async", slow)
     out = engine.speak("你好呀")
     assert out["ok"] is False
     assert out["fallback"] == "text"
-    assert out["first_packet_ms"] == 1500
+    assert out["first_packet_ms"] == 3000
 
 
 def test_speak_records_first_packet(engine, monkeypatch):
-    async def fast(text, out_path, params=None, limit_ms=1500):
+    async def fast(text, out_path, params=None, limit_ms=3000):
         with open(out_path, "wb") as f:
             f.write(b"audio")
         return 120

@@ -114,6 +114,18 @@ class LLMLocalMixin:
         # 4. 其余 → 主力模型
         return self._main_model()
 
+    def _local_options(self, model, user_text=""):
+        """本地请求的 options：窗口 + 场景采样参数（第 2 批）。"""
+        try:
+            from core.context_window import (effective_window, ollama_options,
+                                             sampling_for)
+            window = effective_window(self.config, model)
+            params = sampling_for(self.config, user_text, model=model)
+            return ollama_options(params, window)
+        except Exception as e:  # 静默是故意的 - 参数层异常时退回安全默认
+            _x6_swallowed(__name__, e, "local sampling options")
+            return {"num_ctx": 8192, "temperature": 0.7}
+
     def _chat_local_route(self, message, inject_persona=True, force_model=None):
         """模式①：路由选模型 → 本地；路由模型挂了回退主力；本地全挂云端兜底"""
         main_model = self._main_model()
@@ -196,16 +208,16 @@ class LLMLocalMixin:
             # 读超时（生成慢）→ 本地重试一次（模型冷启动/慢机常见）；连接失败 → 直接云兜底
             _t_out = 120
             _t0 = time.time()
-            # 温度按场景：编程/代码问题0.3更准，闲聊0.7
+            # 温度按场景 + 窗口按模型能力：见 core/context_window.py
             _ut = self._extract_user_text(msgs)
-            _t = 0.3 if any(k in _ut for k in ("代码","bug","报错","函数","python","编程","脚本","程序","错误","修复")) else 0.7
+            _opts = self._local_options(model, _ut)
             try:
                 with get_ollama_lock():
                     r = self._post(self.base_url + "/api/chat",
                         json={"model": model, "messages": msgs, "stream": False,
                               "think": False,
                               "keep_alive": "2h",
-                              "options": {"num_ctx": 4096, "temperature": _t}},
+                              "options": _opts},
                         timeout=_t_out)
                     self._fail_count = 0
                     _dt = time.time() - _t0
@@ -222,7 +234,8 @@ class LLMLocalMixin:
                         r = self._post(self.base_url + "/api/chat",
                             json={"model": model, "messages": msgs, "stream": False,
                                   "think": False,
-                                  "keep_alive": "2h"},
+                                  "keep_alive": "2h",
+                                  "options": _opts},
                             timeout=_t_out)
                         return r.json().get("message", {}).get("content", "")
                 except Exception as e2:

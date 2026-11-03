@@ -1,6 +1,397 @@
 # 版本变更记录
 
+## v25.6.0 - 2026-11-03
+
+本轮把两批结构治理（S0–S4、B0–B7）一次性 squash 合入 main。
+
+### 第二轮结构体检（S0–S4，2026-11-02）
+
+按 `docs/101` 文末《附录二：第二轮结构体检与修复方案（2026-11-02）》分 4 批实施，每批独立提交（未推送）：
+
+| 批次 | 内容 | 提交 |
+|---|---|---|
+| S0 | 死代码/死模块审计工具 `tools/audit_dead_code.py` + 体检结论落档 | `1aa3bc9` |
+| S1 | 导入数据改走安全迁移（挡 zip slip）、删 `core/skill_loader.py`、接回「群聊角色」入口 | `c3420bb` |
+| S2 | 数据落盘统一走 `core/data_paths`（85 处）+ 新守卫「数据路径棘轮」 | `ab2ded4` |
+| S3 | 死函数清理 41 个、`crypto`/`patch_utils` 收敛、加解密与配置职责写清 | `315aa55` |
+| S4 | 阶段条假信号删除、`mcp_run_code` 死前缀删除、裸 `except` 25 处收敛、新守卫「死代码棘轮」「信号接线」 | `c475d6b` |
+
+### 用户能感觉到的变化（S1 / S2）
+
+- **「导入数据」不再可能被恶意 zip 覆盖程序文件**：包里写 `../core/evil.py` 这类越界路径会被单独报「拒绝」且不写盘；会覆盖现有文件时先算清单再弹确认，取消则一个字节都不写。
+- **「群聊角色」入口回来了**：以前 `roles` 在功能登记表里、对话框代码也齐了，但菜单那层没有对应方法，等于静默消失；现在命令面板搜「群聊角色」就能打开（人设 / 触发词 / 导入导出）。
+- **数据目录真正可重定向**：装在 `Program Files` 这类不可写目录时，把 `X6_DATA_DIR`（或 `Trunk.data_dir`）指到别处，备份、技能注册表、记忆卡、工作流、日程、语音临时文件等 85 处落盘一起跟着走，不再各自写死 `base/data`。
+- **测试不再往用户真数据里写**：这些落盘点改走 `data_paths` 之后，测试只要重定向一次就整体断干净。
+
+### 门禁（S2）
+
+- 新增 `tools/check_data_paths.py` + `tools/data_paths_baseline.json`：第一方代码里手拼 `base/data` 的处数**只许降**（本轮 190 处 / 130 文件 → 104 处 / 78 文件），并列入 `REQUIRED`。
+- 于是 `pre_commit_check.py` 变成**快检 8 项 / 全套 11 项**；`tests/test_gate_guards.py` 与 `docs/30` 门禁表同步更新。
+
+### 用户能感觉到的变化（S3）
+
+- **这次以“清干净”为主，用户界面行为不变**：删掉 41 个全项目零调用、却容易被误当成“统一入口”的函数（6 个安全装饰器、4 个配置导入导出 helper、7 个通用加密 helper、版本号/应用名包装、`is_trusted` 空壳等）。功能链路上在用的一个没动。
+- **审计工具不再误伤**：修掉“手写三引号状态机把 docstring 后面的真实代码整段清空”的老毛病（`atexit` 收子进程、子进程 PATH 补全、模块清单读取都曾被误报成死代码），并把根目录入口脚本纳入引用统计。
+- **三套加解密/配置读写的职责写清了**（`docs/30` 新章节）：配置敏感字段走 `secret_store`、记忆导出走 `memory_crypto`、授权签名走 `license_core`；`core/crypto.py` 明确标为“仅测试 / 历史兼容”。
+
+### 门禁（S3）
+
+- `tools/audit_dead_code.py`：注释/docstring 清理改用 `tokenize` + `AST`（保留字符串字面量以识别反射调用）、新增根目录脚本扫描、新增 `KEEP` 表把“零引用但有意的公共入口”单独列出。
+- 审计结果：可疑死函数 **43 → 0**，已知保留 4，死模块 0，重复实现 0。
+
+### 用户能感觉到的变化（S4）
+
+- **过程步骤条点「取消这一步」终于有反馈了**：以前那句「（已取消这一步）」写在重绘之前，被整段覆盖，等于从来没显示过；现在会留在步骤条上。取消本身一直是真取消（走 `stage_bus.cancel_step`）。
+- **「编程」工具模式不再白占一个候选位**：模式里有个 `mcp_run_code` 前缀，但全项目没有这个工具（MCP 外部工具的名字由用户自己的 MCP 配置决定），删掉后模型挑工具时少一个干扰项。命令面板里能搜到的工具一个没少。
+- **Ctrl+C 不会再被悄悄吞掉**：25 处裸 `except:` 改成 `except Exception:`，中断/退出信号能正常冒出去，不会出现「按了没反应、只能杀进程」。
+
+### 门禁（S4）
+
+- 新增 `tools/check_dead_code.py`（+ `tools/dead_code_baseline.json`）：把审计结果做成**棘轮**，可疑死模块 / 零引用函数 / 完全重复实现基线 **0 / 0 / 0**，新增即拦下。
+- 新增 `tools/check_signals.py`（+ `tools/signals_baseline.json`）：`pyqtSignal` 定义了却没人 `.connect` 就失败（接在 tests 里也算），基线 0 —— 实测 91 个信号全部有人接。
+- 于是 `pre_commit_check.py` 变成**快检 10 项 / 全套 13 项**，`REQUIRED` 7 项；`tests/test_gate_guards.py` 扩充到 11 条用例（含「守卫真能拦住」的反例），`docs/30` 门禁表同步。
+- 五个被改的插件已 `rebuild_modules_repo` + 重新签名（48/48 内容一致、48 条验签通过）。`plugin_repo/` 公开镜像本轮不动（它在 HEAD 时就已落后，属既有状态，另立发布动作）；后续 `ce1235d` 已完成同步，实测 48/48 内容一致、48 条验签通过。
+
+### 代码结构体检与 23 模块补全（B0–B7，2026-11-02）
+
+按 `docs/101` 文末附录《代码结构体检与 23 模块完整版方案》分 8 批做完，每批独立提交（未推送）：
+
+| 批次 | 内容 | 提交 |
+|---|---|---|
+| B0 | `LAZY_MAP` 显式来源登记（`CORE_ONLY_KEYS` / `SAME_FILE_ALIASES` / `source_of()`）+ 按来源单路径加载 + 新守卫 `tools/check_lazy_sources.py` | `47b2adb` |
+| B1 | 静默失败修复（`legacy_reply` 5 处吞异常、`_load_lazy` 返回 None、`get_tone(None)`） | `6cf3e3a` |
+| B2 | 死代码清除（`bible_hint` + 20 份 `data/*_bible.md` + 无引用的 `core/cache.py`） | `0b6cd86` |
+| B3 | 记忆 4 模块完整版（`memory_organizer` / `memory_archiver` / `memory_crypto` / `memory_optimizer`） | `dc6b8aa` |
+| B4 | 报告/统计 5 模块完整版（`mood_report` / `growth_report` / `stats_report` / `data_cleaner` / `dream_system`） | `76d9875` |
+| B5 | 自动/兜底 5 模块完整版（`local_fallback` / `model_vote` / `group_debate` / `startup_optimizer` / `gpu_detector`） | `fa71c28` |
+| B6 | 录放/流程/市场/迁移/签名/崩溃/脱敏 9 模块完整版 | `04a2400` |
+| B7 | 门禁强化 + 文档基线同步（本节） | `069093f` |
+
+### 用户能感觉到的变化
+
+- **统计/成长/情绪报表不再"读失败当 0"**：`stats_report` 区分"真实零"和"读取失败"，
+  设置页一行摘要；`growth_report` 有本周期与上周期对比 + `data/growth_history.jsonl`。
+- **记忆维护能回滚**：`data_cleaner` 干跑 + `backups/cleaning_<时间戳>/` 备份 + `restore_backup()`；
+  修掉"清理记忆卡时把坏行连坐删掉"的数据丢失。
+- **兜底更稳**：`local_fallback` 9 档规则（配小模型时逐级退让），`model_vote` / `group_debate`
+  都有整场超时，一个慢模型不再把工具调用挂死。
+- **cookie 加密落盘**：浏览器会话改 AES-GCM（密钥 `data/browser_sessions/.key`），
+  备份/迁移/崩溃包不会再顺手带走明文登录凭证。
+- **迁移/人格包有确认与校验**：导入前先算覆盖范围（未确认一个字节都不写）、
+  成员逐个过 `safe_join`（挡住 `../evil.txt` 这类 zip slip），人格包带 `manifest.json` 校验和。
+- **崩溃包读对目录**：改走 `core/data_paths`（`X6_DATA_DIR` 改过数据目录时不再打空包），
+  脱敏规则扩到 10 类（私钥 / GitHub / AWS / JWT / 证件 / 卡号 / 邮箱 / 密码…）。
+
+### 门禁（B7）
+
+- `tools/pre_commit_check.py`：`懒加载来源` 升为**关键守卫**，新增 `REQUIRED` 名单 ——
+  关键项被从 `CHECKS` 里删掉时脚本直接失败（防止"门禁被优化没了还全绿"）；
+  pre-push 仍是 10 项。
+- 新增 `tests/test_gate_guards.py`（6 用例）：10 项/两档/关键项/脚本存在性/pre-push 调 `--full`。
+- `tools/file_size_baseline.json` 新增 `known_frozen`（6 份 590+ 行大文件本轮不拆），
+  `check_file_sizes.py` 会校验它们**只许降不许涨**。
+- 新增 `tools/gen_module_map.py`：重新生成 `docs/00` 的 3.1 core 表（行数/测试/完整度/已接线
+  全部实测），B3–B6 的 23 个模块标「完整版」。
+- 本轮新增/扩充测试文件 10 个，合计 **118 个用例**（`test_reports` 19、`test_data_cleaner` 9、
+  `test_dream_display` 7、`test_fallback_and_vote` 23、`test_startup_and_gpu` 12、
+  `test_flows_and_records` 17、`test_pack_and_export` 25、`test_gate_guards` 6，
+  另有 B3 的 `test_memory_archiver` / `test_memory_optimizer`）。
+
 ## v25.5.0 - 2026-10-31
+
+### 「牛头不对马嘴」的四条根因（2026-11-01）
+
+用户截图：21:19「你好小6最近的烧烤店有…」→ 反问「您希望我提供什么样的信息」；
+「菜单」→「请稍等片刻，我会尽快为您查询并回复」；「查询完没有」→
+「抱歉，我刚刚的回复有误，我并没有情感…我是一个AI机器人，我的任务是为用户提供服务」。
+**一句都没答到点上**。逐条查下来是四个独立毛病叠在一起：
+
+1. **真实数据被测试/自检污染（最脏的一条）**
+   `data/memory.json` 里有 `userA` / `userB` / `checker` / `回归` 测试用户键，
+   `default` 里塞着「测试用户消息」「这是自动检测发的消息」；
+   `data/chat_shadow.jsonl` 983 行里 783 行是「我的猫叫豆豆」「第 1 轮提问」这类夹具文本。
+   原因是落盘路径到处直接拼 `trunk.base + "data"`，而测试/自检把
+   `Trunk.data_dir` 改到临时目录时 `base` 仍指向真实项目 —— 假对话照样写进用户真数据，
+   真实轮次再读它（近期话题、记忆卡、失败库建议、反思建议全被带偏）。
+   - 新增 **`core/data_paths.py`**：`data_dir()/data_path()/plugin_dir()` 唯一入口，
+     优先级 `target.data_dir` > 测试重定向 > 环境变量 `X6_DATA_DIR` > `base/data`。
+   - `ContextBuilder.shadow_path`、`_vector_hits`、`_recall_memory`、
+     `ReplyPipeline._remember`、`MemoryV2(data_dir=...)`、`fewshot` 三个落盘函数、
+     `modules/installed/self_reflect.py`、`modules/installed/error_lib.py` 全部改走它。
+   - `tests/conftest.py::make_trunk()` 现在**整体重定向**（data_dir / log_dir / memory_path /
+     config_path + 桩掉 error_lib），测试再也写不进真实 `data/`。
+   - 新增 **`tools/clean_test_data.py`**：清理已经躺在真实数据里的垃圾。
+     默认干跑，`--apply` 才写，先备份到 `backups/data_cleanup_<时间>/`；
+     判据只认"能证明是测试的"（测试用户键 / 整句等于夹具文本 / 含自检专属短语），
+     **不做模糊包含匹配**（否则真聊天里顺口说的"测试"会被连坐），坏行一律保留。
+     实测清掉 `memory.json` 4 个测试用户键 + 9 条假条目、`chat_shadow.jsonl` 783 行。
+
+2. **联网搜索把 dict 字面量塞进提示词，空结果也算"有资料"**
+   `deep_search.search()` 返回 **dict**（结果/总结/数量/查询/来源），原代码 `str(web)[:4000]`
+   直接拼进上下文：`'数量': 0` 也是字符，于是"空结果"看起来非空，模型看到一坨
+   Python 字典字面量，只能反问或许空诺。而且用户整句口语「可以帮我查看最近的烧烤店吗」
+   被原样丢给搜索引擎，抓回来的全是无关页面。
+   - 新增 **`core/pipeline/web_context.py`**：`clean_query`（逐层剥口语前后缀）、
+     `pick_rows`（只认有标题的条目、最多 5 条、丢掉纯链接）、`render_rows`
+     （「标题（来源）—— 摘要 链接」，外网内容仍过 `wrap_search_result`）、
+     `empty_note`（"这次没搜到，别编店名/地址/电话/价格，给用户一步替代"）、
+     `local_hint`（问"附近"先说明没有定位）。
+   - `ContextBuilder._bounded` 新增 `fallback` 参数：**超时/异常不再静默返回空串**，
+     联网那条超时会把"超过 8 秒没回来"作为上下文交给模型。
+   - `context_builder.py` 因此从 660 行回到 580 行（文件长度守卫：>600 必须拆分）。
+
+3. **规划器把"寒暄里夹着请求"压成一句客套**
+   `state.classify_intent` 命中 `你好` → `smalltalk`；`planner._rule_plan` 于是给
+   `act=ack / max_chars=60`，提示词把回复按死在"一句寒暄"里。
+   修法：`_REQUEST_WORDS`（查/搜/找/附近/最近/店/外卖/多少钱/推荐…）命中就改成
+   `act=answer`，`must_include` 加「先接一句寒暄，然后回答他真正问的事」，
+   `avoid` 加「只寒暄不回答」「反问一堆无关信息」。
+
+4. **评分器给跑题答案满分，失败库永远学不到"这答错了"**
+   那条「我并没有情感…」在反思里是 准确 5 / 贴合 5 / 总分 5.0 ——
+   因为 `_ASK_RE` 认不出「查询完没有」这种短口语是提问，而且客服腔/自我否定不计分。
+   - `critic.rubric_dims`：`_ASK_RE` 扩口（怎么/为什么/能不能/查/搜/看/有没有/结果/弄好…）；
+     新增 `_SELF_DENY_WORDS` 并在"用户在问 AI/情感"以外命中时把准确压到 ≤2；
+   - `deai` 新增两条出站规则：「自我否定」（整分句删）、「空许诺」（删"请稍等…我马上为您查"），
+     互相不误伤：`我不能感受到你的痛苦，但我在。` 与 `我查到了，最近的一家烧烤店在解放碑` 都保留。
+
+5. **提示词侧补两条**（`core/personality_style_hints.py::TONE_HINT`，每轮无条件注入）：
+   「没数据就直说：不许许空诺、不许编店名/地址/电话/价格」；
+   「你就是小6：别自称"我是一个AI机器人""我并没有情感"」。
+
+**测试**：新增 `tests/test_context_web.py`（13 条）、`tests/test_clean_test_data.py`（15 条）；
+`tests/test_response_planner.py` +1、`tests/test_response_critic.py` +4、`tests/test_deai.py` +4。
+全量 3471 passed / 4 skipped。
+
+### 回复更像真人：少 AI 腔、多口语和细节（2026-11-01）
+
+用户要求："回复的用词/语气更像真人，少点『作为一个AI…』，多点口语和具体细节。"
+
+先说清根因：人格卡里的 `banned` 禁语表**只被 `ResponseCritic` 使用**，
+而 `聊天.校验器` 默认是 `shadow`（只记录、不替换文本）——
+也就是说"作为一个AI""希望对你有所帮助"这些词**在实际回复里从来没被删掉过**，
+提示词里写了不许说，兜底却没人执行。
+
+1. **新增 `core/chat/deai.py`（确定性去 AI 腔，零模型、零 IO）**：
+   - 删句首自我介绍：`作为一个AI，` / `作为人工智能，` / `作为一个语言模型，`…
+   - 删客服腔（放哪都是废话，整句删）：`希望对你有所帮助` / `很高兴为您服务` /
+     `如果还有问题随时告诉我` / `还有其他问题吗`…
+   - 删书面模板前缀：`首先，` / `其次，` / `总之，` / `综上所述，` /
+     `需要注意的是，` / `以下是`…（只认"句首 + 逗号/冒号"，`最后我还是选了 A` 不误伤）
+   - ``` 代码块一个字符都不动（代码注释里的"首先"不是模板腔）；
+   - 整条回复都是客套话时**保留原文**，绝不把回复清成空白；
+   - 只删不给细节的词，不删数字：`需要注意的是，这个接口有频率限制，一天最多 100 次。`
+     → `这个接口有频率限制，一天最多 100 次。`
+2. **接入点与开关无关**：`ReplyPipeline._critique` 里先跑 deai 再跑校验器
+   （on / shadow / off 三种模式都跑）；兜底链路 `core/pipeline/legacy_reply.py`
+   同样调用。命中项记进校验摘要的 `issues`（`自称AI` / `客服腔` / `模板前缀`），
+   "收尾"步骤条与 shadow 日志里能直接看到。
+3. **提示词侧加"具体"**：
+   - 人格卡 L1（`core/chat/data/persona_tiers.json` + `persona_card.py::_DEFAULT`）：
+     "说人话：短句口语，能带具体细节（数字、时间、文件名、例子）就别讲空话；
+     不说『作为一个AI…』『希望对你有所帮助』这类客服腔，也不用
+     『这取决于很多因素』『因人而异』糊弄。"
+   - 人格风格：`松弛`/`口语化`/`专业`/`毒舌`/`温和` 五个都补了"说具体的东西"；
+     场景层"代码"补了"带上文件名、行号或报错原文"。
+   - 人格宪法（`core/personality_style_hints.py`）：新增
+     **㉓具体**（版本号/路径/第几步/多少 MB/身边的例子）、
+     **㉔去AI腔**（不拿"作为一个AI"开场，不用作文模板），
+     【绝对不能】补上这几类原话。
+   - few-shot 5 条 → 7 条，新增"电脑卡"（先看 CPU/内存占比 80%、
+     关开机自启）与"学英语"（每天 20 分钟跟读美剧、一周一集）两条**带数字**的示范。
+   - `banned` 词表扩充：`作为一个AI` / `作为一个语言模型` / `很高兴为您服务` /
+     `总的来说，` / `简单来说，` / `以下是` / `如果还有问题，随时告诉我` 等。
+4. **测试**：新增 `tests/test_deai.py`（15 条：各条替换、代码块不动、纯客套话保原文、
+   幂等、空值、管线 off/shadow 都生效、legacy 兜底同款）；
+   `tests/test_persona_card.py` +3（L1 含"具体细节"、banned 扩项、版本号）；
+   `tests/test_personality_style_hints.py` +2（宪法 ㉓㉔、few-shot 带数字）。
+
+### 复核：真人语气"到底有没有生效"（2026-11-01）
+
+用真实 `Trunk`（不是测试桩）拼了一次提示词，结果一半生效、一半**根本没进模型**：
+
+| 改动 | 实测 | 原因 |
+| --- | --- | --- |
+| 出站清理 `core/chat/deai.py` | ✅ 生效 | 53 字 → 30 字，命中 `自称AI/客服腔/模板前缀`（校验器 shadow 下也跑） |
+| few-shot 带数字 | ✅ 生效 | 提示词里能看到 `80%`、`20 分钟` |
+| 人格卡 L1/L2"说人话、要具体细节" | ❌ 没生效 | 用户配了 `ai_persona`（2040 字「小6小传」），`_compose_persona` 走 custom 分支，**卡片文本整段被跳过** |
+| 人格宪法 ㉓具体 / ㉔去AI腔 | ❌ 没生效 | 它们在 `bible_hint()` 里，而 `bible_hint()` **生产代码没有任何调用方**，只有测试在调 |
+
+修法（都不新增规则，规则门禁仍是 103）：
+
+1. **新增 `core/personality_style_hints.py::TONE_HINT`**（说人话 / 要具体 / 别 AI 腔三段），
+   由 `PromptAssembler._tone_hint()` **每轮无条件注入**：自定义人格、人格卡 `off`、
+   简单快回都带上。它和 `core/chat/deai.py` 是同一套要求的两面：提示词负责"怎么说"，
+   deai 负责出站兜底"删掉没听进去的"。`legacy_reply` 兜底链路同样注入。
+2. **降级到非流式时不再丢提示词**：本地 `LLMClient._try_local` 在
+   `inject_persona=True` 时会**删掉调用方所有 system 消息**、只留一句通用人格。
+   流式失败降级那一刻，拼好的人格卡 / 上下文 / 说话要求会整段丢失。
+   现在 `LLMDispatcher._fallback_chat` 与 `legacy_reply._chat_composed` 降级时传
+   `inject_persona=False`（老测试桩只收 `messages`，`TypeError` 就按原样调）。
+3. **测试**：`tests/test_deai.py` +4（降级保留提示词、兼容老签名）；
+   `tests/test_persona_card.py` +4（自定义人格 / 人格卡 off / 简单快回 都注入说话要求、
+   `TONE_HINT` 内容必须含"版本号/多少 MB/作为一个AI/因人而异"）。
+4. **复核后实测**：真实 Trunk 拼出的提示词里 `说人话`、`别 AI 腔` 均为 True；
+   全量 `3434 passed / 4 skipped`；9 项守卫全绿。
+
+> 遗留（未改，需要决定）：`bible_hint()` 仍是死代码，㉓㉔ 只写在宪法与圣经里；
+> 要接进提示词每轮得多带 500+ 字宪法 + 最多 1500 字圣经，值与不值需要另外定。
+
+### 自动朗读无声修复（2026-11-01）
+
+用户反馈"自动朗读开了，回复没有声音"。排查出**三处**断链，全部修掉：
+
+1. **开关没落配置**：加号菜单的开关只翻内存属性 `self._auto_tts`，
+   而 `chat_mixin` 判断的是 `trunk.config["auto_tts"]` ——
+   菜单提示"已开启"，回复根本不朗读。现在 `toggle_auto_tts()` 写 config 并
+   `save_config()`，菜单项也显示当前状态（开 / 关）。
+2. **合成结果没回传路径**：`modules/installed/tts.py::speak()` 从不返回 `path`，
+   `TTSWorker` 只能发出空字符串，`SpeechController.play("")` 直接 return ——
+   静默失败、零提示。现在返回音频路径，worker 失败时发 `failed` 信号，
+   聊天区给出"🔇 朗读失败：…"（同一原因 10 分钟只提示一次）。
+3. **在线接口整体不可用**：实测 `edge-tts` 7.2.8 请求微软服务返回
+   `WSServerHandshakeError: 403`（也有超时），没有备选路径就彻底没声音。
+   新增 `core/tts_fallback.py`（Windows 系统朗读 / SAPI，离线可用，写 wav），
+   在线失败自动降级；规则 `语音.本地兜底`（默认 on）可关。
+   顺带修掉 `WSServerHandshakeError` 的 `str()` 为空导致错误提示为空的问题。
+
+播放侧同时加固：没有 QtMultimedia 或播放器起不来时退回系统默认播放器，
+两边都失败会把原因回调给界面（不再"点了没反应"）。`voice_chat_dialog`
+走的 `core/realtime/tts.py` 也接了同一套兜底。
+
+验证：全量 **3378 passed / 4 skipped**；实机合成出 182 KB wav；
+新增 `tests/test_tts_wiring.py`（20 条）覆盖开关→配置→合成→播放整条链路。
+
+### 语音首包 3000 / 音色可切换 / 依赖锁版本（2026-11-01）
+
+用户要求：①首包上限调到 3000；②「环境依赖」一键安装把 edge-tts 钉到 7.3.1；
+③朗读与实时对话的音色可切换；④更新本地仓库。
+
+1. **首包上限 1500 → 3000**（规则 `语音.首包上限ms`，`core/rules_engine.py` +
+   `modules/installed/tts.py`）。实测 edge-tts 7.3.1 首包 1032~1788 ms，
+   1500 的预算会把在线自然音色砍掉、退回系统朗读（提示语还显示
+   `TimeoutError`）；真失败时最多多等 1.5 秒才降级。
+2. **一键安装锁 7.3.1**（`gui/components_dialog.py`）：`edge-tts 7.3.1` /
+   `edge-tts==7.3.1`。（7.2.8 请求微软接口稳定回 403/超时。）
+   同一处修掉依赖窗口的 HTML 泄漏：`av（必须 <19）`、`huggingface-hub（必须 <2）`
+   把 `<span>` 原样显示 —— 新增 `_esc()` 转义 + 显式 `RichText`。
+3. **音色可切换**：唯一真源是 `config["tts_voice"]`（`core/config.py` 默认
+   `zh-CN-XiaoxiaoNeural`，`config.default.json` 同步）。加号菜单新增
+   「🔊 朗读音色（当前：…）」子菜单，10 个中文预置音色（晓晓/晓伊/云希/云健/
+   云夏/云扬/晓北/晓妮/曉曼/曉臻），勾选即写配置并落盘。
+   朗读模块（`_voice()` 现读配置）、实时对话引擎（`core/realtime/engine.py`
+   构造 `TTS` 时取配置）、语音对话窗口（`gui/voice_chat_dialog.py`、
+   `modules/installed/realtime_chat.py`）三处共用这一项，改完立刻生效，不用重启。
+   在线失败降到系统朗读（SAPI）时音色不受控，提示文案已说明。
+4. **测试**：`tests/test_tts_emotion.py` 跟随 3000；
+   `tests/test_tts_wiring.py` 追加 5 条（配置取音色 / `stats` 报当前音色 /
+   设音色写盘并落盘 / 空值与无配置被拒 / 实时对话音色跟随配置）。
+
+### 让朗读更像真人（2026-11-01）
+
+用户问"这个语音能更真实一点吗"。音色本身可选的就这些（实测微软列表里
+中文只有 14 个，`Multilingual` / `DragonHD` 这些新名字拿不到音频），
+所以"假"主要来自**把排版符号也念出去了**：
+
+1. **新增 `core/tts_text.py`（口播清洗 `naturalize`）** —— 朗读前先把
+   "给眼睛看的"回复洗成"能读的话"：
+   - `**加粗**`、`# 标题`、`> 引用`、`- 列表`、`1. 编号` 的标记全去掉
+     （编号不去会被 `.`→`。` 念成"一。打开设置"）；
+   - ``` 代码块 ``` 整段跳过（以前会念成几十秒天书）；
+   - `😊` 这类 emoji 换成逗号 —— 直接删会把两句粘成一句
+     （"搞定啦三步走"），换逗号才是人说话的换气；
+   - `https://…` 链接跳过；`[文字](链接)` 只保留文字；
+   - 下划线只去掉"贴着中文"的那种（`_不要_`），`tts_voice` 这种标识符不动；
+   - 换行 → 句号（一句一停顿），重复/错位标点收干净，句末补标点（语调才收得住）；
+   - 超长按**句子边界**截断，不再在半个词上断。
+2. **朗读模块接入**（`modules/installed/tts.py::speak`）：先洗再合成，
+   洗完是空的（纯 emoji/纯代码）直接返回"没有可朗读的文字"，不发请求。
+3. **实时对话接入**（`core/realtime/tts.py::synthesize`，上限 300 字）：
+   语音对话的短句同样清洗，避免把符号念出来。
+4. **新增「▶ 试听当前音色」**（+ → 🔊 朗读音色 子菜单）：念一句带标点的短句，
+   不用等下一条回复就知道音色/自然度到底对不对。
+
+验证：含 markdown + emoji + 代码块 + 链接的回复，清洗后为
+`搞定啦，三步走。打开设置。找到「功能扩展组件」。点一键安装。装完记得重启程序，有问题再喊我～`；
+实机合成在线成功（晓晓首包 1231 ms / 云希 1556 ms，mp3 66 KB / 67 KB）。
+新增 `tests/test_tts_text.py`（12 条）+ `test_tts_wiring.py` 4 条（清洗接入/空文本不请求/试听/无播放器告警）。
+
+### 切了音色却没变化：首包预算被当成"整段预算"（2026-11-01）
+
+用户反馈"切换音色，实际播放出来还是没有改变"。查下来**不是音色参数没传**，
+而是每条正常回复都在中途超时、降级成系统朗读（系统里只有一个中文音色）。
+
+1. **首包预算被用成了整段预算**（`modules/installed/tts.py::_speak_async`）：
+   `deadline` 在开播时算一次，**每个分块**都用它判断超时 ——
+   首包本来就要 1.1~1.8 秒，后面的音频分块必然超时 → 每句都走兜底。
+   实测（`data/plugin_data/tts/`）：20:31 的 mp3 是 **0 字节**、wav 是 1 MB，
+   说明在线合成根本没写出音频。现在 `limit_ms` **只约束首包**，
+   首包到手后每个分块单独给 12 秒；首包超时报"首包超时（N ms）"，
+   中途卡住报"中途卡住"，不再出现 `TimeoutError` 这种看不懂的字。
+2. **老机器的 rules.json 没跟着迁移**（`core/rules_engine.py`）：
+   默认值改成 3000，但 `data/rules/rules.json` 里存的 `value` 还是 1500，
+   而规则引擎"json 覆盖默认"，于是 3000 等于没改。新增 `_OLD_DEFAULTS`
+   迁移表：存的值**正好是老默认**（=用户从没改过）才迁到新默认并回写；
+   用户真改过的值（如 2000）保持不动。
+3. **失败后残留半截音频**：以前超时后 0 字节 / 断头 mp3 会留在沙盒里，
+   下次排查会误以为"在线成功"。现在失败即 `_drop()` 删掉。
+4. **离线兜底也能听出区别**（`core/tts_fallback.py`）：
+   系统朗读通常只有一个中文音色（本机 Microsoft Huihui），换音色毫无变化。
+   男声（云希/云健/云夏/云扬）改走 SSML `prosody pitch="-6st"` 降调
+   （实测会改波形，md5 不同）；女声仍走原来的纯文本路径，不引入风险。
+   在线路径与兜底现在都带同一个 `voice`。
+
+验证：长句（40 字）在线合成 **引擎=edge、首包 1082~1649 ms、mp3 60~62 KB**，
+三个音色 md5 各不相同（改动前同一句必超时降级）；SAPI 女声/男声 wav
+md5 不同（7326bb… vs 313315…）；`data/rules/rules.json` 自动迁到 3000。
+新增 9 条用例（首包只管首包 / 首包超时文案 / 半截文件清理 / 兜底带音色 /
+规则迁移 / 用户自定义值不动 / 音调映射 / SSML 分支 / 女声纯文本分支），
+`tests/test_tts_wiring.py` 共 34 passed。
+
+### 深度优化九批（2026-11-01，未改版本号）
+
+（按 `诊断与优化方案.md` 第 7.3 节「各批明细」的 9 个批次依次落地；每批独立验收，收尾统一回归）
+
+**第 1 批 基线与评测标尺**：`tools/golden_runner.py` + `tests/golden/`（chat 10 条 / code 5 条）。
+指标：`pass_rate / citation_accuracy / memory_hit_rate / referent_accuracy / style_pass_rate / code_pass_rate`，
+此后每批都以它为准，不再靠"感觉像变好了"。
+
+**第 2 批 聊天参数层**：新增 `core/context_window.py`，按模型上限分配历史/记忆/知识额度，
+裁剪按 token 而不是按条数（长对话不再被"最后 N 条"粗暴截断）；
+采样参数（温度 / top_p / 最大 token）真正落到本地与云端请求（云端按服务商做参数名映射）。
+
+**第 3 批 聊天稳健性**：新增 `core/failure_classify.py`（空回复 / 截断 / 重复 / 报错分型，决定重试还是降级）
+与 `core/stream_guard.py`（流式卡死看门狗 + 半截句子兜底）。失败不再一律说"网络问题"。
+
+**第 4 批 记忆与拟人度**：`core/pipeline/rerank.py` 三路知识重排；`core/pipeline/memory_consolidation.py`
+记忆巩固（旧的先压缩再淘汰）；记忆卡按张数 / 字数 / 去重小时注入，回复带「来源：记忆」。
+
+**第 5 批 过程可见**：`core/pipeline/stage_bus.py` + `gui/chat_stage_strip.py` + `gui/mixins/stage_mixin.py`，
+回复步骤条可见、可单步取消、带进度预估（规则 `聊天.过程可见`，shadow 只记日志）。
+
+**第 6 批 编辑内核（hunk）**：`core/hunk_edit.py` / `core/hunk_apply.py` 行级编辑落地：
+行号 hunk（`code.行号hunk`）、锚点模糊定位（`code.锚点定位`）、三方比对冲突三选一（`code.三方比对`）、
+逐段撤销（`code.逐段撤销`）、改动范围 off/ask/strict（`code.改动范围`）。
+
+**第 7 批 IDE 内核**：`core/lsp_client.py` / `core/lsp_protocol.py` 语言服务
+（跳定义 / 找引用 / 重命名 / 诊断，没装自动退回 jedi）；`core/code_format.py` + `gui/editor_save.py`
+保存格式化（`编辑.保存格式化` 默认 off，`编辑.格式先行` 默认 on，格式化后不通过语法检查就不写盘）。
+
+**第 8 批 上下文与诊断**
+- 上下文：`core/workspace_index.py` 新增 `related_symbols / references_of / importers_of / repo_map / tests_for`；
+  `core/code_context.py` 组装「相关代码片段」并按 `core/context_budget.fit_text` 整行裁剪。
+  深度⑤ Repo Map（按引用热度排序）、深度⑥ 测试关联、深度⑦ 语义召回
+  （`core/code/code_search.py`，默认关：会和记忆检索抢额度）。
+- 诊断：`core/code/lint.py`（ruff 命令 / JSON 解析 / ast 兜底 / `live_ruff` / `lsp_rows` / `merge_problems`）
+  + `gui/editor_lint.py`：LSP 诊断优先（深度⑧）、停手 1.2 秒把**未保存文本**喂给 ruff 且所有问题行都画波浪线（深度⑨）。
+- 一键修：`gui/editor_fix.py` + `fix_line_with_ai`：右键「🛠 让 AI 修这一行」只改那一行，改动前仍过 diff 预览（深度⑩）；
+  问题页按严重度标红 / 橙、右键可修可跳；运行失败把 traceback 的 `file:line` 直接送进问题页。
+
+**验证**
+- 全量回归 **3358 passed / 4 skipped**；9 项守卫全绿（文件长度 / 静默 / 形状 / 按钮 60 / 版本 v25.5.0 /
+  ruff+mypy / 懒加载 72 / 运行时依赖 / 工具预算）。
+- Golden：chat 10/10、code 5/5（`pass_rate=1.0000`）。
+- 规则 95 → 102（新增 7 条上下文与诊断开关），`docs/30` 核对表已同步。
 
 **入口治理三块版本（F 折叠 / M 合并 / O 优化）**
 （方案见 `docs/101` 附录「入口治理三块版本方案」；每批一个本地提交，收尾统一发版）
@@ -64,6 +455,57 @@
 **验证（D13）**
 - 全量测试 2940 passed / 4 skipped；`pre_commit_check.py --full` 9 项全绿。
 - 文件长度 / 静默 / 线程 / 版本 / 按钮预算 / 覆盖率棘轮（68.71%）全部通过；冻结基线未重开（`active=false`）。
+
+### 工作台四项修复（2026-11-01，未改版本号）
+
+（用户实测反馈：一直显示"代码写错了"、不知道代码写在哪个文件夹、
+不能选写到哪个文件夹、点「开始」后整个工作台未响应）
+
+- **工作区可选 + 记住上次**（新增 `gui/workbench_workspace.py`）：
+  工作台顶栏加「📂 打开文件夹」（文字链接，不占按钮预算），选过的目录写进
+  `config.json` 的 `workbench_root`，下次打开直接用它；切换时同步文件树 /
+  搜索 / Git / AI 队列，已打开的编辑标签保留。默认仍是程序目录时，
+  状态栏与 AI 时间线只提示一次，不弹框。
+  - 用户反馈"点不动/改不了"后加固：改用 Qt 自带目录框（部分环境系统原生框
+    不出现，看起来像没反应），起不来时退化为手输路径；取消 / 没变化 / 失败
+    都在状态栏和 AI 时间线回显；命令中心也加了「打开文件夹」。
+  - 用户反馈"弹窗里除了磁盘还要能选桌面、按钮全是英文"后，目录框改为自绘
+    `gui/folder_picker.py`（`FolderPicker`）：左侧快捷位置第一项即「🖥 桌面」，
+    另有「🏠 用户文件夹」「📄 文档」「📥 下载」与各磁盘（无中文卷标时显示
+    「磁盘 (C:)」）；位置栏可直接粘贴路径回车跳转，「上一级」「＋ 新建文件夹」
+    为文字链接，确认/取消是「选择」「取消」，目录树只留「名称」一列、无英文表头。
+    当初用 `QFileDialog` + `qt_zh_CN` 只能翻译按钮，左侧仍显示 Desktop/用户名
+    （`QUrlModel` 无改名接口、包代理模型会让点击失效），故改为标准控件拼接。
+  - 启动时装一次中文语言包（`gui/app_pyqt.run_pyqt` 调
+    `install_chinese_translator`）：Qt 自带对话框（打开 / 保存 / 输入框 / 确认框）
+    的按钮与标签（Look in / Name / Size / Choose / Cancel / All Files (*)）
+    才是中文 —— 之前只在目录框前装，用户在旧实例里看到仍是英文。
+  - 手输路径兜底（`type_folder_path`）与「新建文件夹」共用
+    `gui/folder_picker.text_dialog/ask_text`：静态 `QInputDialog.getText` 的
+    OK / Cancel 走 `QPlatformTheme`，装了语言包也不变中文，改为实例版显式设文案。
+  - 注意：跑着的旧进程不会自动加载新代码，改完必须关掉程序重新启动。
+- **后台执行默认开**：`code_agent.background` 默认改为 `true`（此前未注册规则，
+  实际永远读到 `False`，任务全压在 Qt 主线程上）。关掉仍可回同步执行。
+- **补丁报错人话化**（`core/patch_protocol.explain_patch_error`）：
+  失败时时间线给出「原因 + 下一步」（格式错→建议换代码模型；路径被挡→
+  去点「📂 打开文件夹」；原文对不上→确认文件是否被手改）；连续 4 次失败
+  再提示换模型，避免同一句"本轮修改无效"刷屏。
+- **测试范围收窄**（`core/code_command_runner.run_tests`）：本次只新建了
+  独立 `.py` 文件时改用 `py_compile`（几十毫秒/个），不再跑全量 `pytest`
+  （程序目录下一轮约 5 分钟、300 秒超时，无关失败会被当成"这次写错了"）；
+  同时也改到已有文件时仍走全量测试。
+
+**验证（本轮）**
+- `pytest tests/test_patch_protocol.py tests/test_workbench.py tests/test_ab_matrix.py
+  tests/test_docs_consistency.py tests/test_module_split_exports.py
+  tests/test_agent_service.py tests/test_agent_closure.py
+  tests/test_workbench_workspace.py tests/test_test_scope.py` 全绿。
+- 按钮预算 60/60、文件长度守卫、静默失败棘轮（0 处）通过。
+- 全量回归 **3116 passed / 4 skipped**（含 `tests/test_folder_picker.py`）。
+- 打包源已同步：`py -3 tools/sync_package.py` → 新增 `gui/folder_picker.py`、
+  `gui/workbench_workspace.py`，更新 16 个文件（`core/*`、`gui/*`、用户文档、
+  `config.default.json` 补 `workbench_root` 空值），`--dry-run` 复核 0 差异；
+  打包源里没有 `data/ tests/ tools/ docs/ .git __pycache__`，配置无 Key。
 
 ## v25.4.0 - 2026-10-30
 
@@ -232,6 +674,7 @@
 **代码 Agent v2：后台任务 + 局部补丁 + 影响面验证（批次 46）**
 （开关默认全关：`code_agent.background=false`、`code_agent.auto_apply=false`、
 `code.patch_v2=shadow`、`code.verify_select=off`，默认行为与 v25.2.40 一致）
+（v25.5.0 起后台执行默认改为 `true`，见「工作台四项修复」）
 
 **后台任务服务（46.1）**
 - `core/agent_service.py`：单写者锁（同一项目同时只跑一个任务）、

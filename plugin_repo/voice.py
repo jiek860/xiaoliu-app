@@ -8,6 +8,7 @@ except ImportError:
 
 import os, time, wave, threading
 from modules.base import BaseModule
+from core.data_paths import data_path
 
 
 def _ih(pkg):
@@ -87,7 +88,7 @@ class Voice(BaseModule):
         if self.device and self.device != "auto": return self.device
         try:
             import torch; return "cuda" if torch.cuda.is_available() else "cpu"
-        except: return "cpu"
+        except Exception: return "cpu"
 
     def _load_backend(self):
         if self._backend is not None: return self._backend
@@ -175,14 +176,14 @@ class Voice(BaseModule):
         """
         try:
             import pyaudio
-        except: return {"ok": False, "error": "缺少pyaudio"}
+        except Exception: return {"ok": False, "error": "缺少pyaudio"}
         try:
             p = pyaudio.PyAudio()
             sampwidth = p.get_sample_size(pyaudio.paInt16)
             stream = p.open(format=pyaudio.paInt16, channels=1, rate=sample_rate, input=True, frames_per_buffer=1024)
             frames = []
             # v2.1: 临时产物必须落在 data/plugin_data/<插件名>/ 内（manifest 插件名为 stt）
-            tmp_dir = os.path.join(self.base, "data", "plugin_data", "stt")
+            tmp_dir = data_path(self, "plugin_data", "stt")
             partial_every = max(1, int(sample_rate / 1024 * 2))  # 约 2 秒
             for i in range(int(sample_rate/1024*seconds)):
                 if stop_event is not None and stop_event.is_set():

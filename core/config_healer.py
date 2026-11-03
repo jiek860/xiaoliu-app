@@ -8,6 +8,7 @@ except ImportError:
 
 import os, json, time, shutil
 from core.paths import BASE
+from core.data_paths import data_path
 class ConfigHealer:
     HEALABLE = {
         "cloud_url_空": {"字段": "cloud_url", "修复": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
@@ -18,13 +19,13 @@ class ConfigHealer:
     def __init__(self, trunk=None):
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or BASE
-        self.cfg_path = os.path.join(self.base, "data", "config.json")
-        self.backup_dir = os.path.join(self.base, "data", "config_backup")
+        self.cfg_path = data_path(self, "config.json")
+        self.backup_dir = data_path(self, "config_backup")
         os.makedirs(self.backup_dir, exist_ok=True)
     def check_and_heal(self, auto=True):
         if not os.path.exists(self.cfg_path): return []
         try: cfg = json.load(open(self.cfg_path, encoding="utf-8"))
-        except: return self._restore()
+        except Exception: return self._restore()
         fixes = []
         for name, spec in self.HEALABLE.items():
             v = cfg.get(spec["字段"])
@@ -52,4 +53,4 @@ class ConfigHealer:
             if not files: return []
             shutil.copy2(os.path.join(self.backup_dir, files[-1]), self.cfg_path)
             return [{"类型":"配置恢复", "备份":files[-1]}]
-        except: return []
+        except Exception: return []

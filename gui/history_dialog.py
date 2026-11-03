@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QTextBrowser, QLineEdit, QMessageBox)
 
 from gui.feedback_states import make_action_links
+from core.data_paths import data_path
 
 
 class HistoryDialog(QDialog):
@@ -129,8 +130,7 @@ class HistoryDialog(QDialog):
         self._load_page()
 
     def _export(self):
-        fn = os.path.join(self.trunk.base, "data",
-                          "历史记录_%s.txt" % datetime.now().strftime("%Y%m%d_%H%M%S"))
+        fn = data_path(self.trunk, "历史记录_%s.txt" % datetime.now().strftime("%Y%m%d_%H%M%S"))
         try:
             with open(fn, "w", encoding="utf-8") as f:
                 for m in self._filter(self._all_msgs()):

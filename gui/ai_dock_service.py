@@ -66,12 +66,13 @@ class AgentDockServiceMixin:
 
     # ------------------------------------------------------ 后台任务（46.1）
     def _background_enabled(self):
+        """后台执行开关：默认开（读不到配置也走后台，宁可后台也别卡死界面）。"""
         try:
             from core.patch_protocol import background_enabled
             return bool(background_enabled(self.wb.trunk))
-        except Exception as e:  # 静默是故意的 - 读不到开关就按前台执行
+        except Exception as e:  # 静默是故意的 - 读不到开关就按后台执行
             _x6_swallowed(__name__, e, "background switch")
-            return False
+            return True
 
     def _start_background(self, goal, open_files):
         """把任务交给 AgentService，再由 AgentServiceWorker 后台消费。"""

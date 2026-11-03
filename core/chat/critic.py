@@ -277,10 +277,20 @@ FALLBACK_RULES = {
     "too_short": {"type": "avoid", "value": "回答具体一点，别只回几个字"},
     "error": {"type": "avoid", "value": "答不出来就说原因，别用错误占位蒙混"},
 }
+_SELF_DENY_WORDS = ("我并没有情感", "我没有情感", "我没有真实", "我无法感受",
+                    "我不能感受", "我是一个AI机器人", "我只是一个程序",
+                    "我的任务是为用户提供")
 _CUSTOMER_WORDS = ("作为AI", "作为 AI", "很高兴为您", "希望对你有所帮助",
-                   "希望对您有帮助", "我是一个人工智能", "以下是", "综上所述")
+                   "希望对您有帮助", "我是一个人工智能", "以下是", "综上所述") \
+    + _SELF_DENY_WORDS
 _RESTATE_WORDS = ("你问的是", "你的问题是", "你想了解", "关于你提到的")
 _OFFTOPIC_WORDS = ("顺便说", "另外我还想", "换个话题")
+# 什么算"在问/在要东西"。
+# 原来只认 `?？/怎么/为什么/如何/吗/能不能/可以`，于是「查询完没有」
+# 「附近有烧烤店吗」以外的口语短句（「菜单」「查完没」）全被判成"不是提问"，
+# 跑题答案照样拿 准确 5 / 贴合 5 —— 失败库学不到"这答错了"（实测 22:19 那条）。
+_ASK_RE = re.compile(r"[?？]|怎么|为什么|如何|吗|呢|能不能|可以|查|搜|找|看看"
+                     r"|有没有|是不是|在哪|多少|结果|弄好|搞定|好了没|完了没")
 
 
 def _clamp(value, lo=1, hi=5):
@@ -317,7 +327,7 @@ def rubric_dims(user_input, ai_response):
     a = str(ai_response or "")
     qn, an = _norm(q), _norm(a)
     ov = _overlap(q, a)
-    is_question = bool(re.search(r"[?？]|怎么|为什么|如何|吗|能不能|可以", q))
+    is_question = bool(_ASK_RE.search(q))
     wants_code = bool(re.search(r"代码|报错|函数|实现|脚本|命令|bug|error", q))
 
     accuracy = 5
@@ -329,6 +339,10 @@ def rubric_dims(user_input, ai_response):
         accuracy = 2
     elif _has_any(a, _OFFTOPIC_WORDS) and not _has_any(q, _OFFTOPIC_WORDS):
         accuracy = 3
+    # 用户没问"你是谁/有没有情感"，回复却在自我否定 → 跑题，不是满分
+    if (_has_any(a, _SELF_DENY_WORDS)
+            and not re.search(r"情感|情绪|感情|ai|机器人|你是谁|你是", q.lower())):
+        accuracy = min(accuracy, 2)
 
     relevance = 5
     if not an:

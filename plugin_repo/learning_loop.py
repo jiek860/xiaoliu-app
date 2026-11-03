@@ -10,6 +10,7 @@ except ImportError:
 
 from modules.base import BaseModule
 import os, time, json, re, threading
+from core.data_paths import data_path
 
 
 class LearningPipeline(BaseModule):
@@ -97,8 +98,8 @@ class LearningPipeline(BaseModule):
         super().__init__(trunk)
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        self.state_path = os.path.join(self.base, "data", "learning_loop.json")
-        self.kb_dir = os.path.join(self.base, "data", "knowledge_docs")
+        self.state_path = data_path(self, "learning_loop.json")
+        self.kb_dir = data_path(self, "knowledge_docs")
         os.makedirs(self.kb_dir, exist_ok=True)
         self.state = self._load()
         self._running = False

@@ -130,3 +130,42 @@ def evaluate_round(*, round_no, max_rounds, tests, lint,
 def describe(max_rounds):
     return "轮次上限 %d（可配置，范围 %d~%d）" % (
         int(max_rounds), MIN_MAX_ROUNDS, MAX_MAX_ROUNDS)
+
+
+def scope_mode(agent):
+    """``code.改动范围``：off / ask / strict（默认 ask）。"""
+    trunk = getattr(agent, "trunk", None)
+    try:
+        value = str(trunk.rule("code.改动范围", "ask") or "ask").lower()
+    except Exception:  # 静默是故意的 - 规则读不到按 ask，不阻断任务
+        return "ask"
+    return value if value in ("off", "ask", "strict") else "ask"
+
+
+def scope_gate(agent, patch, allowed_files):
+    """深度④ 作用域护栏：只允许改任务相关文件，越界单独审批。
+
+    * ``off``    不设限（老行为，兼容不想被打断的用户）；
+    * ``ask``    越界照常提交，但记事件 + 给 patch 打 ``scope_warning``，
+                  走已有审批弹窗"二次确认"（用户能看到到底要改哪些文件）；
+    * ``strict`` 越界直接拦下，本轮不落盘。
+    返回 ``{ok, mode, violations, requires_approval, blocked, summary}``。
+    """
+    from core.hunk_edit import scope_guard
+    mode = scope_mode(agent)
+    allowed = list(allowed_files or [])
+    if mode == "off" or not allowed:
+        return {"ok": True, "mode": mode, "violations": [],
+                "requires_approval": False, "blocked": False, "summary": ""}
+    result = scope_guard(patch, allowed, strict=(mode == "strict"))
+    result["mode"] = mode
+    if not result.get("violations"):
+        return result
+    emit = getattr(agent, "_emit", None)
+    if callable(emit):
+        emit("scope", {"step": "有 %d 个文件不在本次任务范围" % len(
+            result["violations"]),
+            "detail": result.get("summary", ""),
+            "files": [v.get("path") for v in result["violations"]],
+            "blocked": bool(result.get("blocked"))})
+    return result

@@ -24,6 +24,7 @@ def build_panel_commands(owner):
         "记忆可视化": get("memory_view_dialog"),
         "数据统计": get("stats_dialog"),
         "日历待办": get("tools_dialog"),
+"群聊角色": get("roles_dialog"),
         "搜索聊天": get("search_dialog"),
         "聊天话题时间线": get("chat_topics_dialog"),
         "安全中心": get("security_center_dialog"),

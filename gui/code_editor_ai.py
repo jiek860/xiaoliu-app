@@ -51,6 +51,32 @@ def _extract_new(text):
     return m.group(1) if m else ""
 
 
+def replace_line_text(code, line, new_text):
+    """把第 ``line`` 行换成 ``new_text``，保留原行尾换行；越界原样返回。"""
+    lines = str(code or "").splitlines(True)
+    try:
+        idx = int(line) - 1
+    except (TypeError, ValueError):
+        return str(code or "")
+    if idx < 0 or idx >= len(lines):
+        return str(code or "")
+    tail = "\n" if lines[idx].endswith("\n") else ""
+    lines[idx] = str(new_text or "").rstrip("\n") + tail
+    return "".join(lines)
+
+
+def keep_indent(old_line, new_line):
+    """模型返回的行丢了缩进时，沿用原来的行首空白。"""
+    old = str(old_line or "")
+    new = str(new_line or "").strip("\n")
+    if not new:
+        return new
+    indent = old[:len(old) - len(old.lstrip())]
+    if not indent or new[:1] in (" ", "\t"):
+        return new
+    return indent + new
+
+
 class CodeEditorAIMixin:
     def _preview_ai_change(self, w, old, new, apply=None, title=""):
         """应用 AI 修改前显示 unified diff，并由用户批准。
@@ -285,3 +311,79 @@ class CodeEditorAIMixin:
                 "=== 代码 ===\n%s\n\n=== 运行输出 ===\n%s"
                 % (cls._scope_label(scope), scope.get("text") or "",
                    (err[-2000:] if err else "(无输出)")))
+
+    # ------------------------------------------------------ 深度⑩：只修一行
+    LINE_FIX_SYSTEM = (
+        "你是 Python 修复专家。只重写用户指定的**那一行**，其它行一个字都不要改。"
+        "只输出严格 JSON：{\"new\":\"修复后的这一行完整代码（保留原缩进）\","
+        "\"reason\":\"一句话原因\"}，不要 Markdown，不要解释代码块以外的内容。")
+
+    def _replace_line(self, w, line, new_text):
+        """只替换第 ``line`` 行（包在一个编辑块里，一次撤销可退回）。"""
+        try:
+            block = w.document().findBlockByNumber(max(0, int(line) - 1))
+        except (TypeError, ValueError):
+            return False
+        if not block.isValid():
+            return False
+        cursor = QTextCursor(w.document())
+        cursor.beginEditBlock()
+        cursor.setPosition(block.position())
+        cursor.setPosition(block.position() + len(block.text()),
+                          QTextCursor.KeepAnchor)
+        cursor.insertText(str(new_text or "").rstrip("\n"))
+        cursor.endEditBlock()
+        return True
+
+    def fix_line_with_ai(self, w, line, problem=None):
+        """深度⑩：把"这一行 + 报错"交给 AI，diff 预览确认后只改这一行。"""
+        try:
+            line = int(line or 0)
+        except (TypeError, ValueError):
+            return False
+        block = w.document().findBlockByNumber(max(0, line - 1))
+        if not block.isValid():
+            return False
+        code = w.toPlainText()
+        old_line = block.text()
+        path = getattr(w, "filepath", "") or ""
+        problem = tuple(problem or ())
+        label = ("%s %s" % (problem[2], problem[3])).strip() \
+            if len(problem) >= 4 else "（未指定）"
+        llm = None
+        try:
+            llm = (getattr(getattr(self, "trunk", None), "modules", None)
+                   or {}).get("llm")
+        except Exception as e:  # 静默是故意的 - 拿不到 llm 就当不可用
+            _x6_swallowed(__name__, e, "llm for line fix")
+        if not llm:
+            self.output.appendPlainText("[!] LLM 未连接，无法修这一行")
+            return False
+        self.output.appendPlainText("\n>>> 🛠 正在让 AI 修第 %d 行（%s）..."
+                                    % (line, label))
+        msgs = [{"role": "system", "content": self.LINE_FIX_SYSTEM},
+                {"role": "user", "content":
+                 "文件：%s\n第 %d 行的问题：%s\n这一行现在是：\n%s\n\n"
+                 "=== 最近的运行/检查输出 ===\n%s\n"
+                 "只返回这一行修复后的完整代码。"
+                 % (path or "(未保存)", line, label, old_line,
+                    (self.output.toPlainText()[-1500:] or "(无输出)"))}]
+        try:
+            reply = str(llm.chat(msgs) or "")
+        except Exception as e:
+            self.output.appendPlainText("[AI 修这一行失败] " + str(e)[:300])
+            return False
+        new_line = _extract_new(reply).strip("\n").splitlines()
+        if not new_line:
+            self.output.appendPlainText("[AI 回复]\n" + reply[:1200])
+            return False
+        new_line = keep_indent(old_line, new_line[0].rstrip())
+        apply = lambda: self._replace_line(w, line, new_line)  # noqa: E731
+        ok = self._preview_ai_change(
+            w, code, replace_line_text(code, line, new_line),
+            apply=apply, title="AI 修复第 %d 行预览" % line)
+        if ok:
+            self._audit_edit(path, code, w.toPlainText(), "line")
+            self.output.appendPlainText(
+                "[✓] AI 已改好第 %d 行，点 ▶ 运行再试" % line)
+        return bool(ok)

@@ -203,6 +203,17 @@ def run_pyqt(startup=None):
             startup.mark("自动上报就绪")
     except Exception as e:
         print("自动上报初始化失败: %s" % str(e)[:80])
+    # 中文语言包：Qt 自带对话框（打开 / 保存 / 输入框 / 确认框）的按钮和
+    # 标签默认跟着系统主题走英文（Look in / Choose / Cancel / All Files (*)），
+    # 装一次 qt_zh_CN 才是中文。装不上就保持英文，不影响功能。
+    try:
+        from gui.workbench_workspace import install_chinese_translator
+        install_chinese_translator()
+        if startup is not None:
+            startup.mark("中文语言包就绪")
+    except Exception as e:
+        print("[语言包] 安装失败: %s" % str(e)[:120])
+
     from gui.main_window import JarvisWindow
     if startup is not None:
         startup.mark("主窗口模块导入")

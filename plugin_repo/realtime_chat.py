@@ -2,6 +2,7 @@
 """实时对话模块 v2.1"""
 import os, time
 from modules.base import BaseModule
+from core.data_paths import data_dir
 
 class RealtimeChat(BaseModule):
 
@@ -24,12 +25,20 @@ class RealtimeChat(BaseModule):
         elif kind == "interrupted": self.stats["打断"] += 1
         elif kind == "error": self.stats["错误"] += 1
 
+    def _voice(self, voice=None):
+        """音色：显式传参优先，其次 config["tts_voice"]（与「朗读音色」共用一项）。"""
+        name = str(voice or "").strip()
+        if name:
+            return name
+        cfg = getattr(self.trunk, "config", None)
+        return str((cfg or {}).get("tts_voice") or "") or None
+
     def start(self, voice=None, device=-1):
         if self.engine and self.engine._running:
             return {"ok": False, "msg": "已在运行"}
         from core.realtime import RealtimeEngine
         self.engine = RealtimeEngine(self.trunk, on_event=self._on_event,
-                                      tts_voice=voice or "zh-CN-XiaoxiaoNeural",
+                                      tts_voice=self._voice(voice),
                                       device_index=device)
         return self.engine.start()
 
@@ -48,7 +57,7 @@ class RealtimeChat(BaseModule):
 
     def list_voices(self):
         from core.realtime.tts import TTS
-        t = TTS(os.path.join(self.base, "data"))
+        t = TTS(data_dir(self))
         return {"voices": t.list_voices()}
 
     def run(self, *args):

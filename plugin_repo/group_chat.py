@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from core.safe import safe
 from modules.base import BaseModule
+from core.data_paths import data_path
 
 class GroupChat(BaseModule):
 
@@ -83,7 +84,7 @@ class GroupChat(BaseModule):
         # 强制全员发言的提示词
         self.all_hint = ["大家", "所有人", "一起讨论", "都来说", "都说说", "各位", "群聊", "讨论讨论", "你们几个"]
         # D2: 角色配置中心化——data\group_roles.json 可覆盖默认（设置改名联动）
-        self.roles_file = os.path.join(self.base, "data", "group_roles.json")
+        self.roles_file = data_path(self, "group_roles.json")
         self._load_roles()
 
     def _load_roles(self):
@@ -159,9 +160,9 @@ class GroupChat(BaseModule):
 
     def _mem_dir(self, username):
         if username:
-            d = os.path.join(self.base, "data", "users", username, "group_mem")
+            d = data_path(self, "users", username, "group_mem")
         else:
-            d = os.path.join(self.base, "data", "group_mem")  # 游客共用
+            d = data_path(self, "group_mem")  # 游客共用
         try:
             os.makedirs(d, exist_ok=True)
         except Exception as e:

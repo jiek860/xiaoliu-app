@@ -1,18 +1,29 @@
 # -*- coding: utf-8 -*-
-"""敏感信息检测 + 自动脱敏"""
+"""敏感信息检测 + 自动脱敏（完整版）
+
+注意：不要用 \\b 来卡数字边界。
+\\b 是"\\w 与非 \\w 之间"，而中文属于 \\w ——
+"我的手机号是13812345678" 里「是」和「1」之间没有边界，
+\\b1[3-9]\\d{9}\\b 永远匹配不到。这个模块因此在中文语境下几乎失效
+（只有数字前面是空格/标点时才碰巧能用）。改用前后否定环视，
+保证卡的是"数字边界"而不是"单词边界"。
+
+2026-11-02 补：新增四类密钥格式（原来只有 ``sk-`` / ``api_key=`` 那种）：
+    私钥块（PEM） / AWS AccessKey / GitHub 令牌 / JWT
+规则顺序 = 从"更具体的"到"更宽泛的"：宽泛规则（如银行卡 16~19 位）
+放后面，避免把 18 位身份证当银行卡再报一次。
+"""
 import re
 
-
-# 注意：不要用 \b 来卡数字边界。
-# \b 是"\w 与非 \w 之间"，而中文属于 \w ——
-# "我的手机号是13812345678" 里「是」和「1」之间没有边界，
-# \b1[3-9]\d{9}\b 永远匹配不到。这个模块因此在中文语境下几乎失效
-# （只有数字前面是空格/标点时才碰巧能用）。
-# 改用前后否定环视，保证卡的是"数字边界"而不是"单词边界"。
+# 顺序有意义：具体 → 宽泛
 PATTERNS = {
+    "私钥": r"-----BEGIN[A-Z ]*PRIVATE KEY-----",
+    "GitHub令牌": r"gh[pousr]_[A-Za-z0-9]{36}",
+    "AWS密钥": r"(?:AKIA|ASIA)[0-9A-Z]{16}",
+    "JWT": r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}",
     "身份证": r"(?<!\d)\d{17}[\dXx](?!\d)",
-    "银行卡": r"(?<!\d)\d{16,19}(?!\d)",
     "手机号": r"(?<!\d)1[3-9]\d{9}(?!\d)",
+    "银行卡": r"(?<!\d)\d{16,19}(?!\d)",
     "邮箱": r"[\w.-]+@[\w.-]+\.\w+",
     "API密钥": r"(?:sk-|api[_-]?key[=:]\s*)[\w-]{16,}",
     "密码": r"(?:password|passwd|pwd)[=:]\s*\S+",
@@ -36,10 +47,15 @@ class SensitiveDetector:
 
         现在只返回：类型、长度、在文本里的位置（偏移）。
         用户拿位置就能找到是哪一段，但结果本身**不可还原**。
+
+        ``text`` 空/非字符串 → 返回空列表（不抛异常）。
         """
+        raw = "" if text is None else str(text)
+        if not raw:
+            return []
         found = []
         for name, pat in PATTERNS.items():
-            for m in re.finditer(pat, text):
+            for m in re.finditer(pat, raw):
                 found.append({
                     "type": name,
                     "length": len(m.group()),
@@ -58,6 +74,10 @@ class SensitiveDetector:
                 <= 8 位      -> 只留第 1 位
                 更长         -> 留前 3 后 2（业界常用做法，保留可辨识性）
         """
+        if text is None:
+            return ""
+        raw = str(text)
+
         def _mask(m):
             s = m.group()
             n = len(s)
@@ -68,8 +88,8 @@ class SensitiveDetector:
             return s[:3] + "*" * (n - 5) + s[-2:]
 
         for _name, pat in PATTERNS.items():
-            text = re.sub(pat, _mask, text)
-        return text
+            raw = re.sub(pat, _mask, raw)
+        return raw
 
     def check_and_mask(self, text):
         """检查并自动脱敏"""
@@ -79,4 +99,6 @@ class SensitiveDetector:
         return {"safe": True, "found": []}
 
     def run(self, *a):
-        return {"功能": "敏感信息检测脱敏", "检测项": list(PATTERNS.keys())}
+        return {"功能": "敏感信息检测脱敏",
+                "检测项": list(PATTERNS.keys()),
+                "说明": "只在本地判定；检测结果不含原文（只有类型/长度/位置）"}

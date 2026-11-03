@@ -1,0 +1,11 @@
+{
+  "count": 104,
+  "files": 78,
+  "updated": "2026-11-02",
+  "by_dir": {
+    "core": 77,
+    "gui": 20,
+    "modules": 7
+  },
+  "why": "第一方代码里仍手拼 base/data 的数据目录处数；只许降。改 core/data_paths 里那一处之后跑 --update 调小。"
+}

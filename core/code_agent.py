@@ -28,6 +28,7 @@ from core.code_agent_policy import (
     describe as describe_rounds,
     evaluate_round,
     resolve_max_rounds,
+    scope_gate,
 )
 from core.patch_engine import (
     PatchError, apply_patch, apply_patch_grouped, dry_run_patch, file_patch,
@@ -326,6 +327,16 @@ class CodeAgent(
                 self._emit("patch", {"step": "生成修改方案",
                                      "patch": patch,
                                      "progress": 0.25 + round_no * 0.1})
+                scope = scope_gate(self, patch, context.get("files") or [])
+                if scope.get("blocked"):
+                    failed = _round_failed("越界修改被拦下：" + scope.get("summary", ""))
+                    if failed:
+                        return failed
+                    last_error = "只允许改任务相关文件：" + str(
+                        scope.get("summary") or "")[:600]
+                    continue
+                if scope.get("requires_approval"):
+                    patch["scope_warning"] = scope.get("summary", "")
                 decision = None
                 if callable(approval_cb):
                     self.registry.update_run(run_id, current_step="等待修改审批",
@@ -423,7 +434,18 @@ class CodeAgent(
                                          progress=0.6)
                 self._emit("tests_start", {"step": "运行测试与 lint",
                                            "progress": 0.62})
-                tests = self.run_tests(changed_files=applied_files)
+                created = [str(f.get("path") or "")
+                           for f in (applied.get("files") or [])
+                           if str(f.get("op") or "") in ("create", "write")
+                           and not f.get("existed")]
+                tests = self.run_tests(changed_files=applied_files,
+                                       created_files=created)
+                if tests.get("compile_only"):
+                    # 新建的独立脚本不该被别人的 pytest 拖着跑几分钟 ——
+                    # 这里只做语法编译检查，原因写进时间线让用户看得懂。
+                    self._emit("verify_scope", {
+                        "step": "新建文件：只做语法编译检查（跳过全量测试）",
+                        "files": created})
                 lint = self.run_lint()
                 self._emit("tests", {"step": "测试完成",
                                      "ok": tests.get("ok"),

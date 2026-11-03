@@ -9,6 +9,7 @@ except ImportError:
 import os, json, time, threading
 from modules.base import BaseModule
 from core.safe import atomic_write_json
+from core.data_paths import data_path
 
 class DiskCache(BaseModule):
 
@@ -23,7 +24,7 @@ class DiskCache(BaseModule):
     def __init__(self, trunk=None):
         super().__init__(trunk)
         self.base = getattr(trunk, "base", None) or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        self.path = os.path.join(self.base, "data", "cache.json")
+        self.path = data_path(self, "cache.json")
         self._lock = threading.Lock()
         self._hits = 0  # 命中次数
         self._miss = 0  # 未命中次数

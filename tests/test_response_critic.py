@@ -186,3 +186,39 @@ def test_pipeline_critic_on_applies_fix(tmp_path):
 def test_pipeline_critic_invalid_mode_defaults_to_shadow(tmp_path):
     pipe = ReplyPipeline(FakeTrunk(tmp_path, critic="loud"))
     assert pipe._critic_mode() == "shadow"
+
+
+# ---------------------------------------------------------------- 多维打分的漏判（2026-11-01）
+# 用户截图里「查询完没有」被回成「我并没有情感…我是一个AI机器人」，
+# 反思却给了 准确 5 / 贴合 5 / 总分 5.0 —— 失败库因此永远学不到"这答错了"。
+def test_self_denial_answer_is_not_full_score():
+    from core.chat.critic import rubric_dims, rubric_issues, rubric_total
+    q = "查询完没有"
+    a = ("【小6】\n抱歉，我刚刚的回复有误，我并没有情感，所以不能感受到高兴，"
+         "我是一个AI机器人，我的任务是为用户提供服务。")
+    dims = rubric_dims(q, a)
+    assert dims["准确"] <= 2, dims
+    assert dims["人格"] <= 2, dims
+    assert rubric_total(dims) < 4.0
+    assert "off_topic" in rubric_issues(dims, q, a)
+
+
+def test_short_colloquial_question_counts_as_question():
+    """「查完没」这种口语短句也算提问 —— 否则跑题答案不会掉分"""
+    from core.chat.critic import rubric_dims
+    dims = rubric_dims("查完没", "今天天气不错，我很喜欢晴天。")
+    assert dims["贴合"] <= 3
+
+
+def test_plain_memory_answer_still_scores_well():
+    from core.chat.critic import rubric_dims
+    dims = rubric_dims("我的猫叫豆豆", "记住了，豆豆。以后你一说猫我就知道是它。")
+    assert dims["准确"] >= 4
+    assert dims["贴合"] >= 4
+
+
+def test_self_question_about_ai_is_not_penalized():
+    """用户真问"你是谁"时，说明自己是AI不算跑题"""
+    from core.chat.critic import rubric_dims
+    dims = rubric_dims("你是AI吗", "我是小6，一个跑在你电脑里的AI。")
+    assert dims["准确"] >= 4

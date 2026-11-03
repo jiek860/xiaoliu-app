@@ -49,27 +49,22 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         _x6_swallowed(__name__, e)
         pass
 
+    # 三个薄包装直接绑函数：本文件卡在 500 行预算上，省几行给后续功能留余量
+    _hint = make_hint
+    _tab = make_tab
+    _scroll_tab = make_scroll_tab
+
     def _open_link(icon, name, desc, key=None):
         return make_open_link(d, CMD, icon, name, desc, key)
 
-    def _hint(text):
-        return make_hint(text)
-
-    def _tab(title):
-        return make_tab(title)
-
-    def _scroll_tab(title, build):
-        return make_scroll_tab(title, build)
-
     def _stats_text():
-        """本地统计概览：只读 data 目录里的三个计数，不上传。"""
+        """本地统计概览：只读 data 目录里的计数，不上传（渲染见 stats_report.summary）"""
         try:
             from core.stats_report import StatsReport
-            data = StatsReport(trunk).generate()
+            return StatsReport(trunk).summary()
         except Exception as e:
             _x6_swallowed(__name__, e, "settings stats")
             return "读取统计失败"
-        return " · ".join("%s %d" % (k, v) for k, v in data.items())
 
     # ================= 通用：模型配置 =================
     def build_model(lay):
@@ -237,7 +232,7 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
     def build_help(lay):
         lay.addWidget(QLabel(" 帮助与安全"))
         lay.addWidget(_open_link("", "新手教程",
-                                "3 分钟上手 + 兼容性 / 数据迁移 / 插件 API 速查"))
+                                "3 分钟上手：登录 / 配模型 / 聊天 / 出问题怎么办"))
         lay.addWidget(_open_link("", "安全中心",
                                 "权限、网络事件和审计记录",
                                 key="安全中心"))
@@ -332,7 +327,7 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
         lay.addWidget(_open_link("", "首次设置向导",
                                 "模型没配好、它不回话时打开这个"))
         lay.addWidget(_open_link("", "新手教程",
-                                "激活 / 配模型 / 聊天 / 兼容性与迁移速查"))
+                                "激活 / 配模型 / 聊天 / 常用功能 / 出问题怎么办"))
         lay.addWidget(_open_link("", "意见反馈", "给开发者留言"))
 
     def build_developer(lay):
@@ -495,5 +490,6 @@ def show_settings_dialog(parent, dlg, trunk, base, ai_name,
             QMessageBox.warning(d, "保存失败", str(e)[:120])
 
     l.addWidget(QPushButton("保存", clicked=do_save))
-    d.exec_()
+    # 非模态：点链接开新功能时设置页留在后面，关掉新窗口只关它自己
+    d.show()
     return d

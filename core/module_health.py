@@ -8,12 +8,13 @@ except ImportError:
 
 import os, json
 from core.paths import BASE
+from core.data_paths import data_path
 class ModuleHealth:
     DISABLE_THRESHOLD = 5
     def __init__(self, trunk=None):
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or BASE
-        self.path = os.path.join(self.base, "data", "module_health.json")
+        self.path = data_path(self, "module_health.json")
         self.data = self._load()
     def _load(self):
         if os.path.exists(self.path):

@@ -80,9 +80,11 @@
       "modules/installed": 47.0
     }
   },
-  "_说明": "冻结版基线：Feature/模块/按钮/覆盖率门槛只许降不许升",
+  "_说明": "冻结版基线：Feature/模块/按钮/覆盖率门槛只许降不许升；2026-11-03 起冻结已解除，基线只读保留",
   "active": false,
   "created": "2026-10-26",
-  "freeze_until": "2026-11-23",
-  "rebased": "2026-10-29"
+  "freeze_until": null,
+  "rebased": "2026-10-29",
+  "released": "2026-11-03",
+  "release_note": "用户决定永久解除冻结：不重建基线、不恢复 active=true、不设自动生效日期"
 }

@@ -84,3 +84,31 @@ def start_background(host):
             host._log("内存优化: %s" % str(r.get("状态", "已启动")))
     except Exception as e:
         host._log("内存优化启动失败: %s" % str(e)[:60])
+
+    # 人格成长快照：每天一条，供「成长报告」做「本周期 vs 上周期」对比。
+    # 只写一个小 json（同一天覆盖），失败不影响启动。
+    try:
+        host.call("growth_report", "__no__")
+        gr = host.modules.get("growth_report")
+        if gr is not None and hasattr(gr, "checkpoint"):
+            r = gr.checkpoint()
+            if not r.get("ok"):
+                host._log("成长快照: %s" % str(r.get("msg") or "")[:60])
+    except Exception as e:
+        host._log("成长快照失败: %s" % str(e)[:60])
+
+    # 旧记忆自动归档：保守触发（默认 90 天以上、7 天最多一次），后台跑。
+    # 只搬走 memory_cards.jsonl 里**确认是旧的**条目，坏行原样保留。
+    def _auto_archive_bg():
+        try:
+            host.call("memory_archiver", "__no__")
+            ma = host.modules.get("memory_archiver")
+            if ma is not None and hasattr(ma, "auto_archive_if_due"):
+                r = ma.auto_archive_if_due(days=90, min_interval_days=7)
+                if r.get("归档数"):
+                    host._log("旧记忆自动归档: %s 条" % r.get("归档数"))
+        except Exception as e:
+            host._log("旧记忆自动归档失败: %s" % str(e)[:60])
+
+    threading.Thread(target=_auto_archive_bg, daemon=True,
+                     name="memory-auto-archive").start()

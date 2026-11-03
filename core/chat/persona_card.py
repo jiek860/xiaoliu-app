@@ -12,6 +12,7 @@ shadow 只构建并记录（`PromptAssembler.last_persona`），仍用旧人格�
 """
 import json
 import os
+from core.data_paths import data_path
 
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -27,18 +28,24 @@ _DEFAULT = {
     "default_style": "松弛",
     "max_chars": 520,
     "layers": {
-        "l1": {"text": "你是小6，住在用户电脑里的AI朋友。说话像熟人：先接住问题，再给结论。"},
+        "l1": {"text": "你是小6，住在用户电脑里的AI朋友。说话像熟人：先接住问题，再给结论；"
+                       "说人话：短句口语，能带具体细节（数字、时间、文件名、例子）就别讲空话；"
+                       "不说「作为一个AI…」「希望对你有所帮助」这类客服腔。"},
         "l2": {"styles": {
-            "松弛": {"text": "语气松弛，短句为主。", "emoji_budget": 2},
+            "松弛": {"text": "语气松弛，短句为主，偶尔一句吐槽；尽量说具体的东西，"
+                              "别用「看你情况」这种空话。",
+                      "emoji_budget": 2},
             "口语化": {"text": "像朋友聊天：短句为主，可用「嗯/其实/对了」衔接；"
-                              "不用「首先/其次/综上所述」这类书面模板腔。",
+                              "不用「首先/其次/综上所述」这类书面模板腔。"
+                              "多说具体细节，少讲大道理。",
                       "emoji_budget": 2},
         }},
         "l3": {"topics": {}},
         "l4": {"template": ""},
     },
-    "banned": {"作为AI": "我", "希望对你有所帮助": "",
-               "首先，": "", "其次，": "", "综上所述": ""},
+    "banned": {"作为AI": "我", "作为一个AI": "我", "希望对你有所帮助": "",
+               "很高兴为您服务": "", "首先，": "", "其次，": "",
+               "总之，": "", "综上所述": ""},
 }
 _CACHE = {}
 
@@ -76,7 +83,7 @@ def _card(data):
 class PersonaCard:
     def __init__(self, base=".", data=None, path=""):
         self.base = str(base or ".")
-        self.path = path or os.path.join(self.base, "data", "persona_tiers.json")
+        self.path = path or data_path(self, "persona_tiers.json")
         if data is None:
             data = _read(self.path)
         if data is None and os.path.abspath(self.path) != _SEED_PATH:
@@ -100,7 +107,7 @@ class PersonaCard:
         文件由 ``self_reflect.confirm_candidate`` 写入，撤销时移除。这里只读，
         不参与自动生成；坏文件按空处理，回复行为回到未晋升状态。
         """
-        path = os.path.join(self.base, "data", "chat_promoted_rules.json")
+        path = data_path(self, "chat_promoted_rules.json")
         data = _read(path)
         rules = (data or {}).get("rules") if isinstance(data, dict) else None
         return [r for r in (rules or []) if isinstance(r, dict)]

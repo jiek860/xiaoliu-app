@@ -12,6 +12,7 @@ import urllib.parse
 
 from core import security_policy
 from core.audit_log import AuditLog
+from core.data_paths import data_path
 
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -26,7 +27,7 @@ class PermissionCenter:
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or os.path.dirname(
             os.path.dirname(os.path.abspath(__file__)))
-        self.dir = os.path.join(self.base, "data", "security")
+        self.dir = data_path(self, "security")
         os.makedirs(self.dir, exist_ok=True)
         self.path = os.path.join(self.dir, "permissions.json")
         self.lock_path = os.path.join(self.dir, "lockdown.json")

@@ -254,10 +254,12 @@ class LLMClient(
                 msgs = [{"role": "user", "content": message}]
             full = ""
             _local_timeout = False
+            _stalled = False
+            guard = None
             try:
                 with get_ollama_lock():  # 串行排队（流式持锁期间后台同样禁止并发，避免排队）
                     _ut2 = self._extract_user_text(msgs)
-                    _t2 = 0.3 if any(k in _ut2 for k in ("代码","bug","报错","函数","python","编程","脚本","程序","错误","修复")) else 0.7
+                    _opts2 = self._local_options(model, _ut2)
                     # 首字超时：本地模型卡住（模型加载/显存不足）时不要死等 120 秒，
                     # 超过阈值还没有第一个 token 就直接切云端；可在 config.json
                     # 用"本地首字超时" / local_first_token_timeout 调整（5~300 秒）。
@@ -267,14 +269,27 @@ class LLMClient(
                         json={"model": model, "messages": msgs, "stream": True,
                               "think": False,
                               "keep_alive": "2h",
-                              "options": {"num_ctx": 4096, "temperature": _t2}},
+                              "options": _opts2},
                         stream=True, timeout=(5, _first_token))
                     if cancel_token is not None:
                         # 关键：把流响应登记给取消方。Esc 时会在 GUI 线程
                         # 直接 close，叫醒阻塞中的 iter_lines，立刻释放连接与锁。
                         cancel_token.bind(r.close)
+                    # 中途卡顿看门狗（第 3 批深度⑦）：read timeout 每次 read
+                    # 重计时，模型吐一半停住时不会自己超时，只能靠这里断流。
+                    try:
+                        from core.stream_guard import StreamStallGuard, guard_seconds
+                        guard = StreamStallGuard(
+                            guard_seconds(self.config),
+                            on_stall=lambda g: self.trunk and self.trunk._log(
+                                "本地流式中途卡顿 %ss，已断流" % int(g.seconds)))
+                        guard.bind(r).start()
+                    except Exception as e:
+                        _x6_swallowed(__name__, e, "stall guard init")
                     try:
                         for line in r.iter_lines():
+                            if guard is not None:
+                                guard.touch()
                             if _cancelled():
                                 break
                             if not line:
@@ -292,6 +307,9 @@ class LLMClient(
                             if d.get("done"):
                                 break
                     finally:
+                        if guard is not None:
+                            _stalled = guard.stalled
+                            guard.stop()
                         try:
                             r.close()
                         except Exception as e:  # 静默是故意的：关闭失败不影响结果
@@ -320,7 +338,16 @@ class LLMClient(
                 # 这不是真错误：保留已收到的内容，直接返回。
                 if _cancelled():
                     return full
-                raise
+                # 中途卡顿是我们自己 close 流的必然结果，同样不算错误：
+                # 已收到的内容照旧返回，一个字都没有才会走下面的非流式兜底。
+                if _stalled:
+                    if self.trunk:
+                        self.trunk._log("本地流式中途卡顿，已收到 %d 字，停止等待"
+                                        % len(full))
+                    if full:
+                        return full
+                else:
+                    raise
             # 兜底：流式异常但什么都没收到时，非流式重试一次。
             # 取消后不重试；本地刚首字超时也不重试（否则又白等一次本地）。
             if _cancelled():

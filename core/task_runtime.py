@@ -22,6 +22,7 @@ except ImportError:
 
 # 失败恢复/事件聚合/预算调整拆到 core/task_recovery.py（本文件到 600 行上限）。
 from core.task_recovery import TaskRecoveryMixin
+from core.data_paths import data_path
 
 
 class TaskRuntime(TaskRecoveryMixin):
@@ -29,7 +30,7 @@ class TaskRuntime(TaskRecoveryMixin):
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or os.path.dirname(
             os.path.dirname(os.path.abspath(__file__)))
-        self.dir = os.path.join(self.base, "data", "task_runtime")
+        self.dir = data_path(self, "task_runtime")
         os.makedirs(self.dir, exist_ok=True)
         self.trace = Trace(self.base)
         self._lock = threading.RLock()

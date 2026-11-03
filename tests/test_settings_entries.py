@@ -301,3 +301,60 @@ def test_set_dialog_reuses_visible_window(win):
         sd.show_settings_dialog = old
         win._settings_dialog = None
         d.close()
+
+
+def test_open_entry_does_not_close_settings_page(win, monkeypatch):
+    """设置页里点入口，不许先把设置页关掉。
+
+    用户实测：点「新手教程」等入口，设置窗口先被关闭；教程关掉后
+    回到主界面，看起来像"关一个页面把所有页面全关了"。
+    正确行为：新窗口叠在上面，关掉它只关它自己，设置页仍在。
+    """
+    from PyQt5.QtWidgets import QDialog, QLabel, QVBoxLayout
+    import gui.settings_dialog as sd
+    from gui import ui_mode
+
+    monkeypatch.setattr(ui_mode, "get_ui_mode", lambda *a, **k: "advanced")
+
+    src = open(os.path.join(BASE, "gui", "settings_widgets.py"),
+               encoding="utf-8").read()
+    assert not re.search(r"(?m)^\s*dialog\.close\(\)\s*$", src), \
+        "make_open_link 里又在打开前把设置页关掉了"
+
+    made = []
+
+    def _fake_dlg(title="", w=0, h=0):
+        dd = QDialog()
+        dd.setWindowTitle(title or "设置")
+        QVBoxLayout(dd)
+        made.append(dd)
+        return dd, dd.layout()
+
+    child = []
+
+    def _open_child():
+        c = QDialog()
+        c.setWindowTitle("新手教程")
+        c.show()
+        child.append(c)
+
+    saved_exec = QDialog.exec_
+    QDialog.exec_ = lambda self: 0
+    try:
+        settings = sd.show_settings_dialog(
+            win, _fake_dlg, win.trunk, BASE, "小6", None, None, None,
+            None, None, {"新手教程": _open_child})
+        assert settings.isVisible(), "设置窗口没打开"
+        link = [l for l in settings.findChildren(QLabel)
+                if "新手教程" in (l.text() or "")
+                and "href" in (l.text() or "")][0]
+        link.linkActivated.emit("0")
+        assert child and child[0].isVisible(), "入口没有打开新窗口"
+        assert settings.isVisible(), "打开新功能后设置页被关掉了"
+    finally:
+        QDialog.exec_ = saved_exec
+        for w in made + child:
+            try:
+                w.close()
+            except Exception:
+                pass

@@ -19,6 +19,7 @@ import re
 import time
 
 from modules.base import BaseModule
+from core.data_paths import data_path
 
 try:
     from core.plugin_errors import make_error
@@ -100,7 +101,7 @@ class GraphRAG(BaseModule):
         super().__init__(trunk)
         self.base = getattr(trunk, "base", None) or os.path.dirname(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        self.out_file = os.path.join(self.base, "data", "graph_communities.json")
+        self.out_file = data_path(self, "graph_communities.json")
         self._last_count = 0
         self._last_triples = 0
         self._last_updated = ""
@@ -162,7 +163,7 @@ class GraphRAG(BaseModule):
             if not raw:
                 raw = getattr(kg, "triples", None) or []
         if not raw:
-            path = os.path.join(self.base, "data", "graph.json")
+            path = data_path(self, "graph.json")
             try:
                 if os.path.exists(path):
                     with open(path, encoding="utf-8") as f:

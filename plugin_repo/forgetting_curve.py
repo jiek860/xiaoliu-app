@@ -9,6 +9,7 @@ except ImportError:
 import os, json, time
 from core.safe import safe
 from modules.base import BaseModule
+from core.data_paths import data_path
 
 
 class ForgettingCurve(BaseModule):
@@ -24,7 +25,7 @@ class ForgettingCurve(BaseModule):
         super().__init__(trunk)
         self.trunk = trunk
         self.base = getattr(trunk, "base", None) or "."
-        self.memory_path = os.path.join(self.base, "data", "forgetting.json")
+        self.memory_path = data_path(self, "forgetting.json")
         self.intervals = [1, 3, 7, 15, 30]  # 复习间隔（天）
         self._migrated = False
         self.memory = self._load()

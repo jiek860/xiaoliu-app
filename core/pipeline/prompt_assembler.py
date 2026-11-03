@@ -22,12 +22,22 @@ class PromptAssembler:
         length_hint = self._length_hint(is_simple, user_input)
         if length_hint:
             messages.append({"role": "system", "content": length_hint})
+        tone_hint = self._tone_hint()
+        if tone_hint:
+            messages.append({"role": "system", "content": tone_hint})
         skill_prompt = str(getattr(self.trunk, "_active_skill_prompt", "") or "")
         if skill_prompt:
             messages.append({"role": "system",
                              "content": skill_prompt[:2000]})
         if context:
-            messages.append({"role": "system", "content": "相关知识: " + context})
+            # 第 4 批：三路知识已合并成 "相关知识：① …（来源：…）"，
+            # 已经自带标题时不再重复加前缀（否则会出现「相关知识: 相关知识：」）。
+            text = str(context).lstrip()
+            body = text if text.startswith("相关知识") else "相关知识: " + text
+            if self._cite_on():
+                body += ("\n（引用记忆时说明来源，例如"
+                         "「你上次提过 X（来源：记忆）」。）")
+            messages.append({"role": "system", "content": body})
 
         # 批次 D11：长对话补一段「近期话题」，别让模型只盯最后几句。
         topic_hint = self._topic_hint(is_simple)
@@ -64,6 +74,31 @@ class PromptAssembler:
             return render_hint(plan)
         except Exception as e:
             _x6_swallowed(__name__, e, "plan_hint")
+            return ""
+
+    def _cite_on(self):
+        """来源引用开关（`记忆.来源引用`，默认 True，第 4 批深度⑤）。"""
+        try:
+            return bool(self.trunk.rule("记忆.来源引用", True))
+        except Exception as e:
+            _x6_swallowed(__name__, e, "cite_on")
+            return True
+
+    def _tone_hint(self):
+        """说话要求（说人话 / 要具体 / 别 AI 腔）—— 与人格来源无关，每轮都带。
+
+        2026-11-01 实测的真实问题：用户配了 `ai_persona`（「小6小传」2040 字）时，
+        `_compose_persona` 走 custom 分支，**人格卡的 L1/L2（"说人话、要具体细节"）
+        整段被跳过**；而宪法 ㉓㉔ 原先只在 `bible_hint()` 里（该函数无生产调用方，已删除）。
+        结果就是"人格写得很像人"，实际提示词里没有一条"要具体/别 AI 腔"的硬要求。
+        所以这一段独立注入：custom / 人格卡 off / 简单快回 都带上，
+        与 `core/chat/deai.py` 的出站清理是同一套要求的两面。
+        """
+        try:
+            from core.personality_style_hints import TONE_HINT
+            return TONE_HINT
+        except Exception as e:
+            _x6_swallowed(__name__, e, "tone_hint")
             return ""
 
     def _length_hint(self, is_simple, user_input):

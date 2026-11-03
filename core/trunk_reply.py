@@ -185,20 +185,48 @@ class TrunkReplyMixin:
             _x6_swallowed(__name__, e)
             pass
 
-    _FAIL_MARKS = ("（抱歉", "回复时出了点问题", "功能不可用",
-                   "Pipeline 不可用", "服务不可用")
+    def _failure_kind(self, answer):
+        """失败分类（第 3 批深度⑥）：返回类别，正常回复返回空串。
+
+        判定与分类都在 ``core/failure_classify.py`` 里（纯函数、可离线测）：
+        **空串/错误占位**（结构判）+ **网络/超时/鉴权/限流/溢出/拒答**
+        （语义判）。分类结果决定后面走"重试 / 压缩上下文 / 直接提示"哪条路。
+        """
+        try:
+            from core.failure_classify import classify
+            return classify(answer)
+        except Exception as e:
+            _x6_swallowed(__name__, e, "failure classify")
+            return "" if str(answer or "").strip() else "empty"
 
     def _looks_failed(self, answer):
         """判断这次回复其实是失败的（空串 / 明显的错误占位）"""
+        return bool(self._failure_kind(answer))
+
+    def _reply_with_shrunk_context(self, user_input, cancel_token=None):
+        """上下文溢出时把预算砍半再试一次（深度⑥）。
+
+        只改 ``context_token_budget`` 这一项，用完立刻还原 —— 不能因为一次
+        溢出就把用户设置永久改小。
+        """
+        cfg = getattr(self, "config", None)
+        if not isinstance(cfg, dict):
+            return None
+        old = cfg.get("context_token_budget", 6000)
         try:
-            a = "" if answer is None else str(answer).strip()
-        except Exception:
-            return True
-        if not a:
-            return True
-        if len(a) > 60:          # 正常回答不会这么短就带失败特征
-            return False
-        return any(m in a for m in self._FAIL_MARKS)
+            shrunk = max(1000, int(int(old or 6000) * 0.5))
+        except (TypeError, ValueError):
+            shrunk = 3000
+        cfg["context_token_budget"] = shrunk
+        self._log("上下文溢出，预算临时收窄到 %d tokens 重试" % shrunk)
+        try:
+            from core.pipeline.legacy_reply import run as _legacy_reply
+            return _legacy_reply(self, user_input, cancel_token=cancel_token)
+        except Exception as e:
+            self._log("收窄上下文重试失败: %s" % str(e)[:80])
+            return None
+        finally:
+            cfg["context_token_budget"] = old
 
     def _local_fallback_reply(self, user_input):
         """本地模型不可用时的端侧兜底
@@ -250,9 +278,47 @@ class TrunkReplyMixin:
         # 用户已停止：不启用端侧兜底话术（那不是用户要的回答）
         if cancel_token is not None and cancel_token.is_cancelled():
             return answer or ""
+        # 失败分类 → 按类处置（重试 / 压缩上下文 / 直接提示）
+        kind = self._failure_kind(answer)
+        if not kind:
+            return answer
+        try:
+            from core.failure_classify import hint as _hint, plan as _plan
+        except Exception as e:
+            _x6_swallowed(__name__, e, "failure plan")
+            _plan, _hint = (lambda k: {}), (lambda k: "")
+        _p = _plan(kind)
+        self._log("回复失败[%s]: %s" % (kind, str(answer)[:80]))
+        try:
+            self.call("error_lib", "log", "reply", "failure:" + kind,
+                      str(answer)[:200])
+        except Exception as e:
+            _x6_swallowed(__name__, e)
+        # 拒答是模型的正常输出，保留原话（只记日志，不替换）
+        if _p.get("keep_answer"):
+            return answer
+        # 只有非流式场景才自动重试：流式重试会把内容重复刷进同一条气泡
+        if _p.get("retry") and on_token is None:
+            if _p.get("shrink_context"):
+                retry = self._reply_with_shrunk_context(user_input, cancel_token)
+            else:
+                try:
+                    from core.pipeline.legacy_reply import run as _legacy_reply
+                    retry = _legacy_reply(self, user_input,
+                                          cancel_token=cancel_token)
+                except Exception as e:
+                    self._log("失败重试也出错: %s" % str(e)[:80])
+                    retry = None
+            if cancel_token is not None and cancel_token.is_cancelled():
+                return retry or ""
+            if retry and not self._failure_kind(retry):
+                self._log("回复失败[%s] 重试成功" % kind)
+                return retry
+            answer = retry if retry else answer
+            kind = self._failure_kind(answer) or kind
         # 全都失败（空回复 / 错误占位）→ 端侧兜底给一句人话
-        if self._looks_failed(answer):
-            fb = self._local_fallback_reply(user_input)
-            if fb:
-                return fb
-        return answer
+        fb = self._local_fallback_reply(user_input)
+        if fb:
+            return fb
+        # 兜底模块给不出话时，至少告诉用户是哪类问题（而不是原始报错）
+        return _hint(kind) or answer

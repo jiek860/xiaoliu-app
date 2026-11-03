@@ -44,6 +44,11 @@ from gui.ide_sidebar import (CommandCenterMixin, SidebarHost, activity_icon,
 # 状态栏 / 快捷键 / AI 侧栏 / Git 回显拆到 workbench_shell（本文件要求 ≤500 行）。
 from gui.workbench_shell import (WorkbenchAIHostMixin, WorkbenchSCMMixin,
                                  WorkbenchStatusMixin)
+# 工作区（"代码写到哪个文件夹"）单独放：选目录 / 记住上次 / 切换时同步面板。
+from gui.workbench_workspace import (open_folder_picker, repoint_editor,
+                                    resolve_root, show_root_hint)
+# 次要动作统一用文字链接（不占按钮预算，且保证键盘可达/可点）
+from gui.feedback_states import make_action_links
 
 try:
     from core.logger import swallow as _x6_swallowed
@@ -59,8 +64,9 @@ class WorkbenchWindow(CommandCenterMixin, WorkbenchStatusMixin,
     def __init__(self, trunk, parent=None):
         super().__init__(parent)
         self.trunk = trunk
-        self.root = os.path.abspath(
-            getattr(trunk, "base", ".") or os.getcwd())
+        # 工作区 = "代码写到哪个文件夹"：上次选的优先，否则程序目录。
+        # 见 gui/workbench_workspace.py（含"默认是程序目录"的提示）。
+        self.root = resolve_root(trunk)
         self._ai_popup = None
         self._ai_shown = True          # AI 面板默认展开
         self._last_view_row = 0        # 活动栏当前左侧视图
@@ -72,6 +78,8 @@ class WorkbenchWindow(CommandCenterMixin, WorkbenchStatusMixin,
         self.setWindowTitle("🧰 小6 工作台")
         self.resize(1440, 900)
         self._build()
+        # 不弹框、不挡操作，只在状态栏/AI 时间线提醒一次
+        show_root_hint(self)
 
     # ---------------------------------------------------------- 构建
     def _build(self):
@@ -100,6 +108,12 @@ class WorkbenchWindow(CommandCenterMixin, WorkbenchStatusMixin,
         self.root_label.setStyleSheet("color:#475467;font-size:12px;")
         self.root_label.setToolTip(self.root)
         bar.addWidget(self.root_label)
+        # 「选写到哪个文件夹」：统一链接组件（显式可点 + 手型光标），不占按钮预算
+        self.folder_link = make_action_links(
+            [("📂 打开文件夹", lambda: open_folder_picker(self))])
+        self.folder_link.setToolTip(
+            "选择 AI 写代码的目标文件夹（会记住，下次直接用它）")
+        bar.addWidget(self.folder_link)
         bar.addSpacing(12)
         self.command = QLineEdit()
         self.command.setObjectName("commandCenter")
@@ -358,6 +372,8 @@ class WorkbenchWindow(CommandCenterMixin, WorkbenchStatusMixin,
         try:
             from gui.code_editor_dialog import CodeEditorDialog
             self._editor = CodeEditorDialog(self.trunk, self)
+            # 文件树跟工作区（可能已被用户改过），而不是 trunk.base
+            repoint_editor(self._editor, self.root)
             # 把它拆成"普通 QWidget"，这样能嵌进布局而不是独立窗口
             widget = self._editor.centralWidget()
             if widget is not None:

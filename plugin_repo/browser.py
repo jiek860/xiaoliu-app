@@ -14,6 +14,7 @@ import os, re, threading, time
 from core.safe import safe
 from core.plugin_errors import error_result as _error_result
 from modules.base import BaseModule
+from core.data_paths import data_path
 
 try:
     from core.diagnostics import swallowed as _x6_swallowed
@@ -121,7 +122,7 @@ class Browser(BaseModule):
 
         外部已设过这个变量就尊重外部设置。
         """
-        p = os.path.join(self.base, "data", "browsers")
+        p = data_path(self, "browsers")
         if os.path.isdir(p) and not self.env("PLAYWRIGHT_BROWSERS_PATH"):
             self.set_env("PLAYWRIGHT_BROWSERS_PATH", p)
         return self.env("PLAYWRIGHT_BROWSERS_PATH") or ""
@@ -144,7 +145,7 @@ class Browser(BaseModule):
         （playwright 把版本号编在目录名里，所以用前缀匹配）。
         """
         import glob as _g
-        d = os.path.join(self.base, "data", "browsers")
+        d = data_path(self, "browsers")
 
         def _size(p):
             n = sz = 0
@@ -257,7 +258,7 @@ class Browser(BaseModule):
             return _err("先打开网页", "PLUGIN_BAD_INPUT")
         try:
             if not path:
-                path = os.path.join(self.base, "data", "browser_screenshot.png")
+                path = data_path(self, "browser_screenshot.png")
             self._page.screenshot(path=path)
             return {"ok": True, "截图": path}
         except Exception as e:

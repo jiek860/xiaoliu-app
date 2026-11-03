@@ -111,7 +111,38 @@ class LLMCloudMixin:
         kwargs.setdefault("timeout", 60)
         return requests.post(url, **kwargs)  # nosec B113
 
-    def _provider_request(self, messages, stream=False, timeout=30):
+    @staticmethod
+    def _cloud_user_text(msgs):
+        """取最后一条 user 文本（不依赖 LLMLocalMixin，便于单测）。"""
+        if isinstance(msgs, str):
+            return msgs
+        for m in reversed(list(msgs or [])):
+            if not isinstance(m, dict) or str(m.get("role")) != "user":
+                continue
+            content = m.get("content")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                return " ".join(str(x.get("text") or "") for x in content
+                                if isinstance(x, dict))
+        return ""
+
+    def _cloud_options(self, msgs, provider=""):
+        """云端采样参数（第 2 批）：场景默认 ← 模型推荐 ← 用户覆盖。
+
+        按服务商做参数名映射（gemini 的 top_p 叫 topP，anthropic 不认
+        frequency_penalty），不支持的项直接丢掉 —— 发过去会被 400。
+        """
+        try:
+            from core.context_window import cloud_options, sampling_for
+            params = sampling_for(self.config, self._cloud_user_text(msgs),
+                                  model=self.config.get("cloud_model", ""))
+            return cloud_options(params, provider or "openai")
+        except Exception as e:
+            _x6_swallowed(__name__, e, "cloud sampling options")
+            return {}
+
+    def _provider_request(self, messages, stream=False, timeout=30, options=None):
         """Build a provider-specific request when cloud_provider is configured."""
         provider = str(self.config.get("cloud_provider") or "").strip()
         if not provider:
@@ -132,7 +163,8 @@ class LLMCloudMixin:
         return build_chat_request(
             key, connector["model"], messages,
             api_key=connector["api_key"], base_url=connector["base_url"],
-            stream=stream, deployment=connector["deployment"],
+            stream=stream, options=options,
+            deployment=connector["deployment"],
             api_version=connector["api_version"])
 
     def _chat_cloud_only(self, message):
@@ -184,7 +216,10 @@ class LLMCloudMixin:
                 msgs = [{"role": "user", "content": message}]
             msgs = self._fit_messages(self._mask_if_enabled(msgs))
             _t0 = time.time()
-            provider_req = self._provider_request(msgs, stream=False, timeout=30)
+            _opts = self._cloud_options(
+                msgs, self.config.get("cloud_provider") or "")
+            provider_req = self._provider_request(msgs, stream=False, timeout=30,
+                                                  options=_opts)
             if provider_req is not None:
                 r = self._post(provider_req["url"], headers=provider_req["headers"],
                                json=provider_req["json"], timeout=30)
@@ -195,9 +230,11 @@ class LLMCloudMixin:
                     return None
                 if not url.endswith("/chat/completions"):
                     url = url.rstrip("/") + "/chat/completions"
+                _body = {"model": model, "messages": msgs}
+                _body.update(_opts or {"temperature": 0.7})
                 r = self._post(url,
                     headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
-                    json={"model": model, "messages": msgs, "temperature": 0.7},
+                    json=_body,
                     timeout=30)
                 _ans = r.json()["choices"][0]["message"]["content"]
             self._track_usage(model, msgs, _ans, time.time() - _t0,
@@ -236,8 +273,13 @@ class LLMCloudMixin:
         full = ""
         _t0 = time.time()
         r = None
+        guard = None
+        _stalled = False
         try:
-            provider_req = self._provider_request(msgs, stream=True, timeout=30)
+            _opts = self._cloud_options(
+                msgs, self.config.get("cloud_provider") or "")
+            provider_req = self._provider_request(msgs, stream=True, timeout=30,
+                                                  options=_opts)
             if provider_req is not None:
                 req_url = provider_req["url"]
                 req_headers = provider_req["headers"]
@@ -252,6 +294,7 @@ class LLMCloudMixin:
                 req_headers = {"Authorization": "Bearer " + key,
                                "Content-Type": "application/json"}
                 req_json = {"model": model, "messages": msgs, "stream": True}
+                req_json.update(_opts or {"temperature": 0.7})
                 provider = "openai"
             from core.llm_providers import parse_stream_chunk
             _first_timeout = config_seconds(
@@ -260,22 +303,45 @@ class LLMCloudMixin:
                            stream=True, timeout=(10, _first_timeout))
             if cancel_token is not None:
                 cancel_token.bind(r.close)
-            for line in r.iter_lines():
-                if _cancelled():
-                    break
-                if not line:
-                    continue
-                line = line.decode("utf-8", "ignore").strip()
-                if not line.startswith("data:"):
-                    continue
-                data = line[5:].strip()
-                if data == "[DONE]":
-                    break
-                tok = parse_stream_chunk(provider, data)
-                if tok:
-                    full += tok
-                    if on_token:
-                        on_token(tok)
+            # 中途卡顿看门狗（第 3 批深度⑦）：read timeout 每次 read 重计时，
+            # 服务端只要偶尔发个心跳就永不超时，界面会一直"正在输入"。
+            try:
+                from core.stream_guard import StreamStallGuard, guard_seconds
+                guard = StreamStallGuard(
+                    guard_seconds(self.config),
+                    on_stall=lambda g: self.trunk and self.trunk._log(
+                        "云端流式中途卡顿 %ss，已断流" % int(g.seconds)))
+                guard.bind(r).start()
+            except Exception as e:
+                _x6_swallowed(__name__, e, "cloud stall guard init")
+            try:
+                for line in r.iter_lines():
+                    if guard is not None:
+                        guard.touch()
+                    if _cancelled():
+                        break
+                    if not line:
+                        continue
+                    line = line.decode("utf-8", "ignore").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    tok = parse_stream_chunk(provider, data)
+                    if tok:
+                        full += tok
+                        if on_token:
+                            on_token(tok)
+            finally:
+                if guard is not None:
+                    _stalled = guard.stalled
+                    guard.stop()
+            if _stalled:
+                # 卡顿不是真错误：已收到的内容照样返回，下次对话再不受影响
+                if self.trunk:
+                    self.trunk._log("云端流式中途卡顿，已收到 %d 字，停止等待"
+                                    % len(full))
             if full:
                 self._track_usage(model, msgs, full, time.time() - _t0,
                                   kind="cloud_model_stream")
@@ -283,6 +349,12 @@ class LLMCloudMixin:
         except Exception as e:
             # 取消导致的传输层异常不是真错误：保留已收到内容直接返回。
             if _cancelled():
+                return full
+            # 中途卡顿时是我们自己 close 流，异常由此而来，不算失败
+            if guard is not None and guard.stalled:
+                if self.trunk:
+                    self.trunk._log("云端流式中途卡顿，已收到 %d 字，停止等待"
+                                    % len(full))
                 return full
             if self.trunk: self.trunk._log("云端流式失败: " + str(e)[:60])
             return full
