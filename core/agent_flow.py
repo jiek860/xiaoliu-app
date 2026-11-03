@@ -83,7 +83,14 @@ class AgentFlow:
             # 撞了就会把这一轮的步骤追加进上一轮的文件里。
             # 注意不能用 strftime("%f")：Windows 的 strftime 不支持 %f。
             now = datetime.now()
-            flow_id = now.strftime("flow_%Y%m%d_%H%M%S_") + "%06d" % now.microsecond
+            base_id = now.strftime("flow_%Y%m%d_%H%M%S_")
+            stamp = now.microsecond
+            flow_id = base_id + "%06d" % stamp
+            # Windows 计时粒度偶尔会让连续两次 start 落在同一微秒（CI 上出现过）。
+            # 撞到已有文件就顺延微秒，否则新步骤会被追加进上一轮的文件。
+            while stamp < 999999 and os.path.exists(self._path(flow_id)):
+                stamp += 1
+                flow_id = base_id + "%06d" % stamp
         flow_id = safe_name(flow_id, default="flow")
         if not flow_id:
             return {"ok": False, "错误": "流程 id 非法"}
