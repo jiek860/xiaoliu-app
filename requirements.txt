@@ -6,7 +6,7 @@ PyQt5>=5.15.11
 requests>=2.34.2
 # numpy 保持 1.24 下限：2.5.x 的 requires_python 已是 >=3.12，
 # 而本文件的兼容下限是 Python 3.10；实际锁定版本见 requirements-runtime.lock
-numpy>=1.24.0
+numpy>=2.5.4
 cryptography>=50.0.2
 psutil>=7.2.2
 websockets>=12.0
