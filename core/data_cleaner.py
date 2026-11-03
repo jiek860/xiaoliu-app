@@ -150,10 +150,13 @@ class DataCleaner:
                         conn.execute("PRAGMA table_info(messages)").fetchall()]
                 if not cols:
                     return None, 0, "没有 messages 表"
-                order = "ts" if "ts" in cols else "id"
-                rows = conn.execute(
-                    "SELECT id, username, session_id, role, text "
-                    "FROM messages ORDER BY %s" % order).fetchall()
+                if "ts" in cols:
+                    sql = ("SELECT id, username, session_id, role, text "
+                           "FROM messages ORDER BY ts")
+                else:
+                    sql = ("SELECT id, username, session_id, role, text "
+                           "FROM messages ORDER BY id")
+                rows = conn.execute(sql).fetchall()
             finally:
                 conn.close()
         except Exception as e:
